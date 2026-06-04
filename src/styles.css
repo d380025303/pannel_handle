@@ -390,6 +390,76 @@ input,
   background: #3a8c5e;
 }
 
+/* === Type Selector === */
+.type-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.type-option {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  color: #93a0ae;
+  background: #101318;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: center;
+}
+
+.type-option.selected {
+  border-color: #4a6f95;
+  color: #e7edf4;
+  background: #243141;
+}
+
+/* === WSL Distro Select === */
+.modal-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  color: #e7edf4;
+  background: #101318;
+  outline: none;
+  font-size: 13px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.modal-select:focus {
+  border-color: #4a6f95;
+}
+
+.modal-select option {
+  background: #181d24;
+  color: #e7edf4;
+}
+
+/* === Session Type Badge === */
+.session-type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.session-type-badge.wsl {
+  color: #76c38f;
+  background: #1a3324;
+}
+
+.session-type-badge.windows {
+  color: #93a0ae;
+  background: #222a33;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 220px minmax(0, 1fr);

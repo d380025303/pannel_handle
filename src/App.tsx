@@ -51,6 +51,9 @@ export function App() {
   const [renameText, setRenameText] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [commandInput, setCommandInput] = useState("");
+  const [sessionType, setSessionType] = useState<'windows' | 'wsl'>('windows');
+  const [wslDistro, setWslDistro] = useState('');
+  const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
@@ -168,10 +171,14 @@ export function App() {
   }, [activeId]);
 
   async function handleCreateSession(initialCommand?: string) {
-    const session = await window.terminalApi.createSession(
-      initialCommand ? { initialCommand } : undefined
-    );
+    const session = await window.terminalApi.createSession({
+      type: sessionType,
+      ...(sessionType === 'wsl' && wslDistro ? { wslDistro } : {}),
+      ...(initialCommand ? { initialCommand } : {})
+    });
     setActiveId(session.id);
+    setSessionType('windows');
+    setWslDistro('');
   }
 
   async function handleCloseSession(id: string) {
@@ -233,7 +240,12 @@ export function App() {
               <h1>命令会话</h1>
               <span>{sessions.length} 个窗口</span>
             </div>
-            <button className="icon-button primary" type="button" title="新建会话" onClick={() => setShowModal(true)}>
+            <button className="icon-button primary" type="button" title="新建会话" onClick={async () => {
+              setShowModal(true);
+              const distros = await window.terminalApi.listWslDistros();
+              setWslDistros(distros);
+              if (distros.length > 0) setWslDistro(distros[0]);
+            }}>
               +
             </button>
           </div>
@@ -266,7 +278,12 @@ export function App() {
                       }}
                     />
                   ) : (
-                    <span className="session-title">{session.title}</span>
+                    <span className="session-title">
+                      {session.title}
+                      <span className={`session-type-badge ${session.type}`}>
+                        {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'WIN'}
+                      </span>
+                    </span>
                   )}
                   <span className="session-path">{session.cwd}</span>
                 </span>
@@ -302,7 +319,7 @@ export function App() {
           <header className="terminal-header">
             <div>
               <h2>{activeSession?.title || "未选择会话"}</h2>
-              <span>{activeSession?.shell || "没有正在运行的命令窗口"}</span>
+              <span>{activeSession ? (activeSession.type === 'wsl' ? `WSL - ${activeSession.wslDistro || 'Linux'}` : 'Windows (PowerShell)') : '没有正在运行的命令窗口'}</span>
             </div>
           </header>
           <div className="terminal-host" ref={terminalHostRef} />
@@ -317,6 +334,33 @@ export function App() {
             <h3>新建会话</h3>
           </div>
           <div className="modal-body">
+            <div className="type-selector">
+              <button
+                type="button"
+                className={`type-option ${sessionType === 'windows' ? 'selected' : ''}`}
+                onClick={() => setSessionType('windows')}
+              >
+                Windows (PowerShell)
+              </button>
+              <button
+                type="button"
+                className={`type-option ${sessionType === 'wsl' ? 'selected' : ''}`}
+                onClick={() => setSessionType('wsl')}
+              >
+                WSL (Linux)
+              </button>
+            </div>
+            {sessionType === 'wsl' && wslDistros.length > 0 && (
+              <select
+                className="modal-select"
+                value={wslDistro}
+                onChange={(e) => setWslDistro(e.target.value)}
+              >
+                {wslDistros.map((distro) => (
+                  <option key={distro} value={distro}>{distro}</option>
+                ))}
+              </select>
+            )}
             <input
               autoFocus
               className="modal-input"

@@ -2,6 +2,7 @@ const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
 const { app, BrowserWindow, ipcMain } = require("electron");
+const { execSync } = require("node:child_process");
 const pty = require("node-pty");
 
 const sessions = new Map();
@@ -16,6 +17,29 @@ function getDefaultShell() {
   }
 
   return process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+}
+
+function getWslShell() {
+  return "C:\\Windows\\System32\\wsl.exe";
+}
+
+function listWslDistros() {
+  try {
+    const output = execSync("wsl.exe -l -q", {
+      encoding: "utf-8",
+      timeout: 5000
+    });
+    return output
+      .replace(/\0/g, "")
+      .replace(/\r/g, "")
+      .replace(/^﻿/, "")
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+  } catch (err) {
+    console.error("Failed to list WSL distros:", err);
+    return [];
+  }
 }
 
 function createWindow() {
@@ -65,7 +89,9 @@ function serializeSession(session) {
     shell: session.shell,
     cwd: session.cwd,
     createdAt: session.createdAt,
-    initialCommand: session.initialCommand
+    initialCommand: session.initialCommand,
+    type: session.type,
+    wslDistro: session.wslDistro
   };
 }
 
@@ -98,7 +124,11 @@ function saveSessions() {
 }
 
 function spawnPty(session, options = {}) {
-  const term = pty.spawn(session.shell, [], {
+  const args = session.type === 'wsl' && session.wslDistro
+    ? ['-d', session.wslDistro]
+    : [];
+
+  const term = pty.spawn(session.shell, args, {
     name: "xterm-256color",
     cols: options.cols || 100,
     rows: options.rows || 30,
@@ -141,11 +171,12 @@ function spawnPty(session, options = {}) {
 
 function createSession(options = {}) {
   const id = String(nextSessionId++);
-  const shell = options.shell || getDefaultShell();
+  const type = options.type || 'windows';
+  const shell = options.shell || (type === 'wsl' ? getWslShell() : getDefaultShell());
   const cwd = options.cwd || os.homedir();
   const title = options.title || `会话 ${id}`;
 
-  const session = { id, title, shell, cwd, createdAt: Date.now(), initialCommand: options.initialCommand };
+  const session = { id, title, shell, cwd, type, wslDistro: options.wslDistro, createdAt: Date.now(), initialCommand: options.initialCommand };
 
   spawnPty(session, options);
   sessions.set(id, session);
@@ -167,6 +198,9 @@ function restoreSavedSessions() {
     if (!isNaN(idNum) && idNum >= nextSessionId) {
       nextSessionId = idNum + 1;
     }
+    if (!data.type) {
+      data.type = data.shell && data.shell.includes('wsl') ? 'wsl' : 'windows';
+    }
     const session = { ...data };
     spawnPty(session);
     sessions.set(session.id, session);
@@ -176,6 +210,8 @@ function restoreSavedSessions() {
 }
 
 ipcMain.handle("sessions:list", () => listSessions());
+
+ipcMain.handle("wsl:list-distros", () => listWslDistros());
 
 ipcMain.handle("sessions:create", (_event, options) => createSession(options));
 
