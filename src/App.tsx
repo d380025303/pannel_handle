@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
-import type { TerminalSession } from "./vite-env";
+import type { AgentStatusPayload, TerminalSession } from "./vite-env";
 
 type TerminalEntry = {
   terminal: Terminal;
@@ -45,6 +45,23 @@ function createTerminalEntry() {
   return { terminal, fitAddon };
 }
 
+function getAgentStatusLabel(status?: AgentStatusPayload) {
+  if (!status) return "";
+  if (status.status === "waiting_for_permission") {
+    return status.toolName ? `Claude 等待确认: ${status.toolName}` : "Claude 等待确认";
+  }
+  if (status.status === "completed") return "Claude 已完成";
+  if (status.status === "failed") return "Claude 失败";
+  if (status.status === "running") return "运行中";
+  if (status.status === "ended") return "Claude 已结束";
+  if (status.status === "exited") return "进程已退出";
+  return "";
+}
+
+function getAgentStatusClass(status?: AgentStatusPayload) {
+  return status?.status ?? "unknown";
+}
+
 export function App() {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
@@ -60,6 +77,7 @@ export function App() {
   const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pickerManual, setPickerManual] = useState(false);
+  const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
   const draggingRef = useRef(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
 
@@ -94,6 +112,8 @@ export function App() {
     () => sessions.find((session) => session.id === activeId),
     [activeId, sessions]
   );
+  const activeAgentStatus = activeId ? agentStatusesBySessionId[activeId] : undefined;
+  const activeAgentStatusLabel = getAgentStatusLabel(activeAgentStatus);
 
   const copyTerminalSelection = useCallback(async (terminal: Terminal) => {
     if (!terminal.hasSelection()) {
@@ -163,6 +183,12 @@ export function App() {
 
     const removeSessionsListener = window.terminalApi.onSessionsChanged((nextSessions) => {
       setSessions(nextSessions);
+      setAgentStatusesBySessionId((current) => {
+        const activeSessionIds = new Set(nextSessions.map((session) => session.id));
+        return Object.fromEntries(
+          Object.entries(current).filter(([id]) => activeSessionIds.has(id))
+        );
+      });
       setActiveId((current) => {
         if (current && nextSessions.some((session) => session.id === current)) {
           return current;
@@ -178,6 +204,22 @@ export function App() {
       if (entry) {
         entry.terminal.write(data);
       }
+      setAgentStatusesBySessionId((current) => {
+        const status = current[id];
+        if (!status || (status.status !== "completed" && status.status !== "failed" && status.status !== "ended")) {
+          return current;
+        }
+        return {
+          ...current,
+          [id]: {
+            id,
+            provider: "claude",
+            status: "running",
+            eventName: "TerminalData",
+            timestamp: Date.now()
+          }
+        };
+      });
     });
 
     const removeExitListener = window.terminalApi.onExit(({ id, exitCode }) => {
@@ -187,11 +229,19 @@ export function App() {
       }
     });
 
+    const removeAgentStatusListener = window.terminalApi.onAgentStatus((payload) => {
+      setAgentStatusesBySessionId((current) => ({
+        ...current,
+        [payload.id]: payload
+      }));
+    });
+
     return () => {
       isDisposed = true;
       removeSessionsListener();
       removeDataListener();
       removeExitListener();
+      removeAgentStatusListener();
     };
   }, []);
 
@@ -382,7 +432,10 @@ export function App() {
           </div>
 
           <div className="session-list">
-            {sessions.map((session) => (
+            {sessions.map((session) => {
+              const agentStatus = agentStatusesBySessionId[session.id];
+              const agentStatusLabel = getAgentStatusLabel(agentStatus);
+              return (
               <button
                 className={`session-item ${session.id === activeId ? "active" : ""}`}
                 key={session.id}
@@ -396,6 +449,11 @@ export function App() {
                       {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
                     </span>
                   </span>
+                  {agentStatusLabel && (
+                    <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
+                      {agentStatusLabel}
+                    </span>
+                  )}
                 </span>
                 <span className="session-actions">
                   <span
@@ -422,7 +480,8 @@ export function App() {
                   </span>
                 </span>
               </button>
-            ))}
+              );
+            })}
           </div>
         </aside>
 
@@ -434,6 +493,11 @@ export function App() {
               <h2>{activeSession?.title || "未选择会话"}</h2>
               <span>{activeSession ? (activeSession.type === 'wsl' ? `WSL - ${activeSession.wslDistro || 'Linux'}` : 'PowerShell') : '没有正在运行的命令窗口'}</span>
             </div>
+            {activeAgentStatusLabel && (
+              <span className={`terminal-agent-status ${getAgentStatusClass(activeAgentStatus)}`}>
+                {activeAgentStatusLabel}
+              </span>
+            )}
           </header>
           <div className="terminal-host" ref={terminalHostRef} onContextMenu={handleTerminalContextMenu} />
         </section>

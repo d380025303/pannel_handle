@@ -12,6 +12,22 @@ export type TerminalSession = {
   wslDistro?: string;
 };
 
+export type AgentProvider = "claude";
+
+export type AgentRunStatus = "running" | "waiting_for_permission" | "completed" | "failed" | "ended" | "exited";
+
+export type AgentStatusPayload = {
+  id: string;
+  provider: AgentProvider;
+  status: AgentRunStatus;
+  eventName: string;
+  timestamp: number;
+  message?: string;
+  toolName?: string;
+  toolInput?: unknown;
+  lastAssistantMessage?: string;
+};
+
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl'; wslDistro?: string }) => Promise<TerminalSession>;
@@ -22,6 +38,7 @@ export type TerminalApi = {
   resize: (id: string, cols: number, rows: number) => void;
   onData: (callback: (payload: { id: string; data: string }) => void) => () => void;
   onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void;
+  onAgentStatus: (callback: (payload: AgentStatusPayload) => void) => () => void;
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
   loadSavedSessions: () => Promise<TerminalSession[]>;

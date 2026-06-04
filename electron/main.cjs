@@ -1,16 +1,20 @@
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
+const http = require("node:http");
 const { app, BrowserWindow, clipboard, ipcMain } = require("electron");
 const { execSync } = require("node:child_process");
 const pty = require("node-pty");
 
 const sessions = new Map();
+const claudeSessions = new Map();
 let librarySessions = [];
 let mainWindow = null;
 let nextSessionId = 1;
 let nextRuntimeId = 1;
 let isShuttingDown = false;
+let claudeHookServer = null;
+let claudeHookUrl = "";
 const SESSIONS_FILE = path.join(app.getPath("userData"), "sessions.json");
 
 function getDefaultShell() {
@@ -93,6 +97,165 @@ function broadcast(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
   }
+}
+
+function broadcastAgentStatus(payload) {
+  broadcast("agent:status", {
+    provider: "claude",
+    timestamp: Date.now(),
+    ...payload
+  });
+}
+
+function normalizeCwd(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return "";
+  }
+  return path.resolve(value).toLowerCase();
+}
+
+function registerClaudeSession(claudeSessionId, sessionId) {
+  if (typeof claudeSessionId === "string" && claudeSessionId.length > 0) {
+    claudeSessions.set(claudeSessionId, sessionId);
+  }
+}
+
+function findSessionForClaudeHook(input) {
+  const panelSessionId = input.pannel_handle_session_id || input.panelSessionId;
+  if (typeof panelSessionId === "string" && sessions.has(panelSessionId)) {
+    registerClaudeSession(input.session_id || input.sessionId, panelSessionId);
+    return sessions.get(panelSessionId);
+  }
+
+  const claudeSessionId = input.session_id || input.sessionId;
+  if (typeof claudeSessionId === "string") {
+    const mappedId = claudeSessions.get(claudeSessionId);
+    if (mappedId && sessions.has(mappedId)) {
+      return sessions.get(mappedId);
+    }
+  }
+
+  const hookCwd = normalizeCwd(input.cwd);
+  if (hookCwd) {
+    const cwdMatches = Array.from(sessions.values()).filter(session => normalizeCwd(session.cwd) === hookCwd);
+    if (cwdMatches.length === 1) {
+      registerClaudeSession(claudeSessionId, cwdMatches[0].id);
+      return cwdMatches[0];
+    }
+  }
+
+  if (sessions.size === 1) {
+    const [session] = sessions.values();
+    registerClaudeSession(claudeSessionId, session.id);
+    return session;
+  }
+
+  return null;
+}
+
+function mapClaudeHookStatus(input) {
+  const eventName = input.hook_event_name || input.eventName || input.event_name;
+  const notificationType = input.notification_type || input.notificationType;
+
+  if (eventName === "PermissionRequest") {
+    return "waiting_for_permission";
+  }
+  if (eventName === "Notification" && notificationType === "permission_prompt") {
+    return "waiting_for_permission";
+  }
+  if (eventName === "Notification" && notificationType === "idle_prompt") {
+    return "completed";
+  }
+  if (eventName === "Stop") {
+    return "completed";
+  }
+  if (eventName === "StopFailure") {
+    return "failed";
+  }
+  if (eventName === "SessionEnd") {
+    return "ended";
+  }
+  return "running";
+}
+
+function readJsonRequest(req, callback) {
+  let body = "";
+  req.setEncoding("utf8");
+  req.on("data", chunk => {
+    body += chunk;
+    if (body.length > 1024 * 1024) {
+      req.destroy();
+    }
+  });
+  req.on("end", () => {
+    try {
+      callback(null, JSON.parse(body || "{}"));
+    } catch (err) {
+      callback(err);
+    }
+  });
+}
+
+function handleClaudeHook(input) {
+  const session = findSessionForClaudeHook(input);
+  if (!session) {
+    return false;
+  }
+
+  const eventName = input.hook_event_name || input.eventName || input.event_name || "Unknown";
+  const status = mapClaudeHookStatus(input);
+  const toolName = input.tool_name || input.toolName;
+  const message = input.message || input.title || input.notification_type || input.reason;
+  registerClaudeSession(input.session_id || input.sessionId, session.id);
+  session.agentStatus = status;
+
+  broadcastAgentStatus({
+    id: session.id,
+    status,
+    eventName,
+    message,
+    toolName,
+    toolInput: input.tool_input || input.toolInput,
+    lastAssistantMessage: input.last_assistant_message || input.lastAssistantMessage
+  });
+  return true;
+}
+
+function startClaudeHookServer() {
+  if (claudeHookServer) {
+    return;
+  }
+
+  claudeHookServer = http.createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/claude-hook") {
+      res.writeHead(404);
+      res.end("not found");
+      return;
+    }
+
+    readJsonRequest(req, (err, input) => {
+      if (err) {
+        res.writeHead(400);
+        res.end("invalid json");
+        return;
+      }
+
+      handleClaudeHook(input);
+      res.writeHead(204);
+      res.end();
+    });
+  });
+
+  claudeHookServer.listen(0, "127.0.0.1", () => {
+    const address = claudeHookServer.address();
+    if (address && typeof address === "object") {
+      claudeHookUrl = `http://127.0.0.1:${address.port}/claude-hook`;
+    }
+  });
+
+  claudeHookServer.on("error", (err) => {
+    console.error("Failed to run Claude hook server:", err);
+  });
 }
 
 function serializeSession(session) {
@@ -240,7 +403,11 @@ function spawnPty(session, options = {}) {
     cols: options.cols || 100,
     rows: options.rows || 30,
     cwd: session.cwd,
-    env: process.env
+    env: {
+      ...process.env,
+      PANNEL_HANDLE_SESSION_ID: session.id,
+      ...(claudeHookUrl ? { PANNEL_HANDLE_HOOK_URL: claudeHookUrl } : {})
+    }
   });
 
   session.term = term;
@@ -252,10 +419,24 @@ function spawnPty(session, options = {}) {
       session.buffer.splice(0, session.buffer.length - 1000);
     }
     broadcast("terminal:data", { id: session.id, data });
+    if (session.agentStatus === "completed" || session.agentStatus === "failed" || session.agentStatus === "ended") {
+      session.agentStatus = "running";
+      broadcastAgentStatus({
+        id: session.id,
+        status: "running",
+        eventName: "TerminalData"
+      });
+    }
   });
 
   term.onExit(({ exitCode }) => {
     broadcast("terminal:exit", { id: session.id, exitCode });
+    broadcastAgentStatus({
+      id: session.id,
+      status: "exited",
+      eventName: "PtyExit",
+      message: `Exit code ${exitCode}`
+    });
     sessions.delete(session.id);
     broadcast("sessions:changed", listSessions());
   });
@@ -284,8 +465,8 @@ function startSessionFromTemplate(templateData, options = {}) {
     createdAt: Date.now()
   };
 
-  spawnPty(session, options);
   sessions.set(id, session);
+  spawnPty(session, options);
   return serializeSession(session);
 }
 
@@ -304,6 +485,8 @@ function createSession(options = {}) {
 
   return session;
 }
+
+startClaudeHookServer();
 
 ipcMain.handle("sessions:list", () => listSessions());
 
@@ -452,6 +635,11 @@ app.on("window-all-closed", () => {
     session.term.kill();
   }
   sessions.clear();
+  if (claudeHookServer) {
+    claudeHookServer.close();
+    claudeHookServer = null;
+    claudeHookUrl = "";
+  }
 
   if (process.platform !== "darwin") {
     app.quit();
