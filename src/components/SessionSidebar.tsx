@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { GripVertical, Library, Pencil, Plus, X } from "lucide-react";
 import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 
@@ -84,11 +85,11 @@ export function SessionSidebar({
           <span>{sessions.length} 个窗口</span>
         </div>
         <div className="sidebar-actions">
-          <button className="icon-button" type="button" title="从库中启动" onClick={onOpenPicker}>
-            {"☰"}
+          <button className="icon-button" type="button" title="从库中启动" aria-label="从库中启动" onClick={onOpenPicker}>
+            <Library aria-hidden="true" />
           </button>
-          <button className="icon-button primary" type="button" title="新建会话" onClick={onOpenCreate}>
-            +
+          <button className="icon-button primary" type="button" title="新建会话" aria-label="新建会话" onClick={onOpenCreate}>
+            <Plus aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -114,7 +115,7 @@ export function SessionSidebar({
                 className="session-drag-handle"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {"⋮⋮"}
+                <GripVertical aria-hidden="true" />
               </span>
               <span className="session-main">
                 <span className="session-title">
@@ -138,7 +139,7 @@ export function SessionSidebar({
                     onEditSession(session);
                   }}
                 >
-                  R
+                  <Pencil aria-hidden="true" />
                 </span>
                 <span
                   className={`mini-action danger${pendingCloseId === session.id ? " confirm" : ""}`}
@@ -153,7 +154,7 @@ export function SessionSidebar({
                     }
                   }}
                 >
-                  {pendingCloseId === session.id ? "确认?" : "X"}
+                  {pendingCloseId === session.id ? "确认?" : <X aria-hidden="true" />}
                 </span>
               </span>
             </button>

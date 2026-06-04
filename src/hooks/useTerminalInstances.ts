@@ -147,6 +147,13 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
           return false;
         }
 
+        if (event.key === "Enter" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+          if (activeId) {
+            window.terminalApi.write(activeId, "\n");
+          }
+          return false;
+        }
+
         if (!event.ctrlKey || event.altKey) {
           return true;
         }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Box, Terminal } from "lucide-react";
 
 type CreateSessionModalProps = {
   wslDistros: string[];
@@ -32,6 +33,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
               className={`shell-item ${selectedShellId === "powershell" ? "selected" : ""}`}
               onClick={() => setSelectedShellId("powershell")}
             >
+              <Terminal aria-hidden="true" />
               PowerShell
             </button>
             {wslDistros.map((distro) => {
@@ -43,6 +45,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                   className={`shell-item ${selectedShellId === id ? "selected" : ""}`}
                   onClick={() => setSelectedShellId(id)}
                 >
+                  <Box aria-hidden="true" />
                   {distro}
                 </button>
               );

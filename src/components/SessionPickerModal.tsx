@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { GripVertical, Trash2 } from "lucide-react";
 import type { TerminalSession } from "../vite-env";
 
 type SessionPickerModalProps = {
@@ -114,7 +115,7 @@ export function SessionPickerModal({
                       className="picker-drag-handle"
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      {"⋮⋮"}
+                      <GripVertical aria-hidden="true" />
                     </span>
                     <input
                       type="checkbox"
@@ -161,7 +162,7 @@ export function SessionPickerModal({
                         }
                       }}
                     >
-                      {confirmDeleteId === session.id ? "确认" : "×"}
+                      {confirmDeleteId === session.id ? "确认" : <Trash2 aria-hidden="true" />}
                     </span>
                   </div>
                 );

@@ -105,6 +105,12 @@ input,
   background: #c42b1c;
 }
 
+.window-control svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
 .app-shell {
   display: grid;
   height: 100%;
@@ -176,6 +182,12 @@ input,
 .icon-button.primary {
   border-color: #43825f;
   background: #2f6b4d;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
 }
 
 .session-list {
@@ -310,6 +322,12 @@ input,
   color: #ffffff;
   background: #d9534f;
   font-size: 10px;
+}
+
+.mini-action svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
 }
 
 .modal-label {
@@ -450,6 +468,10 @@ input,
 }
 
 .shell-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 8px 14px;
   border: 1px solid #3a4654;
   border-radius: 6px;
@@ -459,6 +481,12 @@ input,
   font-size: 13px;
   text-align: center;
   white-space: nowrap;
+}
+
+.shell-item svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .shell-item.selected {
@@ -613,6 +641,12 @@ input,
   background: #c9302c;
 }
 
+.picker-delete-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+
 /* === Picker Drag Handle === */
 .picker-drag-handle {
   display: inline-flex;
@@ -638,6 +672,13 @@ input,
 
 .picker-drag-handle:active {
   cursor: grabbing;
+}
+
+.picker-drag-handle svg,
+.session-drag-handle svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
 }
 
 /* === Picker Drag States === */

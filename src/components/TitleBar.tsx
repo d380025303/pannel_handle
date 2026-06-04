@@ -1,3 +1,5 @@
+import { Minus, PanelsTopLeft, Square, X } from "lucide-react";
+
 type TitleBarProps = {
   activeTitle?: string;
   isMaximized: boolean;
@@ -16,7 +18,7 @@ export function TitleBar({ activeTitle, isMaximized }: TitleBarProps) {
           aria-label="Minimize window"
           onClick={() => window.windowApi.minimize()}
         >
-          -
+          <Minus aria-hidden="true" />
         </button>
         <button
           className="window-control"
@@ -25,7 +27,7 @@ export function TitleBar({ activeTitle, isMaximized }: TitleBarProps) {
           aria-label={isMaximized ? "Restore window" : "Maximize window"}
           onClick={() => window.windowApi.toggleMaximize()}
         >
-          {isMaximized ? "\u2750" : "\u25a1"}
+          {isMaximized ? <PanelsTopLeft aria-hidden="true" /> : <Square aria-hidden="true" />}
         </button>
         <button
           className="window-control close"
@@ -34,7 +36,7 @@ export function TitleBar({ activeTitle, isMaximized }: TitleBarProps) {
           aria-label="Close window"
           onClick={() => window.windowApi.close()}
         >
-          {"\u00d7"}
+          <X aria-hidden="true" />
         </button>
       </div>
     </header>
