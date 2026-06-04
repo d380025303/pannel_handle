@@ -11,6 +11,7 @@ type SessionSidebarProps = {
   onCloseSession: (id: string) => void;
   onOpenPicker: () => void;
   onOpenCreate: () => void;
+  onReorder: (orderedIds: string[]) => void;
 };
 
 export function SessionSidebar({
@@ -21,9 +22,11 @@ export function SessionSidebar({
   onEditSession,
   onCloseSession,
   onOpenPicker,
-  onOpenCreate
+  onOpenCreate,
+  onReorder
 }: SessionSidebarProps) {
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!pendingCloseId) return;
@@ -31,6 +34,48 @@ export function SessionSidebar({
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [pendingCloseId]);
+
+  const handleDragStart = (e: React.DragEvent, sessionId: string) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", sessionId);
+    (e.currentTarget as HTMLElement).classList.add("dragging");
+  };
+
+  const handleDragOver = (e: React.DragEvent, sessionId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverId(sessionId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData("text/plain");
+    if (!draggedId || draggedId === targetId) {
+      setDragOverId(null);
+      return;
+    }
+    const orderedIds = sessions.map(s => s.id);
+    const fromIndex = orderedIds.indexOf(draggedId);
+    const toIndex = orderedIds.indexOf(targetId);
+    if (fromIndex === -1 || toIndex === -1) {
+      setDragOverId(null);
+      return;
+    }
+    const [moved] = orderedIds.splice(fromIndex, 1);
+    orderedIds.splice(toIndex, 0, moved);
+    onReorder(orderedIds);
+    setDragOverId(null);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).classList.remove("dragging");
+    setDragOverId(null);
+  };
+
   return (
     <aside className="session-sidebar">
       <div className="sidebar-header">
@@ -54,11 +99,23 @@ export function SessionSidebar({
           const agentStatusLabel = getAgentStatusLabel(agentStatus);
           return (
             <button
-              className={`session-item ${session.id === activeId ? "active" : ""}`}
+              className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
               key={session.id}
               type="button"
+              draggable={true}
               onClick={() => onSelectSession(session.id)}
+              onDragStart={(e) => handleDragStart(e, session.id)}
+              onDragOver={(e) => handleDragOver(e, session.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, session.id)}
+              onDragEnd={handleDragEnd}
             >
+              <span
+                className="session-drag-handle"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {"⋮⋮"}
+              </span>
               <span className="session-main">
                 <span className="session-title">
                   {session.title}

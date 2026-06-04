@@ -107,6 +107,22 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
     return librarySessions.find(item => item.id === id);
   }
 
+  function reorderLibrary(orderedIds) {
+    const sessionMap = new Map(librarySessions.map(s => [s.id, s]));
+    const reordered = [];
+    for (const id of orderedIds) {
+      if (sessionMap.has(id)) {
+        reordered.push(sessionMap.get(id));
+        sessionMap.delete(id);
+      }
+    }
+    for (const session of sessionMap.values()) {
+      reordered.push(session);
+    }
+    librarySessions = reordered;
+    saveLibrary();
+  }
+
   return {
     createTemplateId,
     normalizeTemplate,
@@ -116,7 +132,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
     removeFromLibrary,
     updateLibrary,
     getLibrary,
-    getTemplate
+    getTemplate,
+    reorderLibrary
   };
 }
 

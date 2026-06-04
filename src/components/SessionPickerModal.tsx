@@ -8,6 +8,7 @@ type SessionPickerModalProps = {
   onLaunch: (sessions: TerminalSession[]) => void;
   onStartFresh: () => void;
   onDelete: (id: string) => void;
+  onReorder: (sessions: TerminalSession[]) => void;
   onCancel: () => void;
 };
 
@@ -18,12 +19,14 @@ export function SessionPickerModal({
   onLaunch,
   onStartFresh,
   onDelete,
+  onReorder,
   onCancel
 }: SessionPickerModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set()
   );
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
       if (!session.templateId) {
@@ -34,6 +37,47 @@ export function SessionPickerModal({
     }, new Map<string, number>());
   }, [runningSessions]);
   const toLaunch = pendingSessions.filter((session) => selectedIds.has(session.id));
+
+  const handleDragStart = (e: React.DragEvent, sessionId: string) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", sessionId);
+    (e.currentTarget as HTMLElement).classList.add("dragging");
+  };
+
+  const handleDragOver = (e: React.DragEvent, sessionId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverId(sessionId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetSessionId: string) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData("text/plain");
+    if (!draggedId || draggedId === targetSessionId) {
+      setDragOverId(null);
+      return;
+    }
+    const fromIndex = pendingSessions.findIndex(s => s.id === draggedId);
+    const toIndex = pendingSessions.findIndex(s => s.id === targetSessionId);
+    if (fromIndex === -1 || toIndex === -1) {
+      setDragOverId(null);
+      return;
+    }
+    const reordered = [...pendingSessions];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    onReorder(reordered);
+    setDragOverId(null);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).classList.remove("dragging");
+    setDragOverId(null);
+  };
 
   return (
     <div className="modal-overlay" onClick={() => { setConfirmDeleteId(null); onCancel(); }}>
@@ -56,10 +100,22 @@ export function SessionPickerModal({
                 const isRunning = runningCount > 0;
                 const isChecked = selectedIds.has(session.id);
                 return (
-                  <label
+                  <div
                     key={session.id}
-                    className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""}`}
+                    className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, session.id)}
+                    onDragOver={(e) => handleDragOver(e, session.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, session.id)}
+                    onDragEnd={handleDragEnd}
                   >
+                    <span
+                      className="picker-drag-handle"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      {"⋮⋮"}
+                    </span>
                     <input
                       type="checkbox"
                       className="picker-checkbox"
@@ -107,7 +163,7 @@ export function SessionPickerModal({
                     >
                       {confirmDeleteId === session.id ? "确认" : "×"}
                     </span>
-                  </label>
+                  </div>
                 );
               })}
             </div>

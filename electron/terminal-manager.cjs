@@ -56,6 +56,7 @@ function stripAnsi(value) {
 
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
+  const sessionOrder = [];
   let nextRuntimeId = 1;
 
   function broadcastAgentStatus(payload) {
@@ -105,7 +106,9 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
   }
 
   function listSessions() {
-    return Array.from(sessions.values()).map(serializeSession);
+    return sessionOrder
+      .filter(id => sessions.has(id))
+      .map(id => serializeSession(sessions.get(id)));
   }
 
   function createRuntimeId() {
@@ -183,6 +186,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
         message: `Exit code ${exitCode}`
       });
       sessions.delete(session.id);
+      sessionOrder.splice(sessionOrder.indexOf(session.id), 1);
       broadcast("sessions:changed", listSessions());
     });
 
@@ -211,6 +215,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     };
 
     sessions.set(id, session);
+    sessionOrder.push(id);
     spawnPty(session, options);
     return serializeSession(session);
   }
@@ -251,6 +256,11 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
 
   function deleteSavedSession(id) {
     sessionStore.removeFromLibrary(id);
+    return listSessions();
+  }
+
+  function reorderSavedSessions(orderedIds) {
+    sessionStore.reorderLibrary(orderedIds);
     return listSessions();
   }
 
@@ -295,6 +305,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     if (session) {
       session.term.kill();
       sessions.delete(id);
+      sessionOrder.splice(sessionOrder.indexOf(id), 1);
       broadcast("sessions:changed", listSessions());
     }
     return listSessions();
@@ -327,17 +338,34 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     return Array.from(sessions.values());
   }
 
+  function reorderRunningSessions(orderedIds) {
+    const idSet = new Set(orderedIds);
+    for (const id of sessionOrder) {
+      if (!idSet.has(id)) idSet.add(id);
+    }
+    sessionOrder.length = 0;
+    sessionOrder.push(...orderedIds);
+    for (const id of idSet) {
+      if (!sessionOrder.includes(id)) sessionOrder.push(id);
+    }
+    broadcast("sessions:changed", listSessions());
+    return listSessions();
+  }
+
   function shutdown() {
     for (const session of sessions.values()) {
       session.term.kill();
     }
     sessions.clear();
+    sessionOrder.length = 0;
   }
 
   return {
     createSession,
     launchSessions,
     deleteSavedSession,
+    reorderSavedSessions,
+    reorderRunningSessions,
     renameSession,
     updateSession,
     closeSession,

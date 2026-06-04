@@ -13,6 +13,14 @@ function registerIpcHandlers({ terminalManager, sessionStore, windowManager, cli
     return terminalManager.deleteSavedSession(id);
   });
 
+  ipcMain.handle("sessions:reorder", (_event, orderedIds) => {
+    return terminalManager.reorderSavedSessions(orderedIds);
+  });
+
+  ipcMain.handle("sessions:reorder-running", (_event, orderedIds) => {
+    return terminalManager.reorderRunningSessions(orderedIds);
+  });
+
   ipcMain.handle("wsl:list-distros", () => terminalManager.listWslDistros());
 
   ipcMain.handle("sessions:create", (_event, options) => terminalManager.createSession(options));

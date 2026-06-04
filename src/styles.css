@@ -190,7 +190,7 @@ input,
 
 .session-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -611,6 +611,82 @@ input,
 
 .picker-delete-btn.confirm:hover {
   background: #c9302c;
+}
+
+/* === Picker Drag Handle === */
+.picker-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: #3a4654;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 1px;
+  cursor: grab;
+  user-select: none;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.picker-drag-handle:hover {
+  color: #93a0ae;
+  background: #222a33;
+}
+
+.picker-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* === Picker Drag States === */
+.picker-item.dragging {
+  opacity: 0.35;
+  border-style: dashed;
+}
+
+.picker-item.drag-over {
+  border-color: #4a6f95;
+  background: #1a283b;
+}
+
+/* === Session Sidebar Drag Handle === */
+.session-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: #3a4654;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 1px;
+  cursor: grab;
+  user-select: none;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.session-drag-handle:hover {
+  color: #93a0ae;
+  background: #222a33;
+}
+
+.session-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* === Session Sidebar Drag States === */
+.session-item.dragging {
+  opacity: 0.35;
+  border-style: dashed;
+}
+
+.session-item.drag-over {
+  border-color: #4a6f95;
+  background: #1a283b;
 }
 
 @media (max-width: 760px) {

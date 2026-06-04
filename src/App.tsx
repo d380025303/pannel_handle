@@ -63,6 +63,7 @@ export function App() {
             onCloseSession={handleCloseSession}
             onOpenPicker={terminalSessions.openPicker}
             onOpenCreate={handleOpenCreateModal}
+            onReorder={terminalSessions.reorderRunningSessions}
           />
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
@@ -98,6 +99,7 @@ export function App() {
           onLaunch={terminalSessions.launchSessions}
           onStartFresh={terminalSessions.startFresh}
           onDelete={terminalSessions.deleteFromLibrary}
+          onReorder={terminalSessions.reorderLibrary}
           onCancel={handleClosePicker}
         />
       )}

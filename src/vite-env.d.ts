@@ -44,6 +44,8 @@ export type TerminalApi = {
   loadSavedSessions: () => Promise<TerminalSession[]>;
   launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
+  reorderSavedSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
+  reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
 };
 
 export type WindowApi = {

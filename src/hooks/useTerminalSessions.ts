@@ -108,6 +108,21 @@ export function useTerminalSessions() {
     setPendingSessions((prev) => prev ? prev.filter((session) => session.id !== id) : null);
   }, []);
 
+  const reorderLibrary = useCallback(async (orderedSessions: TerminalSession[]) => {
+    setPendingSessions(orderedSessions);
+    await window.terminalApi.reorderSavedSessions(orderedSessions.map(s => s.id));
+  }, []);
+
+  const reorderRunningSessions = useCallback(async (orderedIds: string[]) => {
+    setSessions(prev => {
+      const map = new Map(prev.map(s => [s.id, s]));
+      return orderedIds
+        .filter(id => map.has(id))
+        .map(id => map.get(id)!);
+    });
+    await window.terminalApi.reorderRunningSessions(orderedIds);
+  }, []);
+
   return {
     sessions,
     activeId,
@@ -125,6 +140,8 @@ export function useTerminalSessions() {
     openPicker,
     launchSessions,
     startFresh,
-    deleteFromLibrary
+    deleteFromLibrary,
+    reorderLibrary,
+    reorderRunningSessions
   };
 }
