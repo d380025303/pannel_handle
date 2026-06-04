@@ -6,6 +6,7 @@ const { execSync } = require("node:child_process");
 const pty = require("node-pty");
 
 const sessions = new Map();
+let librarySessions = [];
 let mainWindow = null;
 let nextSessionId = 1;
 let isShuttingDown = false;
@@ -123,14 +124,41 @@ function loadSessions() {
   }
 }
 
-function saveSessions() {
+function loadLibrary() {
+  librarySessions = loadSessions();
+}
+
+function saveLibrary() {
   try {
-    const data = JSON.stringify(listSessions(), null, 2);
+    const data = JSON.stringify(librarySessions, null, 2);
     const tmpPath = SESSIONS_FILE + ".tmp";
     fs.writeFileSync(tmpPath, data, "utf-8");
     fs.renameSync(tmpPath, SESSIONS_FILE);
   } catch (err) {
-    console.error("Failed to save sessions:", err);
+    console.error("Failed to save library:", err);
+  }
+}
+
+function addToLibrary(sessionMeta) {
+  const idx = librarySessions.findIndex(s => s.id === sessionMeta.id);
+  if (idx >= 0) {
+    librarySessions[idx] = sessionMeta;
+  } else {
+    librarySessions.push(sessionMeta);
+  }
+  saveLibrary();
+}
+
+function removeFromLibrary(id) {
+  librarySessions = librarySessions.filter(s => s.id !== id);
+  saveLibrary();
+}
+
+function updateLibrary(id, updates) {
+  const idx = librarySessions.findIndex(s => s.id === id);
+  if (idx >= 0) {
+    librarySessions[idx] = { ...librarySessions[idx], ...updates };
+    saveLibrary();
   }
 }
 
@@ -161,9 +189,6 @@ function spawnPty(session, options = {}) {
   term.onExit(({ exitCode }) => {
     broadcast("terminal:exit", { id: session.id, exitCode });
     sessions.delete(session.id);
-    if (!isShuttingDown) {
-      saveSessions();
-    }
     broadcast("sessions:changed", listSessions());
   });
 
@@ -191,36 +216,45 @@ function createSession(options = {}) {
 
   spawnPty(session, options);
   sessions.set(id, session);
-  saveSessions();
+  addToLibrary(serializeSession(session));
   broadcast("sessions:changed", listSessions());
 
   return serializeSession(session);
 }
 
-function restoreSavedSessions() {
-  const saved = loadSessions();
-  if (saved.length === 0) {
-    createSession();
-    return;
-  }
+ipcMain.handle("sessions:list", () => listSessions());
 
-  for (const data of saved) {
-    const idNum = parseInt(data.id, 10);
+ipcMain.handle("sessions:load-saved", () => librarySessions);
+
+ipcMain.handle("sessions:launch-selected", (_event, sessionsToLaunch) => {
+  for (const sessionData of sessionsToLaunch) {
+    if (sessions.has(sessionData.id)) continue;
+    const idNum = parseInt(sessionData.id, 10);
     if (!isNaN(idNum) && idNum >= nextSessionId) {
       nextSessionId = idNum + 1;
     }
-    if (!data.type) {
-      data.type = data.shell && data.shell.includes('wsl') ? 'wsl' : 'windows';
+    if (!sessionData.type) {
+      sessionData.type = sessionData.shell && sessionData.shell.includes('wsl') ? 'wsl' : 'windows';
     }
-    const session = { ...data };
+    const session = { ...sessionData };
     spawnPty(session);
     sessions.set(session.id, session);
   }
 
   broadcast("sessions:changed", listSessions());
-}
+  return listSessions();
+});
 
-ipcMain.handle("sessions:list", () => listSessions());
+ipcMain.handle("sessions:delete-saved", (_event, id) => {
+  const session = sessions.get(id);
+  if (session) {
+    session.term.kill();
+    sessions.delete(id);
+  }
+  removeFromLibrary(id);
+  broadcast("sessions:changed", listSessions());
+  return listSessions();
+});
 
 ipcMain.handle("wsl:list-distros", () => listWslDistros());
 
@@ -232,7 +266,7 @@ ipcMain.handle("sessions:rename", (_event, { id, title }) => {
     return listSessions();
   }
   session.title = title.trim() || session.title;
-  saveSessions();
+  updateLibrary(id, { title: session.title });
   broadcast("sessions:changed", listSessions());
   return listSessions();
 });
@@ -240,6 +274,7 @@ ipcMain.handle("sessions:rename", (_event, { id, title }) => {
 ipcMain.handle("sessions:update", (_event, { id, title, initialCommand }) => {
   const session = sessions.get(id);
   if (!session) {
+    updateLibrary(id, { title, initialCommand });
     return listSessions();
   }
   if (typeof title === "string") {
@@ -248,7 +283,7 @@ ipcMain.handle("sessions:update", (_event, { id, title, initialCommand }) => {
   if (typeof initialCommand !== "undefined") {
     session.initialCommand = initialCommand || undefined;
   }
-  saveSessions();
+  updateLibrary(id, { title: session.title, initialCommand: session.initialCommand });
   broadcast("sessions:changed", listSessions());
   return listSessions();
 });
@@ -258,7 +293,6 @@ ipcMain.handle("sessions:close", (_event, id) => {
   if (session) {
     session.term.kill();
     sessions.delete(id);
-    saveSessions();
     broadcast("sessions:changed", listSessions());
   }
   return listSessions();
@@ -325,22 +359,19 @@ ipcMain.on("window:close", (event) => {
 });
 
 app.whenReady().then(() => {
+  loadLibrary();
   createWindow();
-  restoreSavedSessions();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-      if (sessions.size === 0) {
-        restoreSavedSessions();
-      }
     }
   });
 });
 
 app.on("window-all-closed", () => {
   isShuttingDown = true;
-  saveSessions();
+  saveLibrary();
   for (const session of sessions.values()) {
     session.term.kill();
   }

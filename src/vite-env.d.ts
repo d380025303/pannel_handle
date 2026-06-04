@@ -23,6 +23,9 @@ export type TerminalApi = {
   onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void;
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
+  loadSavedSessions: () => Promise<TerminalSession[]>;
+  launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;
+  deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
 };
 
 export type WindowApi = {

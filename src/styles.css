@@ -453,6 +453,117 @@ input,
   background: #222a33;
 }
 
+/* === Session Picker === */
+.session-picker-dialog {
+  width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #93a0ae;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  background: #101318;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.picker-item:hover {
+  border-color: #4a6f95;
+  background: #1a222d;
+}
+
+.picker-item.checked {
+  border-color: #43825f;
+  background: #1a3326;
+}
+
+.picker-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #43825f;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.picker-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.picker-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.picker-empty {
+  text-align: center;
+  padding: 24px 0;
+  color: #626a73;
+  font-size: 14px;
+}
+
+.picker-item.running {
+  opacity: 0.65;
+}
+
+.picker-item.running .picker-checkbox {
+  cursor: default;
+}
+
+.picker-running-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6ca8e7;
+  background: #1a283b;
+  margin-left: 4px;
+}
+
+.picker-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: #93a0ae;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.picker-delete-btn:hover {
+  color: #ffffff;
+  background: #8b3f44;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 220px minmax(0, 1fr);

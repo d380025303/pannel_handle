@@ -57,6 +57,9 @@ export function App() {
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(290);
+  const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pickerManual, setPickerManual] = useState(false);
   const draggingRef = useRef(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
 
@@ -145,12 +148,17 @@ export function App() {
   useEffect(() => {
     let isDisposed = false;
 
-    window.terminalApi.listSessions().then((nextSessions) => {
+    window.terminalApi.loadSavedSessions().then((saved) => {
       if (isDisposed) {
         return;
       }
-      setSessions(nextSessions);
-      setActiveId((current) => current || nextSessions[0]?.id);
+      if (saved.length > 0) {
+        setPendingSessions(saved);
+        setSelectedIds(new Set(saved.map((s) => s.id)));
+        setPickerManual(false);
+      } else {
+        setPendingSessions(null);
+      }
     });
 
     const removeSessionsListener = window.terminalApi.onSessionsChanged((nextSessions) => {
@@ -161,6 +169,8 @@ export function App() {
         }
         return nextSessions[0]?.id;
       });
+      setPendingSessions(null);
+      setPickerManual(false);
     });
 
     const removeDataListener = window.terminalApi.onData(({ id, data }) => {
@@ -286,6 +296,35 @@ export function App() {
     setEditDialogSession(null);
   }
 
+  async function handleOpenPicker() {
+    const library = await window.terminalApi.loadSavedSessions();
+    setPendingSessions(library);
+    setSelectedIds(new Set(library.map((s) => s.id)));
+    setPickerManual(true);
+  }
+
+  async function handleLaunchSelected() {
+    const runningIds = new Set(sessions.map((s) => s.id));
+    const toLaunch = (pendingSessions ?? []).filter(
+      (s) => selectedIds.has(s.id) && !runningIds.has(s.id)
+    );
+    await window.terminalApi.launchSessions(toLaunch);
+  }
+
+  async function handleStartFresh() {
+    await window.terminalApi.launchSessions([]);
+  }
+
+  async function handleDeleteFromLibrary(id: string) {
+    await window.terminalApi.deleteSavedSession(id);
+    setPendingSessions((prev) => prev ? prev.filter((s) => s.id !== id) : null);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
   return (
     <>
       <div className="app-frame">
@@ -330,6 +369,9 @@ export function App() {
               <h1>命令会话</h1>
               <span>{sessions.length} 个窗口</span>
             </div>
+            <button className="icon-button" type="button" title="从库中启动" onClick={handleOpenPicker}>
+              {"☰"}
+            </button>
             <button className="icon-button primary" type="button" title="新建会话" onClick={async () => {
               setShowModal(true);
               const distros = await window.terminalApi.listWslDistros();
@@ -515,6 +557,110 @@ export function App() {
         </div>
       </div>
     )}
+
+    {pendingSessions !== null && (() => {
+      const runningIds = new Set(sessions.map((s) => s.id));
+      const newCount = pendingSessions.filter(
+        (s) => selectedIds.has(s.id) && !runningIds.has(s.id)
+      ).length;
+
+      return (
+      <div className="modal-overlay" onClick={() => { setPendingSessions(null); setPickerManual(false); }}>
+        <div className="modal-dialog session-picker-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
+            <p className="modal-subtitle">
+              {pickerManual ? "选择要从库中启动的会话" : "选择要启动的会话"}
+            </p>
+          </div>
+          <div className="modal-body">
+            {pendingSessions.length === 0 ? (
+              <div className="picker-empty">
+                <p>没有已保存的会话</p>
+              </div>
+            ) : (
+              <div className="picker-list">
+                {pendingSessions.map((session) => {
+                  const isRunning = runningIds.has(session.id);
+                  const isChecked = isRunning || selectedIds.has(session.id);
+                  return (
+                    <label
+                      key={session.id}
+                      className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="picker-checkbox"
+                        checked={isChecked}
+                        disabled={isRunning}
+                        onChange={() => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(session.id)) {
+                              next.delete(session.id);
+                            } else {
+                              next.add(session.id);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                      <span className="picker-item-info">
+                        <span className="picker-item-title">{session.title}</span>
+                        <span className={`session-type-badge ${session.type}`}>
+                          {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
+                        </span>
+                        {isRunning && (
+                          <span className="picker-running-badge">运行中</span>
+                        )}
+                      </span>
+                      <span
+                        className="picker-delete-btn"
+                        title="从库中删除"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          handleDeleteFromLibrary(session.id);
+                        }}
+                      >
+                        {"×"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            {!pickerManual && (
+              <button
+                className="modal-button"
+                type="button"
+                onClick={handleStartFresh}
+              >
+                重新开始
+              </button>
+            )}
+            <button
+              className="modal-button"
+              type="button"
+              onClick={() => { setPendingSessions(null); setPickerManual(false); }}
+            >
+              {pickerManual ? "关闭" : "取消"}
+            </button>
+            <button
+              className="modal-button primary"
+              type="button"
+              onClick={handleLaunchSelected}
+              disabled={newCount === 0}
+            >
+              启动所选 ({newCount})
+            </button>
+          </div>
+        </div>
+      </div>
+      );
+    })()}
     </>
   );
 }

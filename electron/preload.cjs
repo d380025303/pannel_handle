@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld("terminalApi", {
     return () => ipcRenderer.removeListener("terminal:exit", listener);
   },
   listWslDistros: () => ipcRenderer.invoke("wsl:list-distros"),
+  loadSavedSessions: () => ipcRenderer.invoke("sessions:load-saved"),
+  launchSessions: (sessions) => ipcRenderer.invoke("sessions:launch-selected", sessions),
+  deleteSavedSession: (id) => ipcRenderer.invoke("sessions:delete-saved", id),
   onSessionsChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("sessions:changed", listener);
