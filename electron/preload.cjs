@@ -35,7 +35,8 @@ contextBridge.exposeInMainWorld("terminalApi", {
 });
 
 contextBridge.exposeInMainWorld("clipboardApi", {
-  writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text)
+  writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  readText: () => ipcRenderer.invoke("clipboard:read-text")
 });
 
 contextBridge.exposeInMainWorld("windowApi", {

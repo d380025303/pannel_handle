@@ -56,6 +56,7 @@ export type WindowApi = {
 
 export type ClipboardApi = {
   writeText: (text: string) => Promise<boolean>;
+  readText: () => Promise<string>;
 };
 
 declare global {
