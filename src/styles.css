@@ -141,8 +141,7 @@ input,
 }
 
 .sidebar-header span,
-.terminal-header span,
-.session-path {
+.terminal-header span {
   color: #93a0ae;
   font-size: 12px;
 }
@@ -178,6 +177,7 @@ input,
 .session-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
   width: 100%;
   min-height: 58px;
@@ -206,8 +206,7 @@ input,
   gap: 5px;
 }
 
-.session-title,
-.session-path {
+.session-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -252,15 +251,12 @@ input,
   background: #8b3f44;
 }
 
-.rename-input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #4a6f95;
-  border-radius: 5px;
-  padding: 4px 6px;
-  color: #ffffff;
-  background: #101318;
-  outline: none;
+.modal-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b7c1cc;
 }
 
 .terminal-panel {

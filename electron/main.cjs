@@ -61,6 +61,13 @@ function createWindow() {
   mainWindow.maximize();
   mainWindow.show();
 
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && (input.key === "F12" || (input.key === "I" && input.control && input.shift))) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on("maximize", () => {
     broadcast("window:maximized-changed", true);
   });
@@ -225,6 +232,22 @@ ipcMain.handle("sessions:rename", (_event, { id, title }) => {
     return listSessions();
   }
   session.title = title.trim() || session.title;
+  saveSessions();
+  broadcast("sessions:changed", listSessions());
+  return listSessions();
+});
+
+ipcMain.handle("sessions:update", (_event, { id, title, initialCommand }) => {
+  const session = sessions.get(id);
+  if (!session) {
+    return listSessions();
+  }
+  if (typeof title === "string") {
+    session.title = title.trim() || session.title;
+  }
+  if (typeof initialCommand !== "undefined") {
+    session.initialCommand = initialCommand || undefined;
+  }
   saveSessions();
   broadcast("sessions:changed", listSessions());
   return listSessions();

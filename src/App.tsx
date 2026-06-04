@@ -47,8 +47,9 @@ function createTerminalEntry() {
 export function App() {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
-  const [renamingId, setRenamingId] = useState<string | undefined>();
-  const [renameText, setRenameText] = useState("");
+  const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editCommand, setEditCommand] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [commandInput, setCommandInput] = useState("");
   const [selectedShellId, setSelectedShellId] = useState('powershell');
@@ -189,10 +190,13 @@ export function App() {
     }
   }
 
-  async function submitRename(id: string) {
-    await window.terminalApi.renameSession(id, renameText);
-    setRenamingId(undefined);
-    setRenameText("");
+  async function handleSaveEdit() {
+    if (!editDialogSession) return;
+    await window.terminalApi.updateSession(editDialogSession.id, {
+      title: editTitle,
+      initialCommand: editCommand.trim() || undefined
+    });
+    setEditDialogSession(null);
   }
 
   return (
@@ -258,42 +262,22 @@ export function App() {
                 onClick={() => setActiveId(session.id)}
               >
                 <span className="session-main">
-                  {renamingId === session.id ? (
-                    <input
-                      autoFocus
-                      className="rename-input"
-                      value={renameText}
-                      onChange={(event) => setRenameText(event.target.value)}
-                      onBlur={() => submitRename(session.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          submitRename(session.id);
-                        }
-                        if (event.key === "Escape") {
-                          setRenamingId(undefined);
-                          setRenameText("");
-                        }
-                      }}
-                    />
-                  ) : (
-                    <span className="session-title">
-                      {session.title}
-                      <span className={`session-type-badge ${session.type}`}>
-                        {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
-                      </span>
+                  <span className="session-title">
+                    {session.title}
+                    <span className={`session-type-badge ${session.type}`}>
+                      {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
                     </span>
-                  )}
-                  <span className="session-path">{session.cwd}</span>
+                  </span>
                 </span>
                 <span className="session-actions">
                   <span
                     className="mini-action"
-                    title="重命名"
+                    title="编辑会话"
                     onClick={(event) => {
                       event.stopPropagation();
-                      setRenamingId(session.id);
-                      setRenameText(session.title);
+                      setEditDialogSession(session);
+                      setEditTitle(session.title);
+                      setEditCommand(session.initialCommand || "");
                     }}
                   >
                     R
@@ -392,6 +376,51 @@ export function App() {
               }}
             >
               创建
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {editDialogSession && (
+      <div className="modal-overlay" onClick={() => setEditDialogSession(null)}>
+        <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>编辑会话</h3>
+          </div>
+          <div className="modal-body">
+            <label className="modal-label">会话名称</label>
+            <input
+              autoFocus
+              className="modal-input"
+              placeholder="输入会话名称"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+            />
+            <label className="modal-label" style={{ marginTop: "12px" }}>
+              初始命令
+            </label>
+            <input
+              className="modal-input"
+              placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
+              value={editCommand}
+              onChange={(e) => setEditCommand(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSaveEdit();
+                }
+                if (e.key === "Escape") {
+                  setEditDialogSession(null);
+                }
+              }}
+            />
+          </div>
+          <div className="modal-footer">
+            <button className="modal-button" type="button" onClick={() => setEditDialogSession(null)}>
+              取消
+            </button>
+            <button className="modal-button primary" type="button" onClick={handleSaveEdit}>
+              保存
             </button>
           </div>
         </div>

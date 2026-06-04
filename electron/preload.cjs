@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("terminalApi", {
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   createSession: (options) => ipcRenderer.invoke("sessions:create", options),
-  renameSession: (id, title) => ipcRenderer.invoke("sessions:rename", { id, title }),
+  updateSession: (id, updates) => ipcRenderer.invoke("sessions:update", { id, ...updates }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
   write: (id, data) => ipcRenderer.send("terminal:write", { id, data }),
