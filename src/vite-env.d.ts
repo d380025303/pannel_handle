@@ -22,8 +22,17 @@ export type TerminalApi = {
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
 };
 
+export type WindowApi = {
+  minimize: () => void;
+  toggleMaximize: () => void;
+  close: () => void;
+  isMaximized: () => Promise<boolean>;
+  onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    windowApi: WindowApi;
   }
 }

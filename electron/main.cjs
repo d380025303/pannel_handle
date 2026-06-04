@@ -24,6 +24,7 @@ function createWindow() {
     height: 760,
     minWidth: 820,
     minHeight: 520,
+    frame: false,
     backgroundColor: "#101318",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -32,11 +33,23 @@ function createWindow() {
     }
   });
 
+  mainWindow.on("maximize", () => {
+    broadcast("window:maximized-changed", true);
+  });
+
+  mainWindow.on("unmaximize", () => {
+    broadcast("window:maximized-changed", false);
+  });
+
   if (!app.isPackaged) {
     mainWindow.loadURL("http://127.0.0.1:5173");
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+}
+
+function getWindowFromEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
 function broadcast(channel, payload) {
@@ -204,6 +217,38 @@ ipcMain.on("terminal:resize", (_event, { id, cols, rows }) => {
   const session = sessions.get(id);
   if (session) {
     session.term.resize(cols, rows);
+  }
+});
+
+ipcMain.handle("window:is-maximized", (event) => {
+  const window = getWindowFromEvent(event);
+  return window ? window.isMaximized() : false;
+});
+
+ipcMain.on("window:minimize", (event) => {
+  const window = getWindowFromEvent(event);
+  if (window) {
+    window.minimize();
+  }
+});
+
+ipcMain.on("window:toggle-maximize", (event) => {
+  const window = getWindowFromEvent(event);
+  if (!window) {
+    return;
+  }
+
+  if (window.isMaximized()) {
+    window.unmaximize();
+  } else {
+    window.maximize();
+  }
+});
+
+ipcMain.on("window:close", (event) => {
+  const window = getWindowFromEvent(event);
+  if (window) {
+    window.close();
   }
 });
 

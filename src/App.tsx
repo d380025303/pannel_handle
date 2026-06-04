@@ -51,6 +51,7 @@ export function App() {
   const [renameText, setRenameText] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [commandInput, setCommandInput] = useState("");
+  const [isMaximized, setIsMaximized] = useState(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
@@ -58,6 +59,23 @@ export function App() {
     () => sessions.find((session) => session.id === activeId),
     [activeId, sessions]
   );
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    window.windowApi.isMaximized().then((nextIsMaximized) => {
+      if (!isDisposed) {
+        setIsMaximized(nextIsMaximized);
+      }
+    });
+
+    const removeMaximizedListener = window.windowApi.onMaximizedChanged(setIsMaximized);
+
+    return () => {
+      isDisposed = true;
+      removeMaximizedListener();
+    };
+  }, []);
 
   useEffect(() => {
     let isDisposed = false;
@@ -173,7 +191,42 @@ export function App() {
 
   return (
     <>
-      <main className="app-shell">
+      <div className="app-frame">
+        <header className="custom-titlebar" onDoubleClick={() => window.windowApi.toggleMaximize()}>
+          <div className="titlebar-brand">Pannel Handle</div>
+          <div className="titlebar-session">{activeSession?.title || "No active session"}</div>
+          <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
+            <button
+              className="window-control"
+              type="button"
+              title="Minimize"
+              aria-label="Minimize window"
+              onClick={() => window.windowApi.minimize()}
+            >
+              -
+            </button>
+            <button
+              className="window-control"
+              type="button"
+              title={isMaximized ? "Restore" : "Maximize"}
+              aria-label={isMaximized ? "Restore window" : "Maximize window"}
+              onClick={() => window.windowApi.toggleMaximize()}
+            >
+              {isMaximized ? "\u2750" : "\u25a1"}
+            </button>
+            <button
+              className="window-control close"
+              type="button"
+              title="Close"
+              aria-label="Close window"
+              onClick={() => window.windowApi.close()}
+            >
+              {"\u00d7"}
+            </button>
+          </div>
+        </header>
+
+        <main className="app-shell">
         <aside className="session-sidebar">
           <div className="sidebar-header">
             <div>
@@ -254,7 +307,8 @@ export function App() {
           </header>
           <div className="terminal-host" ref={terminalHostRef} />
         </section>
-      </main>
+        </main>
+      </div>
 
     {showModal && (
       <div className="modal-overlay" onClick={() => { setShowModal(false); setCommandInput(""); }}>
