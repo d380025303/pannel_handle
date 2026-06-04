@@ -56,7 +56,35 @@ export function App() {
   const [selectedShellId, setSelectedShellId] = useState('powershell');
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(290);
+  const draggingRef = useRef(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
+
+  const handleSplitterMouseDown = useCallback(() => {
+    draggingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: globalThis.MouseEvent) => {
+      if (!draggingRef.current) return;
+      const newWidth = Math.min(500, Math.max(180, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
   const activeSession = useMemo(
@@ -295,7 +323,7 @@ export function App() {
           </div>
         </header>
 
-        <main className="app-shell">
+        <main className="app-shell" style={{ gridTemplateColumns: `${sidebarWidth}px 1px minmax(0, 1fr)` }}>
         <aside className="session-sidebar">
           <div className="sidebar-header">
             <div>
@@ -356,6 +384,8 @@ export function App() {
             ))}
           </div>
         </aside>
+
+        <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
         <section className="terminal-panel">
           <header className="terminal-header">

@@ -107,11 +107,20 @@ input,
 
 .app-shell {
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
   height: 100%;
   min-width: 0;
   min-height: 0;
   background: #101318;
+}
+
+.splitter {
+  cursor: col-resize;
+  background: #242b35;
+  transition: background 0.15s;
+}
+
+.splitter:hover {
+  background: #4a6f95;
 }
 
 .session-sidebar {
