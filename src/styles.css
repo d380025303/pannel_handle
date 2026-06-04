@@ -398,16 +398,18 @@ input,
   background: #3a8c5e;
 }
 
-/* === Type Selector === */
-.type-selector {
+/* === Shell Flat List === */
+.shell-list {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
-.type-option {
-  flex: 1;
-  padding: 8px 12px;
+.shell-item {
+  padding: 8px 14px;
   border: 1px solid #3a4654;
   border-radius: 6px;
   color: #93a0ae;
@@ -415,35 +417,13 @@ input,
   cursor: pointer;
   font-size: 13px;
   text-align: center;
+  white-space: nowrap;
 }
 
-.type-option.selected {
+.shell-item.selected {
   border-color: #4a6f95;
   color: #e7edf4;
   background: #243141;
-}
-
-/* === WSL Distro Select === */
-.modal-select {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #3a4654;
-  border-radius: 6px;
-  color: #e7edf4;
-  background: #101318;
-  outline: none;
-  font-size: 13px;
-  margin-bottom: 12px;
-  cursor: pointer;
-}
-
-.modal-select:focus {
-  border-color: #4a6f95;
-}
-
-.modal-select option {
-  background: #181d24;
-  color: #e7edf4;
 }
 
 /* === Session Type Badge === */

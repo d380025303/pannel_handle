@@ -49,6 +49,7 @@ function createWindow() {
     minWidth: 820,
     minHeight: 520,
     frame: false,
+    show: false,
     backgroundColor: "#101318",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -56,6 +57,9 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+
+  mainWindow.maximize();
+  mainWindow.show();
 
   mainWindow.on("maximize", () => {
     broadcast("window:maximized-changed", true);
