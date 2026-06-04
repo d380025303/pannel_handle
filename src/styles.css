@@ -141,18 +141,23 @@ input,
   border-bottom: 1px solid #242b35;
 }
 
-.sidebar-header h1,
-.terminal-header h2 {
+.sidebar-header h1 {
   margin: 0;
   font-size: 16px;
   font-weight: 650;
   letter-spacing: 0;
 }
 
-.sidebar-header span,
-.terminal-header span {
+.sidebar-header span {
   color: #93a0ae;
   font-size: 12px;
+}
+
+.sidebar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .icon-button {
@@ -243,30 +248,24 @@ input,
   white-space: nowrap;
 }
 
-.agent-status-badge.waiting_for_permission,
-.terminal-agent-status.waiting_for_permission {
+.agent-status-badge.waiting_for_permission {
   color: #f0cf82;
   background: #3a2d16;
 }
 
 .agent-status-badge.completed,
-.agent-status-badge.running,
-.terminal-agent-status.completed,
-.terminal-agent-status.running {
+.agent-status-badge.running {
   color: #8ad9a4;
   background: #173223;
 }
 
-.agent-status-badge.failed,
-.terminal-agent-status.failed {
+.agent-status-badge.failed {
   color: #f07f89;
   background: #3a1c22;
 }
 
 .agent-status-badge.ended,
-.agent-status-badge.exited,
-.terminal-agent-status.ended,
-.terminal-agent-status.exited {
+.agent-status-badge.exited {
   color: #b7c1cc;
   background: #28313c;
 }
@@ -317,43 +316,7 @@ input,
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 58px minmax(0, 1fr);
   background: #101318;
-}
-
-.terminal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 0 18px;
-  border-bottom: 1px solid #242b35;
-}
-
-.terminal-header div {
-  min-width: 0;
-}
-
-.terminal-header h2,
-.terminal-header span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.terminal-agent-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  max-width: 280px;
-  min-height: 24px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  color: #93a0ae;
-  background: #222a33;
-  font-size: 12px;
-  font-weight: 650;
 }
 
 .terminal-host {

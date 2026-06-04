@@ -21,7 +21,7 @@ export function SessionPickerModal({
   onCancel
 }: SessionPickerModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(pickerManual ? pendingSessions.map((session) => session.id) : [])
+    () => new Set()
   );
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {

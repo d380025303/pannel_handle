@@ -29,12 +29,14 @@ export function SessionSidebar({
           <h1>命令会话</h1>
           <span>{sessions.length} 个窗口</span>
         </div>
-        <button className="icon-button" type="button" title="从库中启动" onClick={onOpenPicker}>
-          {"☰"}
-        </button>
-        <button className="icon-button primary" type="button" title="新建会话" onClick={onOpenCreate}>
-          +
-        </button>
+        <div className="sidebar-actions">
+          <button className="icon-button" type="button" title="从库中启动" onClick={onOpenPicker}>
+            {"☰"}
+          </button>
+          <button className="icon-button primary" type="button" title="新建会话" onClick={onOpenCreate}>
+            +
+          </button>
+        </div>
       </div>
 
       <div className="session-list">

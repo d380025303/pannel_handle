@@ -68,8 +68,6 @@ export function App() {
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
           <TerminalPanel
-            activeSession={terminalSessions.activeSession}
-            activeAgentStatus={terminalSessions.activeAgentStatus}
             terminalHostRef={terminalInstances.terminalHostRef}
             onContextMenu={terminalInstances.handleTerminalContextMenu}
           />
