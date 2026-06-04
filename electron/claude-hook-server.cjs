@@ -60,6 +60,9 @@ function createClaudeHookServer({ terminalManager }) {
     if (eventName === "PermissionRequest") {
       return "waiting_for_permission";
     }
+    if (eventName === "UserPromptSubmit" || eventName === "PreToolUse") {
+      return "running";
+    }
     if (eventName === "Notification" && notificationType === "permission_prompt") {
       return "waiting_for_permission";
     }
@@ -75,7 +78,7 @@ function createClaudeHookServer({ terminalManager }) {
     if (eventName === "SessionEnd") {
       return "ended";
     }
-    return "running";
+    return null;
   }
 
   function readJsonRequest(req, callback) {
@@ -104,6 +107,9 @@ function createClaudeHookServer({ terminalManager }) {
 
     const eventName = input.hook_event_name || input.eventName || input.event_name || "Unknown";
     const status = mapClaudeHookStatus(input);
+    if (!status) {
+      return false;
+    }
     const toolName = input.tool_name || input.toolName;
     const message = input.message || input.title || input.notification_type || input.reason;
     registerClaudeSession(input.session_id || input.sessionId, session.id);

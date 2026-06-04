@@ -6,10 +6,6 @@ type CreateSessionOptions = {
   initialCommand?: string;
 };
 
-function shouldWakeStatus(status?: AgentStatusPayload) {
-  return status?.status === "completed" || status?.status === "failed" || status?.status === "ended";
-}
-
 export function useTerminalSessions() {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
@@ -22,25 +18,6 @@ export function useTerminalSessions() {
     [activeId, sessions]
   );
   const activeAgentStatus = activeId ? agentStatusesBySessionId[activeId] : undefined;
-
-  const wakeAgentStatus = useCallback((id: string) => {
-    setAgentStatusesBySessionId((current) => {
-      const status = current[id];
-      if (!shouldWakeStatus(status)) {
-        return current;
-      }
-      return {
-        ...current,
-        [id]: {
-          id,
-          provider: "claude",
-          status: "running",
-          eventName: "TerminalData",
-          timestamp: Date.now()
-        }
-      };
-    });
-  }, []);
 
   useEffect(() => {
     let isDisposed = false;
@@ -140,7 +117,6 @@ export function useTerminalSessions() {
     setPendingSessions,
     pickerManual,
     setPickerManual,
-    wakeAgentStatus,
     createSession,
     closeSession,
     updateSession,

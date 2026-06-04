@@ -19,8 +19,7 @@ export function App() {
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
   const terminalInstances = useTerminalInstances({
-    activeId: terminalSessions.activeId,
-    onStatusWake: terminalSessions.wakeAgentStatus
+    activeId: terminalSessions.activeId
   });
 
   const handleOpenCreateModal = useCallback(async () => {

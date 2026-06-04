@@ -11,7 +11,6 @@ type TerminalEntry = {
 
 type UseTerminalInstancesOptions = {
   activeId?: string;
-  onStatusWake: (id: string) => void;
 };
 
 function createTerminalEntry() {
@@ -49,7 +48,7 @@ function createTerminalEntry() {
   return { terminal, fitAddon };
 }
 
-export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInstancesOptions) {
+export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) {
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
@@ -105,7 +104,6 @@ export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInst
       if (entry) {
         entry.terminal.write(data);
       }
-      onStatusWake(id);
     });
 
     const removeExitListener = window.terminalApi.onExit(({ id, exitCode }) => {
@@ -119,7 +117,7 @@ export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInst
       removeDataListener();
       removeExitListener();
     };
-  }, [onStatusWake]);
+  }, []);
 
   useEffect(() => {
     if (!activeId || !terminalHostRef.current) {
@@ -142,7 +140,7 @@ export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInst
 
         if (isPasteKey) {
           window.clipboardApi.readText().then((text) => {
-            if (text) {
+            if (text && activeId) {
               window.terminalApi.write(activeId, text);
             }
           });
@@ -188,6 +186,17 @@ export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInst
     entry.terminal.open(terminalHostRef.current);
     entry.mountedSessionId = activeId;
 
+    const textarea = terminalHostRef.current.querySelector(
+      ".xterm-helper-textarea"
+    ) as HTMLTextAreaElement | null;
+
+    const onPaste = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+
+    textarea?.addEventListener("paste", onPaste, true);
+
     const fit = () => {
       try {
         entry?.fitAddon.fit();
@@ -206,6 +215,7 @@ export function useTerminalInstances({ activeId, onStatusWake }: UseTerminalInst
     resizeObserver.observe(terminalHostRef.current);
 
     return () => {
+      textarea?.removeEventListener("paste", onPaste, true);
       resizeObserver.disconnect();
     };
   }, [activeId, copyTerminalSelection]);

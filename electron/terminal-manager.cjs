@@ -118,14 +118,6 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl }) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
       broadcast("terminal:data", { id: session.id, data });
-      if (session.agentStatus === "completed" || session.agentStatus === "failed" || session.agentStatus === "ended") {
-        session.agentStatus = "running";
-        broadcastAgentStatus({
-          id: session.id,
-          status: "running",
-          eventName: "TerminalData"
-        });
-      }
     });
 
     term.onExit(({ exitCode }) => {

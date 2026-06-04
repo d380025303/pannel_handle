@@ -10,9 +10,11 @@
 2. 每个 PTY 会话启动时会注入环境变量：
    - `PANNEL_HANDLE_HOOK_URL`：hook 事件上报地址。
    - `PANNEL_HANDLE_SESSION_ID`：本工具内部会话 ID。
-3. Claude Code 触发 `PermissionRequest`、`Notification`、`Stop`、`StopFailure` 等 hook。
+3. Claude Code 触发 `UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`Notification`、`Stop`、`StopFailure` 等 hook。
 4. `.claude/pannel-handle-hook.cjs` 从 stdin 读取 Claude hook JSON，并 POST 到 `PANNEL_HANDLE_HOOK_URL`。
 5. Electron 将 hook 映射为前端状态：
+   - `UserPromptSubmit` -> `running`
+   - `PreToolUse` -> `running`
    - `PermissionRequest` -> `waiting_for_permission`
    - `Notification` + `permission_prompt` -> `waiting_for_permission`
    - `Notification` + `idle_prompt` -> `completed`
@@ -61,6 +63,28 @@
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/pannel-handle-hook.cjs"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/pannel-handle-hook.cjs"
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "matcher": "",
@@ -98,7 +122,7 @@
 }
 ```
 
-推荐配置还应包含 `Notification` 的 `permission_prompt` 和 `idle_prompt`，以及 `SessionEnd`。当前本项目的 `.claude/settings.local.json` 已包含这些事件。
+推荐配置还应包含 `Notification` 的 `permission_prompt` 和 `idle_prompt`，以及 `SessionEnd`。当前本项目的 `.claude/settings.local.json` 已包含这些事件。用户在终端输入或切换会话不会切换到 `running`，只有 Claude hook 事件才会更新 agent 状态。
 
 如果 `.claude/settings.local.json` 已有 `permissions.allow`，保留它，只合并 `hooks`，不要覆盖整个文件。
 
@@ -137,6 +161,28 @@
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "permission_prompt",
@@ -234,7 +280,7 @@ claude
 - 会话列表显示 `Claude 等待确认` 或 `Claude 等待确认: Bash`。
 - 终端标题区域显示同样状态。
 - 人工批准后，Claude 完成回复时状态变为 `Claude 已完成`。
-- 继续输入或产生新终端输出后，状态切回 `运行中`。
+- 继续输入不会改变状态；Claude 接收新任务或开始执行工具时，状态切回 `运行中`。
 - 退出 Claude 或关闭会话后，状态变为 `进程已退出`。
 
 ## 常见问题
