@@ -49,6 +49,8 @@ export function App() {
   const [activeId, setActiveId] = useState<string | undefined>();
   const [renamingId, setRenamingId] = useState<string | undefined>();
   const [renameText, setRenameText] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [commandInput, setCommandInput] = useState("");
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
@@ -147,8 +149,10 @@ export function App() {
     };
   }, [activeId]);
 
-  async function handleCreateSession() {
-    const session = await window.terminalApi.createSession();
+  async function handleCreateSession(initialCommand?: string) {
+    const session = await window.terminalApi.createSession(
+      initialCommand ? { initialCommand } : undefined
+    );
     setActiveId(session.id);
   }
 
@@ -168,87 +172,139 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="session-sidebar">
-        <div className="sidebar-header">
-          <div>
-            <h1>命令会话</h1>
-            <span>{sessions.length} 个窗口</span>
-          </div>
-          <button className="icon-button primary" type="button" title="新建会话" onClick={handleCreateSession}>
-            +
-          </button>
-        </div>
-
-        <div className="session-list">
-          {sessions.map((session) => (
-            <button
-              className={`session-item ${session.id === activeId ? "active" : ""}`}
-              key={session.id}
-              type="button"
-              onClick={() => setActiveId(session.id)}
-            >
-              <span className="session-main">
-                {renamingId === session.id ? (
-                  <input
-                    autoFocus
-                    className="rename-input"
-                    value={renameText}
-                    onChange={(event) => setRenameText(event.target.value)}
-                    onBlur={() => submitRename(session.id)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        submitRename(session.id);
-                      }
-                      if (event.key === "Escape") {
-                        setRenamingId(undefined);
-                        setRenameText("");
-                      }
-                    }}
-                  />
-                ) : (
-                  <span className="session-title">{session.title}</span>
-                )}
-                <span className="session-path">{session.cwd}</span>
-              </span>
-              <span className="session-actions">
-                <span
-                  className="mini-action"
-                  title="重命名"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setRenamingId(session.id);
-                    setRenameText(session.title);
-                  }}
-                >
-                  R
-                </span>
-                <span
-                  className="mini-action danger"
-                  title="关闭"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleCloseSession(session.id);
-                  }}
-                >
-                  X
-                </span>
-              </span>
+    <>
+      <main className="app-shell">
+        <aside className="session-sidebar">
+          <div className="sidebar-header">
+            <div>
+              <h1>命令会话</h1>
+              <span>{sessions.length} 个窗口</span>
+            </div>
+            <button className="icon-button primary" type="button" title="新建会话" onClick={() => setShowModal(true)}>
+              +
             </button>
-          ))}
-        </div>
-      </aside>
-
-      <section className="terminal-panel">
-        <header className="terminal-header">
-          <div>
-            <h2>{activeSession?.title || "未选择会话"}</h2>
-            <span>{activeSession?.shell || "没有正在运行的命令窗口"}</span>
           </div>
-        </header>
-        <div className="terminal-host" ref={terminalHostRef} />
-      </section>
-    </main>
+
+          <div className="session-list">
+            {sessions.map((session) => (
+              <button
+                className={`session-item ${session.id === activeId ? "active" : ""}`}
+                key={session.id}
+                type="button"
+                onClick={() => setActiveId(session.id)}
+              >
+                <span className="session-main">
+                  {renamingId === session.id ? (
+                    <input
+                      autoFocus
+                      className="rename-input"
+                      value={renameText}
+                      onChange={(event) => setRenameText(event.target.value)}
+                      onBlur={() => submitRename(session.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          submitRename(session.id);
+                        }
+                        if (event.key === "Escape") {
+                          setRenamingId(undefined);
+                          setRenameText("");
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span className="session-title">{session.title}</span>
+                  )}
+                  <span className="session-path">{session.cwd}</span>
+                </span>
+                <span className="session-actions">
+                  <span
+                    className="mini-action"
+                    title="重命名"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setRenamingId(session.id);
+                      setRenameText(session.title);
+                    }}
+                  >
+                    R
+                  </span>
+                  <span
+                    className="mini-action danger"
+                    title="关闭"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleCloseSession(session.id);
+                    }}
+                  >
+                    X
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="terminal-panel">
+          <header className="terminal-header">
+            <div>
+              <h2>{activeSession?.title || "未选择会话"}</h2>
+              <span>{activeSession?.shell || "没有正在运行的命令窗口"}</span>
+            </div>
+          </header>
+          <div className="terminal-host" ref={terminalHostRef} />
+        </section>
+      </main>
+
+    {showModal && (
+      <div className="modal-overlay" onClick={() => { setShowModal(false); setCommandInput(""); }}>
+        <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>新建会话</h3>
+          </div>
+          <div className="modal-body">
+            <input
+              autoFocus
+              className="modal-input"
+              placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
+              value={commandInput}
+              onChange={(e) => setCommandInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleCreateSession(commandInput.trim() || undefined);
+                  setShowModal(false);
+                  setCommandInput("");
+                }
+                if (e.key === "Escape") {
+                  setShowModal(false);
+                  setCommandInput("");
+                }
+              }}
+            />
+          </div>
+          <div className="modal-footer">
+            <button
+              className="modal-button"
+              type="button"
+              onClick={() => { setShowModal(false); setCommandInput(""); }}
+            >
+              取消
+            </button>
+            <button
+              className="modal-button primary"
+              type="button"
+              onClick={() => {
+                handleCreateSession(commandInput.trim() || undefined);
+                setShowModal(false);
+                setCommandInput("");
+              }}
+            >
+              创建
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

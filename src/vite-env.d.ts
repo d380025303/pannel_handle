@@ -10,7 +10,7 @@ export type TerminalSession = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number }) => Promise<TerminalSession>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string }) => Promise<TerminalSession>;
   renameSession: (id: string, title: string) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;

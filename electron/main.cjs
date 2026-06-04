@@ -95,6 +95,18 @@ function createSession(options = {}) {
 
   sessions.set(id, session);
   broadcast("sessions:changed", listSessions());
+
+  if (options.initialCommand) {
+    const cmd = String(options.initialCommand).trim();
+    if (cmd) {
+      const disposable = term.onData(() => {
+        disposable.dispose();
+        const s = sessions.get(id);
+        if (s) s.term.write(cmd + "\r");
+      });
+    }
+  }
+
   return serializeSession(session);
 }
 

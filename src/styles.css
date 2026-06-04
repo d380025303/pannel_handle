@@ -219,6 +219,94 @@ input {
   height: 100%;
 }
 
+/* === Modal Dialog === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  width: 480px;
+  max-width: 90vw;
+  background: #181d24;
+  border: 1px solid #242b35;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  padding: 20px 20px 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.modal-body {
+  padding: 16px 20px;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  color: #e7edf4;
+  background: #101318;
+  outline: none;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 13px;
+}
+
+.modal-input:focus {
+  border-color: #4a6f95;
+}
+
+.modal-input::placeholder {
+  color: #626a73;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 20px 20px;
+}
+
+.modal-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 7px 16px;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  color: #e7edf4;
+  background: #222a33;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.modal-button:hover {
+  background: #303946;
+}
+
+.modal-button.primary {
+  border-color: #43825f;
+  background: #2f6b4d;
+}
+
+.modal-button.primary:hover {
+  background: #3a8c5e;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 220px minmax(0, 1fr);
