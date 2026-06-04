@@ -50,15 +50,43 @@ function appendWslEnv(existingValue, variableNames) {
   return entries.join(":");
 }
 
+function stripAnsi(value) {
+  return String(value || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
   let nextRuntimeId = 1;
 
   function broadcastAgentStatus(payload) {
+    const { provider = "claude", ...rest } = payload;
     broadcast("agent:status", {
-      provider: "claude",
+      provider,
       timestamp: Date.now(),
-      ...payload
+      ...rest
+    });
+  }
+
+  function maybeBroadcastTerminalPermissionPrompt(session) {
+    if (session.agentProvider !== "codex" || session.agentStatus === "waiting_for_permission") {
+      return;
+    }
+
+    const recentOutput = stripAnsi(session.buffer.slice(-20).join(""));
+    if (
+      !recentOutput.includes("Would you like to run the following command?") &&
+      !recentOutput.includes("Press enter to confirm or esc to cancel")
+    ) {
+      return;
+    }
+
+    session.agentStatus = "waiting_for_permission";
+    broadcastAgentStatus({
+      id: session.id,
+      provider: "codex",
+      status: "waiting_for_permission",
+      eventName: "TerminalPermissionPrompt",
+      message: "Codex is waiting for command approval"
     });
   }
 
@@ -142,6 +170,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       if (session.buffer.length > 1000) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
+      maybeBroadcastTerminalPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });
 

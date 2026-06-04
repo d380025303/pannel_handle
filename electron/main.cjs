@@ -1,6 +1,6 @@
 const path = require("node:path");
 const { app, BrowserWindow, clipboard } = require("electron");
-const { createClaudeHookServer } = require("./claude-hook-server.cjs");
+const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createSessionStore } = require("./session-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
@@ -9,7 +9,7 @@ const { createWindowManager } = require("./window-manager.cjs");
 let windowManager = null;
 let sessionStore = null;
 let terminalManager = null;
-let claudeHookServer = null;
+let agentHookServer = null;
 
 app.whenReady().then(() => {
   windowManager = createWindowManager();
@@ -21,12 +21,12 @@ app.whenReady().then(() => {
   terminalManager = createTerminalManager({
     sessionStore,
     broadcast: windowManager.broadcast,
-    getHookUrl: () => claudeHookServer ? claudeHookServer.getHookUrl() : ""
+    getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : ""
   });
-  claudeHookServer = createClaudeHookServer({ terminalManager });
+  agentHookServer = createAgentHookServer({ terminalManager });
 
   sessionStore.loadLibrary();
-  claudeHookServer.start();
+  agentHookServer.start();
   registerIpcHandlers({
     terminalManager,
     sessionStore,
@@ -49,8 +49,8 @@ app.on("window-all-closed", () => {
   if (terminalManager) {
     terminalManager.shutdown();
   }
-  if (claudeHookServer) {
-    claudeHookServer.stop();
+  if (agentHookServer) {
+    agentHookServer.stop();
   }
   if (windowManager) {
     windowManager.closeWindowManager();

@@ -1,14 +1,20 @@
 import type { AgentStatusPayload } from "../vite-env";
 
+function getAgentName(status: AgentStatusPayload) {
+  return status.provider === "codex" ? "Codex" : "Claude";
+}
+
 export function getAgentStatusLabel(status?: AgentStatusPayload) {
   if (!status) return "";
+  const agentName = getAgentName(status);
+
   if (status.status === "waiting_for_permission") {
-    return status.toolName ? `Claude 等待确认: ${status.toolName}` : "Claude 等待确认";
+    return status.toolName ? `${agentName} 等待确认: ${status.toolName}` : `${agentName} 等待确认`;
   }
-  if (status.status === "completed") return "Claude 已完成";
-  if (status.status === "failed") return "Claude 失败";
-  if (status.status === "running") return "运行中";
-  if (status.status === "ended") return "Claude 已结束";
+  if (status.status === "completed") return `${agentName} 已完成`;
+  if (status.status === "failed") return `${agentName} 失败`;
+  if (status.status === "running") return `${agentName} 运行中`;
+  if (status.status === "ended") return `${agentName} 已结束`;
   if (status.status === "exited") return "进程已退出";
   return "";
 }

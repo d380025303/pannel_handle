@@ -181,6 +181,25 @@ describe("terminal-manager", () => {
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
   });
 
+  it("detects Codex terminal permission prompts when no hook event is emitted", () => {
+    vi.spyOn(Date, "now").mockReturnValue(444);
+    const { manager, term, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex" });
+    const runtimeSession = manager.getSession(session.id);
+    runtimeSession.agentProvider = "codex";
+    runtimeSession.agentStatus = "running";
+
+    term.emitData("Would you like to run the following command?\r\n");
+
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "waiting_for_permission",
+      eventName: "TerminalPermissionPrompt",
+      timestamp: 444
+    }));
+  });
+
   it("uses WSL distro arguments when launching WSL sessions", () => {
     const { manager, pty } = createManager();
 

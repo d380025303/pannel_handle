@@ -12,7 +12,7 @@ export type TerminalSession = {
   wslDistro?: string;
 };
 
-export type AgentProvider = "claude";
+export type AgentProvider = "claude" | "codex";
 
 export type AgentRunStatus = "running" | "waiting_for_permission" | "completed" | "failed" | "ended" | "exited";
 
