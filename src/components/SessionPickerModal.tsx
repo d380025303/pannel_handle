@@ -13,6 +13,12 @@ type SessionPickerModalProps = {
   onCancel: () => void;
 };
 
+function getSessionTypeLabel(session: TerminalSession) {
+  if (session.type === "ssh") return "SSH";
+  if (session.type === "wsl") return session.wslDistro || "WSL";
+  return "PS";
+}
+
 export function SessionPickerModal({
   pendingSessions,
   runningSessions,
@@ -137,7 +143,7 @@ export function SessionPickerModal({
                     <span className="picker-item-info">
                       <span className="picker-item-title">{session.title}</span>
                       <span className={`session-type-badge ${session.type}`}>
-                        {session.type === "wsl" ? (session.wslDistro || "WSL") : "PS"}
+                        {getSessionTypeLabel(session)}
                       </span>
                       {isRunning && (
                         <span className="picker-running-badge">运行中 {runningCount}</span>

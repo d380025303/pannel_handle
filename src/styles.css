@@ -457,6 +457,30 @@ input,
   background: #3a8c5e;
 }
 
+.modal-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.modal-field {
+  display: block;
+}
+
+.modal-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.modal-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ssh-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 /* === Shell Flat List === */
 .shell-list {
   display: flex;
@@ -515,6 +539,11 @@ input,
 .session-type-badge.windows {
   color: #93a0ae;
   background: #222a33;
+}
+
+.session-type-badge.ssh {
+  color: #8fc7ff;
+  background: #172b40;
 }
 
 /* === Session Picker === */
@@ -792,6 +821,10 @@ input,
 }
 
 /* === Quick Command Edit (inside EditSessionModal) === */
+.quick-command-heading {
+  margin-top: 16px;
+}
+
 .quick-command-edit-list {
   display: flex;
   flex-direction: column;

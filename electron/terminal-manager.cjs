@@ -92,6 +92,14 @@ function buildSshArgs(sshConfig = {}) {
   return args;
 }
 
+function sanitizeSshConfig(sshConfig) {
+  if (!sshConfig) {
+    return undefined;
+  }
+  const { secret, ...safeConfig } = sshConfig;
+  return safeConfig;
+}
+
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
   const sessionOrder = [];
@@ -140,7 +148,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       initialCommand: session.initialCommand,
       type: session.type,
       wslDistro: session.wslDistro,
-      sshConfig: session.sshConfig,
+      sshConfig: sanitizeSshConfig(session.sshConfig),
       quickCommands: session.quickCommands || []
     };
   }
@@ -220,6 +228,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     });
 
     term.onExit(({ exitCode }) => {
+      if (!sessions.has(session.id)) return;
       broadcast("terminal:exit", { id: session.id, exitCode });
       broadcastAgentStatus({
         id: session.id,
@@ -301,8 +310,10 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       startSessionFromTemplate(sessionData);
     }
 
-    broadcast("sessions:changed", listSessions());
-    return listSessions();
+    const allSessions = listSessions();
+    console.log("[main] launchSessions result:", allSessions.map(s => ({ id: s.id, templateId: s.templateId })));
+    broadcast("sessions:changed", allSessions);
+    return allSessions;
   }
 
   function deleteSavedSession(id) {
@@ -361,6 +372,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
         ...sshConfig
       };
       libraryUpdates.sshConfig = session.sshConfig;
+      session.sshConfig = sanitizeSshConfig(session.sshConfig);
     }
     sessionStore.updateLibrary(templateId, libraryUpdates);
     broadcast("sessions:changed", listSessions());

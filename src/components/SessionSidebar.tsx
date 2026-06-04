@@ -15,6 +15,12 @@ type SessionSidebarProps = {
   onReorder: (orderedIds: string[]) => void;
 };
 
+function getSessionTypeLabel(session: TerminalSession) {
+  if (session.type === "ssh") return "SSH";
+  if (session.type === "wsl") return session.wslDistro || "WSL";
+  return "PS";
+}
+
 export function SessionSidebar({
   sessions,
   activeId,
@@ -121,7 +127,7 @@ export function SessionSidebar({
                 <span className="session-title">
                   {session.title}
                   <span className={`session-type-badge ${session.type}`}>
-                    {session.type === "wsl" ? (session.wslDistro || "WSL") : "PS"}
+                    {getSessionTypeLabel(session)}
                   </span>
                 </span>
                 {agentStatusLabel && (

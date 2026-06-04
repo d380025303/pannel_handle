@@ -15,11 +15,19 @@ function createTempSessionsFile() {
   return path.join(dir, "sessions.json");
 }
 
-function createStore(sessionsFile) {
+function createSafeStorageMock() {
+  return {
+    isEncryptionAvailable: vi.fn(() => true),
+    encryptString: vi.fn((value) => Buffer.from(`encrypted:${value}`, "utf-8"))
+  };
+}
+
+function createStore(sessionsFile, safeStorage = createSafeStorageMock()) {
   return createSessionStore({
     sessionsFile,
     getDefaultShell: () => "powershell.exe",
-    getWslShell: () => "wsl.exe"
+    getWslShell: () => "wsl.exe",
+    safeStorage
   });
 }
 
@@ -99,5 +107,75 @@ describe("session-store", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     expect(store.loadLibrary()).toEqual([]);
+  });
+
+  it("normalizes and persists SSH sessions with encrypted secrets", () => {
+    const sessionsFile = createTempSessionsFile();
+    const safeStorage = createSafeStorageMock();
+    const store = createStore(sessionsFile, safeStorage);
+
+    store.addToLibrary({
+      id: "7",
+      type: "ssh",
+      title: "Prod",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy",
+        port: 2222,
+        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
+        remoteCommand: "cd /srv/app && bash",
+        extraArgs: ["-o", "ServerAliveInterval=30"],
+        secret: "plain-secret"
+      }
+    });
+
+    const persisted = JSON.parse(readFileSync(sessionsFile, "utf-8"));
+    expect(persisted[0]).toMatchObject({
+      id: "7",
+      title: "Prod",
+      shell: "ssh.exe",
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy",
+        port: 2222,
+        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
+        remoteCommand: "cd /srv/app && bash",
+        extraArgs: ["-o", "ServerAliveInterval=30"]
+      }
+    });
+    expect(JSON.stringify(persisted)).not.toContain("plain-secret");
+    expect(persisted[0].sshConfig.encryptedSecret).toBe(Buffer.from("encrypted:plain-secret").toString("base64"));
+    expect(safeStorage.encryptString).toHaveBeenCalledWith("plain-secret");
+  });
+
+  it("keeps existing encrypted SSH secret when editing other SSH fields", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "8",
+      title: "Old",
+      type: "ssh",
+      sshConfig: {
+        host: "old.example.com",
+        encryptedSecret: "ciphertext"
+      }
+    }]), "utf-8");
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+
+    store.updateLibrary("8", {
+      title: "New",
+      sshConfig: {
+        host: "new.example.com"
+      }
+    });
+
+    expect(store.getTemplate("8")).toMatchObject({
+      title: "New",
+      sshConfig: {
+        host: "new.example.com",
+        encryptedSecret: "ciphertext"
+      }
+    });
   });
 });

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentStatusPayload, QuickCommand, TerminalSession } from "../vite-env";
+import type { AgentStatusPayload, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 
 type CreateSessionOptions = {
   selectedShellId: string;
   title?: string;
   initialCommand?: string;
+  sshConfig?: SshConfig;
 };
 
 export function useTerminalSessions() {
@@ -50,10 +51,12 @@ export function useTerminalSessions() {
         );
       });
       setActiveId((current) => {
+        console.log("[onSessionsChanged] pendingSelectTemplateId:", pendingSelectTemplateId.current, "current activeId:", current, "nextSessions:", nextSessions.map(s => ({ id: s.id, templateId: s.templateId, title: s.title })));
         if (pendingSelectTemplateId.current) {
           const targetId = pendingSelectTemplateId.current;
           pendingSelectTemplateId.current = undefined;
           const matched = nextSessions.find(s => s.templateId === targetId);
+          console.log("[onSessionsChanged] looking for templateId:", targetId, "matched:", matched?.id);
           if (matched) return matched.id;
         }
         if (current && nextSessions.some((session) => session.id === current)) {
@@ -79,11 +82,13 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, initialCommand }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, initialCommand, sshConfig }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
+    const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
-      type: isWsl ? "wsl" : "windows",
+      type: isSsh ? "ssh" : isWsl ? "wsl" : "windows",
       ...(isWsl ? { wslDistro: selectedShellId.slice(4) } : {}),
+      ...(isSsh ? { sshConfig } : {}),
       ...(title ? { title } : {}),
       ...(initialCommand ? { initialCommand } : {})
     });
@@ -94,10 +99,11 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[]) => {
+  const updateSession = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
     await window.terminalApi.updateSession(id, {
       title,
       initialCommand: initialCommand.trim() || undefined,
+      sshConfig,
       quickCommands
     });
   }, []);
@@ -110,6 +116,7 @@ export function useTerminalSessions() {
 
   const launchSessions = useCallback(async (toLaunch: TerminalSession[]) => {
     pendingSelectTemplateId.current = toLaunch[0]?.id;
+    console.log("[launchSessions] pendingSelectTemplateId set:", pendingSelectTemplateId.current, "toLaunch:", toLaunch.map(s => s.id));
     await window.terminalApi.launchSessions(toLaunch);
   }, []);
 

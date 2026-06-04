@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createTerminalManager } = require("./terminal-manager.cjs");
+const { buildSshArgs, createTerminalManager } = require("./terminal-manager.cjs");
 
 function createMockTerm() {
   const dataHandlers = [];
@@ -63,7 +63,9 @@ function createManager(overrides = {}) {
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
       type: template.type || "windows",
-      wslDistro: template.wslDistro
+      wslDistro: template.wslDistro,
+      sshConfig: template.sshConfig,
+      quickCommands: template.quickCommands || []
     })),
     addToLibrary: vi.fn((template) => templates.set(template.id, template)),
     removeFromLibrary: vi.fn(),
@@ -229,5 +231,73 @@ describe("terminal-manager", () => {
         WSLENV: "EXISTING/p:PANNEL_HANDLE_SESSION_ID/u:PANNEL_HANDLE_HOOK_URL/u"
       })
     }));
+  });
+
+  it("builds SSH arguments without shell string interpolation", () => {
+    expect(buildSshArgs({
+      host: "example.com",
+      username: "deploy",
+      port: 2222,
+      identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
+      remoteCommand: "cd /srv/app && bash",
+      extraArgs: ["-o", "ServerAliveInterval=30"]
+    })).toEqual([
+      "deploy@example.com",
+      "-p",
+      "2222",
+      "-i",
+      "C:\\Users\\tester\\.ssh\\id_ed25519",
+      "-o",
+      "ServerAliveInterval=30",
+      "-t",
+      "cd /srv/app && bash"
+    ]);
+  });
+
+  it("creates SSH sessions with system ssh and persists the template", () => {
+    const { manager, pty, sessionStore } = createManager();
+
+    const session = manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy",
+        port: 2222,
+        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519"
+      }
+    });
+
+    expect(session).toMatchObject({
+      title: "deploy@example.com",
+      shell: expect.stringMatching(/^ssh(\.exe)?$/),
+      type: "ssh",
+      sshConfig: expect.objectContaining({
+        host: "example.com",
+        username: "deploy",
+        port: 2222
+      })
+    });
+    expect(sessionStore.addToLibrary).toHaveBeenCalledWith(expect.objectContaining({
+      type: "ssh",
+      sshConfig: expect.objectContaining({ host: "example.com" })
+    }));
+    expect(pty.spawn).toHaveBeenCalledWith(expect.stringMatching(/^ssh(\.exe)?$/), [
+      "deploy@example.com",
+      "-p",
+      "2222",
+      "-i",
+      "C:\\Users\\tester\\.ssh\\id_ed25519"
+    ], expect.any(Object));
+  });
+
+  it("rejects SSH sessions without a host before persisting", () => {
+    const { manager, sessionStore, pty } = createManager();
+
+    expect(() => manager.createSession({
+      type: "ssh",
+      sshConfig: { username: "deploy" }
+    })).toThrow("SSH host is required.");
+    expect(sessionStore.addToLibrary).not.toHaveBeenCalled();
+    expect(pty.spawn).not.toHaveBeenCalled();
   });
 });

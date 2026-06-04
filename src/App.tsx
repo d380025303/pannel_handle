@@ -10,7 +10,8 @@ import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
 import { useWindowState } from "./hooks/useWindowState";
-import type { TerminalSession } from "./vite-env";
+import type { CreateSessionRequest } from "./components/CreateSessionModal";
+import type { QuickCommand, SshConfig, TerminalSession } from "./vite-env";
 
 export function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -29,8 +30,8 @@ export function App() {
     setWslDistros(distros);
   }, []);
 
-  const handleCreateSession = useCallback(async (selectedShellId: string, title?: string, initialCommand?: string) => {
-    await terminalSessions.createSession({ selectedShellId, title, initialCommand });
+  const handleCreateSession = useCallback(async (request: CreateSessionRequest) => {
+    await terminalSessions.createSession(request);
     setShowCreateModal(false);
   }, [terminalSessions]);
 
@@ -39,8 +40,8 @@ export function App() {
     terminalInstances.disposeTerminal(id);
   }, [terminalInstances, terminalSessions]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: import("./vite-env").QuickCommand[]) => {
-    await terminalSessions.updateSession(id, title, initialCommand, quickCommands);
+  const handleSaveEdit = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
+    await terminalSessions.updateSession(id, title, initialCommand, quickCommands, sshConfig);
     setEditDialogSession(null);
   }, [terminalSessions]);
 

@@ -1,12 +1,19 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import type { QuickCommand, TerminalSession } from "../vite-env";
+import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 
 type EditSessionModalProps = {
   session: TerminalSession;
-  onSave: (id: string, title: string, initialCommand: string, quickCommands: QuickCommand[]) => void;
+  onSave: (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => void;
   onCancel: () => void;
 };
+
+function parseExtraArgs(value: string) {
+  return value
+    .split(/\s+/)
+    .map(arg => arg.trim())
+    .filter(Boolean);
+}
 
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
@@ -18,9 +25,38 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
     () => session.quickCommands ?? []
   );
+  const [sshHost, setSshHost] = useState(session.sshConfig?.host || "");
+  const [sshUsername, setSshUsername] = useState(session.sshConfig?.username || "");
+  const [sshPort, setSshPort] = useState(String(session.sshConfig?.port || 22));
+  const [sshIdentityFile, setSshIdentityFile] = useState(session.sshConfig?.identityFile || "");
+  const [sshRemoteCommand, setSshRemoteCommand] = useState(session.sshConfig?.remoteCommand || "");
+  const [sshExtraArgs, setSshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
+  const [sshSecret, setSshSecret] = useState("");
+  const isSsh = session.type === "ssh";
 
   const handleSave = () => {
-    onSave(session.id, editTitle, editCommand, quickCommands);
+    onSave(
+      session.id,
+      editTitle,
+      editCommand,
+      quickCommands,
+      isSsh ? {
+        host: sshHost.trim(),
+        username: sshUsername.trim() || undefined,
+        port: Number(sshPort) || 22,
+        identityFile: sshIdentityFile.trim() || undefined,
+        remoteCommand: sshRemoteCommand.trim() || undefined,
+        extraArgs: parseExtraArgs(sshExtraArgs),
+        encryptedSecret: session.sshConfig?.encryptedSecret,
+        secret: sshSecret || undefined
+      } : undefined
+    );
+  };
+
+  const handleEscape = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      onCancel();
+    }
   };
 
   const handleAddCommand = () => {
@@ -47,30 +83,110 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
           <h3>编辑会话</h3>
         </div>
         <div className="modal-body">
-          <label className="modal-label">会话名称</label>
-          <input
-            autoFocus
-            className="modal-input"
-            placeholder="输入会话名称"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-          />
-          <label className="modal-label" style={{ marginTop: "12px" }}>
-            初始命令
+          <label className="modal-field">
+            <span className="modal-label">会话名称</span>
+            <input
+              autoFocus
+              className="modal-input"
+              placeholder="输入会话名称"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={handleEscape}
+            />
           </label>
-          <textarea
-            className="modal-input modal-textarea"
-            placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
-            value={editCommand}
-            onChange={(e) => setEditCommand(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                onCancel();
-              }
-            }}
-            rows={3}
-          />
-          <label className="modal-label" style={{ marginTop: "16px" }}>
+
+          {isSsh ? (
+            <div className="ssh-form">
+              <div className="modal-grid two">
+                <label className="modal-field">
+                  <span className="modal-label">主机</span>
+                  <input
+                    className="modal-input"
+                    placeholder="example.com 或 192.168.1.10"
+                    value={sshHost}
+                    onChange={(e) => setSshHost(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+                <label className="modal-field">
+                  <span className="modal-label">用户名</span>
+                  <input
+                    className="modal-input"
+                    placeholder="root"
+                    value={sshUsername}
+                    onChange={(e) => setSshUsername(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+              </div>
+              <div className="modal-grid two">
+                <label className="modal-field">
+                  <span className="modal-label">端口</span>
+                  <input
+                    className="modal-input"
+                    placeholder="22"
+                    value={sshPort}
+                    onChange={(e) => setSshPort(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+                <label className="modal-field">
+                  <span className="modal-label">密钥路径</span>
+                  <input
+                    className="modal-input"
+                    placeholder="C:\\Users\\me\\.ssh\\id_rsa"
+                    value={sshIdentityFile}
+                    onChange={(e) => setSshIdentityFile(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+              </div>
+              <label className="modal-field">
+                <span className="modal-label">远程启动命令</span>
+                <input
+                  className="modal-input"
+                  placeholder="cd /srv/app && bash"
+                  value={sshRemoteCommand}
+                  onChange={(e) => setSshRemoteCommand(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">额外 SSH 参数</span>
+                <input
+                  className="modal-input"
+                  placeholder="-o ServerAliveInterval=30"
+                  value={sshExtraArgs}
+                  onChange={(e) => setSshExtraArgs(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">密码或密钥口令</span>
+                <input
+                  className="modal-input"
+                  type="password"
+                  placeholder={session.sshConfig?.encryptedSecret ? "留空保持原加密凭据" : "加密保存，不自动登录"}
+                  value={sshSecret}
+                  onChange={(e) => setSshSecret(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
+            </div>
+          ) : (
+            <label className="modal-field">
+              <span className="modal-label">初始命令</span>
+              <textarea
+                className="modal-input modal-textarea"
+                placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
+                value={editCommand}
+                onChange={(e) => setEditCommand(e.target.value)}
+                onKeyDown={handleEscape}
+                rows={3}
+              />
+            </label>
+          )}
+          <label className="modal-label quick-command-heading">
             快捷命令
           </label>
           <div className="quick-command-edit-list">
@@ -112,7 +228,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
           <button className="modal-button" type="button" onClick={onCancel}>
             取消
           </button>
-          <button className="modal-button primary" type="button" onClick={handleSave}>
+          <button className="modal-button primary" type="button" onClick={handleSave} disabled={isSsh && sshHost.trim().length === 0}>
             保存
           </button>
         </div>
