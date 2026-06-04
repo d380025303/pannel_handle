@@ -33,19 +33,17 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
           <label className="modal-label" style={{ marginTop: "12px" }}>
             初始命令
           </label>
-          <input
-            className="modal-input"
+          <textarea
+            className="modal-input modal-textarea"
             placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
             value={editCommand}
             onChange={(e) => setEditCommand(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleSave();
-              }
               if (e.key === "Escape") {
                 onCancel();
               }
             }}
+            rows={3}
           />
         </div>
         <div className="modal-footer">

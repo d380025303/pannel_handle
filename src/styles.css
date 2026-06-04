@@ -399,6 +399,11 @@ input,
   color: #626a73;
 }
 
+.modal-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;

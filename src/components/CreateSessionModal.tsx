@@ -47,20 +47,18 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
               );
             })}
           </div>
-          <input
+          <textarea
             autoFocus
-            className="modal-input"
+            className="modal-input modal-textarea"
             placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
             value={commandInput}
             onChange={(e) => setCommandInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleCreate();
-              }
               if (e.key === "Escape") {
                 onCancel();
               }
             }}
+            rows={3}
           />
         </div>
         <div className="modal-footer">
