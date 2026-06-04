@@ -9,6 +9,7 @@ const sessions = new Map();
 let librarySessions = [];
 let mainWindow = null;
 let nextSessionId = 1;
+let nextRuntimeId = 1;
 let isShuttingDown = false;
 const SESSIONS_FILE = path.join(app.getPath("userData"), "sessions.json");
 
@@ -97,6 +98,7 @@ function broadcast(channel, payload) {
 function serializeSession(session) {
   return {
     id: session.id,
+    templateId: session.templateId,
     title: session.title,
     shell: session.shell,
     cwd: session.cwd,
@@ -107,8 +109,67 @@ function serializeSession(session) {
   };
 }
 
+function serializeTemplate(template) {
+  return {
+    id: template.id,
+    title: template.title,
+    shell: template.shell,
+    cwd: template.cwd,
+    createdAt: template.createdAt,
+    initialCommand: template.initialCommand,
+    type: template.type,
+    wslDistro: template.wslDistro
+  };
+}
+
 function listSessions() {
   return Array.from(sessions.values()).map(serializeSession);
+}
+
+function bumpTemplateIdCounter(id) {
+  const idNum = parseInt(id, 10);
+  if (!isNaN(idNum) && idNum >= nextSessionId) {
+    nextSessionId = idNum + 1;
+  }
+}
+
+function createRuntimeId() {
+  let id = `run-${nextRuntimeId++}`;
+  while (sessions.has(id)) {
+    id = `run-${nextRuntimeId++}`;
+  }
+  return id;
+}
+
+function getRuntimeTitle(template) {
+  const usedTitles = new Set(
+    Array.from(sessions.values())
+      .filter(session => session.templateId === template.id)
+      .map(session => session.title)
+  );
+
+  if (!usedTitles.has(template.title)) {
+    return template.title;
+  }
+
+  let index = 2;
+  let title = `${template.title} #${index}`;
+  while (usedTitles.has(title)) {
+    index += 1;
+    title = `${template.title} #${index}`;
+  }
+  return title;
+}
+
+function normalizeTemplate(template) {
+  const type = template.type || (template.shell && template.shell.includes('wsl') ? 'wsl' : 'windows');
+  return serializeTemplate({
+    ...template,
+    type,
+    shell: template.shell || (type === 'wsl' ? getWslShell() : getDefaultShell()),
+    cwd: template.cwd || os.homedir(),
+    createdAt: template.createdAt || Date.now()
+  });
 }
 
 function loadSessions() {
@@ -125,7 +186,10 @@ function loadSessions() {
 }
 
 function loadLibrary() {
-  librarySessions = loadSessions();
+  librarySessions = loadSessions().map(normalizeTemplate);
+  for (const session of librarySessions) {
+    bumpTemplateIdCounter(session.id);
+  }
 }
 
 function saveLibrary() {
@@ -140,11 +204,12 @@ function saveLibrary() {
 }
 
 function addToLibrary(sessionMeta) {
-  const idx = librarySessions.findIndex(s => s.id === sessionMeta.id);
+  const template = normalizeTemplate(sessionMeta);
+  const idx = librarySessions.findIndex(s => s.id === template.id);
   if (idx >= 0) {
-    librarySessions[idx] = sessionMeta;
+    librarySessions[idx] = template;
   } else {
-    librarySessions.push(sessionMeta);
+    librarySessions.push(template);
   }
   saveLibrary();
 }
@@ -157,7 +222,10 @@ function removeFromLibrary(id) {
 function updateLibrary(id, updates) {
   const idx = librarySessions.findIndex(s => s.id === id);
   if (idx >= 0) {
-    librarySessions[idx] = { ...librarySessions[idx], ...updates };
+    const nextUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => typeof value !== "undefined")
+    );
+    librarySessions[idx] = normalizeTemplate({ ...librarySessions[idx], ...nextUpdates });
     saveLibrary();
   }
 }
@@ -205,6 +273,22 @@ function spawnPty(session, options = {}) {
   }
 }
 
+function startSessionFromTemplate(templateData, options = {}) {
+  const template = normalizeTemplate(templateData);
+  const id = createRuntimeId();
+  const session = {
+    ...template,
+    id,
+    templateId: template.id,
+    title: getRuntimeTitle(template),
+    createdAt: Date.now()
+  };
+
+  spawnPty(session, options);
+  sessions.set(id, session);
+  return serializeSession(session);
+}
+
 function createSession(options = {}) {
   const id = String(nextSessionId++);
   const type = options.type || 'windows';
@@ -212,14 +296,13 @@ function createSession(options = {}) {
   const cwd = options.cwd || os.homedir();
   const title = options.title || `会话 ${id}`;
 
-  const session = { id, title, shell, cwd, type, wslDistro: options.wslDistro, createdAt: Date.now(), initialCommand: options.initialCommand };
+  const template = { id, title, shell, cwd, type, wslDistro: options.wslDistro, createdAt: Date.now(), initialCommand: options.initialCommand };
 
-  spawnPty(session, options);
-  sessions.set(id, session);
-  addToLibrary(serializeSession(session));
+  addToLibrary(template);
+  const session = startSessionFromTemplate(template, options);
   broadcast("sessions:changed", listSessions());
 
-  return serializeSession(session);
+  return session;
 }
 
 ipcMain.handle("sessions:list", () => listSessions());
@@ -228,17 +311,7 @@ ipcMain.handle("sessions:load-saved", () => librarySessions);
 
 ipcMain.handle("sessions:launch-selected", (_event, sessionsToLaunch) => {
   for (const sessionData of sessionsToLaunch) {
-    if (sessions.has(sessionData.id)) continue;
-    const idNum = parseInt(sessionData.id, 10);
-    if (!isNaN(idNum) && idNum >= nextSessionId) {
-      nextSessionId = idNum + 1;
-    }
-    if (!sessionData.type) {
-      sessionData.type = sessionData.shell && sessionData.shell.includes('wsl') ? 'wsl' : 'windows';
-    }
-    const session = { ...sessionData };
-    spawnPty(session);
-    sessions.set(session.id, session);
+    startSessionFromTemplate(sessionData);
   }
 
   broadcast("sessions:changed", listSessions());
@@ -246,11 +319,6 @@ ipcMain.handle("sessions:launch-selected", (_event, sessionsToLaunch) => {
 });
 
 ipcMain.handle("sessions:delete-saved", (_event, id) => {
-  const session = sessions.get(id);
-  if (session) {
-    session.term.kill();
-    sessions.delete(id);
-  }
   removeFromLibrary(id);
   broadcast("sessions:changed", listSessions());
   return listSessions();
@@ -266,7 +334,7 @@ ipcMain.handle("sessions:rename", (_event, { id, title }) => {
     return listSessions();
   }
   session.title = title.trim() || session.title;
-  updateLibrary(id, { title: session.title });
+  updateLibrary(session.templateId || id, { title: session.title });
   broadcast("sessions:changed", listSessions());
   return listSessions();
 });
@@ -277,13 +345,21 @@ ipcMain.handle("sessions:update", (_event, { id, title, initialCommand }) => {
     updateLibrary(id, { title, initialCommand });
     return listSessions();
   }
+  const templateId = session.templateId || id;
+  const template = librarySessions.find(item => item.id === templateId);
+  const previousTitle = session.title;
+  const libraryUpdates = {};
   if (typeof title === "string") {
     session.title = title.trim() || session.title;
+    if (session.title !== previousTitle || previousTitle === template?.title) {
+      libraryUpdates.title = session.title;
+    }
   }
   if (typeof initialCommand !== "undefined") {
     session.initialCommand = initialCommand || undefined;
+    libraryUpdates.initialCommand = session.initialCommand;
   }
-  updateLibrary(id, { title: session.title, initialCommand: session.initialCommand });
+  updateLibrary(templateId, libraryUpdates);
   broadcast("sessions:changed", listSessions());
   return listSessions();
 });

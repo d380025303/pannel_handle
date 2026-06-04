@@ -154,7 +154,7 @@ export function App() {
       }
       if (saved.length > 0) {
         setPendingSessions(saved);
-        setSelectedIds(new Set(saved.map((s) => s.id)));
+        setSelectedIds(new Set());
         setPickerManual(false);
       } else {
         setPendingSessions(null);
@@ -304,9 +304,8 @@ export function App() {
   }
 
   async function handleLaunchSelected() {
-    const runningIds = new Set(sessions.map((s) => s.id));
     const toLaunch = (pendingSessions ?? []).filter(
-      (s) => selectedIds.has(s.id) && !runningIds.has(s.id)
+      (s) => selectedIds.has(s.id)
     );
     await window.terminalApi.launchSessions(toLaunch);
   }
@@ -559,10 +558,14 @@ export function App() {
     )}
 
     {pendingSessions !== null && (() => {
-      const runningIds = new Set(sessions.map((s) => s.id));
-      const newCount = pendingSessions.filter(
-        (s) => selectedIds.has(s.id) && !runningIds.has(s.id)
-      ).length;
+      const runningCounts = sessions.reduce((counts, session) => {
+        if (!session.templateId) {
+          return counts;
+        }
+        counts.set(session.templateId, (counts.get(session.templateId) ?? 0) + 1);
+        return counts;
+      }, new Map<string, number>());
+      const newCount = pendingSessions.filter((s) => selectedIds.has(s.id)).length;
 
       return (
       <div className="modal-overlay" onClick={() => { setPendingSessions(null); setPickerManual(false); }}>
@@ -581,8 +584,9 @@ export function App() {
             ) : (
               <div className="picker-list">
                 {pendingSessions.map((session) => {
-                  const isRunning = runningIds.has(session.id);
-                  const isChecked = isRunning || selectedIds.has(session.id);
+                  const runningCount = runningCounts.get(session.id) ?? 0;
+                  const isRunning = runningCount > 0;
+                  const isChecked = selectedIds.has(session.id);
                   return (
                     <label
                       key={session.id}
@@ -592,7 +596,6 @@ export function App() {
                         type="checkbox"
                         className="picker-checkbox"
                         checked={isChecked}
-                        disabled={isRunning}
                         onChange={() => {
                           setSelectedIds((prev) => {
                             const next = new Set(prev);
@@ -611,7 +614,7 @@ export function App() {
                           {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
                         </span>
                         {isRunning && (
-                          <span className="picker-running-badge">运行中</span>
+                          <span className="picker-running-badge">运行中 {runningCount}</span>
                         )}
                       </span>
                       <span

@@ -2,6 +2,7 @@
 
 export type TerminalSession = {
   id: string;
+  templateId?: string;
   title: string;
   shell: string;
   cwd: string;
