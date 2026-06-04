@@ -33,6 +33,23 @@ function listWslDistros() {
   }
 }
 
+function appendWslEnv(existingValue, variableNames) {
+  const entries = String(existingValue || "")
+    .split(":")
+    .map(entry => entry.trim())
+    .filter(Boolean);
+  const knownNames = new Set(entries.map(entry => entry.split("/")[0]));
+
+  for (const variableName of variableNames) {
+    if (!knownNames.has(variableName)) {
+      entries.push(`${variableName}/u`);
+      knownNames.add(variableName);
+    }
+  }
+
+  return entries.join(":");
+}
+
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
   let nextRuntimeId = 1;
@@ -96,17 +113,25 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       ? ["-d", session.wslDistro]
       : [];
     const hookUrl = getHookUrl();
+    const env = {
+      ...process.env,
+      PANNEL_HANDLE_SESSION_ID: session.id,
+      ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {})
+    };
+
+    if (session.type === "wsl") {
+      env.WSLENV = appendWslEnv(env.WSLENV, [
+        "PANNEL_HANDLE_SESSION_ID",
+        "PANNEL_HANDLE_HOOK_URL"
+      ]);
+    }
 
     const term = pty.spawn(session.shell, args, {
       name: "xterm-256color",
       cols: options.cols || 100,
       rows: options.rows || 30,
       cwd: session.cwd,
-      env: {
-        ...process.env,
-        PANNEL_HANDLE_SESSION_ID: session.id,
-        ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {})
-      }
+      env
     });
 
     session.term = term;

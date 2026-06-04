@@ -192,4 +192,23 @@ describe("terminal-manager", () => {
 
     expect(pty.spawn).toHaveBeenCalledWith(expect.stringContaining("wsl.exe"), ["-d", "Ubuntu-24.04"], expect.any(Object));
   });
+
+  it("passes panel hook environment into WSL sessions through WSLENV", () => {
+    vi.stubEnv("WSLENV", "EXISTING/p");
+    const { manager, pty } = createManager();
+
+    manager.createSession({
+      title: "Ubuntu",
+      type: "wsl",
+      wslDistro: "Ubuntu-24.04"
+    });
+
+    expect(pty.spawn).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({
+      env: expect.objectContaining({
+        PANNEL_HANDLE_SESSION_ID: "run-1",
+        PANNEL_HANDLE_HOOK_URL: "http://127.0.0.1:4567",
+        WSLENV: "EXISTING/p:PANNEL_HANDLE_SESSION_ID/u:PANNEL_HANDLE_HOOK_URL/u"
+      })
+    }));
+  });
 });

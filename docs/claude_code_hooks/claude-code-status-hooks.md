@@ -11,7 +11,7 @@
    - `PANNEL_HANDLE_HOOK_URL`：hook 事件上报地址。
    - `PANNEL_HANDLE_SESSION_ID`：本工具内部会话 ID。
 3. Claude Code 触发 `UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`Notification`、`Stop`、`StopFailure` 等 hook。
-4. `.claude/pannel-handle-hook.cjs` 从 stdin 读取 Claude hook JSON，并 POST 到 `PANNEL_HANDLE_HOOK_URL`。
+4. `.claude/pannel-handle-hook.ps1` 从 stdin 读取 Claude hook JSON，并 POST 到 `PANNEL_HANDLE_HOOK_URL`。
 5. Electron 将 hook 映射为前端状态：
    - `UserPromptSubmit` -> `running`
    - `PreToolUse` -> `running`
@@ -30,9 +30,9 @@
 当前项目使用本地 Claude 配置：
 
 - `.claude/settings.local.json`
-- `.claude/pannel-handle-hook.cjs`
+- `.claude/pannel-handle-hook.ps1`
 
-`settings.local.json` 配置 Claude hooks，`pannel-handle-hook.cjs` 负责把事件上报给 Electron。hook 脚本是 best-effort：上报失败不会自动批准、拒绝权限，也不会改变 Claude 的正常权限流程。
+`settings.local.json` 配置 Claude hooks，`pannel-handle-hook.ps1` 负责把事件上报给 Electron。hook 脚本是 best-effort：上报失败不会自动批准、拒绝权限，也不会改变 Claude 的正常权限流程。
 
 注意：`.claude/` 已在 `.gitignore` 中，因此这些本机配置默认不会进入 Git。
 
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
           }
         ]
       }
@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
           }
         ]
       }
@@ -91,7 +91,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
           }
         ]
       }
@@ -102,7 +102,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
           }
         ]
       }
@@ -113,7 +113,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
           }
         ]
       }
@@ -131,7 +131,7 @@
 本项目必须存在：
 
 ```text
-.claude/pannel-handle-hook.cjs
+.claude/pannel-handle-hook.ps1
 ```
 
 该脚本负责：
@@ -148,7 +148,7 @@
 - 使用 `pnpm start` 启动本工具。
 - 在本工具创建的终端会话中启动 `claude`。
 - 不使用 `claude --bare`，因为该模式会跳过 hooks。
-- 当前 shell 能运行 `node`。
+- 当前 shell 能运行 `powershell.exe`，Windows 默认满足。
 
 如果直接在外部 PowerShell、Windows Terminal 或 IDE 终端里启动 `claude`，不会继承本工具注入的 `PANNEL_HANDLE_HOOK_URL`，因此本工具无法收到状态事件。
 
@@ -167,7 +167,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -178,7 +178,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -189,7 +189,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       },
@@ -198,7 +198,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -209,7 +209,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -220,7 +220,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -231,7 +231,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -242,7 +242,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.cjs"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
           }
         ]
       }
@@ -293,11 +293,11 @@ claude
 - 是否使用了 `claude --bare`。该模式会跳过 hooks。
 - 当前项目或用户级 settings 是否包含 hooks 配置。
 - hook 命令中的脚本路径是否存在。
-- 运行 Claude 的 shell 是否能执行 `node`。
+- hook 命令中的 PowerShell 脚本路径是否存在，当前 shell 是否能执行 `powershell.exe`。
 
 ### 多个项目是否都要复制脚本
 
-不需要。推荐在其他项目中使用 `pannel-handle-hook.cjs` 的绝对路径，只复制或合并 hooks 配置即可。
+不需要。推荐在其他项目中使用 `pannel-handle-hook.ps1` 的绝对路径，只复制或合并 hooks 配置即可。
 
 ### hook 会自动批准权限吗
 
