@@ -304,6 +304,14 @@ input,
   background: #8b3f44;
 }
 
+.mini-action.danger.confirm {
+  width: auto;
+  padding: 0 6px;
+  color: #ffffff;
+  background: #d9534f;
+  font-size: 10px;
+}
+
 .modal-label {
   display: block;
   margin-bottom: 6px;
@@ -533,6 +541,7 @@ input,
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .picker-item-title {
@@ -584,6 +593,18 @@ input,
 .picker-delete-btn:hover {
   color: #ffffff;
   background: #8b3f44;
+}
+
+.picker-delete-btn.confirm {
+  color: #ffffff;
+  background: #d9534f;
+  width: auto;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.picker-delete-btn.confirm:hover {
+  background: #c9302c;
 }
 
 @media (max-width: 760px) {

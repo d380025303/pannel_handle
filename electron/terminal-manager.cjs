@@ -197,7 +197,6 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl }) {
 
   function deleteSavedSession(id) {
     sessionStore.removeFromLibrary(id);
-    broadcast("sessions:changed", listSessions());
     return listSessions();
   }
 

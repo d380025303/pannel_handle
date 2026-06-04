@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 
@@ -22,6 +23,14 @@ export function SessionSidebar({
   onOpenPicker,
   onOpenCreate
 }: SessionSidebarProps) {
+  const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingCloseId) return;
+    const handleClick = () => setPendingCloseId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [pendingCloseId]);
   return (
     <aside className="session-sidebar">
       <div className="sidebar-header">
@@ -75,14 +84,19 @@ export function SessionSidebar({
                   R
                 </span>
                 <span
-                  className="mini-action danger"
-                  title="关闭"
+                  className={`mini-action danger${pendingCloseId === session.id ? " confirm" : ""}`}
+                  title={pendingCloseId === session.id ? "再次点击确认关闭" : "关闭"}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onCloseSession(session.id);
+                    if (pendingCloseId === session.id) {
+                      setPendingCloseId(null);
+                      onCloseSession(session.id);
+                    } else {
+                      setPendingCloseId(session.id);
+                    }
                   }}
                 >
-                  X
+                  {pendingCloseId === session.id ? "确认?" : "X"}
                 </span>
               </span>
             </button>

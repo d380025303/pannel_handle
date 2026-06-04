@@ -23,6 +23,7 @@ export function SessionPickerModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
       if (!session.templateId) {
@@ -35,7 +36,7 @@ export function SessionPickerModal({
   const toLaunch = pendingSessions.filter((session) => selectedIds.has(session.id));
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay" onClick={() => { setConfirmDeleteId(null); onCancel(); }}>
       <div className="modal-dialog session-picker-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
@@ -64,6 +65,7 @@ export function SessionPickerModal({
                       className="picker-checkbox"
                       checked={isChecked}
                       onChange={() => {
+                        setConfirmDeleteId(null);
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
                           if (next.has(session.id)) {
@@ -85,20 +87,25 @@ export function SessionPickerModal({
                       )}
                     </span>
                     <span
-                      className="picker-delete-btn"
-                      title="从库中删除"
+                      className={`picker-delete-btn${confirmDeleteId === session.id ? " confirm" : ""}`}
+                      title={confirmDeleteId === session.id ? "再次点击确认删除" : "从库中删除"}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
-                        onDelete(session.id);
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          next.delete(session.id);
-                          return next;
-                        });
+                        if (confirmDeleteId === session.id) {
+                          onDelete(session.id);
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(session.id);
+                            return next;
+                          });
+                          setConfirmDeleteId(null);
+                        } else {
+                          setConfirmDeleteId(session.id);
+                        }
                       }}
                     >
-                      {"×"}
+                      {confirmDeleteId === session.id ? "确认" : "×"}
                     </span>
                   </label>
                 );
