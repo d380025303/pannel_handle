@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `pnpm start` | 同时启动 Vite + Electron，完整开发流程 |
 | `pnpm build` | `tsc` 类型检查 + `vite build` → `dist/` |
 | `pnpm dist:dir` | 构建 + `electron-builder --dir` → `release/win-unpacked/` |
+| `pnpm dist:portable` | 构建 + `electron-builder` → `release/Pannel Handle.exe` 绿色单文件 |
 
 没有配置测试框架或代码检查工具。
 

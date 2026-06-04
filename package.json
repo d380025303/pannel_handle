@@ -8,8 +8,10 @@
     "dev": "vite --host 127.0.0.1",
     "electron": "electron .",
     "start": "concurrently -k \"pnpm dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "test": "vitest run",
     "build": "tsc && vite build",
-    "dist:dir": "pnpm build && electron-builder --dir"
+    "dist:dir": "pnpm build && electron-builder --dir",
+    "dist:portable": "pnpm build && electron-builder"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.5.0",
@@ -25,10 +27,11 @@
     "concurrently": "^9.1.2",
     "electron": "^35.0.0",
     "electron-builder": "^26.0.12",
-    "typescript": "^5.8.3",
-    "wait-on": "^8.0.3",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.8",
+    "wait-on": "^8.0.3"
   },
   "build": {
     "appId": "local.pannel-handle",
@@ -45,7 +48,7 @@
     "win": {
       "signAndEditExecutable": false,
       "target": [
-        "dir"
+        "portable"
       ]
     }
   }

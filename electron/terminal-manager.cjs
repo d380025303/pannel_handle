@@ -1,6 +1,6 @@
 const os = require("node:os");
 const { execSync } = require("node:child_process");
-const pty = require("node-pty");
+const nodePty = require("node-pty");
 
 function getDefaultShell() {
   if (process.platform !== "win32") {
@@ -33,7 +33,7 @@ function listWslDistros() {
   }
 }
 
-function createTerminalManager({ sessionStore, broadcast, getHookUrl }) {
+function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
   let nextRuntimeId = 1;
 
