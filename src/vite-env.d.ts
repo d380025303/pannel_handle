@@ -6,6 +6,7 @@ export type TerminalSession = {
   shell: string;
   cwd: string;
   createdAt: number;
+  initialCommand?: string;
 };
 
 export type TerminalApi = {
