@@ -1,0 +1,9 @@
+node_modules
+dist
+release
+.claude
+.idea
+release
+.vite
+*.log
+
