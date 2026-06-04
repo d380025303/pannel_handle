@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GripVertical, Trash2 } from "lucide-react";
+import { GripVertical, Search, Trash2, X } from "lucide-react";
 import type { TerminalSession } from "../vite-env";
 
 type SessionPickerModalProps = {
@@ -34,6 +34,7 @@ export function SessionPickerModal({
   );
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
       if (!session.templateId) {
@@ -43,6 +44,24 @@ export function SessionPickerModal({
       return counts;
     }, new Map<string, number>());
   }, [runningSessions]);
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) return pendingSessions;
+    const q = searchQuery.toLowerCase().trim();
+    return pendingSessions.filter((s) => {
+      return (
+        s.title.toLowerCase().includes(q) ||
+        s.type.toLowerCase().includes(q) ||
+        s.shell.toLowerCase().includes(q) ||
+        s.cwd.toLowerCase().includes(q) ||
+        (s.wslDistro && s.wslDistro.toLowerCase().includes(q)) ||
+        (s.sshConfig?.host && s.sshConfig.host.toLowerCase().includes(q)) ||
+        (s.sshConfig?.username && s.sshConfig.username.toLowerCase().includes(q))
+      );
+    });
+  }, [pendingSessions, searchQuery]);
+
+  const isSearching = searchQuery.trim() !== "";
+
   const toLaunch = pendingSessions.filter((session) => selectedIds.has(session.id));
 
   const handleDragStart = (e: React.DragEvent, sessionId: string) => {
@@ -101,8 +120,33 @@ export function SessionPickerModal({
               <p>没有已保存的会话</p>
             </div>
           ) : (
-            <div className="picker-list">
-              {pendingSessions.map((session) => {
+            <>
+              <div className="picker-search">
+                <Search className="picker-search-icon" aria-hidden="true" />
+                <input
+                  className="modal-input picker-search-input"
+                  type="text"
+                  placeholder="搜索会话..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {isSearching && (
+                  <button
+                    className="picker-search-clear"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="清除搜索"
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+              {filteredSessions.length === 0 ? (
+                <div className="picker-empty">
+                  <p>没有匹配的会话</p>
+                </div>
+              ) : (
+                <div className="picker-list">
+                  {filteredSessions.map((session) => {
                 const runningCount = runningCounts.get(session.id) ?? 0;
                 const isRunning = runningCount > 0;
                 const isChecked = selectedIds.has(session.id);
@@ -110,7 +154,7 @@ export function SessionPickerModal({
                   <div
                     key={session.id}
                     className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
-                    draggable={true}
+                    draggable={!isSearching}
                     onDragStart={(e) => handleDragStart(e, session.id)}
                     onDragOver={(e) => handleDragOver(e, session.id)}
                     onDragLeave={handleDragLeave}
@@ -118,7 +162,7 @@ export function SessionPickerModal({
                     onDragEnd={handleDragEnd}
                   >
                     <span
-                      className="picker-drag-handle"
+                      className={`picker-drag-handle${isSearching ? " disabled" : ""}`}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
                       <GripVertical aria-hidden="true" />
@@ -173,7 +217,9 @@ export function SessionPickerModal({
                   </div>
                 );
               })}
-            </div>
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="modal-footer">

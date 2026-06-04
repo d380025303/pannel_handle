@@ -481,6 +481,18 @@ input,
   margin-top: 12px;
 }
 
+.modal-checkbox-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a8b3c2;
+  font-size: 13px;
+}
+
+.modal-checkbox-field input {
+  margin: 0;
+}
+
 /* === Shell Flat List === */
 .shell-list {
   display: flex;
@@ -708,6 +720,57 @@ input,
   width: 16px;
   height: 16px;
   stroke-width: 2;
+}
+
+/* === Picker Search === */
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.picker-search-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+  color: #626a73;
+  flex-shrink: 0;
+}
+
+.picker-search-input {
+  flex: 1;
+}
+
+.picker-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  color: #93a0ae;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.picker-search-clear:hover {
+  color: #e7edf4;
+  background: #303946;
+}
+
+.picker-search-clear svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+/* === Picker Drag Handle (disabled when searching) === */
+.picker-drag-handle.disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
 /* === Picker Drag States === */

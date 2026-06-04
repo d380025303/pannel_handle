@@ -18,6 +18,7 @@ function createWindowManager() {
       minHeight: 520,
       frame: false,
       show: false,
+      icon: path.join(__dirname, "..", "build", "icon.png"),
       backgroundColor: "#101318",
       webPreferences: {
         preload: path.join(__dirname, "preload.cjs"),

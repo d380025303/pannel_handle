@@ -32,6 +32,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
   const [sshRemoteCommand, setSshRemoteCommand] = useState(session.sshConfig?.remoteCommand || "");
   const [sshExtraArgs, setSshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
   const [sshSecret, setSshSecret] = useState("");
+  const [clearSshSecret, setClearSshSecret] = useState(false);
   const isSsh = session.type === "ssh";
 
   const handleSave = () => {
@@ -47,8 +48,8 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
         identityFile: sshIdentityFile.trim() || undefined,
         remoteCommand: sshRemoteCommand.trim() || undefined,
         extraArgs: parseExtraArgs(sshExtraArgs),
-        encryptedSecret: session.sshConfig?.encryptedSecret,
-        secret: sshSecret || undefined
+        secret: clearSshSecret ? undefined : sshSecret || undefined,
+        clearSecret: clearSshSecret
       } : undefined
     );
   };
@@ -166,12 +167,28 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                 <input
                   className="modal-input"
                   type="password"
-                  placeholder={session.sshConfig?.encryptedSecret ? "留空保持原加密凭据" : "加密保存，不自动登录"}
+                  placeholder={session.sshConfig?.hasSecret ? "已保存密码，留空保持不变" : "加密保存，用于自动登录"}
                   value={sshSecret}
+                  disabled={clearSshSecret}
                   onChange={(e) => setSshSecret(e.target.value)}
                   onKeyDown={handleEscape}
                 />
               </label>
+              {session.sshConfig?.hasSecret && (
+                <label className="modal-checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={clearSshSecret}
+                    onChange={(e) => {
+                      setClearSshSecret(e.target.checked);
+                      if (e.target.checked) {
+                        setSshSecret("");
+                      }
+                    }}
+                  />
+                  <span>清除已保存密码</span>
+                </label>
+              )}
             </div>
           ) : (
             <label className="modal-field">

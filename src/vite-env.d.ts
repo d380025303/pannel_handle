@@ -13,8 +13,9 @@ export type SshConfig = {
   identityFile?: string;
   remoteCommand?: string;
   extraArgs?: string[];
-  encryptedSecret?: string;
+  hasSecret?: boolean;
   secret?: string;
+  clearSecret?: boolean;
 };
 
 export type TerminalSession = {

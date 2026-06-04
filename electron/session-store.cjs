@@ -17,6 +17,23 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     return safeStorage.encryptString(value).toString("base64");
   }
 
+  function decryptSecret(encryptedSecret) {
+    const value = String(encryptedSecret || "");
+    if (!value) {
+      return undefined;
+    }
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
+      console.error("Failed to read SSH secret: Electron safeStorage encryption is not available.");
+      return undefined;
+    }
+    try {
+      return safeStorage.decryptString(Buffer.from(value, "base64"));
+    } catch (err) {
+      console.error("Failed to decrypt SSH secret:", err);
+      return undefined;
+    }
+  }
+
   function normalizeSshConfig(config = {}, existingConfig = {}) {
     const host = String(config.host || existingConfig.host || "").trim();
     const username = String(config.username || existingConfig.username || "").trim();
@@ -29,9 +46,11 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       : Array.isArray(existingConfig.extraArgs)
         ? existingConfig.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
         : [];
-    const encryptedSecret = typeof config.secret === "string" && config.secret
-      ? encryptSecret(config.secret)
-      : config.encryptedSecret || existingConfig.encryptedSecret;
+    const encryptedSecret = config.clearSecret
+      ? undefined
+      : typeof config.secret === "string" && config.secret
+        ? encryptSecret(config.secret)
+        : config.encryptedSecret || existingConfig.encryptedSecret;
 
     return {
       host,
@@ -41,6 +60,24 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       remoteCommand,
       extraArgs,
       encryptedSecret
+    };
+  }
+
+  function sanitizeSshConfig(config) {
+    if (!config) {
+      return undefined;
+    }
+    const { secret, encryptedSecret, clearSecret, ...safeConfig } = config;
+    return {
+      ...safeConfig,
+      hasSecret: Boolean(encryptedSecret)
+    };
+  }
+
+  function sanitizeTemplate(template) {
+    return {
+      ...template,
+      sshConfig: template.type === "ssh" ? sanitizeSshConfig(template.sshConfig) : undefined
     };
   }
 
@@ -150,7 +187,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   }
 
   function getLibrary() {
-    return librarySessions;
+    return librarySessions.map(sanitizeTemplate);
   }
 
   function getTemplate(id) {
@@ -176,6 +213,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   return {
     createTemplateId,
     normalizeTemplate,
+    sanitizeTemplate,
+    decryptSecret,
     loadLibrary,
     saveLibrary,
     addToLibrary,

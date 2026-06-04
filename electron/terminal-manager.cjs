@@ -96,8 +96,11 @@ function sanitizeSshConfig(sshConfig) {
   if (!sshConfig) {
     return undefined;
   }
-  const { secret, ...safeConfig } = sshConfig;
-  return safeConfig;
+  const { secret, encryptedSecret, clearSecret, ...safeConfig } = sshConfig;
+  return {
+    ...safeConfig,
+    hasSecret: Boolean(encryptedSecret)
+  };
 }
 
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
@@ -187,6 +190,30 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     return title;
   }
 
+  function getSshSecret(session) {
+    const encryptedSecret = session.sshConfig?.encryptedSecret;
+    if (!encryptedSecret || typeof sessionStore.decryptSecret !== "function") {
+      return undefined;
+    }
+    return sessionStore.decryptSecret(encryptedSecret);
+  }
+
+  function isSshSecretPrompt(data) {
+    const text = stripAnsi(data).replace(/\r/g, "\n");
+    return /(?:^|\n).*password:\s*$/i.test(text) || /enter passphrase for key\b.*:\s*$/i.test(text);
+  }
+
+  function maybeWriteSshSecret(session, data) {
+    if (session.type !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
+      return;
+    }
+    if (!isSshSecretPrompt(data)) {
+      return;
+    }
+    session.sshSecretAttempts += 1;
+    session.term.write(`${session.sshSecret}\r`);
+  }
+
   function spawnPty(session, options = {}) {
     const args = session.type === "ssh"
       ? buildSshArgs(session.sshConfig)
@@ -217,12 +244,15 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
 
     session.term = term;
     session.buffer = [];
+    session.sshSecret = getSshSecret(session);
+    session.sshSecretAttempts = 0;
 
     term.onData((data) => {
       session.buffer.push(data);
       if (session.buffer.length > 1000) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
+      maybeWriteSshSecret(session, data);
       maybeBroadcastTerminalPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });
@@ -255,7 +285,8 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
   }
 
   function startSessionFromTemplate(templateData, options = {}) {
-    const template = sessionStore.normalizeTemplate(templateData);
+    const storedTemplate = templateData?.id ? sessionStore.getTemplate(templateData.id) : undefined;
+    const template = sessionStore.normalizeTemplate(storedTemplate || templateData);
     const id = createRuntimeId();
     const session = {
       ...template,

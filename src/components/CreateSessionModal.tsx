@@ -186,7 +186,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                 <input
                   className="modal-input"
                   type="password"
-                  placeholder="加密保存，不自动登录"
+                  placeholder="加密保存，用于自动登录"
                   value={sshSecret}
                   onChange={(e) => setSshSecret(e.target.value)}
                   onKeyDown={handleEscape}
