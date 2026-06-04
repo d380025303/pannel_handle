@@ -1,18 +1,43 @@
 import { useState } from "react";
-import type { TerminalSession } from "../vite-env";
+import { Plus, X } from "lucide-react";
+import type { QuickCommand, TerminalSession } from "../vite-env";
 
 type EditSessionModalProps = {
   session: TerminalSession;
-  onSave: (id: string, title: string, initialCommand: string) => void;
+  onSave: (id: string, title: string, initialCommand: string, quickCommands: QuickCommand[]) => void;
   onCancel: () => void;
 };
+
+function generateId() {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 export function EditSessionModal({ session, onSave, onCancel }: EditSessionModalProps) {
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCommand, setEditCommand] = useState(session.initialCommand || "");
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
+    () => session.quickCommands ?? []
+  );
 
   const handleSave = () => {
-    onSave(session.id, editTitle, editCommand);
+    onSave(session.id, editTitle, editCommand, quickCommands);
+  };
+
+  const handleAddCommand = () => {
+    setQuickCommands((prev) => [
+      ...prev,
+      { id: generateId(), label: "", command: "" }
+    ]);
+  };
+
+  const handleRemoveCommand = (id: string) => {
+    setQuickCommands((prev) => prev.filter((qc) => qc.id !== id));
+  };
+
+  const handleCommandChange = (id: string, field: "label" | "command", value: string) => {
+    setQuickCommands((prev) =>
+      prev.map((qc) => (qc.id === id ? { ...qc, [field]: value } : qc))
+    );
   };
 
   return (
@@ -45,6 +70,43 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
             }}
             rows={3}
           />
+          <label className="modal-label" style={{ marginTop: "16px" }}>
+            快捷命令
+          </label>
+          <div className="quick-command-edit-list">
+            {quickCommands.map((qc) => (
+              <div key={qc.id} className="quick-command-edit-row">
+                <input
+                  className="modal-input quick-cmd-input"
+                  placeholder="显示名称"
+                  value={qc.label}
+                  onChange={(e) => handleCommandChange(qc.id, "label", e.target.value)}
+                />
+                <input
+                  className="modal-input quick-cmd-input"
+                  placeholder="命令内容"
+                  value={qc.command}
+                  onChange={(e) => handleCommandChange(qc.id, "command", e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="mini-action danger"
+                  onClick={() => handleRemoveCommand(qc.id)}
+                  title="删除"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="quick-command-add-btn"
+              onClick={handleAddCommand}
+            >
+              <Plus size={14} />
+              <span>添加命令</span>
+            </button>
+          </div>
         </div>
         <div className="modal-footer">
           <button className="modal-button" type="button" onClick={onCancel}>

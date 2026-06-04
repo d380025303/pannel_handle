@@ -29,8 +29,8 @@ function registerIpcHandlers({ terminalManager, sessionStore, windowManager, cli
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", (_event, { id, title, initialCommand }) => {
-    return terminalManager.updateSession(id, { title, initialCommand });
+  ipcMain.handle("sessions:update", (_event, { id, title, initialCommand, sshConfig, quickCommands }) => {
+    return terminalManager.updateSession(id, { title, initialCommand, sshConfig, quickCommands });
   });
 
   ipcMain.handle("sessions:close", (_event, id) => terminalManager.closeSession(id));

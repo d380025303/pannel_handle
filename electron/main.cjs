@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, clipboard } = require("electron");
+const { app, BrowserWindow, clipboard, safeStorage } = require("electron");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createSessionStore } = require("./session-store.cjs");
@@ -16,7 +16,8 @@ app.whenReady().then(() => {
   sessionStore = createSessionStore({
     sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
     getDefaultShell,
-    getWslShell
+    getWslShell,
+    safeStorage
   });
   terminalManager = createTerminalManager({
     sessionStore,

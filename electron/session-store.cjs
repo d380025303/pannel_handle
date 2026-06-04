@@ -1,9 +1,48 @@
 const fs = require("node:fs");
 const os = require("node:os");
 
-function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
+function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage }) {
   let librarySessions = [];
   let nextSessionId = 1;
+
+  function encryptSecret(secret) {
+    const value = String(secret || "");
+    if (!value) {
+      return undefined;
+    }
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
+      console.error("Failed to save SSH secret: Electron safeStorage encryption is not available.");
+      return undefined;
+    }
+    return safeStorage.encryptString(value).toString("base64");
+  }
+
+  function normalizeSshConfig(config = {}, existingConfig = {}) {
+    const host = String(config.host || existingConfig.host || "").trim();
+    const username = String(config.username || existingConfig.username || "").trim();
+    const parsedPort = Number(config.port || existingConfig.port || 22);
+    const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22;
+    const identityFile = String(config.identityFile || existingConfig.identityFile || "").trim() || undefined;
+    const remoteCommand = String(config.remoteCommand || existingConfig.remoteCommand || "").trim() || undefined;
+    const extraArgs = Array.isArray(config.extraArgs)
+      ? config.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
+      : Array.isArray(existingConfig.extraArgs)
+        ? existingConfig.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
+        : [];
+    const encryptedSecret = typeof config.secret === "string" && config.secret
+      ? encryptSecret(config.secret)
+      : config.encryptedSecret || existingConfig.encryptedSecret;
+
+    return {
+      host,
+      username,
+      port,
+      identityFile,
+      remoteCommand,
+      extraArgs,
+      encryptedSecret
+    };
+  }
 
   function serializeTemplate(template) {
     return {
@@ -14,7 +53,9 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
       type: template.type,
-      wslDistro: template.wslDistro
+      wslDistro: template.wslDistro,
+      sshConfig: template.sshConfig,
+      quickCommands: template.quickCommands || []
     };
   }
 
@@ -31,12 +72,15 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
 
   function normalizeTemplate(template) {
     const type = template.type || (template.shell && template.shell.includes("wsl") ? "wsl" : "windows");
+    const sshConfig = type === "ssh" ? normalizeSshConfig(template.sshConfig) : undefined;
     return serializeTemplate({
       ...template,
       type,
-      shell: template.shell || (type === "wsl" ? getWslShell() : getDefaultShell()),
+      shell: template.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? "ssh.exe" : getDefaultShell()),
       cwd: template.cwd || os.homedir(),
-      createdAt: template.createdAt || Date.now()
+      createdAt: template.createdAt || Date.now(),
+      sshConfig,
+      quickCommands: template.quickCommands || []
     });
   }
 
@@ -94,7 +138,13 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell }) {
       const nextUpdates = Object.fromEntries(
         Object.entries(updates).filter(([, value]) => typeof value !== "undefined")
       );
-      librarySessions[idx] = normalizeTemplate({ ...librarySessions[idx], ...nextUpdates });
+      librarySessions[idx] = normalizeTemplate({
+        ...librarySessions[idx],
+        ...nextUpdates,
+        sshConfig: nextUpdates.sshConfig
+          ? normalizeSshConfig(nextUpdates.sshConfig, librarySessions[idx].sshConfig)
+          : librarySessions[idx].sshConfig
+      });
       saveLibrary();
     }
   }

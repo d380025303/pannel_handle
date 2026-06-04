@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentStatusPayload, TerminalSession } from "../vite-env";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentStatusPayload, QuickCommand, TerminalSession } from "../vite-env";
 
 type CreateSessionOptions = {
   selectedShellId: string;
@@ -13,12 +13,18 @@ export function useTerminalSessions() {
   const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
   const [pickerManual, setPickerManual] = useState(false);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
+  const pendingSelectTemplateId = useRef<string | undefined>(undefined);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeId),
     [activeId, sessions]
   );
   const activeAgentStatus = activeId ? agentStatusesBySessionId[activeId] : undefined;
+
+  const quickCommandsForActiveSession = useMemo(
+    () => activeSession?.quickCommands ?? [],
+    [activeSession]
+  );
 
   useEffect(() => {
     let isDisposed = false;
@@ -44,6 +50,12 @@ export function useTerminalSessions() {
         );
       });
       setActiveId((current) => {
+        if (pendingSelectTemplateId.current) {
+          const targetId = pendingSelectTemplateId.current;
+          pendingSelectTemplateId.current = undefined;
+          const matched = nextSessions.find(s => s.templateId === targetId);
+          if (matched) return matched.id;
+        }
         if (current && nextSessions.some((session) => session.id === current)) {
           return current;
         }
@@ -82,10 +94,11 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, initialCommand: string) => {
+  const updateSession = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[]) => {
     await window.terminalApi.updateSession(id, {
       title,
-      initialCommand: initialCommand.trim() || undefined
+      initialCommand: initialCommand.trim() || undefined,
+      quickCommands
     });
   }, []);
 
@@ -96,6 +109,7 @@ export function useTerminalSessions() {
   }, []);
 
   const launchSessions = useCallback(async (toLaunch: TerminalSession[]) => {
+    pendingSelectTemplateId.current = toLaunch[0]?.id;
     await window.terminalApi.launchSessions(toLaunch);
   }, []);
 
@@ -130,6 +144,7 @@ export function useTerminalSessions() {
     activeSession,
     agentStatusesBySessionId,
     activeAgentStatus,
+    quickCommandsForActiveSession,
     pendingSessions,
     setPendingSessions,
     pickerManual,

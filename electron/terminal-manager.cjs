@@ -14,6 +14,10 @@ function getWslShell() {
   return "C:\\Windows\\System32\\wsl.exe";
 }
 
+function getSshShell() {
+  return process.platform === "win32" ? "ssh.exe" : "ssh";
+}
+
 function listWslDistros() {
   try {
     const output = execSync("wsl.exe -l -q", {
@@ -52,6 +56,40 @@ function appendWslEnv(existingValue, variableNames) {
 
 function stripAnsi(value) {
   return String(value || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function splitSshExtraArgs(value) {
+  if (Array.isArray(value)) {
+    return value.map(arg => String(arg).trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(/\s+/)
+    .map(arg => arg.trim())
+    .filter(Boolean);
+}
+
+function buildSshArgs(sshConfig = {}) {
+  const host = String(sshConfig.host || "").trim();
+  if (!host) {
+    throw new Error("SSH host is required.");
+  }
+
+  const username = String(sshConfig.username || "").trim();
+  const parsedPort = Number(sshConfig.port || 22);
+  const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22;
+  const args = [username ? `${username}@${host}` : host, "-p", String(port)];
+  const identityFile = String(sshConfig.identityFile || "").trim();
+  if (identityFile) {
+    args.push("-i", identityFile);
+  }
+  args.push(...splitSshExtraArgs(sshConfig.extraArgs));
+
+  const remoteCommand = String(sshConfig.remoteCommand || "").trim();
+  if (remoteCommand) {
+    args.push("-t", remoteCommand);
+  }
+
+  return args;
 }
 
 function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
@@ -101,7 +139,9 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       createdAt: session.createdAt,
       initialCommand: session.initialCommand,
       type: session.type,
-      wslDistro: session.wslDistro
+      wslDistro: session.wslDistro,
+      sshConfig: session.sshConfig,
+      quickCommands: session.quickCommands || []
     };
   }
 
@@ -140,9 +180,11 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
   }
 
   function spawnPty(session, options = {}) {
-    const args = session.type === "wsl" && session.wslDistro
-      ? ["-d", session.wslDistro]
-      : [];
+    const args = session.type === "ssh"
+      ? buildSshArgs(session.sshConfig)
+      : session.type === "wsl" && session.wslDistro
+        ? ["-d", session.wslDistro]
+        : [];
     const hookUrl = getHookUrl();
     const env = {
       ...process.env,
@@ -223,8 +265,15 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
   function createSession(options = {}) {
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
-    const shell = options.shell || (type === "wsl" ? getWslShell() : getDefaultShell());
+    const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : getDefaultShell());
     const cwd = options.cwd || os.homedir();
+    const sshConfig = options.sshConfig;
+    if (type === "ssh") {
+      buildSshArgs(sshConfig);
+    }
+    if (!options.title && sshConfig?.host) {
+      options.title = `${sshConfig.username ? `${sshConfig.username}@` : ""}${sshConfig.host}`;
+    }
     const title = options.title || `会话 ${id}`;
 
     const template = {
@@ -234,8 +283,10 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       cwd,
       type,
       wslDistro: options.wslDistro,
+      sshConfig,
       createdAt: Date.now(),
-      initialCommand: options.initialCommand
+      initialCommand: options.initialCommand,
+      quickCommands: options.quickCommands || []
     };
 
     sessionStore.addToLibrary(template);
@@ -275,10 +326,10 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     return listSessions();
   }
 
-  function updateSession(id, { title, initialCommand }) {
+  function updateSession(id, { title, initialCommand, sshConfig, quickCommands }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, initialCommand });
+      sessionStore.updateLibrary(id, { title, initialCommand, sshConfig, quickCommands });
       return listSessions();
     }
     const templateId = session.templateId || id;
@@ -294,6 +345,22 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     if (typeof initialCommand !== "undefined") {
       session.initialCommand = initialCommand || undefined;
       libraryUpdates.initialCommand = session.initialCommand;
+    }
+    if (typeof quickCommands !== "undefined") {
+      session.quickCommands = quickCommands;
+      libraryUpdates.quickCommands = quickCommands;
+      for (const [sid, s] of sessions) {
+        if (sid !== id && s.templateId === templateId) {
+          s.quickCommands = quickCommands;
+        }
+      }
+    }
+    if (typeof sshConfig !== "undefined" && session.type === "ssh") {
+      session.sshConfig = {
+        ...(session.sshConfig || {}),
+        ...sshConfig
+      };
+      libraryUpdates.sshConfig = session.sshConfig;
     }
     sessionStore.updateLibrary(templateId, libraryUpdates);
     broadcast("sessions:changed", listSessions());
@@ -384,5 +451,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
 module.exports = {
   createTerminalManager,
   getDefaultShell,
-  getWslShell
+  getWslShell,
+  getSshShell,
+  buildSshArgs
 };

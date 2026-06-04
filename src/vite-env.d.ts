@@ -1,5 +1,22 @@
 /// <reference types="vite/client" />
 
+export type QuickCommand = {
+  id: string;
+  label: string;
+  command: string;
+};
+
+export type SshConfig = {
+  host: string;
+  username?: string;
+  port?: number;
+  identityFile?: string;
+  remoteCommand?: string;
+  extraArgs?: string[];
+  encryptedSecret?: string;
+  secret?: string;
+};
+
 export type TerminalSession = {
   id: string;
   templateId?: string;
@@ -8,8 +25,10 @@ export type TerminalSession = {
   cwd: string;
   createdAt: number;
   initialCommand?: string;
-  type: 'windows' | 'wsl';
+  type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
+  sshConfig?: SshConfig;
+  quickCommands?: QuickCommand[];
 };
 
 export type AgentProvider = "claude" | "codex";
@@ -30,8 +49,8 @@ export type AgentStatusPayload = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl'; wslDistro?: string }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; initialCommand?: string }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; initialCommand?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;

@@ -4,6 +4,7 @@ import { EditSessionModal } from "./components/EditSessionModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
+import { QuickCommandBar } from "./components/QuickCommandBar";
 import { TitleBar } from "./components/TitleBar";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
@@ -38,8 +39,8 @@ export function App() {
     terminalInstances.disposeTerminal(id);
   }, [terminalInstances, terminalSessions]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, initialCommand: string) => {
-    await terminalSessions.updateSession(id, title, initialCommand);
+  const handleSaveEdit = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: import("./vite-env").QuickCommand[]) => {
+    await terminalSessions.updateSession(id, title, initialCommand, quickCommands);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -68,10 +69,16 @@ export function App() {
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
-          <TerminalPanel
-            terminalHostRef={terminalInstances.terminalHostRef}
-            onContextMenu={terminalInstances.handleTerminalContextMenu}
-          />
+          <div className="terminal-area">
+            <TerminalPanel
+              terminalHostRef={terminalInstances.terminalHostRef}
+              onContextMenu={terminalInstances.handleTerminalContextMenu}
+            />
+            <QuickCommandBar
+              quickCommands={terminalSessions.quickCommandsForActiveSession}
+              activeSessionId={terminalSessions.activeId}
+            />
+          </div>
         </main>
       </div>
 
