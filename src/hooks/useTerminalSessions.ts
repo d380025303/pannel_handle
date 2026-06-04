@@ -3,6 +3,7 @@ import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 
 type CreateSessionOptions = {
   selectedShellId: string;
+  title?: string;
   initialCommand?: string;
 };
 
@@ -66,11 +67,12 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, initialCommand }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, initialCommand }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const session = await window.terminalApi.createSession({
       type: isWsl ? "wsl" : "windows",
       ...(isWsl ? { wslDistro: selectedShellId.slice(4) } : {}),
+      ...(title ? { title } : {}),
       ...(initialCommand ? { initialCommand } : {})
     });
     setActiveId(session.id);

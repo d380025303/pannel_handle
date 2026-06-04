@@ -400,6 +400,7 @@ input,
 }
 
 .modal-textarea {
+  margin-top: 8px;
   resize: vertical;
   min-height: 60px;
 }

@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 
 type CreateSessionModalProps = {
   wslDistros: string[];
-  onCreate: (selectedShellId: string, initialCommand?: string) => void;
+  onCreate: (selectedShellId: string, title?: string, initialCommand?: string) => void;
   onCancel: () => void;
 };
 
 export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSessionModalProps) {
+  const [title, setTitle] = useState("");
   const [commandInput, setCommandInput] = useState("");
   const [selectedShellId, setSelectedShellId] = useState("powershell");
 
@@ -15,7 +16,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
   }, [wslDistros]);
 
   const handleCreate = () => {
-    onCreate(selectedShellId, commandInput.trim() || undefined);
+    onCreate(selectedShellId, title.trim() || undefined, commandInput.trim() || undefined);
   };
 
   return (
@@ -47,6 +48,17 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
               );
             })}
           </div>
+          <input
+            className="modal-input"
+            placeholder="会话名称（可选）"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                onCancel();
+              }
+            }}
+          />
           <textarea
             autoFocus
             className="modal-input modal-textarea"

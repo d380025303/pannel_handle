@@ -28,8 +28,8 @@ export function App() {
     setWslDistros(distros);
   }, []);
 
-  const handleCreateSession = useCallback(async (selectedShellId: string, initialCommand?: string) => {
-    await terminalSessions.createSession({ selectedShellId, initialCommand });
+  const handleCreateSession = useCallback(async (selectedShellId: string, title?: string, initialCommand?: string) => {
+    await terminalSessions.createSession({ selectedShellId, title, initialCommand });
     setShowCreateModal(false);
   }, [terminalSessions]);
 
