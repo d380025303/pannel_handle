@@ -51,8 +51,7 @@ export function App() {
   const [renameText, setRenameText] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [commandInput, setCommandInput] = useState("");
-  const [sessionType, setSessionType] = useState<'windows' | 'wsl'>('windows');
-  const [wslDistro, setWslDistro] = useState('');
+  const [selectedShellId, setSelectedShellId] = useState('powershell');
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
@@ -171,14 +170,14 @@ export function App() {
   }, [activeId]);
 
   async function handleCreateSession(initialCommand?: string) {
+    const isWsl = selectedShellId.startsWith('wsl:');
     const session = await window.terminalApi.createSession({
-      type: sessionType,
-      ...(sessionType === 'wsl' && wslDistro ? { wslDistro } : {}),
+      type: isWsl ? 'wsl' : 'windows',
+      ...(isWsl ? { wslDistro: selectedShellId.slice(4) } : {}),
       ...(initialCommand ? { initialCommand } : {})
     });
     setActiveId(session.id);
-    setSessionType('windows');
-    setWslDistro('');
+    setSelectedShellId('powershell');
   }
 
   async function handleCloseSession(id: string) {
@@ -244,7 +243,7 @@ export function App() {
               setShowModal(true);
               const distros = await window.terminalApi.listWslDistros();
               setWslDistros(distros);
-              if (distros.length > 0) setWslDistro(distros[0]);
+              setSelectedShellId(distros.length > 0 ? `wsl:${distros[0]}` : 'powershell');
             }}>
               +
             </button>
@@ -281,7 +280,7 @@ export function App() {
                     <span className="session-title">
                       {session.title}
                       <span className={`session-type-badge ${session.type}`}>
-                        {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'WIN'}
+                        {session.type === 'wsl' ? (session.wslDistro || 'WSL') : 'PS'}
                       </span>
                     </span>
                   )}
@@ -319,7 +318,7 @@ export function App() {
           <header className="terminal-header">
             <div>
               <h2>{activeSession?.title || "未选择会话"}</h2>
-              <span>{activeSession ? (activeSession.type === 'wsl' ? `WSL - ${activeSession.wslDistro || 'Linux'}` : 'Windows (PowerShell)') : '没有正在运行的命令窗口'}</span>
+              <span>{activeSession ? (activeSession.type === 'wsl' ? `WSL - ${activeSession.wslDistro || 'Linux'}` : 'PowerShell') : '没有正在运行的命令窗口'}</span>
             </div>
           </header>
           <div className="terminal-host" ref={terminalHostRef} />
@@ -334,33 +333,28 @@ export function App() {
             <h3>新建会话</h3>
           </div>
           <div className="modal-body">
-            <div className="type-selector">
+            <div className="shell-list">
               <button
                 type="button"
-                className={`type-option ${sessionType === 'windows' ? 'selected' : ''}`}
-                onClick={() => setSessionType('windows')}
+                className={`shell-item ${selectedShellId === 'powershell' ? 'selected' : ''}`}
+                onClick={() => setSelectedShellId('powershell')}
               >
-                Windows (PowerShell)
+                PowerShell
               </button>
-              <button
-                type="button"
-                className={`type-option ${sessionType === 'wsl' ? 'selected' : ''}`}
-                onClick={() => setSessionType('wsl')}
-              >
-                WSL (Linux)
-              </button>
+              {wslDistros.map((distro) => {
+                const id = `wsl:${distro}`;
+                return (
+                  <button
+                    key={distro}
+                    type="button"
+                    className={`shell-item ${selectedShellId === id ? 'selected' : ''}`}
+                    onClick={() => setSelectedShellId(id)}
+                  >
+                    {distro}
+                  </button>
+                );
+              })}
             </div>
-            {sessionType === 'wsl' && wslDistros.length > 0 && (
-              <select
-                className="modal-select"
-                value={wslDistro}
-                onChange={(e) => setWslDistro(e.target.value)}
-              >
-                {wslDistros.map((distro) => (
-                  <option key={distro} value={distro}>{distro}</option>
-                ))}
-              </select>
-            )}
             <input
               autoFocus
               className="modal-input"
