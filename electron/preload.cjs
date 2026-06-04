@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld("terminalApi", {
   }
 });
 
+contextBridge.exposeInMainWorld("clipboardApi", {
+  writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text)
+});
+
 contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),

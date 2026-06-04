@@ -33,9 +33,14 @@ export type WindowApi = {
   onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
 };
 
+export type ClipboardApi = {
+  writeText: (text: string) => Promise<boolean>;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    clipboardApi: ClipboardApi;
     windowApi: WindowApi;
   }
 }

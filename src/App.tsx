@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import type { TerminalSession } from "./vite-env";
@@ -62,6 +63,39 @@ export function App() {
     () => sessions.find((session) => session.id === activeId),
     [activeId, sessions]
   );
+
+  const copyTerminalSelection = useCallback(async (terminal: Terminal) => {
+    if (!terminal.hasSelection()) {
+      return false;
+    }
+
+    const selection = terminal.getSelection();
+    if (!selection) {
+      return false;
+    }
+
+    const didCopy = await window.clipboardApi.writeText(selection);
+    if (didCopy) {
+      terminal.clearSelection();
+    }
+    return didCopy;
+  }, []);
+
+  const handleTerminalContextMenu = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+
+    const entry = activeId ? terminalsRef.current.get(activeId) : undefined;
+    if (!entry) {
+      return;
+    }
+
+    if (entry.terminal.hasSelection()) {
+      void copyTerminalSelection(entry.terminal);
+      return;
+    }
+
+    entry.terminal.focus();
+  }, [activeId, copyTerminalSelection]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -133,6 +167,31 @@ export function App() {
 
     if (!entry) {
       entry = createTerminalEntry();
+      entry.terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type !== "keydown" || !event.ctrlKey || event.altKey) {
+          return true;
+        }
+
+        const isCopyKey = event.key.toLowerCase() === "c";
+        if (!isCopyKey) {
+          return true;
+        }
+
+        const hasSelection = entry?.terminal.hasSelection() ?? false;
+        if (event.shiftKey) {
+          if (hasSelection && entry) {
+            void copyTerminalSelection(entry.terminal);
+          }
+          return false;
+        }
+
+        if (hasSelection && entry) {
+          void copyTerminalSelection(entry.terminal);
+          return false;
+        }
+
+        return true;
+      });
       entry.terminal.onData((data) => {
         window.terminalApi.write(activeId, data);
       });
@@ -168,7 +227,7 @@ export function App() {
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeId]);
+  }, [activeId, copyTerminalSelection]);
 
   async function handleCreateSession(initialCommand?: string) {
     const isWsl = selectedShellId.startsWith('wsl:');
@@ -305,7 +364,7 @@ export function App() {
               <span>{activeSession ? (activeSession.type === 'wsl' ? `WSL - ${activeSession.wslDistro || 'Linux'}` : 'PowerShell') : '没有正在运行的命令窗口'}</span>
             </div>
           </header>
-          <div className="terminal-host" ref={terminalHostRef} />
+          <div className="terminal-host" ref={terminalHostRef} onContextMenu={handleTerminalContextMenu} />
         </section>
         </main>
       </div>

@@ -1,7 +1,7 @@
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, clipboard, ipcMain } = require("electron");
 const { execSync } = require("node:child_process");
 const pty = require("node-pty");
 
@@ -267,6 +267,15 @@ ipcMain.handle("sessions:close", (_event, id) => {
 ipcMain.handle("terminal:history", (_event, id) => {
   const session = sessions.get(id);
   return session ? session.buffer.join("") : "";
+});
+
+ipcMain.handle("clipboard:write-text", (_event, text) => {
+  if (typeof text !== "string" || text.length === 0) {
+    return false;
+  }
+
+  clipboard.writeText(text);
+  return true;
 });
 
 ipcMain.on("terminal:write", (_event, { id, data }) => {
