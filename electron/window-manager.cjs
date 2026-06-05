@@ -4,13 +4,22 @@ const { app, BrowserWindow } = require("electron");
 function createWindowManager() {
   let mainWindow = null;
 
+  function hasWindow() {
+    return mainWindow && !mainWindow.isDestroyed();
+  }
+
   function broadcast(channel, payload) {
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (hasWindow()) {
       mainWindow.webContents.send(channel, payload);
     }
   }
 
   function createWindow() {
+    if (hasWindow()) {
+      focusWindow();
+      return mainWindow;
+    }
+
     mainWindow = new BrowserWindow({
       width: 1180,
       height: 760,
@@ -54,6 +63,17 @@ function createWindowManager() {
     return mainWindow;
   }
 
+  function focusWindow() {
+    if (!hasWindow()) {
+      return null;
+    }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+    return mainWindow;
+  }
+
   function getWindowFromEvent(event) {
     return BrowserWindow.fromWebContents(event.sender);
   }
@@ -64,6 +84,7 @@ function createWindowManager() {
 
   return {
     createWindow,
+    focusWindow,
     broadcast,
     getWindowFromEvent,
     closeWindowManager
