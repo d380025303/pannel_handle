@@ -33,6 +33,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
   const [sshRemoteCommand, setSshRemoteCommand] = useState("");
   const [sshExtraArgs, setSshExtraArgs] = useState("");
   const [sshSecret, setSshSecret] = useState("");
+  const [sshRemark, setSshRemark] = useState("");
 
   const isSsh = selectedShellId === "ssh";
   const canCreate = useMemo(() => !isSsh || sshHost.trim().length > 0, [isSsh, sshHost]);
@@ -52,7 +53,8 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
         identityFile: sshIdentityFile.trim() || undefined,
         remoteCommand: sshRemoteCommand.trim() || undefined,
         extraArgs: parseExtraArgs(sshExtraArgs),
-        secret: sshSecret || undefined
+        secret: sshSecret || undefined,
+        remark: sshRemark.trim() || undefined
       } : undefined
     });
   };
@@ -125,18 +127,6 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                   />
                 </label>
                 <label className="modal-field">
-                  <span className="modal-label">用户名</span>
-                  <input
-                    className="modal-input"
-                    placeholder="root"
-                    value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
-                </label>
-              </div>
-              <div className="modal-grid two">
-                <label className="modal-field">
                   <span className="modal-label">端口</span>
                   <input
                     className="modal-input"
@@ -146,17 +136,40 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                     onKeyDown={handleEscape}
                   />
                 </label>
+              </div>
+              <div className="modal-grid two">
                 <label className="modal-field">
-                  <span className="modal-label">密钥路径</span>
+                  <span className="modal-label">用户名</span>
                   <input
                     className="modal-input"
-                    placeholder="C:\\Users\\me\\.ssh\\id_rsa"
-                    value={sshIdentityFile}
-                    onChange={(e) => setSshIdentityFile(e.target.value)}
+                    placeholder="root"
+                    value={sshUsername}
+                    onChange={(e) => setSshUsername(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+                <label className="modal-field">
+                  <span className="modal-label">密码或密钥口令</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    placeholder="加密保存，用于自动登录"
+                    value={sshSecret}
+                    onChange={(e) => setSshSecret(e.target.value)}
                     onKeyDown={handleEscape}
                   />
                 </label>
               </div>
+              <label className="modal-field">
+                <span className="modal-label">密钥路径</span>
+                <input
+                  className="modal-input"
+                  placeholder="C:\\Users\\me\\.ssh\\id_rsa"
+                  value={sshIdentityFile}
+                  onChange={(e) => setSshIdentityFile(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
               <label className="modal-field">
                 <span className="modal-label">远程启动命令</span>
                 <input
@@ -178,14 +191,14 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">密码或密钥口令</span>
-                <input
-                  className="modal-input"
-                  type="password"
-                  placeholder="加密保存，用于自动登录"
-                  value={sshSecret}
-                  onChange={(e) => setSshSecret(e.target.value)}
+                <span className="modal-label">备注</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder="备注信息（可选）"
+                  value={sshRemark}
+                  onChange={(e) => setSshRemark(e.target.value)}
                   onKeyDown={handleEscape}
+                  rows={2}
                 />
               </label>
             </div>

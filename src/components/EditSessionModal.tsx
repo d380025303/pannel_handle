@@ -33,6 +33,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
   const [sshExtraArgs, setSshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
+  const [sshRemark, setSshRemark] = useState(session.sshConfig?.remark || "");
   const isSsh = session.type === "ssh";
 
   const handleSave = () => {
@@ -49,7 +50,8 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
         remoteCommand: sshRemoteCommand.trim() || undefined,
         extraArgs: parseExtraArgs(sshExtraArgs),
         secret: clearSshSecret ? undefined : sshSecret || undefined,
-        clearSecret: clearSshSecret
+        clearSecret: clearSshSecret,
+        remark: sshRemark.trim() || undefined
       } : undefined
     );
   };
@@ -110,18 +112,6 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                   />
                 </label>
                 <label className="modal-field">
-                  <span className="modal-label">用户名</span>
-                  <input
-                    className="modal-input"
-                    placeholder="root"
-                    value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
-                </label>
-              </div>
-              <div className="modal-grid two">
-                <label className="modal-field">
                   <span className="modal-label">端口</span>
                   <input
                     className="modal-input"
@@ -131,17 +121,56 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                     onKeyDown={handleEscape}
                   />
                 </label>
+              </div>
+              <div className="modal-grid two">
                 <label className="modal-field">
-                  <span className="modal-label">密钥路径</span>
+                  <span className="modal-label">用户名</span>
                   <input
                     className="modal-input"
-                    placeholder="C:\\Users\\me\\.ssh\\id_rsa"
-                    value={sshIdentityFile}
-                    onChange={(e) => setSshIdentityFile(e.target.value)}
+                    placeholder="root"
+                    value={sshUsername}
+                    onChange={(e) => setSshUsername(e.target.value)}
+                    onKeyDown={handleEscape}
+                  />
+                </label>
+                <label className="modal-field">
+                  <span className="modal-label">密码或密钥口令</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    placeholder={session.sshConfig?.hasSecret ? "已保存密码，留空保持不变" : "加密保存，用于自动登录"}
+                    value={sshSecret}
+                    disabled={clearSshSecret}
+                    onChange={(e) => setSshSecret(e.target.value)}
                     onKeyDown={handleEscape}
                   />
                 </label>
               </div>
+              {session.sshConfig?.hasSecret && (
+                <label className="modal-checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={clearSshSecret}
+                    onChange={(e) => {
+                      setClearSshSecret(e.target.checked);
+                      if (e.target.checked) {
+                        setSshSecret("");
+                      }
+                    }}
+                  />
+                  <span>清除已保存密码</span>
+                </label>
+              )}
+              <label className="modal-field">
+                <span className="modal-label">密钥路径</span>
+                <input
+                  className="modal-input"
+                  placeholder="C:\\Users\\me\\.ssh\\id_rsa"
+                  value={sshIdentityFile}
+                  onChange={(e) => setSshIdentityFile(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
               <label className="modal-field">
                 <span className="modal-label">远程启动命令</span>
                 <input
@@ -163,32 +192,16 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">密码或密钥口令</span>
-                <input
-                  className="modal-input"
-                  type="password"
-                  placeholder={session.sshConfig?.hasSecret ? "已保存密码，留空保持不变" : "加密保存，用于自动登录"}
-                  value={sshSecret}
-                  disabled={clearSshSecret}
-                  onChange={(e) => setSshSecret(e.target.value)}
+                <span className="modal-label">备注</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder="备注信息（可选）"
+                  value={sshRemark}
+                  onChange={(e) => setSshRemark(e.target.value)}
                   onKeyDown={handleEscape}
+                  rows={2}
                 />
               </label>
-              {session.sshConfig?.hasSecret && (
-                <label className="modal-checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={clearSshSecret}
-                    onChange={(e) => {
-                      setClearSshSecret(e.target.checked);
-                      if (e.target.checked) {
-                        setSshSecret("");
-                      }
-                    }}
-                  />
-                  <span>清除已保存密码</span>
-                </label>
-              )}
             </div>
           ) : (
             <label className="modal-field">

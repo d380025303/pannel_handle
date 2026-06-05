@@ -46,6 +46,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       : Array.isArray(existingConfig.extraArgs)
         ? existingConfig.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
         : [];
+    const remark = typeof config.remark === "string" ? config.remark.trim() : (existingConfig.remark || "");
+
     const encryptedSecret = config.clearSecret
       ? undefined
       : typeof config.secret === "string" && config.secret
@@ -59,6 +61,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       identityFile,
       remoteCommand,
       extraArgs,
+      remark,
       encryptedSecret
     };
   }

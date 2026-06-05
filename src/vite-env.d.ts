@@ -13,6 +13,7 @@ export type SshConfig = {
   identityFile?: string;
   remoteCommand?: string;
   extraArgs?: string[];
+  remark?: string;
   hasSecret?: boolean;
   secret?: string;
   clearSecret?: boolean;
@@ -37,6 +38,28 @@ export type AppConfig = {
   debugMode: boolean;
   lastActiveSessionIds: string[];
 };
+
+export type RemoteFileEntry = {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size: number;
+  modifiedAt: number;
+  rights?: {
+    user?: string;
+    group?: string;
+    other?: string;
+  };
+};
+
+export type RemoteTextPreview =
+  | { kind: "text"; size: number; content: string }
+  | { kind: "binary"; size: number }
+  | { kind: "too_large"; size: number; limit: number };
+
+export type RemoteFileDialogResult =
+  | { canceled: true }
+  | { canceled: false; remotePath?: string; localPath?: string };
 
 export type AgentProvider = "claude" | "codex";
 
@@ -100,10 +123,19 @@ export type ClipboardApi = {
   readText: () => Promise<string>;
 };
 
+export type RemoteFileApi = {
+  getHome: (sessionId: string) => Promise<string>;
+  list: (sessionId: string, remotePath: string) => Promise<RemoteFileEntry[]>;
+  readText: (sessionId: string, remotePath: string) => Promise<RemoteTextPreview>;
+  uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
+  downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
     clipboardApi: ClipboardApi;
+    remoteFileApi: RemoteFileApi;
     windowApi: WindowApi;
   }
 }
