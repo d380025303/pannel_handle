@@ -16,6 +16,7 @@ export function useTerminalSessions() {
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
   const pendingSelectTemplateId = useRef<string | undefined>(undefined);
+  const hasAutoRestored = useRef(false);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeId),
@@ -39,7 +40,8 @@ export function useTerminalSessions() {
 
       setAutoRestore(config.autoRestore);
 
-      if (config.autoRestore && config.lastActiveSessionIds.length > 0) {
+      if (!hasAutoRestored.current && config.autoRestore && config.lastActiveSessionIds.length > 0) {
+        hasAutoRestored.current = true;
         const toRestore: TerminalSession[] = [];
         for (const id of config.lastActiveSessionIds) {
           const template = saved.find(s => s.id === id);

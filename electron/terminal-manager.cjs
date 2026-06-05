@@ -326,7 +326,11 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
   }
 
   function launchSessions(sessionsToLaunch) {
+    const runningTemplateIds = new Set(
+      Array.from(sessions.values()).map(s => s.templateId).filter(Boolean)
+    );
     for (const sessionData of sessionsToLaunch) {
+      if (sessionData.id && runningTemplateIds.has(sessionData.id)) continue;
       startSessionFromTemplate(sessionData);
     }
 
