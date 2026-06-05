@@ -1,8 +1,9 @@
 const path = require("node:path");
-const { app, BrowserWindow, clipboard, safeStorage } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, safeStorage } = require("electron");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createConfigStore } = require("./config-store.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
+const { createRemoteFileService } = require("./remote-file-service.cjs");
 const { createSessionStore } = require("./session-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
 const { createWindowManager } = require("./window-manager.cjs");
@@ -12,6 +13,7 @@ let sessionStore = null;
 let configStore = null;
 let terminalManager = null;
 let agentHookServer = null;
+let remoteFileService = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -40,7 +42,16 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       configStore,
       broadcast: windowManager.broadcast,
-      getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : ""
+      getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
+      onSessionClosed: (id) => {
+        if (remoteFileService) {
+          void remoteFileService.disconnect(id);
+        }
+      }
+    });
+    remoteFileService = createRemoteFileService({
+      terminalManager,
+      sessionStore
     });
     agentHookServer = createAgentHookServer({ terminalManager });
 
@@ -51,7 +62,9 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       configStore,
       windowManager,
-      clipboard
+      clipboard,
+      dialog,
+      remoteFileService
     });
     windowManager.createWindow();
 
@@ -72,6 +85,9 @@ app.on("window-all-closed", () => {
   }
   if (terminalManager) {
     terminalManager.shutdown();
+  }
+  if (remoteFileService) {
+    void remoteFileService.shutdown();
   }
   if (agentHookServer) {
     agentHookServer.stop();

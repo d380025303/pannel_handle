@@ -105,7 +105,7 @@ function sanitizeSshConfig(sshConfig) {
   };
 }
 
-function createTerminalManager({ sessionStore, configStore, broadcast, getHookUrl, pty = nodePty }) {
+function createTerminalManager({ sessionStore, configStore, broadcast, getHookUrl, onSessionClosed, pty = nodePty }) {
   const sessions = new Map();
   const sessionOrder = [];
   let nextRuntimeId = 1;
@@ -296,6 +296,9 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
       });
       sessions.delete(session.id);
       sessionOrder.splice(sessionOrder.indexOf(session.id), 1);
+      if (typeof onSessionClosed === "function") {
+        onSessionClosed(session.id);
+      }
       broadcast("sessions:changed", listSessions());
     });
 
@@ -456,6 +459,9 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
       session.term.kill();
       sessions.delete(id);
       sessionOrder.splice(sessionOrder.indexOf(id), 1);
+      if (typeof onSessionClosed === "function") {
+        onSessionClosed(id);
+      }
       broadcast("sessions:changed", listSessions());
       syncLastActiveIds();
     }

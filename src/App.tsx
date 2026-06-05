@@ -7,6 +7,7 @@ import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { QuickCommandBar } from "./components/QuickCommandBar";
+import { RemoteFilePanel } from "./components/RemoteFilePanel";
 import { TitleBar } from "./components/TitleBar";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
@@ -21,6 +22,7 @@ export function App() {
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [rightTool, setRightTool] = useState<"files" | "debug">("files");
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
@@ -81,8 +83,23 @@ export function App() {
     setDebugMode(next);
   }, []);
 
+  useEffect(() => {
+    if (!debugMode && terminalSessions.activeSession?.type === "ssh") {
+      setRightTool("files");
+      return;
+    }
+    if (debugMode && terminalSessions.activeSession?.type !== "ssh") {
+      setRightTool("debug");
+    }
+  }, [debugMode, terminalSessions.activeSession?.type]);
+
+  const showFilesPanel = terminalSessions.activeSession?.type === "ssh";
+  const showRightTools = showFilesPanel || debugMode;
+  const activeRightTool = showFilesPanel && (!debugMode || rightTool === "files") ? "files" : "debug";
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) clamp(320px, 28vw, 460px)`
+    : showRightTools
+      ? `${sidebarWidth}px 1px minmax(0, 1fr) clamp(320px, 28vw, 460px)`
     : `${sidebarWidth}px 1px minmax(0, 1fr)`;
 
   return (
@@ -116,11 +133,41 @@ export function App() {
             />
           </div>
 
-          {debugMode && (
-            <DebugSidebar
-              events={hookDebugEvents}
-              onClear={() => setHookDebugEvents([])}
-            />
+          {showRightTools && (
+            <aside className="right-tools">
+              {debugMode && (
+                <div className="right-tool-tabs" role="tablist" aria-label="Right sidebar tools">
+                  {showFilesPanel && (
+                    <button
+                      className={activeRightTool === "files" ? "active" : ""}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeRightTool === "files"}
+                      onClick={() => setRightTool("files")}
+                    >
+                      Files
+                    </button>
+                  )}
+                  <button
+                    className={activeRightTool === "debug" ? "active" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeRightTool === "debug"}
+                    onClick={() => setRightTool("debug")}
+                  >
+                    Debug
+                  </button>
+                </div>
+              )}
+              {activeRightTool === "files" && showFilesPanel ? (
+                <RemoteFilePanel session={terminalSessions.activeSession} />
+              ) : (
+                <DebugSidebar
+                  events={hookDebugEvents}
+                  onClear={() => setHookDebugEvents([])}
+                />
+              )}
+            </aside>
           )}
         </main>
       </div>

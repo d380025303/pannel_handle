@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld("clipboardApi", {
   readText: () => ipcRenderer.invoke("clipboard:read-text")
 });
 
+contextBridge.exposeInMainWorld("remoteFileApi", {
+  getHome: (sessionId) => ipcRenderer.invoke("remote-files:home", { sessionId }),
+  list: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:list", { sessionId, remotePath }),
+  readText: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:read-text", { sessionId, remotePath }),
+  uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
+  downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName })
+});
+
 contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),

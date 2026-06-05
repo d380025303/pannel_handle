@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -33,7 +33,13 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return terminalManager.updateSession(id, { title, initialCommand, sshConfig, quickCommands });
   });
 
-  ipcMain.handle("sessions:close", (_event, id) => terminalManager.closeSession(id));
+  ipcMain.handle("sessions:close", async (_event, id) => {
+    const sessions = terminalManager.closeSession(id);
+    if (remoteFileService) {
+      await remoteFileService.disconnect(id);
+    }
+    return sessions;
+  });
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
 
@@ -56,6 +62,42 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
 
   ipcMain.on("terminal:resize", (_event, { id, cols, rows }) => {
     terminalManager.resize(id, cols, rows);
+  });
+
+  ipcMain.handle("remote-files:home", (_event, { sessionId }) => {
+    return remoteFileService.getHome(sessionId);
+  });
+
+  ipcMain.handle("remote-files:list", (_event, { sessionId, remotePath }) => {
+    return remoteFileService.list(sessionId, remotePath);
+  });
+
+  ipcMain.handle("remote-files:read-text", (_event, { sessionId, remotePath }) => {
+    return remoteFileService.readText(sessionId, remotePath);
+  });
+
+  ipcMain.handle("remote-files:upload-file", async (event, { sessionId, remoteDir }) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      properties: ["openFile"]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    const uploaded = await remoteFileService.uploadFile(sessionId, result.filePaths[0], remoteDir);
+    return { canceled: false, ...uploaded };
+  });
+
+  ipcMain.handle("remote-files:download-file", async (event, { sessionId, remotePath, fileName }) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showSaveDialog(ownerWindow, {
+      defaultPath: fileName || "download"
+    });
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+    const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, result.filePath);
+    return { canceled: false, ...downloaded };
   });
 
   ipcMain.handle("window:is-maximized", (event) => {
