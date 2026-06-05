@@ -1,6 +1,7 @@
 const path = require("node:path");
 const { app, BrowserWindow, clipboard, safeStorage } = require("electron");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
+const { createConfigStore } = require("./config-store.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createSessionStore } = require("./session-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
@@ -8,6 +9,7 @@ const { createWindowManager } = require("./window-manager.cjs");
 
 let windowManager = null;
 let sessionStore = null;
+let configStore = null;
 let terminalManager = null;
 let agentHookServer = null;
 
@@ -19,8 +21,13 @@ app.whenReady().then(() => {
     getWslShell,
     safeStorage
   });
+  configStore = createConfigStore({
+    configFile: path.join(app.getPath("userData"), "config.json")
+  });
+  configStore.loadConfig();
   terminalManager = createTerminalManager({
     sessionStore,
+    configStore,
     broadcast: windowManager.broadcast,
     getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : ""
   });
@@ -31,6 +38,7 @@ app.whenReady().then(() => {
   registerIpcHandlers({
     terminalManager,
     sessionStore,
+    configStore,
     windowManager,
     clipboard
   });
@@ -44,6 +52,9 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  if (configStore) {
+    configStore.saveConfig();
+  }
   if (sessionStore) {
     sessionStore.saveLibrary();
   }

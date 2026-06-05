@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentStatusPayload, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 
 type CreateSessionOptions = {
   selectedShellId: string;
@@ -13,6 +13,7 @@ export function useTerminalSessions() {
   const [activeId, setActiveId] = useState<string | undefined>();
   const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
   const [pickerManual, setPickerManual] = useState(false);
+  const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
   const pendingSelectTemplateId = useRef<string | undefined>(undefined);
 
@@ -30,16 +31,27 @@ export function useTerminalSessions() {
   useEffect(() => {
     let isDisposed = false;
 
-    window.terminalApi.loadSavedSessions().then((saved) => {
-      if (isDisposed) {
-        return;
+    Promise.all([
+      window.terminalApi.loadSavedSessions(),
+      window.terminalApi.getConfig()
+    ]).then(([saved, config]) => {
+      if (isDisposed) return;
+
+      setAutoRestore(config.autoRestore);
+
+      if (config.autoRestore && config.lastActiveSessionIds.length > 0) {
+        const toRestore: TerminalSession[] = [];
+        for (const id of config.lastActiveSessionIds) {
+          const template = saved.find(s => s.id === id);
+          if (template) toRestore.push(template);
+        }
+        if (toRestore.length > 0) {
+          pendingSelectTemplateId.current = toRestore[0]?.id;
+          window.terminalApi.launchSessions(toRestore);
+          return;
+        }
       }
-      if (saved.length > 0) {
-        setPendingSessions(saved);
-        setPickerManual(false);
-      } else {
-        setPendingSessions(null);
-      }
+      setPendingSessions(null);
     });
 
     const removeSessionsListener = window.terminalApi.onSessionsChanged((nextSessions) => {
@@ -144,6 +156,13 @@ export function useTerminalSessions() {
     await window.terminalApi.reorderRunningSessions(orderedIds);
   }, []);
 
+  const toggleAutoRestore = useCallback(async () => {
+    const config = await window.terminalApi.getConfig();
+    const next = !config.autoRestore;
+    await window.terminalApi.setConfig({ autoRestore: next });
+    setAutoRestore(next);
+  }, []);
+
   return {
     sessions,
     activeId,
@@ -164,6 +183,8 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     reorderLibrary,
-    reorderRunningSessions
+    reorderRunningSessions,
+    autoRestore,
+    toggleAutoRestore
   };
 }

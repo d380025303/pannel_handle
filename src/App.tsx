@@ -66,6 +66,8 @@ export function App() {
             onOpenPicker={terminalSessions.openPicker}
             onOpenCreate={handleOpenCreateModal}
             onReorder={terminalSessions.reorderRunningSessions}
+            autoRestore={terminalSessions.autoRestore}
+            onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           />
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />

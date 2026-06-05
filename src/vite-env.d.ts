@@ -32,6 +32,11 @@ export type TerminalSession = {
   quickCommands?: QuickCommand[];
 };
 
+export type AppConfig = {
+  autoRestore: boolean;
+  lastActiveSessionIds: string[];
+};
+
 export type AgentProvider = "claude" | "codex";
 
 export type AgentRunStatus = "running" | "waiting_for_permission" | "completed" | "failed" | "ended" | "exited";
@@ -66,6 +71,8 @@ export type TerminalApi = {
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
   reorderSavedSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
+  getConfig: () => Promise<AppConfig>;
+  setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;
 };
 
 export type WindowApi = {

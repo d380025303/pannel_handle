@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 
-function registerIpcHandlers({ terminalManager, sessionStore, windowManager, clipboard }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -61,6 +61,15 @@ function registerIpcHandlers({ terminalManager, sessionStore, windowManager, cli
   ipcMain.handle("window:is-maximized", (event) => {
     const window = windowManager.getWindowFromEvent(event);
     return window ? window.isMaximized() : false;
+  });
+
+  ipcMain.handle("config:get", () => configStore.getConfig());
+
+  ipcMain.handle("config:set", (_event, partial) => {
+    if (partial && typeof partial.autoRestore === "boolean") {
+      configStore.updateConfig({ autoRestore: partial.autoRestore });
+    }
+    return configStore.getConfig();
   });
 
   ipcMain.on("window:minimize", (event) => {

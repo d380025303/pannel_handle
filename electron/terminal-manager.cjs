@@ -103,10 +103,21 @@ function sanitizeSshConfig(sshConfig) {
   };
 }
 
-function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = nodePty }) {
+function createTerminalManager({ sessionStore, configStore, broadcast, getHookUrl, pty = nodePty }) {
   const sessions = new Map();
   const sessionOrder = [];
   let nextRuntimeId = 1;
+
+  function syncLastActiveIds() {
+    if (!configStore) return;
+    const templateIds = Array.from(sessions.values())
+      .map(s => s.templateId)
+      .filter(Boolean);
+    const current = configStore.getConfig().lastActiveSessionIds || [];
+    if (JSON.stringify(current) !== JSON.stringify(templateIds)) {
+      configStore.updateConfig({ lastActiveSessionIds: templateIds });
+    }
+  }
 
   function broadcastAgentStatus(payload) {
     const { provider = "claude", ...rest } = payload;
@@ -117,28 +128,6 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     });
   }
 
-  function maybeBroadcastTerminalPermissionPrompt(session) {
-    if (session.agentProvider !== "codex" || session.agentStatus === "waiting_for_permission") {
-      return;
-    }
-
-    const recentOutput = stripAnsi(session.buffer.slice(-20).join(""));
-    if (
-      !recentOutput.includes("Would you like to run the following command?") &&
-      !recentOutput.includes("Press enter to confirm or esc to cancel")
-    ) {
-      return;
-    }
-
-    session.agentStatus = "waiting_for_permission";
-    broadcastAgentStatus({
-      id: session.id,
-      provider: "codex",
-      status: "waiting_for_permission",
-      eventName: "TerminalPermissionPrompt",
-      message: "Codex is waiting for command approval"
-    });
-  }
 
   function serializeSession(session) {
     return {
@@ -253,7 +242,6 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
         session.buffer.splice(0, session.buffer.length - 1000);
       }
       maybeWriteSshSecret(session);
-      maybeBroadcastTerminalPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });
 
@@ -332,6 +320,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     sessionStore.addToLibrary(template);
     const session = startSessionFromTemplate(template, options);
     broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
 
     return session;
   }
@@ -344,6 +333,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     const allSessions = listSessions();
     console.log("[main] launchSessions result:", allSessions.map(s => ({ id: s.id, templateId: s.templateId })));
     broadcast("sessions:changed", allSessions);
+    syncLastActiveIds();
     return allSessions;
   }
 
@@ -365,6 +355,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     session.title = title.trim() || session.title;
     sessionStore.updateLibrary(session.templateId || id, { title: session.title });
     broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
     return listSessions();
   }
 
@@ -407,6 +398,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     }
     sessionStore.updateLibrary(templateId, libraryUpdates);
     broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
     return listSessions();
   }
 
@@ -417,6 +409,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       sessions.delete(id);
       sessionOrder.splice(sessionOrder.indexOf(id), 1);
       broadcast("sessions:changed", listSessions());
+      syncLastActiveIds();
     }
     return listSessions();
   }
@@ -459,6 +452,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       if (!sessionOrder.includes(id)) sessionOrder.push(id);
     }
     broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
     return listSessions();
   }
 
