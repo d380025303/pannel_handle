@@ -80,6 +80,11 @@
   background: #3a2d16;
 }
 
+.agent-status-badge.e_prompt {
+  color: #8fc7ff;
+  background: #172b40;
+}
+
 .agent-status-badge.completed,
 .agent-status-badge.running {
   color: #8ad9a4;
@@ -129,6 +134,11 @@
   gap: 8px;
   cursor: pointer;
   user-select: none;
+}
+
+.settings-body {
+  display: grid;
+  gap: 12px;
 }
 
 .auto-restore-checkbox {

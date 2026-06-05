@@ -3,6 +3,7 @@ const fs = require("node:fs");
 function createConfigStore({ configFile }) {
   let config = {
     autoRestore: true,
+    debugMode: false,
     lastActiveSessionIds: []
   };
 
@@ -13,6 +14,7 @@ function createConfigStore({ configFile }) {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         config = {
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
+          debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
             : []
@@ -43,6 +45,9 @@ function createConfigStore({ configFile }) {
     if (partial && typeof partial === "object") {
       if (typeof partial.autoRestore === "boolean") {
         config.autoRestore = partial.autoRestore;
+      }
+      if (typeof partial.debugMode === "boolean") {
+        config.debugMode = partial.debugMode;
       }
       if (Array.isArray(partial.lastActiveSessionIds)) {
         config.lastActiveSessionIds = partial.lastActiveSessionIds.filter(id => typeof id === "string");

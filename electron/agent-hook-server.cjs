@@ -65,6 +65,16 @@ function createAgentHookServer({ terminalManager }) {
     return null;
   }
 
+  function isToolFailure(input) {
+    return (
+      input.is_error === true ||
+      input.isError === true ||
+      (typeof input.error === "object" && input.error !== null) ||
+      (typeof input.error === "string" && input.error.length > 0) ||
+      input.success === false
+    );
+  }
+
   function getEventName(input) {
     return input.hook_event_name || input.eventName || input.event_name || "Unknown";
   }
@@ -83,7 +93,13 @@ function createAgentHookServer({ terminalManager }) {
       return "waiting_for_permission";
     }
     if (eventName === "Notification" && notificationType === "idle_prompt") {
-      return "completed";
+      return "e_prompt";
+    }
+    if (eventName === "PostToolUse") {
+      if (isToolFailure(input)) {
+        return "failed";
+      }
+      return null;
     }
     if (eventName === "Stop") {
       return "completed";
@@ -95,6 +111,24 @@ function createAgentHookServer({ terminalManager }) {
       return "ended";
     }
     return null;
+  }
+
+  function getClaudeHookResolution(input) {
+    const eventName = getEventName(input);
+
+    if (eventName === "Stop") {
+      return "none";
+    }
+    if (eventName === "StopFailure") {
+      return "none";
+    }
+    if (eventName === "SessionEnd") {
+      return "none";
+    }
+    if (eventName === "PostToolUse" && isToolFailure(input)) {
+      return "provide_input";
+    }
+    return undefined;
   }
 
   function mapCodexHookStatus(input) {
@@ -156,6 +190,7 @@ function createAgentHookServer({ terminalManager }) {
     const toolName = input.tool_name || input.toolName || input.tool;
     const message = input.message || input.title || input.notification_type || input.reason;
     registerAgentSession(provider, getAgentSessionId(input), session.id);
+    const resolution = getClaudeHookResolution(input);
     session.agentStatus = status;
     session.agentProvider = provider;
 
@@ -167,9 +202,25 @@ function createAgentHookServer({ terminalManager }) {
       message,
       toolName,
       toolInput: input.tool_input || input.toolInput,
-      lastAssistantMessage: input.last_assistant_message || input.lastAssistantMessage
+      lastAssistantMessage: input.last_assistant_message || input.lastAssistantMessage,
+      ...(resolution !== undefined ? { resolution } : {})
     });
     return true;
+  }
+
+  function handleAgentHookDebug(provider, input) {
+    const session = findSessionForAgentHook(provider, input);
+    const handled = handleAgentHook(provider, input);
+    if (typeof terminalManager.broadcastAgentHookDebug === "function") {
+      terminalManager.broadcastAgentHookDebug({
+        provider,
+        eventName: getEventName(input),
+        matchedSessionId: session?.id,
+        handled,
+        payload: input
+      });
+    }
+    return handled;
   }
 
   function handleRequest(provider, req, res) {
@@ -180,7 +231,7 @@ function createAgentHookServer({ terminalManager }) {
         return;
       }
 
-      handleAgentHook(provider, input);
+      handleAgentHookDebug(provider, input);
       res.writeHead(204);
       res.end();
     });
@@ -233,7 +284,8 @@ function createAgentHookServer({ terminalManager }) {
     start,
     stop,
     getHookUrl,
-    handleAgentHook
+    handleAgentHook,
+    handleAgentHookDebug
   };
 }
 

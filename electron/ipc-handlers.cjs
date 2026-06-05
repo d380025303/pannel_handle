@@ -66,8 +66,15 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
   ipcMain.handle("config:get", () => configStore.getConfig());
 
   ipcMain.handle("config:set", (_event, partial) => {
+    const updates = {};
     if (partial && typeof partial.autoRestore === "boolean") {
-      configStore.updateConfig({ autoRestore: partial.autoRestore });
+      updates.autoRestore = partial.autoRestore;
+    }
+    if (partial && typeof partial.debugMode === "boolean") {
+      updates.debugMode = partial.debugMode;
+    }
+    if (Object.keys(updates).length > 0) {
+      configStore.updateConfig(updates);
     }
     return configStore.getConfig();
   });

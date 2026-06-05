@@ -110,9 +110,6 @@ export function SessionPickerModal({
       <div className="modal-dialog session-picker-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
-          <p className="modal-subtitle">
-            {pickerManual ? "选择要从库中启动的会话" : "选择要启动的会话"}
-          </p>
         </div>
         <div className="modal-body">
           {pendingSessions.length === 0 ? (

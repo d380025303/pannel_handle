@@ -11,6 +11,7 @@ export function getAgentStatusLabel(status?: AgentStatusPayload) {
   if (status.status === "waiting_for_permission") {
     return status.toolName ? `${agentName} 等待确认: ${status.toolName}` : `${agentName} 等待确认`;
   }
+  if (status.status === "e_prompt") return `${agentName} 等待输入`;
   if (status.status === "completed") return `${agentName} 已完成`;
   if (status.status === "failed") return `${agentName} 失败`;
   if (status.status === "running") return `${agentName} 运行中`;

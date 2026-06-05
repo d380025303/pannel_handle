@@ -34,12 +34,13 @@ export type TerminalSession = {
 
 export type AppConfig = {
   autoRestore: boolean;
+  debugMode: boolean;
   lastActiveSessionIds: string[];
 };
 
 export type AgentProvider = "claude" | "codex";
 
-export type AgentRunStatus = "running" | "waiting_for_permission" | "completed" | "failed" | "ended" | "exited";
+export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited";
 
 export type AgentStatusPayload = {
   id: string;
@@ -51,6 +52,16 @@ export type AgentStatusPayload = {
   toolName?: string;
   toolInput?: unknown;
   lastAssistantMessage?: string;
+  resolution?: "none" | "provide_input";
+};
+
+export type AgentHookDebugPayload = {
+  provider: AgentProvider;
+  eventName: string;
+  timestamp: number;
+  matchedSessionId?: string;
+  handled: boolean;
+  payload: unknown;
 };
 
 export type TerminalApi = {
@@ -64,6 +75,7 @@ export type TerminalApi = {
   onData: (callback: (payload: { id: string; data: string }) => void) => () => void;
   onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void;
   onAgentStatus: (callback: (payload: AgentStatusPayload) => void) => () => void;
+  onAgentHookDebug: (callback: (payload: AgentHookDebugPayload) => void) => () => void;
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
   loadSavedSessions: () => Promise<TerminalSession[]>;

@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld("terminalApi", {
     ipcRenderer.on("agent:status", listener);
     return () => ipcRenderer.removeListener("agent:status", listener);
   },
+  onAgentHookDebug: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("agent:hook-debug", listener);
+    return () => ipcRenderer.removeListener("agent:hook-debug", listener);
+  },
   listWslDistros: () => ipcRenderer.invoke("wsl:list-distros"),
   loadSavedSessions: () => ipcRenderer.invoke("sessions:load-saved"),
   launchSessions: (sessions) => ipcRenderer.invoke("sessions:launch-selected", sessions),

@@ -10,17 +10,19 @@
 2. 每个 PTY 会话启动时会注入环境变量：
    - `PANNEL_HANDLE_HOOK_URL`：hook 事件上报地址。
    - `PANNEL_HANDLE_SESSION_ID`：本工具内部会话 ID。
-3. Claude Code 触发 `UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`Notification`、`Stop`、`StopFailure` 等 hook。
+3. Claude Code 触发 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PermissionRequest`、`Notification`、`Stop`、`StopFailure`、`SessionEnd` 等 hook。
 4. `.claude/pannel-handle-hook.ps1` 从 stdin 读取 Claude hook JSON，并 POST 到 `PANNEL_HANDLE_HOOK_URL`。
 5. Electron 将 hook 映射为前端状态：
    - `UserPromptSubmit` -> `running`
    - `PreToolUse` -> `running`
    - `PermissionRequest` -> `waiting_for_permission`
    - `Notification` + `permission_prompt` -> `waiting_for_permission`
-   - `Notification` + `idle_prompt` -> `completed`
-   - `Stop` -> `completed`
-   - `StopFailure` -> `failed`
-   - `SessionEnd` -> `ended`
+   - `Notification` + `idle_prompt` -> `e_prompt`
+   - `Stop` -> `completed`（resolution: `none`）
+   - `StopFailure` -> `failed`（resolution: `none`）
+   - `PostToolUse`（失败）-> `failed`（resolution: `provide_input`）
+   - `PostToolUse`（成功）-> 忽略
+   - `SessionEnd` -> `ended`（resolution: `none`）
    - PTY exit -> `exited`
 
 只要 Claude 是从本工具创建的终端会话中启动，就会继承这些环境变量。
@@ -75,6 +77,17 @@
       }
     ],
     "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/pannel-handle-hook.ps1"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
       {
         "matcher": "",
         "hooks": [
@@ -183,6 +196,17 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\mine\\crm\\personal\\pannel_handle\\.claude\\pannel-handle-hook.ps1"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "permission_prompt",
@@ -280,8 +304,10 @@ claude
 - 会话列表显示 `Claude 等待确认` 或 `Claude 等待确认: Bash`。
 - 终端标题区域显示同样状态。
 - 人工批准后，Claude 完成回复时状态变为 `Claude 已完成`。
-- 继续输入不会改变状态；Claude 接收新任务或开始执行工具时，状态切回 `运行中`。
-- 退出 Claude 或关闭会话后，状态变为 `进程已退出`。
+- Claude 回复完毕、空闲等待用户下一轮输入时，状态变为 `Claude 等待输入`。
+- 用户输入新问题或 Claude 开始执行工具时，状态切回 `Claude 运行中`。
+- 工具执行失败时，状态变为 `Claude 失败`。
+- 退出 Claude 或关闭会话后，状态变为 `Claude 已结束`。
 
 ## 常见问题
 
