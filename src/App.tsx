@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { SettingsModal } from "./components/SettingsModal";
 import { CreateSessionModal } from "./components/CreateSessionModal";
 import { EditSessionModal } from "./components/EditSessionModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
@@ -17,6 +18,7 @@ export function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
@@ -53,7 +55,7 @@ export function App() {
   return (
     <>
       <div className="app-frame">
-        <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} />
+        <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} onOpenSettings={() => setShowSettingsModal(true)} />
 
         <main className="app-shell" style={{ gridTemplateColumns: `${sidebarWidth}px 1px minmax(0, 1fr)` }}>
           <SessionSidebar
@@ -66,8 +68,6 @@ export function App() {
             onOpenPicker={terminalSessions.openPicker}
             onOpenCreate={handleOpenCreateModal}
             onReorder={terminalSessions.reorderRunningSessions}
-            autoRestore={terminalSessions.autoRestore}
-            onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           />
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
@@ -111,6 +111,14 @@ export function App() {
           onDelete={terminalSessions.deleteFromLibrary}
           onReorder={terminalSessions.reorderLibrary}
           onCancel={handleClosePicker}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          autoRestore={terminalSessions.autoRestore}
+          onToggleAutoRestore={terminalSessions.toggleAutoRestore}
+          onCancel={() => setShowSettingsModal(false)}
         />
       )}
     </>

@@ -13,8 +13,6 @@ type SessionSidebarProps = {
   onOpenPicker: () => void;
   onOpenCreate: () => void;
   onReorder: (orderedIds: string[]) => void;
-  autoRestore: boolean;
-  onToggleAutoRestore: () => void;
 };
 
 function getSessionTypeLabel(session: TerminalSession) {
@@ -32,9 +30,7 @@ export function SessionSidebar({
   onCloseSession,
   onOpenPicker,
   onOpenCreate,
-  onReorder,
-  autoRestore,
-  onToggleAutoRestore
+  onReorder
 }: SessionSidebarProps) {
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -102,19 +98,6 @@ export function SessionSidebar({
             <Plus aria-hidden="true" />
           </button>
         </div>
-      </div>
-
-      <div className="sidebar-auto-restore">
-        <label className="auto-restore-label">
-          <input
-            type="checkbox"
-            className="auto-restore-checkbox"
-            checked={autoRestore}
-            onChange={onToggleAutoRestore}
-          />
-          <span className="auto-restore-track" />
-          <span className="auto-restore-text">启动时自动恢复</span>
-        </label>
       </div>
 
       <div className="session-list">
