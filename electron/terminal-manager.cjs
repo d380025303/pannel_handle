@@ -55,7 +55,9 @@ function appendWslEnv(existingValue, variableNames) {
 }
 
 function stripAnsi(value) {
-  return String(value || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  return String(value || "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function splitSshExtraArgs(value) {
@@ -196,18 +198,26 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     return sessionStore.decryptSecret(encryptedSecret);
   }
 
-  function isSshSecretPrompt(session) {
-    const text = stripAnsi(session.buffer.slice(-5).join("")).replace(/\r/g, "\n");
-    return /(?:^|\n).*password:\s*$/i.test(text) || /enter passphrase for key\b.*:\s*$/i.test(text);
+  function getSshSecretPromptSignature(session) {
+    const text = stripAnsi(session.buffer.slice(-5).join(""))
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "");
+    const match = text.match(/(?:^|\n)[^\n]*(?:password:|enter passphrase for key\b[^\n]*:)[ \t]*$/i);
+    if (!match) {
+      return undefined;
+    }
+    return `${text.length}:${match[0]}`;
   }
 
   function maybeWriteSshSecret(session) {
     if (session.type !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
       return;
     }
-    if (!isSshSecretPrompt(session)) {
+    const promptSignature = getSshSecretPromptSignature(session);
+    if (!promptSignature || promptSignature === session.lastSshSecretPromptSignature) {
       return;
     }
+    session.lastSshSecretPromptSignature = promptSignature;
     session.sshSecretAttempts += 1;
     session.term.write(`${session.sshSecret}\r`);
   }
@@ -263,6 +273,7 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     session.buffer = [];
     session.sshSecret = getSshSecret(session);
     session.sshSecretAttempts = 0;
+    session.lastSshSecretPromptSignature = undefined;
 
     term.onData((data) => {
       session.buffer.push(data);
@@ -418,12 +429,20 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
       }
     }
     if (typeof sshConfig !== "undefined" && session.type === "ssh") {
+      const previousSshConfig = session.sshConfig || {};
       session.sshConfig = {
-        ...(session.sshConfig || {}),
+        ...(template?.sshConfig || {}),
+        ...previousSshConfig,
         ...sshConfig
       };
       libraryUpdates.sshConfig = session.sshConfig;
-      session.sshConfig = sanitizeSshConfig(session.sshConfig);
+      const normalizedSshConfig = sessionStore.normalizeTemplate({
+        ...(template || session),
+        type: "ssh",
+        sshConfig: session.sshConfig
+      }).sshConfig;
+      session.sshConfig = normalizedSshConfig;
+      session.sshSecret = getSshSecret(session);
     }
     sessionStore.updateLibrary(templateId, libraryUpdates);
     broadcast("sessions:changed", listSessions());

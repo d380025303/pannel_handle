@@ -328,6 +328,23 @@ describe("terminal-manager", () => {
     expect(term.writes).toEqual(["plain-secret\r"]);
   });
 
+  it("writes a saved SSH secret for root password prompts with terminal control sequences", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "10.227.17.2",
+        username: "root",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("\x1b]0;ssh root@10.227.17.2\x07root@10.227.17.2's password:\r");
+
+    expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
   it("writes a saved SSH secret when ssh asks for a key passphrase", () => {
     const { manager, term } = createManager();
 
@@ -343,6 +360,41 @@ describe("terminal-manager", () => {
     term.emitData("Enter passphrase for key 'C:\\Users\\tester\\.ssh\\id_ed25519': ");
 
     expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
+  it("does not repeat a saved SSH secret when the accepted password prompt is followed by a newline", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("password: ");
+    term.emitData("\r\n");
+    term.emitData("\x1b[?2004h");
+
+    expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
+  it("writes a saved SSH secret again when ssh shows a new password prompt after failure", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("password: ");
+    term.emitData("\r\nPermission denied, please try again.\r\npassword: ");
+
+    expect(term.writes).toEqual(["plain-secret\r", "plain-secret\r"]);
   });
 
   it("limits automatic SSH secret writes to two prompts", () => {
