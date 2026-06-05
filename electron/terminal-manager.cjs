@@ -128,6 +128,15 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     });
   }
 
+  function broadcastAgentHookDebug(payload) {
+    const { provider = "claude", ...rest } = payload;
+    broadcast("agent:hook-debug", {
+      provider,
+      timestamp: Date.now(),
+      ...rest
+    });
+  }
+
 
   function serializeSession(session) {
     return {
@@ -203,6 +212,25 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     session.term.write(`${session.sshSecret}\r`);
   }
 
+  function maybeDetectCodexPermissionPrompt(session) {
+    if (session.agentProvider !== "codex" || session.agentStatus !== "running") {
+      return;
+    }
+
+    const text = stripAnsi(session.buffer.slice(-5).join("")).replace(/\r/g, "\n");
+    if (!/would you like to run the following command\?/i.test(text)) {
+      return;
+    }
+
+    session.agentStatus = "waiting_for_permission";
+    broadcastAgentStatus({
+      id: session.id,
+      provider: "codex",
+      status: "waiting_for_permission",
+      eventName: "TerminalPermissionPrompt"
+    });
+  }
+
   function spawnPty(session, options = {}) {
     const args = session.type === "ssh"
       ? buildSshArgs(session.sshConfig)
@@ -242,6 +270,7 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
         session.buffer.splice(0, session.buffer.length - 1000);
       }
       maybeWriteSshSecret(session);
+      maybeDetectCodexPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });
 
@@ -326,11 +355,7 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
   }
 
   function launchSessions(sessionsToLaunch) {
-    const runningTemplateIds = new Set(
-      Array.from(sessions.values()).map(s => s.templateId).filter(Boolean)
-    );
     for (const sessionData of sessionsToLaunch) {
-      if (sessionData.id && runningTemplateIds.has(sessionData.id)) continue;
       startSessionFromTemplate(sessionData);
     }
 
@@ -484,6 +509,7 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     getSession,
     getSessions,
     broadcastAgentStatus,
+    broadcastAgentHookDebug,
     shutdown,
     listWslDistros
   };
