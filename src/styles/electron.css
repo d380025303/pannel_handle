@@ -1,0 +1,16 @@
+button,
+input,
+.session-item,
+.modal-dialog {
+  -webkit-app-region: no-drag;
+}
+
+.custom-titlebar {
+  -webkit-app-region: drag;
+}
+
+.titlebar-settings-btn,
+.window-controls,
+.window-control {
+  -webkit-app-region: no-drag;
+}
