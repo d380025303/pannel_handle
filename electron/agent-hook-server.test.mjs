@@ -59,6 +59,59 @@ describe("agent-hook-server", () => {
     }));
   });
 
+  it("recovers malformed Codex Stop hook payloads from raw_input", () => {
+    const { server, terminalManager } = createServer();
+    const rawInput = "{\"session_id\":\"codex-1\",\"turn_id\":\"turn-1\",\"cwd\":\"C:\\\\work\",\"hook_event_name\":\"Stop\",\"last_assistant_message\":\"unterminated";
+
+    const handled = server.handleAgentHookDebug("codex", {
+      parse_error: "Unterminated string passed in",
+      raw_input: rawInput,
+      cwd: "C:\\work",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "codex",
+      status: "completed",
+      eventName: "Stop"
+    }));
+    expect(terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex",
+      eventName: "Stop",
+      matchedSessionId: "run-1",
+      handled: true,
+      payload: expect.objectContaining({
+        parse_error: "Unterminated string passed in",
+        raw_input: rawInput,
+        hook_event_name: "Stop",
+        session_id: "codex-1",
+        recovered_from_raw_input: true
+      })
+    }));
+  });
+
+  it("keeps malformed Codex payloads unhandled when no event can be recovered", () => {
+    const { server, terminalManager } = createServer();
+
+    const handled = server.handleAgentHookDebug("codex", {
+      parse_error: "Unterminated string passed in",
+      raw_input: "{\"session_id\":\"codex-1\",\"last_assistant_message\":\"unterminated",
+      cwd: "C:\\work",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(handled).toBe(false);
+    expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
+    expect(terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex",
+      eventName: "Unknown",
+      matchedSessionId: "run-1",
+      handled: false
+    }));
+  });
+
   it("ignores unknown Codex events", () => {
     const { server, terminalManager } = createServer();
 

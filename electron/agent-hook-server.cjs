@@ -79,6 +79,50 @@ function createAgentHookServer({ terminalManager }) {
     return input.hook_event_name || input.eventName || input.event_name || "Unknown";
   }
 
+  function getJsonStringField(rawInput, fieldName) {
+    if (typeof rawInput !== "string" || rawInput.length === 0) {
+      return undefined;
+    }
+
+    const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = rawInput.match(new RegExp(`"${escapedFieldName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+    if (!match) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(`"${match[1]}"`);
+    } catch {
+      return match[1];
+    }
+  }
+
+  function normalizeAgentHookInput(input) {
+    if (!input || typeof input !== "object" || typeof input.raw_input !== "string") {
+      return input;
+    }
+
+    const recovered = {};
+    for (const fieldName of ["hook_event_name", "session_id", "cwd", "last_assistant_message"]) {
+      if (input[fieldName] === undefined) {
+        const value = getJsonStringField(input.raw_input, fieldName);
+        if (value !== undefined) {
+          recovered[fieldName] = value;
+        }
+      }
+    }
+
+    if (Object.keys(recovered).length === 0) {
+      return input;
+    }
+
+    return {
+      ...recovered,
+      ...input,
+      recovered_from_raw_input: true
+    };
+  }
+
   function mapClaudeHookStatus(input) {
     const eventName = getEventName(input);
     const notificationType = input.notification_type || input.notificationType;
@@ -177,6 +221,7 @@ function createAgentHookServer({ terminalManager }) {
   }
 
   function handleAgentHook(provider, input) {
+    input = normalizeAgentHookInput(input);
     const session = findSessionForAgentHook(provider, input);
     if (!session) {
       return false;
@@ -209,6 +254,7 @@ function createAgentHookServer({ terminalManager }) {
   }
 
   function handleAgentHookDebug(provider, input) {
+    input = normalizeAgentHookInput(input);
     const session = findSessionForAgentHook(provider, input);
     const handled = handleAgentHook(provider, input);
     if (typeof terminalManager.broadcastAgentHookDebug === "function") {
