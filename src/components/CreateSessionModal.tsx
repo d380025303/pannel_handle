@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import type { SshConfig } from "../vite-env";
 
@@ -36,10 +36,6 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
 
   const isSsh = selectedShellId === "ssh";
   const canCreate = useMemo(() => !isSsh || sshHost.trim().length > 0, [isSsh, sshHost]);
-
-  useEffect(() => {
-    setSelectedShellId(wslDistros.length > 0 ? `wsl:${wslDistros[0]}` : "powershell");
-  }, [wslDistros]);
 
   const handleCreate = () => {
     if (!canCreate) {
