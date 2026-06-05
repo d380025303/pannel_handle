@@ -99,7 +99,7 @@ function createAgentHookServer({ terminalManager }) {
       if (isToolFailure(input)) {
         return "failed";
       }
-      return null;
+      return "running";
     }
     if (eventName === "Stop") {
       return "completed";

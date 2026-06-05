@@ -193,7 +193,7 @@ describe("agent-hook-server", () => {
     }));
   });
 
-  it("ignores Claude PostToolUse (success)", () => {
+  it("maps Claude PostToolUse (success) to running", () => {
     const { server, terminalManager } = createServer();
 
     const handled = server.handleAgentHook("claude", {
@@ -204,8 +204,14 @@ describe("agent-hook-server", () => {
       pannel_handle_session_id: "run-1"
     });
 
-    expect(handled).toBe(false);
-    expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "claude",
+      status: "running",
+      eventName: "PostToolUse",
+      toolName: "Bash"
+    }));
   });
 
   it("ignores unknown Claude events", () => {
