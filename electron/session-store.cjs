@@ -116,7 +116,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     return serializeTemplate({
       ...template,
       type,
-      shell: template.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? "ssh.exe" : getDefaultShell()),
+      shell: template.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? "ssh2" : getDefaultShell()),
       cwd: template.cwd || os.homedir(),
       createdAt: template.createdAt || Date.now(),
       sshConfig,

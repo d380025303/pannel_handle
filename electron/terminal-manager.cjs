@@ -1,6 +1,8 @@
 const os = require("node:os");
 const { execSync } = require("node:child_process");
 const nodePty = require("node-pty");
+const { buildSsh2ConnectionConfig, validateSsh2Config } = require("./ssh2-connection.cjs");
+const { createSsh2Terminal } = require("./ssh2-terminal.cjs");
 
 function getDefaultShell() {
   if (process.platform !== "win32") {
@@ -15,7 +17,7 @@ function getWslShell() {
 }
 
 function getSshShell() {
-  return process.platform === "win32" ? "ssh.exe" : "ssh";
+  return "ssh2";
 }
 
 function listWslDistros() {
@@ -105,7 +107,16 @@ function sanitizeSshConfig(sshConfig) {
   };
 }
 
-function createTerminalManager({ sessionStore, configStore, broadcast, getHookUrl, onSessionClosed, pty = nodePty }) {
+function createTerminalManager({
+  sessionStore,
+  configStore,
+  broadcast,
+  getHookUrl,
+  onSessionClosed,
+  knownHostStore,
+  pty = nodePty,
+  ssh2TerminalFactory = createSsh2Terminal
+}) {
   const sessions = new Map();
   const sessionOrder = [];
   let nextRuntimeId = 1;
@@ -241,10 +252,88 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     });
   }
 
+  function attachTerminal(session, term, options = {}) {
+    session.term = term;
+    session.buffer = [];
+    session.sshSecret = session.type === "ssh" ? getSshSecret(session) : undefined;
+    session.sshSecretAttempts = 0;
+    session.lastSshSecretPromptSignature = undefined;
+
+    term.onData((data) => {
+      session.buffer.push(data);
+      if (session.buffer.length > 1000) {
+        session.buffer.splice(0, session.buffer.length - 1000);
+      }
+      maybeWriteSshSecret(session);
+      maybeDetectCodexPermissionPrompt(session);
+      broadcast("terminal:data", { id: session.id, data });
+    });
+
+    term.onExit(({ exitCode }) => {
+      if (!sessions.has(session.id)) return;
+      broadcast("terminal:exit", { id: session.id, exitCode });
+      broadcastAgentStatus({
+        id: session.id,
+        status: "exited",
+        eventName: session.type === "ssh" ? "SshExit" : "PtyExit",
+        message: `Exit code ${exitCode}`
+      });
+      sessions.delete(session.id);
+      sessionOrder.splice(sessionOrder.indexOf(session.id), 1);
+      if (typeof onSessionClosed === "function") {
+        onSessionClosed(session.id);
+      }
+      broadcast("sessions:changed", listSessions());
+    });
+
+    const sshRemoteCommand = session.type === "ssh" ? String(session.sshConfig?.remoteCommand || "").trim() : "";
+    const initialCommand = options.initialCommand || sshRemoteCommand || session.initialCommand;
+    if (initialCommand) {
+      const cmd = String(initialCommand).trim();
+      if (cmd) {
+        const disposable = term.onData(() => {
+          disposable.dispose();
+          const activeSession = sessions.get(session.id);
+          if (activeSession) activeSession.term.write(cmd + "\r");
+        });
+      }
+    }
+  }
+
+  function spawnSsh2(session, options = {}) {
+    validateSsh2Config(session.sshConfig);
+    const term = ssh2TerminalFactory({
+      connectionConfig: buildSsh2ConnectionConfig({
+        sshConfig: session.sshConfig,
+        secret: getSshSecret(session),
+        knownHostStore,
+        onHostVerification: (result) => {
+          if (result.trustedFirstUse) {
+            broadcast("terminal:data", {
+              id: session.id,
+              data: `\r\nSSH host key trusted: ${result.fingerprint}\r\n`
+            });
+          } else if (result.accepted === false) {
+            broadcast("terminal:data", {
+              id: session.id,
+              data: `\r\nSSH host key mismatch. Expected ${result.expectedFingerprint}, got ${result.fingerprint}.\r\n`
+            });
+          }
+        }
+      }),
+      cols: options.cols || 100,
+      rows: options.rows || 30
+    });
+    attachTerminal(session, term, options);
+  }
+
   function spawnPty(session, options = {}) {
-    const args = session.type === "ssh"
-      ? buildSshArgs(session.sshConfig)
-      : session.type === "wsl" && session.wslDistro
+    if (session.type === "ssh") {
+      spawnSsh2(session, options);
+      return;
+    }
+
+    const args = session.type === "wsl" && session.wslDistro
         ? ["-d", session.wslDistro]
         : [];
     const hookUrl = getHookUrl();
@@ -269,55 +358,15 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
       env
     });
 
-    session.term = term;
-    session.buffer = [];
-    session.sshSecret = getSshSecret(session);
-    session.sshSecretAttempts = 0;
-    session.lastSshSecretPromptSignature = undefined;
-
-    term.onData((data) => {
-      session.buffer.push(data);
-      if (session.buffer.length > 1000) {
-        session.buffer.splice(0, session.buffer.length - 1000);
-      }
-      maybeWriteSshSecret(session);
-      maybeDetectCodexPermissionPrompt(session);
-      broadcast("terminal:data", { id: session.id, data });
-    });
-
-    term.onExit(({ exitCode }) => {
-      if (!sessions.has(session.id)) return;
-      broadcast("terminal:exit", { id: session.id, exitCode });
-      broadcastAgentStatus({
-        id: session.id,
-        status: "exited",
-        eventName: "PtyExit",
-        message: `Exit code ${exitCode}`
-      });
-      sessions.delete(session.id);
-      sessionOrder.splice(sessionOrder.indexOf(session.id), 1);
-      if (typeof onSessionClosed === "function") {
-        onSessionClosed(session.id);
-      }
-      broadcast("sessions:changed", listSessions());
-    });
-
-    const initialCommand = options.initialCommand || session.initialCommand;
-    if (initialCommand) {
-      const cmd = String(initialCommand).trim();
-      if (cmd) {
-        const disposable = term.onData(() => {
-          disposable.dispose();
-          const activeSession = sessions.get(session.id);
-          if (activeSession) activeSession.term.write(cmd + "\r");
-        });
-      }
-    }
+    attachTerminal(session, term, options);
   }
 
   function startSessionFromTemplate(templateData, options = {}) {
     const storedTemplate = templateData?.id ? sessionStore.getTemplate(templateData.id) : undefined;
     const template = sessionStore.normalizeTemplate(storedTemplate || templateData);
+    if (template.type === "ssh") {
+      validateSsh2Config(template.sshConfig);
+    }
     const id = createRuntimeId();
     const session = {
       ...template,
@@ -340,7 +389,7 @@ function createTerminalManager({ sessionStore, configStore, broadcast, getHookUr
     const cwd = options.cwd || os.homedir();
     const sshConfig = options.sshConfig;
     if (type === "ssh") {
-      buildSshArgs(sshConfig);
+      validateSsh2Config(sshConfig);
     }
     if (!options.title && sshConfig?.host) {
       options.title = `${sshConfig.username ? `${sshConfig.username}@` : ""}${sshConfig.host}`;

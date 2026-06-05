@@ -134,7 +134,7 @@ describe("session-store", () => {
     expect(persisted[0]).toMatchObject({
       id: "7",
       title: "Prod",
-      shell: "ssh.exe",
+      shell: "ssh2",
       type: "ssh",
       sshConfig: {
         host: "example.com",

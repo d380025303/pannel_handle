@@ -15,13 +15,6 @@ type CreateSessionModalProps = {
   onCancel: () => void;
 };
 
-function parseExtraArgs(value: string) {
-  return value
-    .split(/\s+/)
-    .map(arg => arg.trim())
-    .filter(Boolean);
-}
-
 export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSessionModalProps) {
   const [title, setTitle] = useState("");
   const [commandInput, setCommandInput] = useState("");
@@ -52,7 +45,6 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
         port: Number(sshPort) || 22,
         identityFile: sshIdentityFile.trim() || undefined,
         remoteCommand: sshRemoteCommand.trim() || undefined,
-        extraArgs: parseExtraArgs(sshExtraArgs),
         secret: sshSecret || undefined,
         remark: sshRemark.trim() || undefined
       } : undefined
@@ -186,6 +178,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
                   className="modal-input"
                   placeholder="-o ServerAliveInterval=30"
                   value={sshExtraArgs}
+                  disabled
                   onChange={(e) => setSshExtraArgs(e.target.value)}
                   onKeyDown={handleEscape}
                 />

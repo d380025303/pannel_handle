@@ -1,6 +1,6 @@
-const fs = require("node:fs");
 const path = require("node:path");
 const SftpClient = require("ssh2-sftp-client");
+const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
 
 const TEXT_PREVIEW_LIMIT = 1024 * 1024;
 
@@ -29,7 +29,7 @@ function isLikelyBinary(buffer) {
   return false;
 }
 
-function createRemoteFileService({ terminalManager, sessionStore, sftpFactory = () => new SftpClient() }) {
+function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sftpFactory = () => new SftpClient() }) {
   const clients = new Map();
 
   function getSession(sessionId) {
@@ -52,31 +52,8 @@ function createRemoteFileService({ terminalManager, sessionStore, sftpFactory = 
 
   function buildConnectionConfig(session) {
     const sshConfig = session.sshConfig || {};
-    const host = String(sshConfig.host || "").trim();
-    if (!host) {
-      throw new Error("SSH host is required.");
-    }
-    if (Array.isArray(sshConfig.extraArgs) && sshConfig.extraArgs.length > 0) {
-      throw new Error("Remote file panel does not support SSH extra arguments yet.");
-    }
-
-    const config = {
-      host,
-      port: Number(sshConfig.port || 22),
-      username: String(sshConfig.username || "").trim() || undefined,
-      readyTimeout: 15000
-    };
     const secret = getSecret(sshConfig);
-    const identityFile = String(sshConfig.identityFile || "").trim();
-    if (identityFile) {
-      config.privateKey = fs.readFileSync(identityFile);
-      if (secret) {
-        config.passphrase = secret;
-      }
-    } else if (secret) {
-      config.password = secret;
-    }
-    return config;
+    return buildSsh2ConnectionConfig({ sshConfig, secret, knownHostStore });
   }
 
   async function getClient(sessionId) {

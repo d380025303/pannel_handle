@@ -51,6 +51,7 @@ function createMockTerm() {
 function createManager(overrides = {}) {
   const term = createMockTerm();
   const pty = { spawn: vi.fn(() => term) };
+  const ssh2TerminalFactory = vi.fn(() => term);
   const broadcast = vi.fn();
   const templates = new Map();
   const sessionStore = {
@@ -80,10 +81,11 @@ function createManager(overrides = {}) {
     broadcast,
     getHookUrl: () => "http://127.0.0.1:4567",
     pty,
+    ssh2TerminalFactory,
     ...overrides
   });
 
-  return { manager, term, pty, broadcast, sessionStore };
+  return { manager, term, pty, ssh2TerminalFactory, broadcast, sessionStore };
 }
 
 afterEach(() => {
@@ -255,8 +257,8 @@ describe("terminal-manager", () => {
     ]);
   });
 
-  it("creates SSH sessions with system ssh and persists the template", () => {
-    const { manager, pty, sessionStore } = createManager();
+  it("creates SSH sessions with ssh2 and persists the template", () => {
+    const { manager, pty, ssh2TerminalFactory, sessionStore } = createManager();
 
     const session = manager.createSession({
       type: "ssh",
@@ -264,13 +266,13 @@ describe("terminal-manager", () => {
         host: "example.com",
         username: "deploy",
         port: 2222,
-        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519"
+        identityFile: "package.json"
       }
     });
 
     expect(session).toMatchObject({
       title: "deploy@example.com",
-      shell: expect.stringMatching(/^ssh(\.exe)?$/),
+      shell: "ssh2",
       type: "ssh",
       sshConfig: expect.objectContaining({
         host: "example.com",
@@ -282,13 +284,14 @@ describe("terminal-manager", () => {
       type: "ssh",
       sshConfig: expect.objectContaining({ host: "example.com" })
     }));
-    expect(pty.spawn).toHaveBeenCalledWith(expect.stringMatching(/^ssh(\.exe)?$/), [
-      "deploy@example.com",
-      "-p",
-      "2222",
-      "-i",
-      "C:\\Users\\tester\\.ssh\\id_ed25519"
-    ], expect.any(Object));
+    expect(pty.spawn).not.toHaveBeenCalled();
+    expect(ssh2TerminalFactory).toHaveBeenCalledWith(expect.objectContaining({
+      connectionConfig: expect.objectContaining({
+        host: "example.com",
+        username: "deploy",
+        port: 2222
+      })
+    }));
   });
 
   it("does not expose encrypted SSH secrets in serialized sessions", () => {
@@ -310,8 +313,8 @@ describe("terminal-manager", () => {
     expect(session.sshConfig.encryptedSecret).toBeUndefined();
   });
 
-  it("writes a saved SSH secret when ssh asks for a password", () => {
-    const { manager, term, sessionStore } = createManager();
+  it("passes a saved SSH password into ssh2 and still writes it for terminal password prompts", () => {
+    const { manager, term, sessionStore, ssh2TerminalFactory } = createManager();
 
     manager.createSession({
       type: "ssh",
@@ -325,6 +328,12 @@ describe("terminal-manager", () => {
     term.emitData("deploy@example.com's password: ");
 
     expect(sessionStore.decryptSecret).toHaveBeenCalledWith("ciphertext");
+    expect(ssh2TerminalFactory).toHaveBeenCalledWith(expect.objectContaining({
+      connectionConfig: expect.objectContaining({
+        password: "plain-secret",
+        tryKeyboard: true
+      })
+    }));
     expect(term.writes).toEqual(["plain-secret\r"]);
   });
 
@@ -352,7 +361,7 @@ describe("terminal-manager", () => {
       type: "ssh",
       sshConfig: {
         host: "example.com",
-        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
+        identityFile: "package.json",
         encryptedSecret: "ciphertext"
       }
     });
@@ -431,7 +440,7 @@ describe("terminal-manager", () => {
   });
 
   it("rejects SSH sessions without a host before persisting", () => {
-    const { manager, sessionStore, pty } = createManager();
+    const { manager, sessionStore, pty, ssh2TerminalFactory } = createManager();
 
     expect(() => manager.createSession({
       type: "ssh",
@@ -439,5 +448,21 @@ describe("terminal-manager", () => {
     })).toThrow("SSH host is required.");
     expect(sessionStore.addToLibrary).not.toHaveBeenCalled();
     expect(pty.spawn).not.toHaveBeenCalled();
+    expect(ssh2TerminalFactory).not.toHaveBeenCalled();
+  });
+
+  it("rejects SSH sessions with extra arguments before persisting", () => {
+    const { manager, sessionStore, pty, ssh2TerminalFactory } = createManager();
+
+    expect(() => manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        extraArgs: ["-o", "ServerAliveInterval=30"]
+      }
+    })).toThrow("SSH extra arguments are not supported by the ssh2 backend.");
+    expect(sessionStore.addToLibrary).not.toHaveBeenCalled();
+    expect(pty.spawn).not.toHaveBeenCalled();
+    expect(ssh2TerminalFactory).not.toHaveBeenCalled();
   });
 });

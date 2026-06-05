@@ -8,13 +8,6 @@ type EditSessionModalProps = {
   onCancel: () => void;
 };
 
-function parseExtraArgs(value: string) {
-  return value
-    .split(/\s+/)
-    .map(arg => arg.trim())
-    .filter(Boolean);
-}
-
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -48,7 +41,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
         port: Number(sshPort) || 22,
         identityFile: sshIdentityFile.trim() || undefined,
         remoteCommand: sshRemoteCommand.trim() || undefined,
-        extraArgs: parseExtraArgs(sshExtraArgs),
+        extraArgs: [],
         secret: clearSshSecret ? undefined : sshSecret || undefined,
         clearSecret: clearSshSecret,
         remark: sshRemark.trim() || undefined
@@ -187,6 +180,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                   className="modal-input"
                   placeholder="-o ServerAliveInterval=30"
                   value={sshExtraArgs}
+                  disabled
                   onChange={(e) => setSshExtraArgs(e.target.value)}
                   onKeyDown={handleEscape}
                 />
