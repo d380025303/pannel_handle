@@ -79,6 +79,10 @@ function createAgentHookServer({ terminalManager }) {
     return input.hook_event_name || input.eventName || input.event_name || "Unknown";
   }
 
+  function getToolName(input) {
+    return input.tool_name || input.toolName || input.tool;
+  }
+
   function getJsonStringField(rawInput, fieldName) {
     if (typeof rawInput !== "string" || rawInput.length === 0) {
       return undefined;
@@ -103,7 +107,7 @@ function createAgentHookServer({ terminalManager }) {
     }
 
     const recovered = {};
-    for (const fieldName of ["hook_event_name", "session_id", "cwd", "last_assistant_message"]) {
+    for (const fieldName of ["hook_event_name", "session_id", "cwd", "last_assistant_message", "tool_name"]) {
       if (input[fieldName] === undefined) {
         const value = getJsonStringField(input.raw_input, fieldName);
         if (value !== undefined) {
@@ -181,6 +185,9 @@ function createAgentHookServer({ terminalManager }) {
     if (eventName === "PermissionRequest") {
       return "waiting_for_permission";
     }
+    if (eventName === "PreToolUse" && getToolName(input) === "request_user_input") {
+      return "waiting_for_permission";
+    }
     if (
       eventName === "SessionStart" ||
       eventName === "UserPromptSubmit" ||
@@ -232,7 +239,7 @@ function createAgentHookServer({ terminalManager }) {
     if (!status) {
       return false;
     }
-    const toolName = input.tool_name || input.toolName || input.tool;
+    const toolName = getToolName(input);
     const message = input.message || input.title || input.notification_type || input.reason;
     registerAgentSession(provider, getAgentSessionId(input), session.id);
     const resolution = getClaudeHookResolution(input);

@@ -14,6 +14,7 @@
 4. `.codex/pannel-handle-hook.ps1` 从 stdin 读取 Codex hook JSON，并 POST 到本工具的 `/codex-hook`。
 5. Electron 将 hook 映射为前端状态：
    - `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse` -> `running`
+   - `PreToolUse` + `request_user_input` -> `waiting_for_permission`
    - `PermissionRequest` -> `waiting_for_permission`
    - `Stop` -> `completed`
    - PTY exit -> `exited`
