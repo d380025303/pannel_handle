@@ -10,8 +10,8 @@
     "start": "concurrently -k \"pnpm dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "test": "vitest run",
     "build": "tsc && vite build",
-    "dist:dir": "pnpm build && electron-builder --dir",
-    "dist:portable": "pnpm build && electron-builder"
+    "dist:dir": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && electron-builder --dir",
+    "dist:portable": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && electron-builder"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.5.0",
@@ -40,14 +40,18 @@
     "directories": {
       "output": "release"
     },
+    "toolsets": {
+      "winCodeSign": "1.1.0"
+    },
     "npmRebuild": false,
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "win": {
-      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
       "target": [
         "portable"
       ]

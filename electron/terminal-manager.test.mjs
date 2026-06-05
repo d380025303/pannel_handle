@@ -72,7 +72,8 @@ function createManager(overrides = {}) {
     updateLibrary: vi.fn((id, updates) => {
       templates.set(id, { ...(templates.get(id) || { id }), ...updates });
     }),
-    getTemplate: vi.fn((id) => templates.get(id))
+    getTemplate: vi.fn((id) => templates.get(id)),
+    decryptSecret: vi.fn((encryptedSecret) => encryptedSecret === "ciphertext" ? "plain-secret" : undefined)
   };
   const manager = createTerminalManager({
     sessionStore,
@@ -288,6 +289,93 @@ describe("terminal-manager", () => {
       "-i",
       "C:\\Users\\tester\\.ssh\\id_ed25519"
     ], expect.any(Object));
+  });
+
+  it("does not expose encrypted SSH secrets in serialized sessions", () => {
+    const { manager } = createManager();
+
+    const session = manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    expect(session.sshConfig).toMatchObject({
+      host: "example.com",
+      hasSecret: true
+    });
+    expect(session.sshConfig.encryptedSecret).toBeUndefined();
+  });
+
+  it("writes a saved SSH secret when ssh asks for a password", () => {
+    const { manager, term, sessionStore } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("deploy@example.com's password: ");
+
+    expect(sessionStore.decryptSecret).toHaveBeenCalledWith("ciphertext");
+    expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
+  it("writes a saved SSH secret when ssh asks for a key passphrase", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("Enter passphrase for key 'C:\\Users\\tester\\.ssh\\id_ed25519': ");
+
+    expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
+  it("limits automatic SSH secret writes to two prompts", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    term.emitData("password: ");
+    term.emitData("password: ");
+    term.emitData("password: ");
+
+    expect(term.writes).toEqual(["plain-secret\r", "plain-secret\r"]);
+  });
+
+  it("does not write SSH secrets when no saved secret exists", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      sshConfig: {
+        host: "example.com"
+      }
+    });
+
+    term.emitData("password: ");
+
+    expect(term.writes).toEqual([]);
   });
 
   it("rejects SSH sessions without a host before persisting", () => {

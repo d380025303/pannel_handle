@@ -128,6 +128,7 @@ export function SessionPickerModal({
                   type="text"
                   placeholder="搜索会话..."
                   value={searchQuery}
+                  autoFocus
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 {isSearching && (
@@ -160,10 +161,15 @@ export function SessionPickerModal({
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, session.id)}
                     onDragEnd={handleDragEnd}
+                    onClick={() => {
+                      setConfirmDeleteId(null);
+                      onLaunch([session]);
+                    }}
                   >
                     <span
                       className={`picker-drag-handle${isSearching ? " disabled" : ""}`}
                       onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <GripVertical aria-hidden="true" />
                     </span>
@@ -171,6 +177,7 @@ export function SessionPickerModal({
                       type="checkbox"
                       className="picker-checkbox"
                       checked={isChecked}
+                      onClick={(e) => e.stopPropagation()}
                       onChange={() => {
                         setConfirmDeleteId(null);
                         setSelectedIds((prev) => {

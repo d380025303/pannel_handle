@@ -198,16 +198,16 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
     return sessionStore.decryptSecret(encryptedSecret);
   }
 
-  function isSshSecretPrompt(data) {
-    const text = stripAnsi(data).replace(/\r/g, "\n");
+  function isSshSecretPrompt(session) {
+    const text = stripAnsi(session.buffer.slice(-5).join("")).replace(/\r/g, "\n");
     return /(?:^|\n).*password:\s*$/i.test(text) || /enter passphrase for key\b.*:\s*$/i.test(text);
   }
 
-  function maybeWriteSshSecret(session, data) {
+  function maybeWriteSshSecret(session) {
     if (session.type !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
       return;
     }
-    if (!isSshSecretPrompt(data)) {
+    if (!isSshSecretPrompt(session)) {
       return;
     }
     session.sshSecretAttempts += 1;
@@ -252,7 +252,7 @@ function createTerminalManager({ sessionStore, broadcast, getHookUrl, pty = node
       if (session.buffer.length > 1000) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
-      maybeWriteSshSecret(session, data);
+      maybeWriteSshSecret(session);
       maybeBroadcastTerminalPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });
