@@ -24,8 +24,8 @@ export function SettingsModal({
   }, [onCancel]);
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-dialog">
         <div className="modal-header">
           <h3>设置</h3>
         </div>

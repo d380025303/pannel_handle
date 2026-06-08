@@ -106,8 +106,8 @@ export function SessionPickerModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={() => { setConfirmDeleteId(null); onCancel(); }}>
-      <div className="modal-dialog session-picker-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-dialog session-picker-dialog">
         <div className="modal-header">
           <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
         </div>
