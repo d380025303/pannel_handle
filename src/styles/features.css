@@ -141,8 +141,9 @@
 }
 
 .session-item {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -184,15 +185,18 @@
 }
 
 .session-actions {
+  position: absolute;
+  right: 10px;
   display: flex;
   align-items: center;
   gap: 4px;
   opacity: 0;
+  pointer-events: none;
 }
 
-.session-item:hover .session-actions,
-.session-item.active .session-actions {
+.session-item:hover .session-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .session-drag-handle {
