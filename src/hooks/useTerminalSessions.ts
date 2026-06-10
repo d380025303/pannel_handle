@@ -18,7 +18,6 @@ export function useTerminalSessions() {
   const [pickerManual, setPickerManual] = useState(false);
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
-  const pendingSelectTemplateId = useRef<string | undefined>(undefined);
   const hasAutoRestored = useRef(false);
 
   const activeSession = useMemo(
@@ -62,8 +61,13 @@ export function useTerminalSessions() {
           if (template) toRestore.push(template);
         }
         if (toRestore.length > 0) {
-          pendingSelectTemplateId.current = toRestore[0]?.id;
-          window.terminalApi.launchSessions(toRestore);
+          const targetTemplateId = toRestore[0]?.id;
+          window.terminalApi.launchSessions(toRestore).then((updatedSessions) => {
+            if (isDisposed) return;
+            const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
+            const newest = matches[matches.length - 1];
+            if (newest) setActiveId(newest.id);
+          });
           return;
         }
       }
@@ -79,14 +83,6 @@ export function useTerminalSessions() {
         );
       });
       setActiveId((current) => {
-        console.log("[onSessionsChanged] pendingSelectTemplateId:", pendingSelectTemplateId.current, "current activeId:", current, "nextSessions:", nextSessions.map(s => ({ id: s.id, templateId: s.templateId, title: s.title })));
-        if (pendingSelectTemplateId.current) {
-          const targetId = pendingSelectTemplateId.current;
-          pendingSelectTemplateId.current = undefined;
-          const matched = nextSessions.find(s => s.templateId === targetId);
-          console.log("[onSessionsChanged] looking for templateId:", targetId, "matched:", matched?.id);
-          if (matched) return matched.id;
-        }
         if (current && nextSessions.some((session) => session.id === current)) {
           return current;
         }
@@ -150,9 +146,13 @@ export function useTerminalSessions() {
   }, []);
 
   const launchSessions = useCallback(async (toLaunch: TerminalSession[]) => {
-    pendingSelectTemplateId.current = toLaunch[0]?.id;
-    console.log("[launchSessions] pendingSelectTemplateId set:", pendingSelectTemplateId.current, "toLaunch:", toLaunch.map(s => s.id));
-    await window.terminalApi.launchSessions(toLaunch);
+    const targetTemplateId = toLaunch[0]?.id;
+    const updatedSessions = await window.terminalApi.launchSessions(toLaunch);
+    if (targetTemplateId) {
+      const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
+      const newest = matches[matches.length - 1];
+      if (newest) setActiveId(newest.id);
+    }
   }, []);
 
   const startFresh = useCallback(async () => {
