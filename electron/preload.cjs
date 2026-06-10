@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld("terminalApi", {
     ipcRenderer.on("sessions:changed", listener);
     return () => ipcRenderer.removeListener("sessions:changed", listener);
   },
+  onSessionSelectRequested: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("sessions:select-requested", listener);
+    return () => ipcRenderer.removeListener("sessions:select-requested", listener);
+  },
   getConfig: () => ipcRenderer.invoke("config:get"),
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });

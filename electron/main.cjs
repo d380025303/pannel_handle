@@ -1,5 +1,6 @@
 const path = require("node:path");
-const { app, BrowserWindow, clipboard, dialog, safeStorage } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, Notification, safeStorage } = require("electron");
+const { createAgentNotificationManager } = require("./agent-notification-manager.cjs");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createConfigStore } = require("./config-store.cjs");
 const { createHookConfigManager } = require("./hook-config-manager.cjs");
@@ -18,6 +19,7 @@ let terminalManager = null;
 let agentHookServer = null;
 let remoteFileService = null;
 let hookConfigManager = null;
+let agentNotificationManager = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -31,6 +33,9 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    if (process.platform === "win32") {
+      app.setAppUserModelId("local.pannel-handle");
+    }
     windowManager = createWindowManager();
     sessionStore = createSessionStore({
       sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
@@ -53,11 +58,24 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast,
       getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
       knownHostStore,
+      onAgentStatusChanged: (payload) => {
+        if (agentNotificationManager) {
+          agentNotificationManager.handleStatus(payload);
+        }
+      },
       onSessionClosed: (id) => {
+        if (agentNotificationManager) {
+          agentNotificationManager.clearSession(id);
+        }
         if (remoteFileService) {
           void remoteFileService.disconnect(id);
         }
       }
+    });
+    agentNotificationManager = createAgentNotificationManager({
+      Notification,
+      windowManager,
+      terminalManager
     });
     remoteFileService = createRemoteFileService({
       terminalManager,
@@ -103,6 +121,9 @@ app.on("window-all-closed", () => {
   }
   if (agentHookServer) {
     agentHookServer.stop();
+  }
+  if (agentNotificationManager) {
+    agentNotificationManager.shutdown();
   }
   if (windowManager) {
     windowManager.closeWindowManager();

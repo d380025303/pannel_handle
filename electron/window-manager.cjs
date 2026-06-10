@@ -74,6 +74,18 @@ function createWindowManager() {
     return mainWindow;
   }
 
+  function isMainWindowFocused() {
+    return Boolean(hasWindow() && !mainWindow.isMinimized() && mainWindow.isFocused());
+  }
+
+  function focusAndSelectSession(sessionId) {
+    const window = focusWindow();
+    if (window) {
+      broadcast("sessions:select-requested", { id: sessionId });
+    }
+    return window;
+  }
+
   function getWindowFromEvent(event) {
     return BrowserWindow.fromWebContents(event.sender);
   }
@@ -85,6 +97,8 @@ function createWindowManager() {
   return {
     createWindow,
     focusWindow,
+    isMainWindowFocused,
+    focusAndSelectSession,
     broadcast,
     getWindowFromEvent,
     closeWindowManager

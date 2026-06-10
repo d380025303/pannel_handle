@@ -329,6 +329,31 @@ describe("terminal-manager", () => {
     }));
   });
 
+  it("reports status changes without allowing callback failures to block broadcasts", () => {
+    const onAgentStatusChanged = vi.fn(() => {
+      throw new Error("notification failed");
+    });
+    const { manager, broadcast } = createManager({ onAgentStatusChanged });
+
+    expect(() => manager.broadcastAgentStatus({
+      id: "run-1",
+      provider: "codex",
+      status: "completed",
+      eventName: "Stop"
+    })).not.toThrow();
+
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: "run-1",
+      provider: "codex",
+      status: "completed",
+      eventName: "Stop"
+    }));
+    expect(onAgentStatusChanged).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      status: "completed"
+    }));
+  });
+
   it("does not expose encrypted SSH secrets in serialized sessions", () => {
     const { manager } = createManager();
 

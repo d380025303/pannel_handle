@@ -85,6 +85,14 @@ export function App() {
     terminalSessions.setActiveId(id);
   }, [remoteFilesDirty, terminalSessions]);
 
+  useEffect(() => {
+    return window.terminalApi.onSessionSelectRequested(({ id }) => {
+      if (terminalSessions.sessions.some((session) => session.id === id)) {
+        handleSelectSession(id);
+      }
+    });
+  }, [handleSelectSession, terminalSessions.sessions]);
+
   const handleLaunchSessions = useCallback(async (sessions: TerminalSession[]) => {
     if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
       return;

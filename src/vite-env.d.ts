@@ -127,6 +127,7 @@ export type TerminalApi = {
   onAgentStatus: (callback: (payload: AgentStatusPayload) => void) => () => void;
   onAgentHookDebug: (callback: (payload: AgentHookDebugPayload) => void) => () => void;
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
+  onSessionSelectRequested: (callback: (payload: { id: string }) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
   loadSavedSessions: () => Promise<TerminalSession[]>;
   launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;

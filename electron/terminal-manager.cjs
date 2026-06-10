@@ -113,6 +113,7 @@ function createTerminalManager({
   broadcast,
   getHookUrl,
   onSessionClosed,
+  onAgentStatusChanged,
   knownHostStore,
   pty = nodePty,
   ssh2TerminalFactory = createSsh2Terminal
@@ -134,11 +135,19 @@ function createTerminalManager({
 
   function broadcastAgentStatus(payload) {
     const { provider = "claude", ...rest } = payload;
-    broadcast("agent:status", {
+    const statusPayload = {
       provider,
       timestamp: Date.now(),
       ...rest
-    });
+    };
+    broadcast("agent:status", statusPayload);
+    if (typeof onAgentStatusChanged === "function") {
+      try {
+        onAgentStatusChanged(statusPayload);
+      } catch (err) {
+        console.error("Failed to handle agent status change:", err);
+      }
+    }
   }
 
   function broadcastAgentHookDebug(payload) {
