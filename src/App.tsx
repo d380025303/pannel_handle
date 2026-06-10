@@ -130,6 +130,7 @@ export function App() {
             <QuickCommandBar
               quickCommands={terminalSessions.quickCommandsForActiveSession}
               activeSessionId={terminalSessions.activeId}
+              onFocusTerminal={terminalInstances.focusActiveTerminal}
             />
           </div>
 

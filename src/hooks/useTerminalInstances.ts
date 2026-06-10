@@ -90,6 +90,14 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
     entry.terminal.focus();
   }, [activeId, copyTerminalSelection]);
 
+  const focusActiveTerminal = useCallback(() => {
+    if (!activeId) return;
+    const entry = terminalsRef.current.get(activeId);
+    if (entry) {
+      entry.terminal.focus();
+    }
+  }, [activeId]);
+
   const disposeTerminal = useCallback((id: string) => {
     const entry = terminalsRef.current.get(id);
     if (entry) {
@@ -237,6 +245,7 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
   return {
     terminalHostRef,
     handleTerminalContextMenu,
-    disposeTerminal
+    disposeTerminal,
+    focusActiveTerminal
   };
 }

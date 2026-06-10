@@ -4,15 +4,17 @@ import type { QuickCommand } from "../vite-env";
 type QuickCommandBarProps = {
   quickCommands: QuickCommand[];
   activeSessionId?: string;
+  onFocusTerminal: () => void;
 };
 
-export function QuickCommandBar({ quickCommands, activeSessionId }: QuickCommandBarProps) {
+export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal }: QuickCommandBarProps) {
   if (!quickCommands || quickCommands.length === 0 || !activeSessionId) {
     return null;
   }
 
   const handleClick = (command: string) => {
     window.terminalApi.write(activeSessionId, command);
+    onFocusTerminal();
   };
 
   return (
