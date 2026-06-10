@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, RefreshCw, Search, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, RefreshCw, Save, Search, Upload, X } from "lucide-react";
 import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
   session?: TerminalSession;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type PreviewState =
   | { status: "idle" }
   | { status: "loading"; path: string }
-  | { status: "ready"; path: string; fileName: string; preview: RemoteTextPreview }
+  | { status: "ready"; sessionId: string; path: string; fileName: string; preview: RemoteTextPreview }
   | { status: "error"; path: string; message: string };
+
+type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "conflict"; message: string }
+  | { status: "error"; message: string };
 
 type TextMatch = {
   start: number;
@@ -47,7 +54,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
-export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
+export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps) {
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
@@ -56,11 +63,16 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [previewSearchQuery, setPreviewSearchQuery] = useState("");
   const [activePreviewMatch, setActivePreviewMatch] = useState(0);
+  const [originalContent, setOriginalContent] = useState("");
+  const [editorContent, setEditorContent] = useState("");
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
-  const previewContentRef = useRef<HTMLPreElement>(null);
+  const saveRequestRef = useRef(0);
+  const previewContentRef = useRef<HTMLTextAreaElement>(null);
+  const dirtyRef = useRef(false);
 
   const isSshSession = session?.type === "ssh";
   const sessionId = session?.id;
@@ -76,15 +88,21 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       : entries,
     [entries, normalizedSearchQuery]
   );
-  const previewText = preview.status === "ready" && preview.preview.kind === "text"
-    ? preview.preview.content
-    : "";
+  const isDirty = preview.status === "ready"
+    && preview.preview.kind === "text"
+    && editorContent !== originalContent;
+  dirtyRef.current = isDirty;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+    return () => onDirtyChange?.(false);
+  }, [isDirty, onDirtyChange]);
+
   const previewMatches = useMemo<TextMatch[]>(() => {
-    if (!previewSearchQuery || !previewText) {
+    if (!previewSearchQuery || !editorContent) {
       return [];
     }
     const matches: TextMatch[] = [];
-    const normalizedContent = previewText.toLowerCase();
+    const normalizedContent = editorContent.toLowerCase();
     const normalizedQuery = previewSearchQuery.toLowerCase();
     let start = normalizedContent.indexOf(normalizedQuery);
     while (start !== -1) {
@@ -92,24 +110,42 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       start = normalizedContent.indexOf(normalizedQuery, start + normalizedQuery.length);
     }
     return matches;
-  }, [previewSearchQuery, previewText]);
+  }, [editorContent, previewSearchQuery]);
 
   useEffect(() => {
     setActivePreviewMatch(0);
-  }, [previewSearchQuery, previewText]);
+  }, [previewSearchQuery]);
 
   useEffect(() => {
     if (!previewMatches.length) {
       return;
     }
-    const activeMatch = previewContentRef.current?.querySelector<HTMLElement>(
-      `[data-preview-match="${activePreviewMatch}"]`
-    );
-    activeMatch?.scrollIntoView({ block: "center", inline: "nearest" });
-  }, [activePreviewMatch, previewMatches.length, previewSearchQuery]);
+    const match = previewMatches[activePreviewMatch];
+    const textarea = previewContentRef.current;
+    if (!match || !textarea) {
+      return;
+    }
+    textarea.focus();
+    textarea.setSelectionRange(match.start, match.end);
+  }, [activePreviewMatch, previewSearchQuery]);
 
-  const loadDirectory = useCallback(async (path: string, preserveSearch = false) => {
+  const confirmDiscard = useCallback(() => (
+    !dirtyRef.current || window.confirm("Discard unsaved remote file changes?")
+  ), []);
+
+  const resetEditor = useCallback(() => {
+    saveRequestRef.current += 1;
+    setOriginalContent("");
+    setEditorContent("");
+    setSaveState({ status: "idle" });
+    setPreviewSearchQuery("");
+  }, []);
+
+  const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
     if (!sessionId || !isSshSession) {
+      return;
+    }
+    if (!skipConfirm && !confirmDiscard()) {
       return;
     }
     const requestId = requestRef.current + 1;
@@ -125,7 +161,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       setEntries(nextEntries);
       setSelectedPath(null);
       setPreview({ status: "idle" });
-      setPreviewSearchQuery("");
+      resetEditor();
       if (!preserveSearch) {
         setSearchQuery("");
       }
@@ -137,7 +173,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
         setLoading(false);
       }
     }
-  }, [isSshSession, sessionId]);
+  }, [confirmDiscard, isSshSession, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !isSshSession) {
@@ -147,7 +183,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       setSelectedPath(null);
       setPreview({ status: "idle" });
       setSearchQuery("");
-      setPreviewSearchQuery("");
+      resetEditor();
       setError(null);
       setLoading(false);
       previewRequestRef.current += 1;
@@ -162,7 +198,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     window.remoteFileApi.getHome(sessionId)
       .then((home) => {
         if (!disposed) {
-          void loadDirectory(home || ".");
+          void loadDirectory(home || ".", false, true);
         }
       })
       .catch((err) => {
@@ -177,13 +213,19 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       requestRef.current += 1;
       previewRequestRef.current += 1;
     };
-  }, [isSshSession, loadDirectory, sessionId]);
+  }, [confirmDiscard, isSshSession, loadDirectory, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry) => {
+    if (entry.path === selectedPath) {
+      return;
+    }
+    if (!confirmDiscard()) {
+      return;
+    }
     setSelectedPath(entry.path);
-    setPreviewSearchQuery("");
+    resetEditor();
     if (entry.type === "directory") {
-      await loadDirectory(entry.path);
+      await loadDirectory(entry.path, false, true);
       return;
     }
 
@@ -196,10 +238,15 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       if (previewRequestRef.current !== requestId) return;
       setPreview({
         status: "ready",
+        sessionId,
         path: entry.path,
         fileName: entry.name,
         preview: nextPreview
       });
+      if (nextPreview.kind === "text") {
+        setOriginalContent(nextPreview.content);
+        setEditorContent(nextPreview.content);
+      }
     } catch (err) {
       if (previewRequestRef.current !== requestId) return;
       setPreview({
@@ -208,7 +255,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
         message: getErrorMessage(err)
       });
     }
-  }, [loadDirectory, sessionId]);
+  }, [confirmDiscard, loadDirectory, resetEditor, selectedPath, sessionId]);
 
   const handleRefresh = useCallback(() => {
     void loadDirectory(currentPath, true);
@@ -222,12 +269,10 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     if (!sessionId) return;
     const result = await window.remoteFileApi.uploadFile(sessionId, currentPath);
     if (!result.canceled) {
-      await loadDirectory(currentPath, true);
-      if (result.remotePath) {
-        setSelectedPath(result.remotePath);
-      }
+      const nextEntries = await window.remoteFileApi.list(sessionId, currentPath);
+      setEntries(nextEntries);
     }
-  }, [currentPath, loadDirectory, sessionId]);
+  }, [currentPath, sessionId]);
 
   const handleDownload = useCallback(async (entry: RemoteFileEntry) => {
     if (!sessionId || entry.type === "directory") return;
@@ -235,11 +280,96 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   }, [sessionId]);
 
   const handleClosePreview = useCallback(() => {
+    if (!confirmDiscard()) {
+      return;
+    }
     previewRequestRef.current += 1;
     setSelectedPath(null);
     setPreview({ status: "idle" });
-    setPreviewSearchQuery("");
-  }, []);
+    resetEditor();
+  }, [confirmDiscard, resetEditor]);
+
+  const handleReloadPreview = useCallback(async () => {
+    if (preview.status !== "ready" || !confirmDiscard()) {
+      return;
+    }
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
+    setSaveState({ status: "idle" });
+    try {
+      const nextPreview = await window.remoteFileApi.readText(preview.sessionId, preview.path);
+      if (previewRequestRef.current !== requestId) return;
+      setPreview({ ...preview, preview: nextPreview });
+      if (nextPreview.kind === "text") {
+        setOriginalContent(nextPreview.content);
+        setEditorContent(nextPreview.content);
+      } else {
+        setOriginalContent("");
+        setEditorContent("");
+      }
+    } catch (err) {
+      if (previewRequestRef.current !== requestId) return;
+      setSaveState({ status: "error", message: getErrorMessage(err) });
+    }
+  }, [confirmDiscard, preview]);
+
+  const handleSavePreview = useCallback(async () => {
+    if (
+      preview.status !== "ready"
+      || preview.preview.kind !== "text"
+      || !isDirty
+      || saveState.status === "saving"
+      || saveState.status === "conflict"
+    ) {
+      return;
+    }
+    const requestId = saveRequestRef.current + 1;
+    saveRequestRef.current = requestId;
+    setSaveState({ status: "saving" });
+    try {
+      const result = await window.remoteFileApi.writeText(
+        preview.sessionId,
+        preview.path,
+        editorContent,
+        preview.preview.version
+      );
+      if (saveRequestRef.current !== requestId) return;
+      if (result.status === "conflict") {
+        setSaveState({
+          status: "conflict",
+          message: "The remote file changed after it was opened. Reload it before editing again."
+        });
+        return;
+      }
+      setPreview({
+        ...preview,
+        preview: {
+          kind: "text",
+          content: editorContent,
+          size: result.size,
+          version: result.version
+        }
+      });
+      setOriginalContent(editorContent);
+      setSaveState({ status: "idle" });
+      if (sessionId === preview.sessionId) {
+        window.remoteFileApi.list(sessionId, currentPath)
+          .then((nextEntries) => {
+            if (saveRequestRef.current === requestId) {
+              setEntries(nextEntries);
+            }
+          })
+          .catch((err) => {
+            if (saveRequestRef.current === requestId) {
+              setError(getErrorMessage(err));
+            }
+          });
+      }
+    } catch (err) {
+      if (saveRequestRef.current !== requestId) return;
+      setSaveState({ status: "error", message: getErrorMessage(err) });
+    }
+  }, [currentPath, editorContent, isDirty, preview, saveState.status, sessionId]);
 
   const movePreviewMatch = useCallback((direction: 1 | -1) => {
     if (!previewMatches.length) {
@@ -249,29 +379,6 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       (current + direction + previewMatches.length) % previewMatches.length
     ));
   }, [previewMatches.length]);
-
-  const renderedPreviewText = useMemo(() => {
-    if (!previewMatches.length) {
-      return previewText;
-    }
-    const content: React.ReactNode[] = [];
-    let cursor = 0;
-    previewMatches.forEach((match, index) => {
-      content.push(previewText.slice(cursor, match.start));
-      content.push(
-        <mark
-          className={index === activePreviewMatch ? "active" : ""}
-          data-preview-match={index}
-          key={`${match.start}-${match.end}`}
-        >
-          {previewText.slice(match.start, match.end)}
-        </mark>
-      );
-      cursor = match.end;
-    });
-    content.push(previewText.slice(cursor));
-    return content;
-  }, [activePreviewMatch, previewMatches, previewText]);
 
   if (!isSshSession) {
     return (
@@ -395,8 +502,36 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       {preview.status !== "idle" && (
         <div className="remote-file-preview">
           <div className="remote-preview-header">
-            <span><FileText aria-hidden="true" />{selectedEntry?.name || preview.path}</span>
+            <span>
+              <FileText aria-hidden="true" />
+              {selectedEntry?.name || preview.path}
+              {isDirty && <strong className="remote-preview-dirty" title="Unsaved changes">*</strong>}
+            </span>
             <div className="remote-preview-actions">
+              {preview.status === "ready" && preview.preview.kind === "text" && (
+                <>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Reload remote file"
+                    aria-label="Reload remote file"
+                    disabled={saveState.status === "saving"}
+                    onClick={() => void handleReloadPreview()}
+                  >
+                    <RefreshCw aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Save remote file"
+                    aria-label="Save remote file"
+                    disabled={!isDirty || saveState.status === "saving" || saveState.status === "conflict"}
+                    onClick={() => void handleSavePreview()}
+                  >
+                    <Save aria-hidden="true" />
+                  </button>
+                </>
+              )}
               {preview.status === "ready" && selectedEntry && selectedEntry.type !== "directory" && (
                 <button className="icon-button" type="button" title="Download" aria-label="Download" onClick={() => void handleDownload(selectedEntry)}>
                   <Download aria-hidden="true" />
@@ -418,6 +553,14 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
           {preview.status === "ready" && (
             preview.preview.kind === "text" ? (
               <>
+                {saveState.status !== "idle" && saveState.status !== "saving" && (
+                  <div className={`remote-preview-save-message ${saveState.status}`}>
+                    <span>{saveState.message}</span>
+                    {saveState.status === "conflict" && (
+                      <button type="button" onClick={() => void handleReloadPreview()}>Reload</button>
+                    )}
+                  </div>
+                )}
                 <div className="remote-preview-search">
                   <Search aria-hidden="true" />
                   <input
@@ -446,7 +589,29 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
                     <X aria-hidden="true" />
                   </button>
                 </div>
-                <pre ref={previewContentRef}>{renderedPreviewText}</pre>
+                <textarea
+                  ref={previewContentRef}
+                  className="remote-preview-editor"
+                  aria-label="Edit remote file content"
+                  spellCheck={false}
+                  value={editorContent}
+                  onChange={(event) => {
+                    setEditorContent(event.target.value);
+                    if (saveState.status === "error") {
+                      setSaveState({ status: "idle" });
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+                      event.preventDefault();
+                      void handleSavePreview();
+                    }
+                  }}
+                />
+                <div className="remote-preview-status">
+                  <span>{formatSize(new TextEncoder().encode(editorContent).length)}</span>
+                  <span>{saveState.status === "saving" ? "Saving..." : isDirty ? "Unsaved changes" : "Saved"}</span>
+                </div>
               </>
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">

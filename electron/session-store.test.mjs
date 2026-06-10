@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createSessionStore, inferWorkingDirectory } = require("./session-store.cjs");
+const { createSessionStore, inferWorkingDirectory, normalizeTags } = require("./session-store.cjs");
 
 let tempDirs = [];
 
@@ -41,6 +41,10 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("normalizes tags case-insensitively while preserving the first display value", () => {
+    expect(normalizeTags([" Work ", "", "work", "SSH", "ssh", null])).toEqual(["Work", "SSH"]);
+  });
+
   it("infers configured working directories from legacy initial commands", () => {
     expect(inferWorkingDirectory("cd C:\\mine\\project && claude", "windows")).toBe("C:\\mine\\project");
     expect(inferWorkingDirectory("cd /d \"C:\\mine\\project space\" && codex", "windows")).toBe("C:\\mine\\project space");
@@ -78,6 +82,7 @@ describe("session-store", () => {
     });
     expect(sessions[0].cwd).toBeTruthy();
     expect(sessions[0].createdAt).toEqual(expect.any(Number));
+    expect(sessions[0].tags).toEqual([]);
     expect(store.createTemplateId()).toBe("4");
   });
 
@@ -89,7 +94,8 @@ describe("session-store", () => {
     store.addToLibrary({
       id: "1",
       title: "Work",
-      cwd: "C:\\work"
+      cwd: "C:\\work",
+      tags: [" Work ", "work", "Local"]
     });
     store.updateLibrary("1", {
       title: "Work Renamed",
@@ -106,6 +112,7 @@ describe("session-store", () => {
       initialCommand: "pnpm dev",
       type: "windows"
     });
+    expect(store.getTemplate("1").tags).toEqual(["Work", "Local"]);
 
     const persisted = JSON.parse(readFileSync(sessionsFile, "utf-8"));
     expect(persisted).toHaveLength(1);

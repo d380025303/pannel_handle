@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import { TagInput } from "./TagInput";
 
 type EditSessionModalProps = {
   session: TerminalSession;
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => void;
+  tagSuggestions: string[];
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => void;
   onCancel: () => void;
 };
 
@@ -12,7 +14,7 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function EditSessionModal({ session, onSave, onCancel }: EditSessionModalProps) {
+export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: EditSessionModalProps) {
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || "");
@@ -28,6 +30,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
   const [sshRemark, setSshRemark] = useState(session.sshConfig?.remark || "");
+  const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
 
   const handleSave = () => {
@@ -47,7 +50,8 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
         secret: clearSshSecret ? undefined : sshSecret || undefined,
         clearSecret: clearSshSecret,
         remark: sshRemark.trim() || undefined
-      } : undefined
+      } : undefined,
+      tags
     );
   };
 
@@ -91,6 +95,10 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
               onChange={(e) => setEditTitle(e.target.value)}
               onKeyDown={handleEscape}
             />
+          </label>
+          <label className="modal-field">
+            <span className="modal-label">标签</span>
+            <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
           </label>
 
           {isSsh ? (

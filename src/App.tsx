@@ -26,6 +26,7 @@ export function App() {
   const [debugMode, setDebugMode] = useState(false);
   const [rightTool, setRightTool] = useState<"files" | "debug">("files");
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
+  const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
@@ -59,17 +60,54 @@ export function App() {
   }, []);
 
   const handleCreateSession = useCallback(async (request: CreateSessionRequest) => {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
     await terminalSessions.createSession(request);
     setShowCreateModal(false);
-  }, [terminalSessions]);
+  }, [remoteFilesDirty, terminalSessions]);
 
   const handleCloseSession = useCallback(async (id: string) => {
+    if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
     await terminalSessions.closeSession(id);
     terminalInstances.disposeTerminal(id);
-  }, [terminalInstances, terminalSessions]);
+  }, [remoteFilesDirty, terminalInstances, terminalSessions]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig);
+  const handleSelectSession = useCallback((id: string) => {
+    if (id === terminalSessions.activeId) {
+      return;
+    }
+    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
+    terminalSessions.setActiveId(id);
+  }, [remoteFilesDirty, terminalSessions]);
+
+  const handleLaunchSessions = useCallback(async (sessions: TerminalSession[]) => {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
+    await terminalSessions.launchSessions(sessions);
+  }, [remoteFilesDirty, terminalSessions]);
+
+  const handleStartFresh = useCallback(async () => {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
+    await terminalSessions.startFresh();
+  }, [remoteFilesDirty, terminalSessions]);
+
+  const handleRightToolChange = useCallback((tool: "files" | "debug") => {
+    if (tool !== "files" && remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+      return;
+    }
+    setRightTool(tool);
+  }, [remoteFilesDirty]);
+
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig, tags);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -114,7 +152,7 @@ export function App() {
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
             agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
-            onSelectSession={terminalSessions.setActiveId}
+            onSelectSession={handleSelectSession}
             onEditSession={setEditDialogSession}
             onInstallHooks={setHookInstallSession}
             onCloseSession={handleCloseSession}
@@ -147,24 +185,24 @@ export function App() {
                       type="button"
                       role="tab"
                       aria-selected={activeRightTool === "files"}
-                      onClick={() => setRightTool("files")}
+                      onClick={() => handleRightToolChange("files")}
                     >
                       Files
                     </button>
                   )}
                   <button
                     className={activeRightTool === "debug" ? "active" : ""}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeRightTool === "debug"}
-                    onClick={() => setRightTool("debug")}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeRightTool === "debug"}
+                  onClick={() => handleRightToolChange("debug")}
                   >
                     Debug
                   </button>
                 </div>
               )}
               {activeRightTool === "files" && showFilesPanel ? (
-                <RemoteFilePanel session={terminalSessions.activeSession} />
+                <RemoteFilePanel session={terminalSessions.activeSession} onDirtyChange={setRemoteFilesDirty} />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}
@@ -179,6 +217,7 @@ export function App() {
       {showCreateModal && (
         <CreateSessionModal
           wslDistros={wslDistros}
+          tagSuggestions={terminalSessions.tagSuggestions}
           onCreate={handleCreateSession}
           onCancel={() => setShowCreateModal(false)}
         />
@@ -187,6 +226,7 @@ export function App() {
       {editDialogSession && (
         <EditSessionModal
           session={editDialogSession}
+          tagSuggestions={terminalSessions.tagSuggestions}
           onSave={handleSaveEdit}
           onCancel={() => setEditDialogSession(null)}
         />
@@ -204,10 +244,11 @@ export function App() {
           pendingSessions={terminalSessions.pendingSessions}
           runningSessions={terminalSessions.sessions}
           pickerManual={terminalSessions.pickerManual}
-          onLaunch={terminalSessions.launchSessions}
-          onStartFresh={terminalSessions.startFresh}
+          onLaunch={handleLaunchSessions}
+          onStartFresh={handleStartFresh}
           onDelete={terminalSessions.deleteFromLibrary}
           onReorder={terminalSessions.reorderLibrary}
+          onUpdateTags={terminalSessions.updateLibraryTags}
           onCancel={handleClosePicker}
         />
       )}

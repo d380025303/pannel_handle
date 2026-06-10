@@ -1,4 +1,5 @@
 const path = require("node:path");
+const crypto = require("node:crypto");
 const SftpClient = require("ssh2-sftp-client");
 const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
 
@@ -27,6 +28,10 @@ function isLikelyBinary(buffer) {
     }
   }
   return false;
+}
+
+function getContentVersion(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
 function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sftpFactory = () => new SftpClient() }) {
@@ -110,13 +115,47 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
 
     const data = await client.get(normalizedPath);
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    if (buffer.length > TEXT_PREVIEW_LIMIT) {
+      return { kind: "too_large", size: buffer.length, limit: TEXT_PREVIEW_LIMIT };
+    }
     if (isLikelyBinary(buffer)) {
-      return { kind: "binary", size };
+      return { kind: "binary", size: buffer.length };
     }
     return {
       kind: "text",
-      size,
-      content: buffer.toString("utf-8")
+      size: buffer.length,
+      content: buffer.toString("utf-8"),
+      version: getContentVersion(buffer)
+    };
+  }
+
+  async function writeText(sessionId, remotePath, content, expectedVersion) {
+    if (typeof content !== "string" || typeof expectedVersion !== "string" || !expectedVersion) {
+      throw new Error("Invalid remote text save request.");
+    }
+
+    const contentBuffer = Buffer.from(content, "utf-8");
+    if (contentBuffer.length > TEXT_PREVIEW_LIMIT) {
+      throw new Error(`Text file exceeds the ${TEXT_PREVIEW_LIMIT} byte edit limit.`);
+    }
+
+    const normalizedPath = normalizeRemotePath(remotePath);
+    const client = await getClient(sessionId);
+    const currentStat = await client.stat(normalizedPath);
+    if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
+      return { status: "conflict" };
+    }
+    const currentData = await client.get(normalizedPath);
+    const currentBuffer = Buffer.isBuffer(currentData) ? currentData : Buffer.from(currentData);
+    if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
+      return { status: "conflict" };
+    }
+
+    await client.put(contentBuffer, normalizedPath);
+    return {
+      status: "saved",
+      size: contentBuffer.length,
+      version: getContentVersion(contentBuffer)
     };
   }
 
@@ -155,6 +194,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     getHome,
     list,
     readText,
+    writeText,
     uploadFile,
     downloadFile,
     disconnect,

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import type { SshConfig } from "../vite-env";
+import { TagInput } from "./TagInput";
 
 export type CreateSessionRequest = {
   selectedShellId: string;
@@ -8,15 +9,17 @@ export type CreateSessionRequest = {
   cwd?: string;
   initialCommand?: string;
   sshConfig?: SshConfig;
+  tags?: string[];
 };
 
 type CreateSessionModalProps = {
   wslDistros: string[];
+  tagSuggestions: string[];
   onCreate: (request: CreateSessionRequest) => void;
   onCancel: () => void;
 };
 
-export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSessionModalProps) {
+export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCancel }: CreateSessionModalProps) {
   const [title, setTitle] = useState("");
   const [cwd, setCwd] = useState("");
   const [commandInput, setCommandInput] = useState("");
@@ -29,6 +32,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
   const [sshExtraArgs, setSshExtraArgs] = useState("");
   const [sshSecret, setSshSecret] = useState("");
   const [sshRemark, setSshRemark] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
 
   const isSsh = selectedShellId === "ssh";
   const canCreate = useMemo(() => !isSsh || sshHost.trim().length > 0, [isSsh, sshHost]);
@@ -42,6 +46,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
       title: title.trim() || undefined,
       cwd: cwd.trim() || undefined,
       initialCommand: isSsh ? undefined : commandInput.trim() || undefined,
+      tags,
       sshConfig: isSsh ? {
         host: sshHost.trim(),
         username: sshUsername.trim() || undefined,
@@ -99,6 +104,10 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
               SSH
             </button>
           </div>
+          <label className="modal-field">
+            <span className="modal-label">标签</span>
+            <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
+          </label>
           <input
             className="modal-input"
             placeholder="会话名称（可选）"

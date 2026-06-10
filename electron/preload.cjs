@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   getHome: (sessionId) => ipcRenderer.invoke("remote-files:home", { sessionId }),
   list: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:list", { sessionId, remotePath }),
   readText: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:read-text", { sessionId, remotePath }),
+  writeText: (sessionId, remotePath, content, expectedVersion) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion }),
   uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
   downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName })
 });

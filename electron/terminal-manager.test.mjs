@@ -66,7 +66,8 @@ function createManager(overrides = {}) {
       type: template.type || "windows",
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
-      quickCommands: template.quickCommands || []
+      quickCommands: template.quickCommands || [],
+      tags: template.tags || []
     })),
     addToLibrary: vi.fn((template) => templates.set(template.id, template)),
     removeFromLibrary: vi.fn(),
@@ -215,6 +216,23 @@ describe("terminal-manager", () => {
     });
 
     expect(pty.spawn).toHaveBeenCalledWith(expect.stringContaining("wsl.exe"), ["-d", "Ubuntu-24.04"], expect.any(Object));
+  });
+
+  it("persists tags and synchronizes them across running instances of a template", () => {
+    const { manager, sessionStore, broadcast } = createManager();
+    const first = manager.createSession({ title: "Main", tags: ["work"] });
+    manager.launchSessions([{ id: first.templateId, title: "Main" }]);
+
+    manager.updateSession(first.templateId, { tags: ["work", "urgent"] });
+
+    expect(sessionStore.updateLibrary).toHaveBeenCalledWith("1", expect.objectContaining({
+      tags: ["work", "urgent"]
+    }));
+    expect(manager.listSessions()).toHaveLength(2);
+    expect(manager.listSessions().every((session) => (
+      session.tags?.join(",") === "work,urgent"
+    ))).toBe(true);
+    expect(broadcast).toHaveBeenCalledWith("sessions:changed", manager.listSessions());
   });
 
   it("starts WSL sessions in their configured Linux working directory", () => {

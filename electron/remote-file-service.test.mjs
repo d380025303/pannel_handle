@@ -20,6 +20,7 @@ function createSftpMock(overrides = {}) {
     list: vi.fn(async () => []),
     stat: vi.fn(async () => ({ size: 4 })),
     get: vi.fn(async () => Buffer.from("text")),
+    put: vi.fn(),
     fastPut: vi.fn(),
     fastGet: vi.fn(),
     end: vi.fn(),
@@ -90,7 +91,8 @@ describe("remote-file-service", () => {
     await expect(service.readText("run-1", "/tmp/a.txt")).resolves.toEqual({
       kind: "text",
       size: 4,
-      content: "text"
+      content: "text",
+      version: "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
     });
 
     sftp.stat.mockResolvedValueOnce({ size: 3 });
@@ -106,5 +108,69 @@ describe("remote-file-service", () => {
       size: TEXT_PREVIEW_LIMIT + 1,
       limit: TEXT_PREVIEW_LIMIT
     });
+  });
+
+  it("writes text when the expected content version still matches", async () => {
+    const session = {
+      id: "run-1",
+      type: "ssh",
+      sshConfig: { host: "example.com", extraArgs: [] }
+    };
+    const sftp = createSftpMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.writeText(
+      "run-1",
+      "/tmp/a.txt",
+      "updated",
+      "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
+    )).resolves.toEqual({
+      status: "saved",
+      size: 7,
+      version: "27eb5e51506c911f6fc4bb345c0d9db6f60415fceab7c18e1e9b862637415777"
+    });
+    expect(sftp.put).toHaveBeenCalledWith(Buffer.from("updated"), "/tmp/a.txt");
+  });
+
+  it("rejects a conflicting remote change without writing", async () => {
+    const session = {
+      id: "run-1",
+      type: "ssh",
+      sshConfig: { host: "example.com", extraArgs: [] }
+    };
+    const sftp = createSftpMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.writeText("run-1", "/tmp/a.txt", "updated", "stale")).resolves.toEqual({
+      status: "conflict"
+    });
+    expect(sftp.put).not.toHaveBeenCalled();
+  });
+
+  it("rejects edited text over the preview limit", async () => {
+    const session = {
+      id: "run-1",
+      type: "ssh",
+      sshConfig: { host: "example.com", extraArgs: [] }
+    };
+    const sftp = createSftpMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.writeText("run-1", "/tmp/a.txt", "x".repeat(TEXT_PREVIEW_LIMIT + 1), "version"))
+      .rejects.toThrow("edit limit");
+    expect(sftp.get).not.toHaveBeenCalled();
+    expect(sftp.put).not.toHaveBeenCalled();
   });
 });

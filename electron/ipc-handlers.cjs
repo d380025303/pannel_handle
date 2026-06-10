@@ -29,8 +29,8 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", (_event, { id, title, cwd, initialCommand, sshConfig, quickCommands }) => {
-    return terminalManager.updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands });
+  ipcMain.handle("sessions:update", (_event, { id, title, cwd, initialCommand, sshConfig, quickCommands, tags }) => {
+    return terminalManager.updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {
@@ -74,6 +74,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
 
   ipcMain.handle("remote-files:read-text", (_event, { sessionId, remotePath }) => {
     return remoteFileService.readText(sessionId, remotePath);
+  });
+
+  ipcMain.handle("remote-files:write-text", (_event, { sessionId, remotePath, content, expectedVersion }) => {
+    return remoteFileService.writeText(sessionId, remotePath, content, expectedVersion);
   });
 
   ipcMain.handle("remote-files:upload-file", async (event, { sessionId, remoteDir }) => {

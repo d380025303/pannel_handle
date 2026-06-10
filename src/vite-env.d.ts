@@ -31,6 +31,7 @@ export type TerminalSession = {
   wslDistro?: string;
   sshConfig?: SshConfig;
   quickCommands?: QuickCommand[];
+  tags?: string[];
 };
 
 export type AppConfig = {
@@ -53,9 +54,13 @@ export type RemoteFileEntry = {
 };
 
 export type RemoteTextPreview =
-  | { kind: "text"; size: number; content: string }
+  | { kind: "text"; size: number; content: string; version: string }
   | { kind: "binary"; size: number }
   | { kind: "too_large"; size: number; limit: number };
+
+export type RemoteTextWriteResult =
+  | { status: "saved"; size: number; version: string }
+  | { status: "conflict" };
 
 export type RemoteFileDialogResult =
   | { canceled: true }
@@ -111,8 +116,8 @@ export type AgentHookDebugPayload = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; initialCommand?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; initialCommand?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
@@ -149,6 +154,7 @@ export type RemoteFileApi = {
   getHome: (sessionId: string) => Promise<string>;
   list: (sessionId: string, remotePath: string) => Promise<RemoteFileEntry[]>;
   readText: (sessionId: string, remotePath: string) => Promise<RemoteTextPreview>;
+  writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
 };

@@ -10,6 +10,19 @@ function inferWorkingDirectory(initialCommand, type) {
   return /^[a-z]:[\\/]/i.test(cwd) || cwd.startsWith("\\\\") ? cwd : undefined;
 }
 
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  return tags.reduce((normalized, tag) => {
+    const value = String(tag || "").trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) return normalized;
+    seen.add(key);
+    normalized.push(value);
+    return normalized;
+  }, []);
+}
+
 function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage }) {
   let librarySessions = [];
   let nextSessionId = 1;
@@ -104,7 +117,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
-      quickCommands: template.quickCommands || []
+      quickCommands: template.quickCommands || [],
+      tags: normalizeTags(template.tags)
     };
   }
 
@@ -134,7 +148,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       cwd,
       createdAt: template.createdAt || Date.now(),
       sshConfig,
-      quickCommands: template.quickCommands || []
+      quickCommands: template.quickCommands || [],
+      tags: normalizeTags(template.tags)
     });
   }
 
@@ -245,5 +260,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
 
 module.exports = {
   createSessionStore,
-  inferWorkingDirectory
+  inferWorkingDirectory,
+  normalizeTags
 };

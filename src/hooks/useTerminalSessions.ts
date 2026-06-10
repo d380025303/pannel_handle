@@ -7,12 +7,14 @@ type CreateSessionOptions = {
   cwd?: string;
   initialCommand?: string;
   sshConfig?: SshConfig;
+  tags?: string[];
 };
 
 export function useTerminalSessions() {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
+  const [librarySessions, setLibrarySessions] = useState<TerminalSession[]>([]);
   const [pickerManual, setPickerManual] = useState(false);
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
@@ -29,6 +31,16 @@ export function useTerminalSessions() {
     () => activeSession?.quickCommands ?? [],
     [activeSession]
   );
+  const tagSuggestions = useMemo(() => {
+    const tags = new Map<string, string>();
+    for (const session of librarySessions) {
+      for (const tag of session.tags ?? []) {
+        const key = tag.toLowerCase();
+        if (!tags.has(key)) tags.set(key, tag);
+      }
+    }
+    return Array.from(tags.values()).sort((a, b) => a.localeCompare(b));
+  }, [librarySessions]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -40,6 +52,7 @@ export function useTerminalSessions() {
       if (isDisposed) return;
 
       setAutoRestore(config.autoRestore);
+      setLibrarySessions(saved);
 
       if (!hasAutoRestored.current && config.autoRestore && config.lastActiveSessionIds.length > 0) {
         hasAutoRestored.current = true;
@@ -97,7 +110,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, sshConfig }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, sshConfig, tags }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -106,8 +119,10 @@ export function useTerminalSessions() {
       ...(isSsh ? { sshConfig } : {}),
       ...(title ? { title } : {}),
       ...(cwd ? { cwd } : {}),
-      ...(initialCommand ? { initialCommand } : {})
+      ...(initialCommand ? { initialCommand } : {}),
+      tags
     });
+    setLibrarySessions(await window.terminalApi.loadSavedSessions());
     setActiveId(session.id);
   }, []);
 
@@ -115,18 +130,21 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
     await window.terminalApi.updateSession(id, {
       title,
       cwd,
       initialCommand: initialCommand.trim() || undefined,
       sshConfig,
-      quickCommands
+      quickCommands,
+      tags
     });
+    setLibrarySessions(await window.terminalApi.loadSavedSessions());
   }, []);
 
   const openPicker = useCallback(async () => {
     const library = await window.terminalApi.loadSavedSessions();
+    setLibrarySessions(library);
     setPendingSessions(library);
     setPickerManual(true);
   }, []);
@@ -143,12 +161,21 @@ export function useTerminalSessions() {
 
   const deleteFromLibrary = useCallback(async (id: string) => {
     await window.terminalApi.deleteSavedSession(id);
+    setLibrarySessions((prev) => prev.filter((session) => session.id !== id));
     setPendingSessions((prev) => prev ? prev.filter((session) => session.id !== id) : null);
   }, []);
 
   const reorderLibrary = useCallback(async (orderedSessions: TerminalSession[]) => {
     setPendingSessions(orderedSessions);
+    setLibrarySessions(orderedSessions);
     await window.terminalApi.reorderSavedSessions(orderedSessions.map(s => s.id));
+  }, []);
+
+  const updateLibraryTags = useCallback(async (id: string, tags: string[]) => {
+    await window.terminalApi.updateSession(id, { tags });
+    const library = await window.terminalApi.loadSavedSessions();
+    setLibrarySessions(library);
+    setPendingSessions(library);
   }, []);
 
   const reorderRunningSessions = useCallback(async (orderedIds: string[]) => {
@@ -176,6 +203,7 @@ export function useTerminalSessions() {
     agentStatusesBySessionId,
     activeAgentStatus,
     quickCommandsForActiveSession,
+    tagSuggestions,
     pendingSessions,
     setPendingSessions,
     pickerManual,
@@ -188,6 +216,7 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     reorderLibrary,
+    updateLibraryTags,
     reorderRunningSessions,
     autoRestore,
     toggleAutoRestore

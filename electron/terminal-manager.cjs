@@ -163,7 +163,8 @@ function createTerminalManager({
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
-      quickCommands: session.quickCommands || []
+      quickCommands: session.quickCommands || [],
+      tags: session.tags || []
     };
   }
 
@@ -406,7 +407,8 @@ function createTerminalManager({
       sshConfig,
       createdAt: Date.now(),
       initialCommand: options.initialCommand,
-      quickCommands: options.quickCommands || []
+      quickCommands: options.quickCommands || [],
+      tags: options.tags || []
     };
 
     sessionStore.addToLibrary(template);
@@ -451,10 +453,19 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands }) {
+  function updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, initialCommand, sshConfig, quickCommands });
+      sessionStore.updateLibrary(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags });
+      if (typeof tags !== "undefined") {
+        const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
+        for (const runningSession of sessions.values()) {
+          if (runningSession.templateId === id) {
+            runningSession.tags = normalizedTags;
+          }
+        }
+        broadcast("sessions:changed", listSessions());
+      }
       return listSessions();
     }
     const templateId = session.templateId || id;
@@ -481,6 +492,19 @@ function createTerminalManager({
       for (const [sid, s] of sessions) {
         if (sid !== id && s.templateId === templateId) {
           s.quickCommands = quickCommands;
+        }
+      }
+    }
+    if (typeof tags !== "undefined") {
+      const normalizedTags = sessionStore.normalizeTemplate({
+        ...(template || session),
+        tags
+      }).tags;
+      session.tags = normalizedTags;
+      libraryUpdates.tags = normalizedTags;
+      for (const [sid, s] of sessions) {
+        if (sid !== id && s.templateId === templateId) {
+          s.tags = normalizedTags;
         }
       }
     }
