@@ -691,15 +691,32 @@
 }
 
 .remote-file-path {
-  overflow: hidden;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
   background: var(--color-bg-app);
+}
+
+.remote-file-path input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--color-text-secondary);
+  background: transparent;
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.remote-file-path input:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-control);
+}
+
+.remote-file-path input:focus {
+  border-color: var(--color-accent);
+  background: var(--color-bg-control);
 }
 
 .remote-file-search {
@@ -909,6 +926,77 @@
   flex-shrink: 0;
 }
 
+.remote-preview-search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-app);
+}
+
+.remote-preview-search > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  stroke-width: 2;
+}
+
+.remote-preview-search input {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font-size: 11px;
+}
+
+.remote-preview-search input:focus {
+  border-color: var(--color-accent);
+}
+
+.remote-preview-match-count {
+  min-width: 42px;
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  text-align: center;
+}
+
+.remote-preview-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.remote-preview-search button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+}
+
+.remote-preview-search button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.remote-preview-search button svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
+}
+
 .remote-file-preview pre {
   flex: 1;
   min-height: 0;
@@ -921,6 +1009,18 @@
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.remote-file-preview mark {
+  border-radius: 2px;
+  color: inherit;
+  background: #66561e;
+}
+
+.remote-file-preview mark.active {
+  color: #111820;
+  background: #f0c95a;
+  outline: 1px solid #ffe59a;
 }
 
 .remote-file-empty {

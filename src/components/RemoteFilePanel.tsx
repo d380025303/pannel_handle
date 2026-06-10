@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Download, File, FileText, Folder, RefreshCw, Search, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, RefreshCw, Search, Upload, X } from "lucide-react";
 import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -11,6 +11,11 @@ type PreviewState =
   | { status: "loading"; path: string }
   | { status: "ready"; path: string; fileName: string; preview: RemoteTextPreview }
   | { status: "error"; path: string; message: string };
+
+type TextMatch = {
+  start: number;
+  end: number;
+};
 
 function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
@@ -44,14 +49,18 @@ function getErrorMessage(error: unknown) {
 
 export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   const [currentPath, setCurrentPath] = useState(".");
+  const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
   const [searchQuery, setSearchQuery] = useState("");
+  const [previewSearchQuery, setPreviewSearchQuery] = useState("");
+  const [activePreviewMatch, setActivePreviewMatch] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
+  const previewContentRef = useRef<HTMLPreElement>(null);
 
   const isSshSession = session?.type === "ssh";
   const sessionId = session?.id;
@@ -67,6 +76,37 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       : entries,
     [entries, normalizedSearchQuery]
   );
+  const previewText = preview.status === "ready" && preview.preview.kind === "text"
+    ? preview.preview.content
+    : "";
+  const previewMatches = useMemo<TextMatch[]>(() => {
+    if (!previewSearchQuery || !previewText) {
+      return [];
+    }
+    const matches: TextMatch[] = [];
+    const normalizedContent = previewText.toLowerCase();
+    const normalizedQuery = previewSearchQuery.toLowerCase();
+    let start = normalizedContent.indexOf(normalizedQuery);
+    while (start !== -1) {
+      matches.push({ start, end: start + normalizedQuery.length });
+      start = normalizedContent.indexOf(normalizedQuery, start + normalizedQuery.length);
+    }
+    return matches;
+  }, [previewSearchQuery, previewText]);
+
+  useEffect(() => {
+    setActivePreviewMatch(0);
+  }, [previewSearchQuery, previewText]);
+
+  useEffect(() => {
+    if (!previewMatches.length) {
+      return;
+    }
+    const activeMatch = previewContentRef.current?.querySelector<HTMLElement>(
+      `[data-preview-match="${activePreviewMatch}"]`
+    );
+    activeMatch?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [activePreviewMatch, previewMatches.length, previewSearchQuery]);
 
   const loadDirectory = useCallback(async (path: string, preserveSearch = false) => {
     if (!sessionId || !isSshSession) {
@@ -81,16 +121,17 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       const nextEntries = await window.remoteFileApi.list(sessionId, path);
       if (requestRef.current !== requestId) return;
       setCurrentPath(path);
+      setPathInput(path);
       setEntries(nextEntries);
       setSelectedPath(null);
       setPreview({ status: "idle" });
+      setPreviewSearchQuery("");
       if (!preserveSearch) {
         setSearchQuery("");
       }
     } catch (err) {
       if (requestRef.current !== requestId) return;
       setError(getErrorMessage(err));
-      setEntries([]);
     } finally {
       if (requestRef.current === requestId) {
         setLoading(false);
@@ -101,10 +142,12 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   useEffect(() => {
     if (!sessionId || !isSshSession) {
       setCurrentPath(".");
+      setPathInput(".");
       setEntries([]);
       setSelectedPath(null);
       setPreview({ status: "idle" });
       setSearchQuery("");
+      setPreviewSearchQuery("");
       setError(null);
       setLoading(false);
       previewRequestRef.current += 1;
@@ -113,6 +156,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
 
     let disposed = false;
     setSearchQuery("");
+    setPreviewSearchQuery("");
     setLoading(true);
     setError(null);
     window.remoteFileApi.getHome(sessionId)
@@ -137,6 +181,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry) => {
     setSelectedPath(entry.path);
+    setPreviewSearchQuery("");
     if (entry.type === "directory") {
       await loadDirectory(entry.path);
       return;
@@ -169,6 +214,10 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     void loadDirectory(currentPath, true);
   }, [currentPath, loadDirectory]);
 
+  const handlePathSubmit = useCallback(() => {
+    void loadDirectory(pathInput.trim() || ".");
+  }, [loadDirectory, pathInput]);
+
   const handleUpload = useCallback(async () => {
     if (!sessionId) return;
     const result = await window.remoteFileApi.uploadFile(sessionId, currentPath);
@@ -189,7 +238,40 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     previewRequestRef.current += 1;
     setSelectedPath(null);
     setPreview({ status: "idle" });
+    setPreviewSearchQuery("");
   }, []);
+
+  const movePreviewMatch = useCallback((direction: 1 | -1) => {
+    if (!previewMatches.length) {
+      return;
+    }
+    setActivePreviewMatch((current) => (
+      (current + direction + previewMatches.length) % previewMatches.length
+    ));
+  }, [previewMatches.length]);
+
+  const renderedPreviewText = useMemo(() => {
+    if (!previewMatches.length) {
+      return previewText;
+    }
+    const content: React.ReactNode[] = [];
+    let cursor = 0;
+    previewMatches.forEach((match, index) => {
+      content.push(previewText.slice(cursor, match.start));
+      content.push(
+        <mark
+          className={index === activePreviewMatch ? "active" : ""}
+          data-preview-match={index}
+          key={`${match.start}-${match.end}`}
+        >
+          {previewText.slice(match.start, match.end)}
+        </mark>
+      );
+      cursor = match.end;
+    });
+    content.push(previewText.slice(cursor));
+    return content;
+  }, [activePreviewMatch, previewMatches, previewText]);
 
   if (!isSshSession) {
     return (
@@ -225,7 +307,21 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
         </div>
       </div>
 
-      <div className="remote-file-path" title={currentPath}>{currentPath}</div>
+      <div className="remote-file-path">
+        <input
+          type="text"
+          aria-label="Remote directory path"
+          title={currentPath}
+          value={pathInput}
+          onChange={(event) => setPathInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handlePathSubmit();
+            }
+          }}
+        />
+      </div>
 
       <div className="remote-file-search">
         <Search aria-hidden="true" />
@@ -321,7 +417,37 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
           )}
           {preview.status === "ready" && (
             preview.preview.kind === "text" ? (
-              <pre>{preview.preview.content}</pre>
+              <>
+                <div className="remote-preview-search">
+                  <Search aria-hidden="true" />
+                  <input
+                    type="text"
+                    aria-label="Search preview content"
+                    placeholder="Search preview..."
+                    value={previewSearchQuery}
+                    onChange={(event) => setPreviewSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        movePreviewMatch(event.shiftKey ? -1 : 1);
+                      }
+                    }}
+                  />
+                  <span className="remote-preview-match-count">
+                    {previewMatches.length ? activePreviewMatch + 1 : 0} / {previewMatches.length}
+                  </span>
+                  <button type="button" title="Previous match" aria-label="Previous match" disabled={!previewMatches.length} onClick={() => movePreviewMatch(-1)}>
+                    <ArrowUp aria-hidden="true" />
+                  </button>
+                  <button type="button" title="Next match" aria-label="Next match" disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
+                    <ArrowDown aria-hidden="true" />
+                  </button>
+                  <button type="button" title="Clear preview search" aria-label="Clear preview search" disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
+                    <X aria-hidden="true" />
+                  </button>
+                </div>
+                <pre ref={previewContentRef}>{renderedPreviewText}</pre>
+              </>
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
                 File is {formatSize(preview.preview.size)}. Download it to view locally.
