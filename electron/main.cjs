@@ -2,6 +2,7 @@ const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, safeStorage } = require("electron");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createConfigStore } = require("./config-store.cjs");
+const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
 const { createRemoteFileService } = require("./remote-file-service.cjs");
@@ -16,6 +17,7 @@ let knownHostStore = null;
 let terminalManager = null;
 let agentHookServer = null;
 let remoteFileService = null;
+let hookConfigManager = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -42,6 +44,7 @@ if (!gotSingleInstanceLock) {
     knownHostStore = createKnownHostStore({
       knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json")
     });
+    hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     knownHostStore.loadKnownHosts();
     terminalManager = createTerminalManager({
@@ -72,7 +75,8 @@ if (!gotSingleInstanceLock) {
       windowManager,
       clipboard,
       dialog,
-      remoteFileService
+      remoteFileService,
+      hookConfigManager
     });
     windowManager.createWindow();
 

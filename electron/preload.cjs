@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("hookConfigApi", {
+  selectProjectDirectory: (defaultPath) => ipcRenderer.invoke("hooks:select-project-directory", defaultPath),
+  inspect: (target, providers) => ipcRenderer.invoke("hooks:inspect", { target, providers }),
+  install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
+});
+
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text")

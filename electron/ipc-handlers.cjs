@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, hookConfigManager }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -29,8 +29,8 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", (_event, { id, title, initialCommand, sshConfig, quickCommands }) => {
-    return terminalManager.updateSession(id, { title, initialCommand, sshConfig, quickCommands });
+  ipcMain.handle("sessions:update", (_event, { id, title, cwd, initialCommand, sshConfig, quickCommands }) => {
+    return terminalManager.updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {
@@ -98,6 +98,25 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     }
     const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, result.filePath);
     return { canceled: false, ...downloaded };
+  });
+
+  ipcMain.handle("hooks:select-project-directory", async (event, defaultPath) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      defaultPath: typeof defaultPath === "string" ? defaultPath : undefined,
+      properties: ["openDirectory"]
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? { canceled: true }
+      : { canceled: false, path: result.filePaths[0] };
+  });
+
+  ipcMain.handle("hooks:inspect", (_event, { target, providers }) => {
+    return hookConfigManager.inspect(target, providers);
+  });
+
+  ipcMain.handle("hooks:install", (_event, { target, providers }) => {
+    return hookConfigManager.install(target, providers);
   });
 
   ipcMain.handle("window:is-maximized", (event) => {

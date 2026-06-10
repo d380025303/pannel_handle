@@ -62,6 +62,28 @@ export type RemoteFileDialogResult =
   | { canceled: false; remotePath?: string; localPath?: string };
 
 export type AgentProvider = "claude" | "codex";
+export type HookProvider = AgentProvider;
+
+export type HookInstallTarget =
+  | { type: "windows"; path: string }
+  | { type: "wsl"; path: string; wslDistro: string };
+
+export type HookInstallStatus = "not_installed" | "installed" | "needs_repair";
+
+export type HookProviderInspection = {
+  status: HookInstallStatus;
+  configPath: string;
+  scriptPath: string;
+  managedHookCount: number;
+  expectedHookCount: number;
+};
+
+export type HookInspectionResult = {
+  ok: boolean;
+  projectPath?: string;
+  error?: string;
+  providers: Partial<Record<HookProvider, HookProviderInspection>>;
+};
 
 export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited";
 
@@ -90,7 +112,7 @@ export type AgentHookDebugPayload = {
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; initialCommand?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession[]>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; initialCommand?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
@@ -131,11 +153,18 @@ export type RemoteFileApi = {
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
 };
 
+export type HookConfigApi = {
+  selectProjectDirectory: (defaultPath?: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
+  inspect: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
+  install: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
+    hookConfigApi: HookConfigApi;
     windowApi: WindowApi;
   }
 }

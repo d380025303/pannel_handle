@@ -334,7 +334,7 @@ function createTerminalManager({
     }
 
     const args = session.type === "wsl" && session.wslDistro
-        ? ["-d", session.wslDistro]
+        ? ["-d", session.wslDistro, ...(session.cwd && session.cwd !== "~" ? ["--cd", session.cwd] : [])]
         : [];
     const hookUrl = getHookUrl();
     const env = {
@@ -354,7 +354,7 @@ function createTerminalManager({
       name: "xterm-256color",
       cols: options.cols || 100,
       rows: options.rows || 30,
-      cwd: session.cwd,
+      cwd: session.type === "wsl" ? os.homedir() : session.cwd,
       env
     });
 
@@ -386,7 +386,7 @@ function createTerminalManager({
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
     const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : getDefaultShell());
-    const cwd = options.cwd || os.homedir();
+    const cwd = options.cwd || (type === "wsl" ? "~" : os.homedir());
     const sshConfig = options.sshConfig;
     if (type === "ssh") {
       validateSsh2Config(sshConfig);
@@ -451,10 +451,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, initialCommand, sshConfig, quickCommands }) {
+  function updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, initialCommand, sshConfig, quickCommands });
+      sessionStore.updateLibrary(id, { title, cwd, initialCommand, sshConfig, quickCommands });
       return listSessions();
     }
     const templateId = session.templateId || id;
@@ -470,6 +470,10 @@ function createTerminalManager({
     if (typeof initialCommand !== "undefined") {
       session.initialCommand = initialCommand || undefined;
       libraryUpdates.initialCommand = session.initialCommand;
+    }
+    if (typeof cwd === "string" && cwd.trim()) {
+      session.cwd = cwd.trim();
+      libraryUpdates.cwd = session.cwd;
     }
     if (typeof quickCommands !== "undefined") {
       session.quickCommands = quickCommands;

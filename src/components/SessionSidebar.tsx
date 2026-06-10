@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GripVertical, Library, Pencil, Plus, X } from "lucide-react";
+import { GripVertical, Library, Pencil, Plus, Webhook, X } from "lucide-react";
 import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 
@@ -9,6 +9,7 @@ type SessionSidebarProps = {
   agentStatusesBySessionId: Record<string, AgentStatusPayload>;
   onSelectSession: (id: string) => void;
   onEditSession: (session: TerminalSession) => void;
+  onInstallHooks: (session: TerminalSession) => void;
   onCloseSession: (id: string) => void;
   onOpenPicker: () => void;
   onOpenCreate: () => void;
@@ -27,6 +28,7 @@ export function SessionSidebar({
   agentStatusesBySessionId,
   onSelectSession,
   onEditSession,
+  onInstallHooks,
   onCloseSession,
   onOpenPicker,
   onOpenCreate,
@@ -137,6 +139,18 @@ export function SessionSidebar({
                 )}
               </span>
               <span className="session-actions">
+                {session.type !== "ssh" && (
+                  <span
+                    className="mini-action"
+                    title="安装项目 Hook"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onInstallHooks(session);
+                    }}
+                  >
+                    <Webhook aria-hidden="true" />
+                  </span>
+                )}
                 <span
                   className="mini-action"
                   title="编辑会话"

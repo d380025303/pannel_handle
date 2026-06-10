@@ -4,6 +4,7 @@ import type { AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSe
 type CreateSessionOptions = {
   selectedShellId: string;
   title?: string;
+  cwd?: string;
   initialCommand?: string;
   sshConfig?: SshConfig;
 };
@@ -96,7 +97,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, initialCommand, sshConfig }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, sshConfig }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -104,6 +105,7 @@ export function useTerminalSessions() {
       ...(isWsl ? { wslDistro: selectedShellId.slice(4) } : {}),
       ...(isSsh ? { sshConfig } : {}),
       ...(title ? { title } : {}),
+      ...(cwd ? { cwd } : {}),
       ...(initialCommand ? { initialCommand } : {})
     });
     setActiveId(session.id);
@@ -113,9 +115,10 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
     await window.terminalApi.updateSession(id, {
       title,
+      cwd,
       initialCommand: initialCommand.trim() || undefined,
       sshConfig,
       quickCommands

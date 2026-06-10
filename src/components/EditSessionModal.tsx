@@ -4,7 +4,7 @@ import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 
 type EditSessionModalProps = {
   session: TerminalSession;
-  onSave: (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => void;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => void;
   onCancel: () => void;
 };
 
@@ -14,6 +14,7 @@ function generateId() {
 
 export function EditSessionModal({ session, onSave, onCancel }: EditSessionModalProps) {
   const [editTitle, setEditTitle] = useState(session.title);
+  const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || "");
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
     () => session.quickCommands ?? []
@@ -33,6 +34,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
     onSave(
       session.id,
       editTitle,
+      editCwd,
       editCommand,
       quickCommands,
       isSsh ? {
@@ -198,6 +200,17 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
               </label>
             </div>
           ) : (
+            <>
+            <label className="modal-field">
+              <span className="modal-label">工作目录</span>
+              <input
+                className="modal-input"
+                placeholder={session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"}
+                value={editCwd}
+                onChange={(e) => setEditCwd(e.target.value)}
+                onKeyDown={handleEscape}
+              />
+            </label>
             <label className="modal-field">
               <span className="modal-label">初始命令</span>
               <textarea
@@ -209,6 +222,7 @@ export function EditSessionModal({ session, onSave, onCancel }: EditSessionModal
                 rows={3}
               />
             </label>
+            </>
           )}
           <label className="modal-label quick-command-heading">
             快捷命令

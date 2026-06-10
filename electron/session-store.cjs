@@ -1,6 +1,15 @@
 const fs = require("node:fs");
 const os = require("node:os");
 
+function inferWorkingDirectory(initialCommand, type) {
+  const value = String(initialCommand || "").trim();
+  const match = value.match(/^cd(?:\s+\/d)?\s+(?:"([^"]+)"|'([^']+)'|([^&;\r\n]+?))\s*(?:&&|;|$)/i);
+  const cwd = (match?.[1] || match?.[2] || match?.[3] || "").trim();
+  if (!cwd) return undefined;
+  if (type === "wsl") return cwd.startsWith("/") ? cwd : undefined;
+  return /^[a-z]:[\\/]/i.test(cwd) || cwd.startsWith("\\\\") ? cwd : undefined;
+}
+
 function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage }) {
   let librarySessions = [];
   let nextSessionId = 1;
@@ -113,11 +122,16 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   function normalizeTemplate(template) {
     const type = template.type || (template.shell && template.shell.includes("wsl") ? "wsl" : "windows");
     const sshConfig = type === "ssh" ? normalizeSshConfig(template.sshConfig) : undefined;
+    const inferredCwd = inferWorkingDirectory(template.initialCommand, type);
+    const storedCwd = String(template.cwd || "").trim();
+    const cwd = inferredCwd && (!storedCwd || storedCwd === os.homedir())
+      ? inferredCwd
+      : storedCwd || (type === "wsl" ? "~" : os.homedir());
     return serializeTemplate({
       ...template,
       type,
       shell: template.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? "ssh2" : getDefaultShell()),
-      cwd: template.cwd || os.homedir(),
+      cwd,
       createdAt: template.createdAt || Date.now(),
       sshConfig,
       quickCommands: template.quickCommands || []
@@ -230,5 +244,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
 }
 
 module.exports = {
-  createSessionStore
+  createSessionStore,
+  inferWorkingDirectory
 };

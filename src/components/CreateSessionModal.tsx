@@ -5,6 +5,7 @@ import type { SshConfig } from "../vite-env";
 export type CreateSessionRequest = {
   selectedShellId: string;
   title?: string;
+  cwd?: string;
   initialCommand?: string;
   sshConfig?: SshConfig;
 };
@@ -17,6 +18,7 @@ type CreateSessionModalProps = {
 
 export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSessionModalProps) {
   const [title, setTitle] = useState("");
+  const [cwd, setCwd] = useState("");
   const [commandInput, setCommandInput] = useState("");
   const [selectedShellId, setSelectedShellId] = useState("powershell");
   const [sshHost, setSshHost] = useState("");
@@ -38,6 +40,7 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
     onCreate({
       selectedShellId,
       title: title.trim() || undefined,
+      cwd: cwd.trim() || undefined,
       initialCommand: isSsh ? undefined : commandInput.trim() || undefined,
       sshConfig: isSsh ? {
         host: sshHost.trim(),
@@ -196,15 +199,27 @@ export function CreateSessionModal({ wslDistros, onCreate, onCancel }: CreateSes
               </label>
             </div>
           ) : (
-            <textarea
-              autoFocus
+            <>
+              <label className="modal-field">
+                <span className="modal-label">工作目录</span>
+                <input
+                  autoFocus
+                  className="modal-input"
+                  placeholder={selectedShellId.startsWith("wsl:") ? "/home/user/project" : "C:\\projects\\myapp"}
+                  value={cwd}
+                  onChange={(e) => setCwd(e.target.value)}
+                  onKeyDown={handleEscape}
+                />
+              </label>
+              <textarea
               className="modal-input modal-textarea"
               placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
               value={commandInput}
               onChange={(e) => setCommandInput(e.target.value)}
               onKeyDown={handleEscape}
-              rows={3}
-            />
+                rows={3}
+              />
+            </>
           )}
         </div>
         <div className="modal-footer">

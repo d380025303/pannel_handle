@@ -3,6 +3,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { CreateSessionModal } from "./components/CreateSessionModal";
 import { DebugSidebar } from "./components/DebugSidebar";
 import { EditSessionModal } from "./components/EditSessionModal";
+import { HookInstallModal } from "./components/HookInstallModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
@@ -20,6 +21,7 @@ export function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
+  const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [rightTool, setRightTool] = useState<"files" | "debug">("files");
@@ -66,8 +68,8 @@ export function App() {
     terminalInstances.disposeTerminal(id);
   }, [terminalInstances, terminalSessions]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
-    await terminalSessions.updateSession(id, title, initialCommand, quickCommands, sshConfig);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -114,6 +116,7 @@ export function App() {
             agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
             onSelectSession={terminalSessions.setActiveId}
             onEditSession={setEditDialogSession}
+            onInstallHooks={setHookInstallSession}
             onCloseSession={handleCloseSession}
             onOpenPicker={terminalSessions.openPicker}
             onOpenCreate={handleOpenCreateModal}
@@ -186,6 +189,13 @@ export function App() {
           session={editDialogSession}
           onSave={handleSaveEdit}
           onCancel={() => setEditDialogSession(null)}
+        />
+      )}
+
+      {hookInstallSession && (
+        <HookInstallModal
+          session={hookInstallSession}
+          onCancel={() => setHookInstallSession(null)}
         />
       )}
 

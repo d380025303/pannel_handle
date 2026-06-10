@@ -60,7 +60,7 @@ function createManager(overrides = {}) {
       id: template.id,
       title: template.title,
       shell: template.shell || "powershell.exe",
-      cwd: template.cwd || "C:\\Users\\tester",
+      cwd: template.cwd || (template.type === "wsl" ? "~" : "C:\\Users\\tester"),
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
       type: template.type || "windows",
@@ -215,6 +215,23 @@ describe("terminal-manager", () => {
     });
 
     expect(pty.spawn).toHaveBeenCalledWith(expect.stringContaining("wsl.exe"), ["-d", "Ubuntu-24.04"], expect.any(Object));
+  });
+
+  it("starts WSL sessions in their configured Linux working directory", () => {
+    const { manager, pty } = createManager();
+
+    manager.createSession({
+      title: "Ubuntu",
+      type: "wsl",
+      wslDistro: "Ubuntu-24.04",
+      cwd: "/home/me/project"
+    });
+
+    expect(pty.spawn).toHaveBeenCalledWith(
+      expect.stringContaining("wsl.exe"),
+      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project"],
+      expect.objectContaining({ cwd: expect.stringMatching(/Users/i) })
+    );
   });
 
   it("passes panel hook environment into WSL sessions through WSLENV", () => {

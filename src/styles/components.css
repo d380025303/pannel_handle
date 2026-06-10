@@ -319,3 +319,84 @@
 .modal-checkbox-field input {
   margin: 0;
 }
+
+.session-command-form {
+  display: grid;
+  gap: 10px;
+}
+
+.hook-install-body,
+.hook-provider-list {
+  display: grid;
+  gap: 12px;
+}
+
+.hook-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.hook-provider-list {
+  gap: 8px;
+}
+
+.hook-provider-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-app);
+}
+
+.hook-provider-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-success);
+}
+
+.hook-provider-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hook-install-status {
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.hook-install-status.installed {
+  color: #8ad9a4;
+  background: #173223;
+}
+
+.hook-install-status.needs_repair {
+  color: #f0cf82;
+  background: #3a2d16;
+}
+
+.hook-install-error,
+.hook-install-note {
+  padding: 9px 10px;
+  border: 1px solid var(--color-danger-hover);
+  border-radius: var(--radius-md);
+  color: #f3b6bc;
+  background: #31191e;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hook-install-note {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+}

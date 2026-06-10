@@ -1,11 +1,11 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createSessionStore } = require("./session-store.cjs");
+const { createSessionStore, inferWorkingDirectory } = require("./session-store.cjs");
 
 let tempDirs = [];
 
@@ -41,6 +41,25 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("infers configured working directories from legacy initial commands", () => {
+    expect(inferWorkingDirectory("cd C:\\mine\\project && claude", "windows")).toBe("C:\\mine\\project");
+    expect(inferWorkingDirectory("cd /d \"C:\\mine\\project space\" && codex", "windows")).toBe("C:\\mine\\project space");
+    expect(inferWorkingDirectory("cd /home/me/project && claude", "wsl")).toBe("/home/me/project");
+  });
+
+  it("migrates a legacy home cwd from the initial command", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "3",
+      title: "Legacy",
+      cwd: homedir(),
+      initialCommand: "cd C:\\mine\\project && claude"
+    }]), "utf-8");
+
+    const store = createStore(sessionsFile);
+    expect(store.loadLibrary()[0].cwd).toBe("C:\\mine\\project");
+  });
+
   it("loads, normalizes, and advances numeric template ids", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([
