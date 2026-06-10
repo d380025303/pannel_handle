@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Download, File, FileText, Folder, RefreshCw, Upload } from "lucide-react";
+import { ArrowUp, Download, File, FileText, Folder, RefreshCw, Search, Upload, X } from "lucide-react";
 import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -47,9 +47,11 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const previewRequestRef = useRef(0);
 
   const isSshSession = session?.type === "ssh";
   const sessionId = session?.id;
@@ -58,13 +60,21 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     () => entries.find((entry) => entry.path === selectedPath),
     [entries, selectedPath]
   );
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredEntries = useMemo(
+    () => normalizedSearchQuery
+      ? entries.filter((entry) => entry.name.toLowerCase().includes(normalizedSearchQuery))
+      : entries,
+    [entries, normalizedSearchQuery]
+  );
 
-  const loadDirectory = useCallback(async (path: string) => {
+  const loadDirectory = useCallback(async (path: string, preserveSearch = false) => {
     if (!sessionId || !isSshSession) {
       return;
     }
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
+    previewRequestRef.current += 1;
     setLoading(true);
     setError(null);
     try {
@@ -74,6 +84,9 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       setEntries(nextEntries);
       setSelectedPath(null);
       setPreview({ status: "idle" });
+      if (!preserveSearch) {
+        setSearchQuery("");
+      }
     } catch (err) {
       if (requestRef.current !== requestId) return;
       setError(getErrorMessage(err));
@@ -91,12 +104,15 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
       setEntries([]);
       setSelectedPath(null);
       setPreview({ status: "idle" });
+      setSearchQuery("");
       setError(null);
       setLoading(false);
+      previewRequestRef.current += 1;
       return;
     }
 
     let disposed = false;
+    setSearchQuery("");
     setLoading(true);
     setError(null);
     window.remoteFileApi.getHome(sessionId)
@@ -115,6 +131,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     return () => {
       disposed = true;
       requestRef.current += 1;
+      previewRequestRef.current += 1;
     };
   }, [isSshSession, loadDirectory, sessionId]);
 
@@ -126,9 +143,12 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     }
 
     if (!sessionId) return;
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
     setPreview({ status: "loading", path: entry.path });
     try {
       const nextPreview = await window.remoteFileApi.readText(sessionId, entry.path);
+      if (previewRequestRef.current !== requestId) return;
       setPreview({
         status: "ready",
         path: entry.path,
@@ -136,6 +156,7 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
         preview: nextPreview
       });
     } catch (err) {
+      if (previewRequestRef.current !== requestId) return;
       setPreview({
         status: "error",
         path: entry.path,
@@ -145,14 +166,14 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
   }, [loadDirectory, sessionId]);
 
   const handleRefresh = useCallback(() => {
-    void loadDirectory(currentPath);
+    void loadDirectory(currentPath, true);
   }, [currentPath, loadDirectory]);
 
   const handleUpload = useCallback(async () => {
     if (!sessionId) return;
     const result = await window.remoteFileApi.uploadFile(sessionId, currentPath);
     if (!result.canceled) {
-      await loadDirectory(currentPath);
+      await loadDirectory(currentPath, true);
       if (result.remotePath) {
         setSelectedPath(result.remotePath);
       }
@@ -163,6 +184,12 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
     if (!sessionId || entry.type === "directory") return;
     await window.remoteFileApi.downloadFile(sessionId, entry.path, entry.name);
   }, [sessionId]);
+
+  const handleClosePreview = useCallback(() => {
+    previewRequestRef.current += 1;
+    setSelectedPath(null);
+    setPreview({ status: "idle" });
+  }, []);
 
   if (!isSshSession) {
     return (
@@ -200,6 +227,21 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
 
       <div className="remote-file-path" title={currentPath}>{currentPath}</div>
 
+      <div className="remote-file-search">
+        <Search aria-hidden="true" />
+        <input
+          type="text"
+          placeholder="Search current directory..."
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        {normalizedSearchQuery && (
+          <button type="button" title="Clear search" aria-label="Clear search" onClick={() => setSearchQuery("")}>
+            <X aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
       {error && (
         <div className="remote-file-error">
           <span>{error}</span>
@@ -212,8 +254,10 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
           <div className="remote-file-empty">Loading files...</div>
         ) : entries.length === 0 && !error ? (
           <div className="remote-file-empty">Directory is empty</div>
+        ) : filteredEntries.length === 0 ? (
+          <div className="remote-file-empty">No matching files in this directory.</div>
         ) : (
-          entries.map((entry) => (
+          filteredEntries.map((entry) => (
             <button
               className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""}`}
               key={entry.path}
@@ -252,29 +296,31 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
         )}
       </div>
 
-      <div className="remote-file-preview">
-        {preview.status === "idle" && (
-          <div className="remote-file-empty">Select a file to preview text.</div>
-        )}
-        {preview.status === "loading" && (
-          <div className="remote-file-empty">Loading preview...</div>
-        )}
-        {preview.status === "error" && (
-          <div className="remote-file-error">
-            <span>{preview.message}</span>
-          </div>
-        )}
-        {preview.status === "ready" && (
-          <>
-            <div className="remote-preview-header">
-              <span><FileText aria-hidden="true" />{preview.fileName}</span>
-              {selectedEntry && selectedEntry.type !== "directory" && (
+      {preview.status !== "idle" && (
+        <div className="remote-file-preview">
+          <div className="remote-preview-header">
+            <span><FileText aria-hidden="true" />{selectedEntry?.name || preview.path}</span>
+            <div className="remote-preview-actions">
+              {preview.status === "ready" && selectedEntry && selectedEntry.type !== "directory" && (
                 <button className="icon-button" type="button" title="Download" aria-label="Download" onClick={() => void handleDownload(selectedEntry)}>
                   <Download aria-hidden="true" />
                 </button>
               )}
+              <button className="icon-button" type="button" title="Close preview" aria-label="Close preview" onClick={handleClosePreview}>
+                <X aria-hidden="true" />
+              </button>
             </div>
-            {preview.preview.kind === "text" ? (
+          </div>
+          {preview.status === "loading" && (
+            <div className="remote-file-empty">Loading preview...</div>
+          )}
+          {preview.status === "error" && (
+            <div className="remote-file-error">
+              <span>{preview.message}</span>
+            </div>
+          )}
+          {preview.status === "ready" && (
+            preview.preview.kind === "text" ? (
               <pre>{preview.preview.content}</pre>
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
@@ -282,10 +328,10 @@ export function RemoteFilePanel({ session }: RemoteFilePanelProps) {
               </div>
             ) : (
               <div className="remote-file-empty">Binary file. Download it to view locally.</div>
-            )}
-          </>
-        )}
-      </div>
+            )
+          )}
+        </div>
+      )}
     </aside>
   );
 }
