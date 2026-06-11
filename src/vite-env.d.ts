@@ -66,6 +66,27 @@ export type RemoteFileDialogResult =
   | { canceled: true }
   | { canceled: false; remotePath?: string; localPath?: string };
 
+export type RemoteSystemMetrics = {
+  sampledAt: number;
+  network: {
+    receivedBytesPerSecond: number | null;
+    transmittedBytesPerSecond: number | null;
+  };
+  memory: {
+    usedBytes: number;
+    totalBytes: number;
+  };
+  disk?: {
+    filesystem: string;
+    type: string;
+    mountPoint: string;
+    usedBytes: number;
+    totalBytes: number;
+    availableBytes: number;
+    usedPercent: number;
+  };
+};
+
 export type AgentProvider = "claude" | "codex";
 export type HookProvider = AgentProvider;
 
@@ -160,6 +181,10 @@ export type RemoteFileApi = {
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
 };
 
+export type RemoteSystemApi = {
+  getMetrics: (sessionId: string) => Promise<RemoteSystemMetrics>;
+};
+
 export type HookConfigApi = {
   selectProjectDirectory: (defaultPath?: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   inspect: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
@@ -171,6 +196,7 @@ declare global {
     terminalApi: TerminalApi;
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
+    remoteSystemApi: RemoteSystemApi;
     hookConfigApi: HookConfigApi;
     windowApi: WindowApi;
   }

@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, hookConfigManager }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -37,6 +37,9 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     const sessions = terminalManager.closeSession(id);
     if (remoteFileService) {
       await remoteFileService.disconnect(id);
+    }
+    if (remoteSystemService) {
+      await remoteSystemService.disconnect(id);
     }
     return sessions;
   });
@@ -102,6 +105,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     }
     const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, result.filePath);
     return { canceled: false, ...downloaded };
+  });
+
+  ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
+    return remoteSystemService.getMetrics(sessionId);
   });
 
   ipcMain.handle("hooks:select-project-directory", async (event, defaultPath) => {

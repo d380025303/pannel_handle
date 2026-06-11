@@ -9,7 +9,9 @@ import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { QuickCommandBar } from "./components/QuickCommandBar";
 import { RemoteFilePanel } from "./components/RemoteFilePanel";
+import { RemoteSystemStatus } from "./components/RemoteSystemStatus";
 import { TitleBar } from "./components/TitleBar";
+import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
@@ -30,6 +32,7 @@ export function App() {
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
+  const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId
   });
@@ -176,11 +179,16 @@ export function App() {
               terminalHostRef={terminalInstances.terminalHostRef}
               onContextMenu={terminalInstances.handleTerminalContextMenu}
             />
-            <QuickCommandBar
-              quickCommands={terminalSessions.quickCommandsForActiveSession}
-              activeSessionId={terminalSessions.activeId}
-              onFocusTerminal={terminalInstances.focusActiveTerminal}
-            />
+            {(terminalSessions.quickCommandsForActiveSession.length > 0 || remoteSystemMetrics.status !== "hidden") && (
+              <footer className="terminal-footer">
+                <QuickCommandBar
+                  quickCommands={terminalSessions.quickCommandsForActiveSession}
+                  activeSessionId={terminalSessions.activeId}
+                  onFocusTerminal={terminalInstances.focusActiveTerminal}
+                />
+                <RemoteSystemStatus state={remoteSystemMetrics} />
+              </footer>
+            )}
           </div>
 
           {showRightTools && (

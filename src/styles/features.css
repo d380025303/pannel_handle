@@ -696,14 +696,11 @@
 
 .quick-command-bar {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-panel);
   overflow-x: auto;
-  flex-shrink: 0;
-  min-height: 34px;
 }
 
 .quick-command-bar::-webkit-scrollbar {
@@ -739,6 +736,69 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 160px;
+}
+
+.terminal-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  flex-shrink: 0;
+}
+
+.remote-system-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.remote-system-status::-webkit-scrollbar {
+  display: none;
+}
+
+.remote-system-status.loading,
+.remote-system-status.error {
+  gap: 6px;
+  color: var(--color-text-muted);
+}
+
+.remote-system-status.error {
+  color: var(--color-danger);
+}
+
+.remote-system-status svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke-width: 1.8;
+}
+
+.remote-system-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.remote-system-metric + .remote-system-metric {
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border-strong);
+}
+
+.remote-system-detail {
+  color: var(--color-text-muted);
 }
 
 .quick-command-heading {

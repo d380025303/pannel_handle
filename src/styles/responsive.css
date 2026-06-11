@@ -10,4 +10,21 @@
   .session-list {
     padding: 8px;
   }
+
+  .terminal-footer {
+    gap: 8px;
+    padding-inline: 8px;
+  }
+
+  .remote-system-status {
+    gap: 8px;
+  }
+
+  .remote-system-detail {
+    display: none;
+  }
+
+  .remote-system-metric + .remote-system-metric {
+    padding-left: 8px;
+  }
 }

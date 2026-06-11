@@ -7,6 +7,7 @@ const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
 const { createRemoteFileService } = require("./remote-file-service.cjs");
+const { createRemoteSystemService } = require("./remote-system-service.cjs");
 const { createSessionStore } = require("./session-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
 const { createWindowManager } = require("./window-manager.cjs");
@@ -18,6 +19,7 @@ let knownHostStore = null;
 let terminalManager = null;
 let agentHookServer = null;
 let remoteFileService = null;
+let remoteSystemService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
 
@@ -70,6 +72,9 @@ if (!gotSingleInstanceLock) {
         if (remoteFileService) {
           void remoteFileService.disconnect(id);
         }
+        if (remoteSystemService) {
+          void remoteSystemService.disconnect(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -78,6 +83,11 @@ if (!gotSingleInstanceLock) {
       terminalManager
     });
     remoteFileService = createRemoteFileService({
+      terminalManager,
+      sessionStore,
+      knownHostStore
+    });
+    remoteSystemService = createRemoteSystemService({
       terminalManager,
       sessionStore,
       knownHostStore
@@ -94,6 +104,7 @@ if (!gotSingleInstanceLock) {
       clipboard,
       dialog,
       remoteFileService,
+      remoteSystemService,
       hookConfigManager
     });
     windowManager.createWindow();
@@ -118,6 +129,9 @@ app.on("window-all-closed", () => {
   }
   if (remoteFileService) {
     void remoteFileService.shutdown();
+  }
+  if (remoteSystemService) {
+    void remoteSystemService.shutdown();
   }
   if (agentHookServer) {
     agentHookServer.stop();

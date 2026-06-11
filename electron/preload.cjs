@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName })
 });
 
+contextBridge.exposeInMainWorld("remoteSystemApi", {
+  getMetrics: (sessionId) => ipcRenderer.invoke("remote-system:metrics", { sessionId })
+});
+
 contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),
