@@ -179,12 +179,14 @@ export function App() {
               terminalHostRef={terminalInstances.terminalHostRef}
               onContextMenu={terminalInstances.handleTerminalContextMenu}
             />
-            {(terminalSessions.quickCommandsForActiveSession.length > 0 || remoteSystemMetrics.status !== "hidden") && (
+            {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
               <footer className="terminal-footer">
                 <QuickCommandBar
                   quickCommands={terminalSessions.quickCommandsForActiveSession}
                   activeSessionId={terminalSessions.activeId}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
+                  onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
+                  onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
                 />
                 <RemoteSystemStatus state={remoteSystemMetrics} />
               </footer>

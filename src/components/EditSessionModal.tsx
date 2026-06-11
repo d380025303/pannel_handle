@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
+import { generateId } from "../utils/id";
 
 type EditSessionModalProps = {
   session: TerminalSession;
@@ -10,16 +11,12 @@ type EditSessionModalProps = {
   onCancel: () => void;
 };
 
-function generateId() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
 export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: EditSessionModalProps) {
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || "");
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
-    () => session.quickCommands ?? []
+    () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || 'write' as const }))
   );
   const [sshHost, setSshHost] = useState(session.sshConfig?.host || "");
   const [sshUsername, setSshUsername] = useState(session.sshConfig?.username || "");
@@ -66,7 +63,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const handleAddCommand = () => {
     setQuickCommands((prev) => [
       ...prev,
-      { id: generateId(), label: "", command: "" }
+      { id: generateId(), command: "", mode: "one-time" }
     ]);
   };
 
@@ -74,7 +71,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     setQuickCommands((prev) => prev.filter((qc) => qc.id !== id));
   };
 
-  const handleCommandChange = (id: string, field: "label" | "command", value: string) => {
+  const handleCommandChange = (id: string, field: "command" | "mode", value: string) => {
     setQuickCommands((prev) =>
       prev.map((qc) => (qc.id === id ? { ...qc, [field]: value } : qc))
     );
@@ -227,16 +224,19 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               <div key={qc.id} className="quick-command-edit-row">
                 <input
                   className="modal-input quick-cmd-input"
-                  placeholder="显示名称"
-                  value={qc.label}
-                  onChange={(e) => handleCommandChange(qc.id, "label", e.target.value)}
-                />
-                <input
-                  className="modal-input quick-cmd-input"
                   placeholder="命令内容"
                   value={qc.command}
                   onChange={(e) => handleCommandChange(qc.id, "command", e.target.value)}
                 />
+                <select
+                  className="quick-cmd-mode-select"
+                  value={qc.mode || 'write'}
+                  onChange={(e) => handleCommandChange(qc.id, "mode", e.target.value)}
+                >
+                  <option value="write">手动写入</option>
+                  <option value="auto-enter">自动执行</option>
+                  <option value="one-time">一次性</option>
+                </select>
                 <button
                   type="button"
                   className="mini-action danger"

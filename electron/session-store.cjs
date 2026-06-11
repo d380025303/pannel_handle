@@ -10,6 +10,14 @@ function inferWorkingDirectory(initialCommand, type) {
   return /^[a-z]:[\\/]/i.test(cwd) || cwd.startsWith("\\\\") ? cwd : undefined;
 }
 
+function normalizeQuickCommands(commands) {
+  if (!Array.isArray(commands)) return [];
+  return commands.map((cmd) => ({
+    ...cmd,
+    mode: cmd.mode || 'write'
+  }));
+}
+
 function normalizeTags(tags) {
   if (!Array.isArray(tags)) return [];
   const seen = new Set();
@@ -117,7 +125,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
-      quickCommands: template.quickCommands || [],
+      quickCommands: normalizeQuickCommands(template.quickCommands),
       tags: normalizeTags(template.tags)
     };
   }
@@ -148,7 +156,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       cwd,
       createdAt: template.createdAt || Date.now(),
       sshConfig,
-      quickCommands: template.quickCommands || [],
+      quickCommands: normalizeQuickCommands(template.quickCommands),
       tags: normalizeTags(template.tags)
     });
   }

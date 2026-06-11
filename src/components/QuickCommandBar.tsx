@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Play } from "lucide-react";
 import type { QuickCommand } from "../vite-env";
 
@@ -5,16 +6,35 @@ type QuickCommandBarProps = {
   quickCommands: QuickCommand[];
   activeSessionId?: string;
   onFocusTerminal: () => void;
+  onAddQuickCommand: (command: string, mode: QuickCommand['mode']) => void;
+  onRemoveQuickCommand: (id: string) => void;
 };
 
-export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal }: QuickCommandBarProps) {
-  if (!quickCommands || quickCommands.length === 0 || !activeSessionId) {
+export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal, onAddQuickCommand, onRemoveQuickCommand }: QuickCommandBarProps) {
+  const [addInput, setAddInput] = useState("");
+
+  if (!activeSessionId) {
     return null;
   }
 
-  const handleClick = (command: string) => {
-    window.terminalApi.write(activeSessionId, command);
+  const handleClick = (qc: QuickCommand) => {
+    const mode = qc.mode || "write";
+    if (mode === "auto-enter") {
+      window.terminalApi.write(activeSessionId, qc.command + "\r");
+    } else {
+      window.terminalApi.write(activeSessionId, qc.command);
+    }
+    if (mode === "one-time") {
+      onRemoveQuickCommand(qc.id);
+    }
     onFocusTerminal();
+  };
+
+  const handleAdd = () => {
+    const cmd = addInput.trim();
+    if (!cmd) return;
+    onAddQuickCommand(cmd, "one-time");
+    setAddInput("");
   };
 
   return (
@@ -25,12 +45,24 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
           className="quick-command-btn"
           type="button"
           title={qc.command}
-          onClick={() => handleClick(qc.command)}
+          onClick={() => handleClick(qc)}
         >
           <Play aria-hidden="true" size={12} />
-          <span className="quick-command-label">{qc.label || qc.command}</span>
+          <span className="quick-command-label">{qc.command}</span>
         </button>
       ))}
+      <input
+        className="quick-command-add-input"
+        type="text"
+        placeholder="快捷命令..."
+        value={addInput}
+        onChange={(e) => setAddInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && addInput.trim()) {
+            handleAdd();
+          }
+        }}
+      />
     </div>
   );
 }

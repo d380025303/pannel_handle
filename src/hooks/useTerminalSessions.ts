@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import { generateId } from "../utils/id";
 
 type CreateSessionOptions = {
   selectedShellId: string;
@@ -27,7 +28,7 @@ export function useTerminalSessions() {
   const activeAgentStatus = activeId ? agentStatusesBySessionId[activeId] : undefined;
 
   const quickCommandsForActiveSession = useMemo(
-    () => activeSession?.quickCommands ?? [],
+    () => (activeSession?.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || 'write' as const })),
     [activeSession]
   );
   const tagSuggestions = useMemo(() => {
@@ -138,6 +139,23 @@ export function useTerminalSessions() {
     setLibrarySessions(await window.terminalApi.loadSavedSessions());
   }, []);
 
+  const addQuickCommandToActiveSession = useCallback(async (command: string, mode: QuickCommand['mode']) => {
+    const id = activeId;
+    const session = activeSession;
+    if (!id || !session) return;
+    const newCmd: QuickCommand = { id: generateId(), command, mode };
+    const updated = [...(session.quickCommands ?? []), newCmd];
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', updated, session.sshConfig, session.tags);
+  }, [activeId, activeSession, updateSession]);
+
+  const removeQuickCommandFromActiveSession = useCallback(async (commandId: string) => {
+    const id = activeId;
+    const session = activeSession;
+    if (!id || !session) return;
+    const updated = (session.quickCommands ?? []).filter((qc) => qc.id !== commandId);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', updated, session.sshConfig, session.tags);
+  }, [activeId, activeSession, updateSession]);
+
   const openPicker = useCallback(async () => {
     const library = await window.terminalApi.loadSavedSessions();
     setLibrarySessions(library);
@@ -219,6 +237,8 @@ export function useTerminalSessions() {
     updateLibraryTags,
     reorderRunningSessions,
     autoRestore,
-    toggleAutoRestore
+    toggleAutoRestore,
+    addQuickCommandToActiveSession,
+    removeQuickCommandFromActiveSession
   };
 }

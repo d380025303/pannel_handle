@@ -2,8 +2,8 @@
 
 export type QuickCommand = {
   id: string;
-  label: string;
   command: string;
+  mode?: 'auto-enter' | 'write' | 'one-time';
 };
 
 export type SshConfig = {

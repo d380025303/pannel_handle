@@ -735,7 +735,7 @@
 .quick-command-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 160px;
+  max-width: 240px;
 }
 
 .terminal-footer {
@@ -815,7 +815,7 @@
 
 .quick-command-edit-row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
   align-items: center;
 }
@@ -823,6 +823,17 @@
 .quick-cmd-input {
   font-size: 12px !important;
   padding: 6px 10px !important;
+}
+
+.quick-cmd-mode-select {
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  cursor: pointer;
+  min-width: 80px;
 }
 
 .quick-command-add-btn {
@@ -844,6 +855,27 @@
 .quick-command-add-btn:hover {
   border-color: var(--color-accent);
   color: var(--color-text);
+}
+
+.quick-command-add-input {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font-size: 12px;
+  outline: none;
+  min-width: 140px;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.quick-command-add-input:focus {
+  border-color: var(--color-accent);
+}
+.quick-command-add-input::placeholder {
+  color: var(--color-text-muted);
 }
 
 .right-tools {
