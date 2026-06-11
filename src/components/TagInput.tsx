@@ -60,7 +60,7 @@ export function TagInput({ tags, suggestions = [], onChange, compact = false }: 
       {availableSuggestions.length > 0 && (
         <div className="tag-suggestions">
           {availableSuggestions.map((tag) => (
-            <button type="button" className="tag-chip" key={tag} onClick={() => addTag(tag)}>
+            <button type="button" className="tag-chip" key={tag} onMouseDown={(e) => { e.preventDefault(); addTag(tag); }}>
               <Plus aria-hidden="true" />
               {tag}
             </button>
