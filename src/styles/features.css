@@ -1457,6 +1457,11 @@
   background: #172b40;
 }
 
+.debug-provider.opencode {
+  color: #9ee6c4;
+  background: #15352a;
+}
+
 .debug-handled {
   color: #8ad9a4;
   background: #173223;

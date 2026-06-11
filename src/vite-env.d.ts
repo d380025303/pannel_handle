@@ -87,7 +87,7 @@ export type RemoteSystemMetrics = {
   };
 };
 
-export type AgentProvider = "claude" | "codex";
+export type AgentProvider = "claude" | "codex" | "opencode";
 export type HookProvider = AgentProvider;
 
 export type HookInstallTarget =
@@ -98,7 +98,7 @@ export type HookInstallStatus = "not_installed" | "installed" | "needs_repair";
 
 export type HookProviderInspection = {
   status: HookInstallStatus;
-  configPath: string;
+  configPath?: string;
   scriptPath: string;
   managedHookCount: number;
   expectedHookCount: number;

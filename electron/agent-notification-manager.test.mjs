@@ -88,6 +88,14 @@ describe("agent-notification-manager", () => {
     });
   });
 
+  it("uses the OpenCode provider name", () => {
+    const { manager, notifications } = createHarness();
+
+    manager.handleStatus(status("completed", "opencode"));
+
+    expect(notifications[0].options.title).toBe("OpenCode 已完成");
+  });
+
   it("does not notify for other statuses or while the window is focused", () => {
     const { manager, notifications, windowManager } = createHarness();
 

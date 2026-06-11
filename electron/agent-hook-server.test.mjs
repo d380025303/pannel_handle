@@ -222,6 +222,54 @@ describe("agent-hook-server", () => {
     expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["session.status", { status: { type: "busy" } }, "running"],
+    ["tool.execute.before", { tool_name: "bash" }, "running"],
+    ["permission.asked", { tool_name: "bash" }, "waiting_for_permission"],
+    ["permission.updated", {}, "waiting_for_permission"],
+    ["session.idle", {}, "completed"],
+    ["session.error", { error: "failed" }, "failed"],
+    ["session.deleted", {}, "ended"]
+  ])("maps OpenCode %s to %s", (eventName, extra, expectedStatus) => {
+    const { server, terminalManager } = createServer();
+
+    const handled = server.handleAgentHook("opencode", {
+      event_name: eventName,
+      session_id: "opencode-1",
+      pannel_handle_session_id: "run-1",
+      ...extra
+    });
+
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "opencode",
+      status: expectedStatus,
+      eventName
+    }));
+  });
+
+  it("broadcasts unknown OpenCode events only to debug", () => {
+    const { server, terminalManager } = createServer();
+    const payload = {
+      event_name: "message.updated",
+      session_id: "opencode-1",
+      pannel_handle_session_id: "run-1"
+    };
+
+    const handled = server.handleAgentHookDebug("opencode", payload);
+
+    expect(handled).toBe(false);
+    expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
+    expect(terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith({
+      provider: "opencode",
+      eventName: "message.updated",
+      matchedSessionId: "run-1",
+      handled: false,
+      payload
+    });
+  });
+
   it("maps Claude Notification+idle_prompt to e_prompt", () => {
     const { server, terminalManager } = createServer();
 

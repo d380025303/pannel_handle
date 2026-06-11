@@ -22,7 +22,9 @@ function createAgentNotificationManager({
   const notificationsBySessionId = new Map();
 
   function getProviderName(provider) {
-    return provider === "codex" ? "Codex" : "Claude";
+    if (provider === "codex") return "Codex";
+    if (provider === "opencode") return "OpenCode";
+    return "Claude";
   }
 
   function buildBody(session, payload) {

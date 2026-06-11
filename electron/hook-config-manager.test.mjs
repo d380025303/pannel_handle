@@ -23,17 +23,51 @@ afterEach(() => {
 });
 
 describe("hook-config-manager", () => {
-  it("installs Claude and Codex hooks into an empty Windows project", () => {
+  it("installs Claude, Codex, and OpenCode hooks into an empty Windows project", () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });
 
-    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex"]);
+    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "opencode"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.claude.status).toBe("installed");
     expect(result.providers.codex.status).toBe("installed");
+    expect(result.providers.opencode.status).toBe("installed");
+    expect(result.providers.opencode.configPath).toBeUndefined();
+    expect(result.providers.opencode.managedHookCount).toBe(1);
     expect(fs.existsSync(path.join(projectPath, ".claude", "pannel-handle-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".codex", "pannel-handle-hook.ps1"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
+  });
+
+  it("reports and repairs a modified OpenCode plugin without creating opencode.json", () => {
+    const projectPath = createProject();
+    const pluginPath = path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js");
+    fs.mkdirSync(path.dirname(pluginPath), { recursive: true });
+    fs.writeFileSync(pluginPath, "modified", "utf-8");
+    const manager = createHookConfigManager({ assetsDir });
+
+    expect(manager.inspect({ type: "windows", path: projectPath }, ["opencode"]).providers.opencode.status)
+      .toBe("needs_repair");
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["opencode"]);
+
+    expect(result.providers.opencode.status).toBe("installed");
+    expect(fs.existsSync(`${pluginPath}.pannel-handle.bak`)).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, "opencode.json"))).toBe(false);
+  });
+
+  it("uses one platform-independent OpenCode plugin asset", () => {
+    const projectPath = createProject();
+    const manager = createHookConfigManager({ assetsDir });
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["opencode"]);
+    const pluginPath = path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js");
+
+    expect(result.providers.opencode.status).toBe("installed");
+    expect(fs.readFileSync(pluginPath, "utf-8")).toBe(
+      fs.readFileSync(path.join(assetsDir, "pannel-handle-opencode-plugin.js"), "utf-8")
+    );
   });
 
   it("preserves unrelated settings and replaces duplicate managed hooks", () => {
@@ -106,6 +140,29 @@ describe("hook-config-manager", () => {
     expect(result.error).toContain("read-only");
     expect(fs.existsSync(path.join(projectPath, ".claude", "settings.local.json"))).toBe(false);
     expect(fs.existsSync(path.join(projectPath, ".claude", "pannel-handle-hook.ps1"))).toBe(false);
+  });
+
+  it("rolls back OpenCode when a later provider write fails", () => {
+    const projectPath = createProject();
+    const failingFs = new Proxy(fs, {
+      get(target, property) {
+        if (property === "writeFileSync") {
+          return (filePath, ...args) => {
+            if (String(filePath).includes(".codex") && String(filePath).endsWith(".pannel-handle.tmp")) {
+              throw new Error("directory is read-only");
+            }
+            return target.writeFileSync(filePath, ...args);
+          };
+        }
+        return target[property];
+      }
+    });
+    const manager = createHookConfigManager({ assetsDir, fsApi: failingFs });
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["opencode", "codex"]);
+
+    expect(result.ok).toBe(false);
+    expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(false);
   });
 
   it("builds the WSL UNC project path and generates Bash commands", () => {

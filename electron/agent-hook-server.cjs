@@ -4,7 +4,8 @@ const path = require("node:path");
 function createAgentHookServer({ terminalManager }) {
   const agentSessions = {
     claude: new Map(),
-    codex: new Map()
+    codex: new Map(),
+    opencode: new Map()
   };
   let hookServer = null;
   let claudeHookUrl = "";
@@ -202,9 +203,38 @@ function createAgentHookServer({ terminalManager }) {
     return null;
   }
 
+  function mapOpenCodeHookStatus(input) {
+    const eventName = getEventName(input);
+    const status = input.status?.type || input.status;
+
+    if (eventName === "permission.asked" || eventName === "permission.updated") {
+      return "waiting_for_permission";
+    }
+    if (
+      eventName === "tool.execute.before" ||
+      eventName === "tool.execute.after" ||
+      (eventName === "session.status" && status === "busy")
+    ) {
+      return "running";
+    }
+    if (eventName === "session.idle") {
+      return "completed";
+    }
+    if (eventName === "session.error") {
+      return "failed";
+    }
+    if (eventName === "session.deleted") {
+      return "ended";
+    }
+    return null;
+  }
+
   function getHookStatus(provider, input) {
     if (provider === "codex") {
       return mapCodexHookStatus(input);
+    }
+    if (provider === "opencode") {
+      return mapOpenCodeHookStatus(input);
     }
     return mapClaudeHookStatus(input);
   }
@@ -302,6 +332,10 @@ function createAgentHookServer({ terminalManager }) {
       }
       if (req.method === "POST" && req.url === "/codex-hook") {
         handleRequest("codex", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/opencode-hook") {
+        handleRequest("opencode", req, res);
         return;
       }
 

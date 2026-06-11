@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const PROVIDERS = ["claude", "codex"];
+const PROVIDERS = ["claude", "codex", "opencode"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -39,6 +39,10 @@ const PROVIDER_CONFIG = {
       ["PostToolUse", "*"],
       ["Stop", "*"]
     ]
+  },
+  opencode: {
+    scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
+    asset: "pannel-handle-opencode-plugin.js"
   }
 };
 
@@ -91,6 +95,9 @@ function removeManagedHooks(config) {
 
 function buildConfig(config, provider, platform) {
   const definition = PROVIDER_CONFIG[provider];
+  if (!definition.configPath) {
+    return config;
+  }
   const command = platform === "wsl" ? definition.wslCommand : definition.windowsCommand;
   const next = removeManagedHooks(config);
   for (const [eventName, matcher] of definition.events) {
@@ -148,9 +155,9 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
     const definition = PROVIDER_CONFIG[provider];
     const isWsl = target.type === "wsl";
     return {
-      configPath: path.join(projectPath, ...definition.configPath),
-      scriptPath: path.join(projectPath, ...(isWsl ? definition.wslScriptPath : definition.windowsScriptPath)),
-      assetPath: path.join(assetsDir, isWsl ? definition.wslAsset : definition.windowsAsset)
+      configPath: definition.configPath ? path.join(projectPath, ...definition.configPath) : undefined,
+      scriptPath: path.join(projectPath, ...(definition.scriptPath || (isWsl ? definition.wslScriptPath : definition.windowsScriptPath))),
+      assetPath: path.join(assetsDir, definition.asset || (isWsl ? definition.wslAsset : definition.windowsAsset))
     };
   }
 
@@ -164,16 +171,16 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
       const result = {};
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, target, provider);
-        const config = readJsonFile(fsApi, paths.configPath);
-        const expectedConfig = buildConfig(config.value, provider, target.type);
         const expectedScript = fsApi.readFileSync(paths.assetPath, "utf-8");
         const scriptMatches = fsApi.existsSync(paths.scriptPath) && fsApi.readFileSync(paths.scriptPath, "utf-8") === expectedScript;
-        const managedCount = countManagedCommands(config.value);
-        const expectedCount = PROVIDER_CONFIG[provider].events.length;
-        const configMatches = JSON.stringify(config.value) === JSON.stringify(expectedConfig);
+        const config = paths.configPath ? readJsonFile(fsApi, paths.configPath) : undefined;
+        const expectedConfig = config ? buildConfig(config.value, provider, target.type) : undefined;
+        const managedCount = config ? countManagedCommands(config.value) : (fsApi.existsSync(paths.scriptPath) ? 1 : 0);
+        const expectedCount = PROVIDER_CONFIG[provider].events?.length || 1;
+        const configMatches = config ? JSON.stringify(config.value) === JSON.stringify(expectedConfig) : true;
         result[provider] = {
           status: configMatches && scriptMatches ? "installed" : managedCount > 0 || fsApi.existsSync(paths.scriptPath) ? "needs_repair" : "not_installed",
-          configPath: paths.configPath,
+          ...(paths.configPath ? { configPath: paths.configPath } : {}),
           scriptPath: paths.scriptPath,
           managedHookCount: managedCount,
           expectedHookCount: expectedCount
@@ -199,9 +206,11 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
       const writes = [];
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, target, provider);
-        const config = readJsonFile(fsApi, paths.configPath);
         const script = fsApi.readFileSync(paths.assetPath, "utf-8");
-        writes.push([paths.configPath, `${JSON.stringify(buildConfig(config.value, provider, target.type), null, 2)}\n`]);
+        if (paths.configPath) {
+          const config = readJsonFile(fsApi, paths.configPath);
+          writes.push([paths.configPath, `${JSON.stringify(buildConfig(config.value, provider, target.type), null, 2)}\n`]);
+        }
         writes.push([paths.scriptPath, script]);
       }
       for (const [filePath, content] of writes) {

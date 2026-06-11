@@ -1,7 +1,9 @@
 import type { AgentStatusPayload } from "../vite-env";
 
 function getAgentName(status: AgentStatusPayload) {
-  return status.provider === "codex" ? "Codex" : "Claude";
+  if (status.provider === "codex") return "Codex";
+  if (status.provider === "opencode") return "OpenCode";
+  return "Claude";
 }
 
 export function getAgentStatusLabel(status?: AgentStatusPayload) {

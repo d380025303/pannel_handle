@@ -11,7 +11,13 @@ type HookInstallModalProps = {
   onCancel: () => void;
 };
 
-const providers: HookProvider[] = ["claude", "codex"];
+const providers: HookProvider[] = ["claude", "codex", "opencode"];
+
+const providerNames: Record<HookProvider, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode"
+};
 
 const statusLabels = {
   not_installed: "未安装",
@@ -111,7 +117,7 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
                     checked={selectedProviders.includes(provider)}
                     onChange={() => toggleProvider(provider)}
                   />
-                  <span className="hook-provider-name">{provider === "claude" ? "Claude Code" : "Codex"}</span>
+                  <span className="hook-provider-name">{providerNames[provider]}</span>
                   <span className={`hook-install-status ${inspection?.status || "unknown"}`}>
                     {inspection ? statusLabels[inspection.status] : "待检查"}
                   </span>
