@@ -263,6 +263,15 @@ function createTerminalManager({
   }
 
   function attachTerminal(session, term, options = {}) {
+    if (!term
+        || typeof term.onData !== "function"
+        || typeof term.onExit !== "function"
+        || typeof term.write !== "function"
+        || typeof term.resize !== "function"
+        || typeof term.kill !== "function") {
+      throw new TypeError(`Failed to start session "${session.title}": invalid terminal instance.`);
+    }
+
     session.term = term;
     session.buffer = [];
     session.sshSecret = session.type === "ssh" ? getSshSecret(session) : undefined;
@@ -388,7 +397,16 @@ function createTerminalManager({
 
     sessions.set(id, session);
     sessionOrder.push(id);
-    spawnPty(session, options);
+    try {
+      spawnPty(session, options);
+    } catch (err) {
+      sessions.delete(id);
+      const orderIndex = sessionOrder.indexOf(id);
+      if (orderIndex >= 0) {
+        sessionOrder.splice(orderIndex, 1);
+      }
+      throw err;
+    }
     return serializeSession(session);
   }
 
@@ -420,8 +438,8 @@ function createTerminalManager({
       tags: options.tags || []
     };
 
-    sessionStore.addToLibrary(template);
     const session = startSessionFromTemplate(template, options);
+    sessionStore.addToLibrary(template);
     broadcast("sessions:changed", listSessions());
     syncLastActiveIds();
 
@@ -542,9 +560,14 @@ function createTerminalManager({
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
-      session.term.kill();
+      if (typeof session.term?.kill === "function") {
+        session.term.kill();
+      }
       sessions.delete(id);
-      sessionOrder.splice(sessionOrder.indexOf(id), 1);
+      const orderIndex = sessionOrder.indexOf(id);
+      if (orderIndex >= 0) {
+        sessionOrder.splice(orderIndex, 1);
+      }
       if (typeof onSessionClosed === "function") {
         onSessionClosed(id);
       }
@@ -561,14 +584,14 @@ function createTerminalManager({
 
   function write(id, data) {
     const session = sessions.get(id);
-    if (session) {
+    if (typeof session?.term?.write === "function") {
       session.term.write(data);
     }
   }
 
   function resize(id, cols, rows) {
     const session = sessions.get(id);
-    if (session) {
+    if (typeof session?.term?.resize === "function") {
       session.term.resize(cols, rows);
     }
   }
@@ -598,7 +621,9 @@ function createTerminalManager({
 
   function shutdown() {
     for (const session of sessions.values()) {
-      session.term.kill();
+      if (typeof session.term?.kill === "function") {
+        session.term.kill();
+      }
     }
     sessions.clear();
     sessionOrder.length = 0;

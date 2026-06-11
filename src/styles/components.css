@@ -295,6 +295,16 @@
   opacity: 0.55;
 }
 
+.modal-error {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 3px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
 .modal-field {
   display: block;
 }

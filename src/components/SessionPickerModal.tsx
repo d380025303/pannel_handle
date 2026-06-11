@@ -68,6 +68,14 @@ export function SessionPickerModal({
     });
   }, [availableTags]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
   const filteredSessions = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
     return pendingSessions.filter((session) => {

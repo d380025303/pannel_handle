@@ -131,6 +131,27 @@ describe("terminal-manager", () => {
     expect(broadcast).toHaveBeenCalledWith("sessions:changed", [session]);
   });
 
+  it("rolls back the runtime session when PTY startup fails", () => {
+    const spawnError = new Error("spawn failed");
+    const { manager, sessionStore } = createManager({
+      pty: { spawn: vi.fn(() => { throw spawnError; }) }
+    });
+
+    expect(() => manager.createSession({ title: "Broken" })).toThrow(spawnError);
+
+    expect(manager.listSessions()).toEqual([]);
+    expect(sessionStore.addToLibrary).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid terminal instances without leaving an unclosable session", () => {
+    const { manager } = createManager({
+      pty: { spawn: vi.fn(() => undefined) }
+    });
+
+    expect(() => manager.createSession({ title: "Broken" })).toThrow("invalid terminal instance");
+    expect(manager.listSessions()).toEqual([]);
+  });
+
   it("broadcasts terminal data, stores bounded history, and sends an initial command after first output", () => {
     const { manager, term, broadcast } = createManager();
 
@@ -164,6 +185,17 @@ describe("terminal-manager", () => {
     expect(term.resizes).toEqual([[90, 24]]);
     expect(term.killed).toBe(true);
     expect(remaining).toEqual([]);
+    expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("can close a legacy runtime session that has no terminal instance", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Broken" });
+    manager.getSession(session.id).term = undefined;
+
+    expect(() => manager.write(session.id, "abc")).not.toThrow();
+    expect(() => manager.resize(session.id, 90, 24)).not.toThrow();
+    expect(manager.closeSession(session.id)).toEqual([]);
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
   });
 
