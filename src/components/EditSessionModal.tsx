@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
@@ -55,11 +55,13 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     );
   };
 
-  const handleEscape = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onCancel();
-    }
-  };
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   const handleAddCommand = () => {
     setQuickCommands((prev) => [
@@ -93,8 +95,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               placeholder="输入会话名称"
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
-              onKeyDown={handleEscape}
-            />
+                          />
           </label>
           <label className="modal-field">
             <span className="modal-label">标签</span>
@@ -110,9 +111,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                     className="modal-input"
                     placeholder="example.com 或 192.168.1.10"
                     value={sshHost}
-                    onChange={(e) => setSshHost(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshHost(e.target.value)}                  />
                 </label>
                 <label className="modal-field">
                   <span className="modal-label">端口</span>
@@ -120,9 +119,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                     className="modal-input"
                     placeholder="22"
                     value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshPort(e.target.value)}                  />
                 </label>
               </div>
               <div className="modal-grid two">
@@ -132,9 +129,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                     className="modal-input"
                     placeholder="root"
                     value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshUsername(e.target.value)}                  />
                 </label>
                 <label className="modal-field">
                   <span className="modal-label">密码或密钥口令</span>
@@ -144,9 +139,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                     placeholder={session.sshConfig?.hasSecret ? "已保存密码，留空保持不变" : "加密保存，用于自动登录"}
                     value={sshSecret}
                     disabled={clearSshSecret}
-                    onChange={(e) => setSshSecret(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshSecret(e.target.value)}                  />
                 </label>
               </div>
               {session.sshConfig?.hasSecret && (
@@ -171,8 +164,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   placeholder="C:\\Users\\me\\.ssh\\id_rsa"
                   value={sshIdentityFile}
                   onChange={(e) => setSshIdentityFile(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">远程启动命令</span>
@@ -181,8 +173,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   placeholder="cd /srv/app && bash"
                   value={sshRemoteCommand}
                   onChange={(e) => setSshRemoteCommand(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">额外 SSH 参数</span>
@@ -192,8 +183,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   value={sshExtraArgs}
                   disabled
                   onChange={(e) => setSshExtraArgs(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">备注</span>
@@ -202,8 +192,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   placeholder="备注信息（可选）"
                   value={sshRemark}
                   onChange={(e) => setSshRemark(e.target.value)}
-                  onKeyDown={handleEscape}
-                  rows={2}
+                                    rows={2}
                 />
               </label>
             </div>
@@ -216,8 +205,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 placeholder={session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"}
                 value={editCwd}
                 onChange={(e) => setEditCwd(e.target.value)}
-                onKeyDown={handleEscape}
-              />
+                              />
             </label>
             <label className="modal-field">
               <span className="modal-label">初始命令</span>
@@ -226,8 +214,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
                 value={editCommand}
                 onChange={(e) => setEditCommand(e.target.value)}
-                onKeyDown={handleEscape}
-                rows={3}
+                                rows={3}
               />
             </label>
             </>

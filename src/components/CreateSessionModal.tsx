@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import type { SshConfig } from "../vite-env";
 import { TagInput } from "./TagInput";
@@ -15,7 +15,7 @@ export type CreateSessionRequest = {
 type CreateSessionModalProps = {
   wslDistros: string[];
   tagSuggestions: string[];
-  onCreate: (request: CreateSessionRequest) => void;
+  onCreate: (request: CreateSessionRequest) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -33,37 +33,48 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [sshSecret, setSshSecret] = useState("");
   const [sshRemark, setSshRemark] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const isSsh = selectedShellId === "ssh";
   const canCreate = useMemo(() => !isSsh || sshHost.trim().length > 0, [isSsh, sshHost]);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!canCreate) {
       return;
     }
-    onCreate({
-      selectedShellId,
-      title: title.trim() || undefined,
-      cwd: cwd.trim() || undefined,
-      initialCommand: isSsh ? undefined : commandInput.trim() || undefined,
-      tags,
-      sshConfig: isSsh ? {
-        host: sshHost.trim(),
-        username: sshUsername.trim() || undefined,
-        port: Number(sshPort) || 22,
-        identityFile: sshIdentityFile.trim() || undefined,
-        remoteCommand: sshRemoteCommand.trim() || undefined,
-        secret: sshSecret || undefined,
-        remark: sshRemark.trim() || undefined
-      } : undefined
-    });
-  };
-
-  const handleEscape = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onCancel();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onCreate({
+        selectedShellId,
+        title: title.trim() || undefined,
+        cwd: cwd.trim() || undefined,
+        initialCommand: isSsh ? undefined : commandInput.trim() || undefined,
+        tags,
+        sshConfig: isSsh ? {
+          host: sshHost.trim(),
+          username: sshUsername.trim() || undefined,
+          port: Number(sshPort) || 22,
+          identityFile: sshIdentityFile.trim() || undefined,
+          remoteCommand: sshRemoteCommand.trim() || undefined,
+          secret: sshSecret || undefined,
+          remark: sshRemark.trim() || undefined
+        } : undefined
+      });
+    } catch (err: any) {
+      setError(err?.message || "创建会话失败");
+      setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   return (
     <div className="modal-overlay">
@@ -72,6 +83,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
           <h3>新建会话</h3>
         </div>
         <div className="modal-body">
+          {error && <div className="modal-error">{error}</div>}
           <div className="shell-list">
             <button
               type="button"
@@ -113,8 +125,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
             placeholder="会话名称（可选）"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={handleEscape}
-          />
+                      />
 
           {isSsh ? (
             <div className="ssh-form">
@@ -126,9 +137,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                     className="modal-input"
                     placeholder="example.com 或 192.168.1.10"
                     value={sshHost}
-                    onChange={(e) => setSshHost(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshHost(e.target.value)}                  />
                 </label>
                 <label className="modal-field">
                   <span className="modal-label">端口</span>
@@ -136,9 +145,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                     className="modal-input"
                     placeholder="22"
                     value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshPort(e.target.value)}                  />
                 </label>
               </div>
               <div className="modal-grid two">
@@ -148,9 +155,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                     className="modal-input"
                     placeholder="root"
                     value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshUsername(e.target.value)}                  />
                 </label>
                 <label className="modal-field">
                   <span className="modal-label">密码或密钥口令</span>
@@ -159,9 +164,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                     type="password"
                     placeholder="加密保存，用于自动登录"
                     value={sshSecret}
-                    onChange={(e) => setSshSecret(e.target.value)}
-                    onKeyDown={handleEscape}
-                  />
+                    onChange={(e) => setSshSecret(e.target.value)}                  />
                 </label>
               </div>
               <label className="modal-field">
@@ -171,8 +174,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   placeholder="C:\\Users\\me\\.ssh\\id_rsa"
                   value={sshIdentityFile}
                   onChange={(e) => setSshIdentityFile(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">远程启动命令</span>
@@ -181,8 +183,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   placeholder="cd /srv/app && bash"
                   value={sshRemoteCommand}
                   onChange={(e) => setSshRemoteCommand(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">额外 SSH 参数</span>
@@ -192,8 +193,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   value={sshExtraArgs}
                   disabled
                   onChange={(e) => setSshExtraArgs(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <label className="modal-field">
                 <span className="modal-label">备注</span>
@@ -202,8 +202,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   placeholder="备注信息（可选）"
                   value={sshRemark}
                   onChange={(e) => setSshRemark(e.target.value)}
-                  onKeyDown={handleEscape}
-                  rows={2}
+                                    rows={2}
                 />
               </label>
             </div>
@@ -217,16 +216,14 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   placeholder={selectedShellId.startsWith("wsl:") ? "/home/user/project" : "C:\\projects\\myapp"}
                   value={cwd}
                   onChange={(e) => setCwd(e.target.value)}
-                  onKeyDown={handleEscape}
-                />
+                                  />
               </label>
               <textarea
               className="modal-input modal-textarea"
               placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
               value={commandInput}
               onChange={(e) => setCommandInput(e.target.value)}
-              onKeyDown={handleEscape}
-                rows={3}
+                              rows={3}
               />
             </>
           )}
@@ -235,8 +232,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
           <button className="modal-button" type="button" onClick={onCancel}>
             取消
           </button>
-          <button className="modal-button primary" type="button" onClick={handleCreate} disabled={!canCreate}>
-            创建
+          <button className="modal-button primary" type="button" onClick={handleCreate} disabled={!canCreate || submitting}>
+            {submitting ? "创建中..." : "创建"}
           </button>
         </div>
       </div>
