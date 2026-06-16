@@ -16,8 +16,9 @@ import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
 import { useWindowState } from "./hooks/useWindowState";
+import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/CreateSessionModal";
-import type { AgentHookDebugPayload, QuickCommand, SshConfig, TerminalSession } from "./vite-env";
+import type { AgentHookDebugPayload, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 export function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -26,6 +27,7 @@ export function App() {
   const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<"files" | "debug">("files");
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
@@ -34,8 +36,10 @@ export function App() {
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
   const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
+  const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
-    activeId: terminalSessions.activeId
+    activeId: terminalSessions.activeId,
+    terminalTheme: activeTheme.terminal
   });
 
   useEffect(() => {
@@ -43,12 +47,17 @@ export function App() {
     window.terminalApi.getConfig().then((config) => {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
+        setThemeId(config.themeId);
       }
     });
     return () => {
       isDisposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeId;
+  }, [themeId]);
 
   useEffect(() => {
     if (!debugMode) return undefined;
@@ -133,6 +142,11 @@ export function App() {
     const next = !config.debugMode;
     await window.terminalApi.setConfig({ debugMode: next });
     setDebugMode(next);
+  }, []);
+
+  const handleThemeChange = useCallback(async (nextThemeId: ThemeId) => {
+    const config = await window.terminalApi.setConfig({ themeId: nextThemeId });
+    setThemeId(config.themeId);
   }, []);
 
   useEffect(() => {
@@ -275,8 +289,11 @@ export function App() {
         <SettingsModal
           autoRestore={terminalSessions.autoRestore}
           debugMode={debugMode}
+          themeId={themeId}
+          themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
+          onThemeChange={handleThemeChange}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}

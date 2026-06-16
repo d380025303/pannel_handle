@@ -34,10 +34,13 @@ export type TerminalSession = {
   tags?: string[];
 };
 
+export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
+
 export type AppConfig = {
   autoRestore: boolean;
   debugMode: boolean;
   lastActiveSessionIds: string[];
+  themeId: ThemeId;
 };
 
 export type SessionLibraryFileResult =

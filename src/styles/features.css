@@ -84,7 +84,7 @@
 
 .window-control.close:hover {
   color: var(--color-text-strong);
-  background: #c42b1c;
+  background: var(--color-window-close-hover);
 }
 
 .window-control svg {
@@ -213,7 +213,7 @@
 }
 
 .session-item:hover {
-  background: #202832;
+  background: var(--color-bg-hover);
 }
 
 .session-item.active {
@@ -287,7 +287,7 @@
 
 .session-item.drag-over {
   border-color: var(--color-accent);
-  background: #1a283b;
+  background: var(--color-bg-selection-strong);
 }
 
 .terminal-panel {
@@ -404,8 +404,8 @@
 
 .picker-library-status.error {
   border-color: var(--color-danger-hover);
-  color: #f3b6bc;
-  background: #31191e;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
 }
 
 .picker-item {
@@ -423,12 +423,12 @@
 
 .picker-item:hover {
   border-color: var(--color-accent);
-  background: #1a222d;
+  background: var(--color-bg-hover);
 }
 
 .picker-item.checked {
   border-color: var(--color-success);
-  background: #1a3326;
+  background: var(--color-ok-bg);
 }
 
 .picker-checkbox {
@@ -492,8 +492,8 @@
   border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 700;
-  color: #6ca8e7;
-  background: #1a283b;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
   margin-left: 4px;
 }
 
@@ -545,7 +545,7 @@
 }
 
 .picker-delete-btn.confirm:hover {
-  background: #c9302c;
+  background: var(--color-window-close-hover);
 }
 
 .picker-delete-btn svg {
@@ -746,8 +746,8 @@
 }
 
 .tag-chip.selected {
-  border-color: #466c91;
-  background: #1a2b3c;
+  border-color: var(--color-accent);
+  background: var(--color-bg-selection-strong);
 }
 
 .tag-chip svg {
@@ -781,7 +781,7 @@
 
 .picker-item.drag-over {
   border-color: var(--color-accent);
-  background: #1a283b;
+  background: var(--color-bg-selection-strong);
 }
 
 .quick-command-bar {
@@ -1152,8 +1152,8 @@
   padding: 9px 10px;
   border: 1px solid var(--color-danger-hover);
   border-radius: var(--radius-md);
-  color: #f3b6bc;
-  background: #31191e;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
   font-size: 12px;
 }
 
@@ -1210,7 +1210,7 @@
 }
 
 .remote-file-icon.directory {
-  color: #d7b46a;
+  color: var(--color-warning-text);
 }
 
 .remote-file-icon svg,
@@ -1255,7 +1255,7 @@
 .remote-preview-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--color-bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1279,7 +1279,7 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  background: #111820;
+  background: var(--color-bg-code);
 }
 
 .remote-preview-header {
@@ -1400,8 +1400,8 @@
 
 .remote-preview-save-message.conflict,
 .remote-preview-save-message.error {
-  color: #f0a6a6;
-  background: rgba(217, 83, 79, 0.12);
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
 }
 
 .remote-preview-save-message button {
@@ -1425,7 +1425,7 @@
   outline: none;
   overflow: auto;
   color: var(--color-text-secondary);
-  background: #111820;
+  background: var(--color-bg-code);
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 11px;
   line-height: 1.45;
@@ -1559,28 +1559,28 @@
 }
 
 .debug-provider.claude {
-  color: #f0cf82;
-  background: #3a2d16;
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
 }
 
 .debug-provider.codex {
-  color: #8fc7ff;
-  background: #172b40;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
 }
 
 .debug-provider.opencode {
-  color: #9ee6c4;
-  background: #15352a;
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
 }
 
 .debug-handled {
-  color: #8ad9a4;
-  background: #173223;
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
 }
 
 .debug-unhandled {
-  color: #f07f89;
-  background: #3a1c22;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
 }
 
 .debug-event-name {
@@ -1628,7 +1628,7 @@
   overflow: auto;
   border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
-  background: #111820;
+  background: var(--color-bg-code);
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 11px;
   line-height: 1.45;

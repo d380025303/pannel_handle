@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --color-bg-app: #101318;
   --color-bg-titlebar: #151a20;
   --color-bg-panel: #181d24;
@@ -6,6 +7,9 @@
   --color-bg-control-hover: #303946;
   --color-bg-hover: #242c36;
   --color-bg-selection: #243141;
+  --color-bg-selection-strong: #1a2b3c;
+  --color-bg-code: #111820;
+  --color-bg-overlay: rgba(0, 0, 0, 0.6);
   --color-border: #242b35;
   --color-border-strong: #3a4654;
   --color-text: #e7edf4;
@@ -17,8 +21,20 @@
   --color-accent: #4a6f95;
   --color-success: #43825f;
   --color-success-bg: #2f6b4d;
+  --color-success-hover: #3a8c5e;
   --color-danger: #d9534f;
   --color-danger-hover: #8b3f44;
+  --color-danger-bg: #31191e;
+  --color-danger-text: #f3b6bc;
+  --color-warning-bg: #3a2d16;
+  --color-warning-text: #f0cf82;
+  --color-info-bg: #172b40;
+  --color-info-text: #8fc7ff;
+  --color-ok-bg: #173223;
+  --color-ok-text: #8ad9a4;
+  --color-neutral-bg: #28313c;
+  --color-action-hover: #405061;
+  --color-window-close-hover: #c42b1c;
   --radius-xs: 4px;
   --radius-sm: 5px;
   --radius-md: 6px;
@@ -26,4 +42,110 @@
   --radius-dialog: 10px;
   --titlebar-height: 40px;
   --shadow-dialog: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme="dark-blue"] {
+  color-scheme: dark;
+  --color-bg-app: #0b1220;
+  --color-bg-titlebar: #111827;
+  --color-bg-panel: #0f172a;
+  --color-bg-control: #1e293b;
+  --color-bg-control-hover: #334155;
+  --color-bg-hover: #172033;
+  --color-bg-selection: #18324f;
+  --color-bg-selection-strong: #173b61;
+  --color-bg-code: #0b1220;
+  --color-border: #1f2a3d;
+  --color-border-strong: #40516a;
+  --color-text: #e5edf8;
+  --color-text-strong: #ffffff;
+  --color-text-titlebar: #e2e8f0;
+  --color-text-muted: #94a3b8;
+  --color-text-subtle: #64748b;
+  --color-text-secondary: #cbd5e1;
+  --color-accent: #4f86c6;
+  --color-success: #2d8f68;
+  --color-success-bg: #22634d;
+  --color-success-hover: #2f8b66;
+  --color-danger-hover: #94424b;
+  --color-danger-bg: #36191f;
+  --color-warning-bg: #3d2f12;
+  --color-info-bg: #143554;
+  --color-ok-bg: #143823;
+  --color-neutral-bg: #26364d;
+  --color-action-hover: #40516a;
+  --shadow-dialog: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark-green"] {
+  color-scheme: dark;
+  --color-bg-app: #0f1512;
+  --color-bg-titlebar: #131b17;
+  --color-bg-panel: #151d18;
+  --color-bg-control: #1f2a23;
+  --color-bg-control-hover: #2f3d34;
+  --color-bg-hover: #1c2721;
+  --color-bg-selection: #1f3a2c;
+  --color-bg-selection-strong: #224834;
+  --color-bg-code: #101812;
+  --color-border: #223028;
+  --color-border-strong: #3d5145;
+  --color-text: #e3eee8;
+  --color-text-strong: #ffffff;
+  --color-text-titlebar: #dbe8e0;
+  --color-text-muted: #94a69a;
+  --color-text-subtle: #68756d;
+  --color-text-secondary: #c0cec5;
+  --color-accent: #4d916b;
+  --color-success: #4b9567;
+  --color-success-bg: #2e6b4a;
+  --color-success-hover: #3a8f5e;
+  --color-danger-hover: #864248;
+  --color-danger-bg: #321c20;
+  --color-warning-bg: #3a3219;
+  --color-info-bg: #173344;
+  --color-ok-bg: #183b28;
+  --color-neutral-bg: #2a372f;
+  --color-action-hover: #3d5145;
+  --shadow-dialog: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg-app: #f8fafc;
+  --color-bg-titlebar: #edf2f7;
+  --color-bg-panel: #ffffff;
+  --color-bg-control: #eef2f7;
+  --color-bg-control-hover: #dde6f0;
+  --color-bg-hover: #eef4fb;
+  --color-bg-selection: #dcecff;
+  --color-bg-selection-strong: #c7ddf7;
+  --color-bg-code: #f1f5f9;
+  --color-bg-overlay: rgba(15, 23, 42, 0.35);
+  --color-border: #d7dee8;
+  --color-border-strong: #b8c4d2;
+  --color-text: #1f2937;
+  --color-text-strong: #0f172a;
+  --color-text-titlebar: #1f2937;
+  --color-text-muted: #64748b;
+  --color-text-subtle: #8a99aa;
+  --color-text-secondary: #334155;
+  --color-accent: #2f6fa7;
+  --color-success: #168354;
+  --color-success-bg: #dff5e9;
+  --color-success-hover: #c9ecd9;
+  --color-danger: #c0392b;
+  --color-danger-hover: #d8665d;
+  --color-danger-bg: #fde8e8;
+  --color-danger-text: #9f1d1d;
+  --color-warning-bg: #fff1c7;
+  --color-warning-text: #8a5a00;
+  --color-info-bg: #dcedff;
+  --color-info-text: #1d5f99;
+  --color-ok-bg: #ddf6e6;
+  --color-ok-text: #146c43;
+  --color-neutral-bg: #e8edf3;
+  --color-action-hover: #c8d3df;
+  --color-window-close-hover: #d94a3a;
+  --shadow-dialog: 0 12px 36px rgba(15, 23, 42, 0.2);
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MouseEvent } from "react";
-import { Terminal } from "xterm";
+import { Terminal, type ITheme } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 
 type TerminalEntry = {
@@ -11,44 +11,24 @@ type TerminalEntry = {
 
 type UseTerminalInstancesOptions = {
   activeId?: string;
+  terminalTheme: ITheme;
 };
 
-function createTerminalEntry() {
+function createTerminalEntry(terminalTheme: ITheme) {
   const terminal = new Terminal({
     cursorBlink: true,
     convertEol: true,
     fontFamily: "Cascadia Mono, Consolas, monospace",
     fontSize: 13,
     lineHeight: 1.2,
-    theme: {
-      background: "#101318",
-      foreground: "#e7edf4",
-      cursor: "#ffffff",
-      selectionBackground: "#35506c",
-      black: "#15191f",
-      red: "#df6b75",
-      green: "#76c38f",
-      yellow: "#d7b46a",
-      blue: "#6ca8e7",
-      magenta: "#c792ea",
-      cyan: "#64c9cf",
-      white: "#e7edf4",
-      brightBlack: "#626a73",
-      brightRed: "#f07f89",
-      brightGreen: "#8ad9a4",
-      brightYellow: "#e8c981",
-      brightBlue: "#82bbf7",
-      brightMagenta: "#d7a5f4",
-      brightCyan: "#80dde1",
-      brightWhite: "#ffffff"
-    }
+    theme: terminalTheme
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   return { terminal, fitAddon };
 }
 
-export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) {
+export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalInstancesOptions) {
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
@@ -136,7 +116,7 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
     let entry = terminalsRef.current.get(activeId);
 
     if (!entry) {
-      entry = createTerminalEntry();
+      entry = createTerminalEntry(terminalTheme);
       entry.terminal.attachCustomKeyEventHandler((event) => {
         if (event.type !== "keydown") {
           return true;
@@ -233,7 +213,13 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
       textarea?.removeEventListener("paste", onPaste, true);
       resizeObserver.disconnect();
     };
-  }, [activeId, copyTerminalSelection]);
+  }, [activeId, copyTerminalSelection, terminalTheme]);
+
+  useEffect(() => {
+    terminalsRef.current.forEach((entry) => {
+      entry.terminal.options.theme = terminalTheme;
+    });
+  }, [terminalTheme]);
 
   useEffect(() => {
     return () => {

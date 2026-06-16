@@ -1,18 +1,26 @@
 import { useEffect } from "react";
+import type { AppTheme } from "../themes";
+import type { ThemeId } from "../vite-env";
 
 type SettingsModalProps = {
   autoRestore: boolean;
   debugMode: boolean;
+  themeId: ThemeId;
+  themes: AppTheme[];
   onToggleAutoRestore: () => void;
   onToggleDebugMode: () => void;
+  onThemeChange: (themeId: ThemeId) => void;
   onCancel: () => void;
 };
 
 export function SettingsModal({
   autoRestore,
   debugMode,
+  themeId,
+  themes,
   onToggleAutoRestore,
   onToggleDebugMode,
+  onThemeChange,
   onCancel
 }: SettingsModalProps) {
   useEffect(() => {
@@ -49,6 +57,20 @@ export function SettingsModal({
             />
             <span className="auto-restore-track" />
             <span className="auto-restore-text">Debug 模式</span>
+          </label>
+          <label className="settings-field">
+            <span className="modal-label">主题</span>
+            <select
+              className="modal-input settings-theme-select"
+              value={themeId}
+              onChange={(event) => onThemeChange(event.target.value as ThemeId)}
+            >
+              {themes.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {theme.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <div className="modal-footer">

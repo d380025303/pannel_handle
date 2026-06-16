@@ -30,20 +30,36 @@ describe("config-store", () => {
     expect(store.getConfig()).toEqual({
       autoRestore: true,
       debugMode: false,
-      lastActiveSessionIds: []
+      lastActiveSessionIds: [],
+      themeId: "dark-slate"
     });
   });
 
-  it("loads and persists debugMode", () => {
+  it("loads and persists debugMode and themeId", () => {
     const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, debugMode: true }), "utf-8");
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, debugMode: true, themeId: "light" }), "utf-8");
     const store = createConfigStore({ configFile });
 
     store.loadConfig();
     expect(store.getConfig().debugMode).toBe(true);
+    expect(store.getConfig().themeId).toBe("light");
 
-    store.updateConfig({ debugMode: false });
+    store.updateConfig({ debugMode: false, themeId: "dark-blue" });
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(saved.debugMode).toBe(false);
+    expect(saved.themeId).toBe("dark-blue");
+  });
+
+  it("falls back to the default themeId when an invalid value is loaded or saved", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ themeId: "unknown" }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+    expect(store.getConfig().themeId).toBe("dark-slate");
+
+    store.updateConfig({ themeId: "neon" });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.themeId).toBe("dark-slate");
   });
 });

@@ -1,5 +1,6 @@
 const { ipcMain } = require("electron");
 const fs = require("node:fs");
+const { VALID_THEME_IDS } = require("./config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -235,6 +236,9 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
+    }
+    if (partial && typeof partial.themeId === "string" && VALID_THEME_IDS.has(partial.themeId)) {
+      updates.themeId = partial.themeId;
     }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);

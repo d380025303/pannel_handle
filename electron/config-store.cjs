@@ -1,10 +1,18 @@
 const fs = require("node:fs");
 
+const DEFAULT_THEME_ID = "dark-slate";
+const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
+
+function normalizeThemeId(themeId) {
+  return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
+}
+
 function createConfigStore({ configFile }) {
   let config = {
     autoRestore: true,
     debugMode: false,
-    lastActiveSessionIds: []
+    lastActiveSessionIds: [],
+    themeId: DEFAULT_THEME_ID
   };
 
   function loadConfig() {
@@ -17,7 +25,8 @@ function createConfigStore({ configFile }) {
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
-            : []
+            : [],
+          themeId: normalizeThemeId(parsed.themeId)
         };
       }
     } catch (err) {
@@ -52,6 +61,9 @@ function createConfigStore({ configFile }) {
       if (Array.isArray(partial.lastActiveSessionIds)) {
         config.lastActiveSessionIds = partial.lastActiveSessionIds.filter(id => typeof id === "string");
       }
+      if (typeof partial.themeId === "string") {
+        config.themeId = normalizeThemeId(partial.themeId);
+      }
     }
     saveConfig();
   }
@@ -65,5 +77,8 @@ function createConfigStore({ configFile }) {
 }
 
 module.exports = {
-  createConfigStore
+  DEFAULT_THEME_ID,
+  VALID_THEME_IDS,
+  createConfigStore,
+  normalizeThemeId
 };

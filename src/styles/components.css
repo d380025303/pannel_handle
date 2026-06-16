@@ -37,7 +37,7 @@
 
 .mini-action:hover {
   color: var(--color-text-strong);
-  background: #405061;
+  background: var(--color-action-hover);
 }
 
 .mini-action.danger:hover {
@@ -76,30 +76,30 @@
 }
 
 .agent-status-badge.waiting_for_permission {
-  color: #f0cf82;
-  background: #3a2d16;
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
 }
 
 .agent-status-badge.e_prompt {
-  color: #8fc7ff;
-  background: #172b40;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
 }
 
 .agent-status-badge.completed,
 .agent-status-badge.running {
-  color: #8ad9a4;
-  background: #173223;
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
 }
 
 .agent-status-badge.failed {
-  color: #f07f89;
-  background: #3a1c22;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
 }
 
 .agent-status-badge.ended,
 .agent-status-badge.exited {
   color: var(--color-text-secondary);
-  background: #28313c;
+  background: var(--color-neutral-bg);
 }
 
 .session-type-badge {
@@ -114,8 +114,8 @@
 }
 
 .session-type-badge.wsl {
-  color: #76c38f;
-  background: #1a3324;
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
 }
 
 .session-type-badge.windows {
@@ -124,8 +124,8 @@
 }
 
 .session-type-badge.ssh {
-  color: #8fc7ff;
-  background: #172b40;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
 }
 
 .auto-restore-label {
@@ -184,7 +184,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--color-bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -287,7 +287,7 @@
 }
 
 .modal-button.primary:hover {
-  background: #3a8c5e;
+  background: var(--color-success-hover);
 }
 
 .modal-button:disabled {
@@ -296,9 +296,9 @@
 }
 
 .modal-error {
-  color: #e74c3c;
-  background: rgba(231, 76, 60, 0.1);
-  border: 1px solid rgba(231, 76, 60, 0.3);
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-hover);
   border-radius: 3px;
   padding: 8px 12px;
   margin-bottom: 12px;
@@ -322,7 +322,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #a8b3c2;
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 
@@ -385,13 +385,13 @@
 }
 
 .hook-install-status.installed {
-  color: #8ad9a4;
-  background: #173223;
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
 }
 
 .hook-install-status.needs_repair {
-  color: #f0cf82;
-  background: #3a2d16;
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
 }
 
 .hook-install-error,
@@ -399,8 +399,8 @@
   padding: 9px 10px;
   border: 1px solid var(--color-danger-hover);
   border-radius: var(--radius-md);
-  color: #f3b6bc;
-  background: #31191e;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -409,4 +409,13 @@
   border-color: var(--color-border-strong);
   color: var(--color-text-muted);
   background: var(--color-bg-control);
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-theme-select {
+  font-family: inherit;
 }
