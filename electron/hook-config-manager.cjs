@@ -93,12 +93,12 @@ function removeManagedHooks(config) {
   return { ...config, hooks: cleaned };
 }
 
-function buildConfig(config, provider, platform) {
+function buildConfig(config, provider, platform, commandOverride) {
   const definition = PROVIDER_CONFIG[provider];
   if (!definition.configPath) {
     return config;
   }
-  const command = platform === "wsl" ? definition.wslCommand : definition.windowsCommand;
+  const command = commandOverride || (platform === "wsl" || platform === "ssh" ? definition.wslCommand : definition.windowsCommand);
   const next = removeManagedHooks(config);
   for (const [eventName, matcher] of definition.events) {
     const groups = Array.isArray(next.hooks[eventName]) ? next.hooks[eventName] : [];

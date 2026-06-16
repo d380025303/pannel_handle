@@ -367,10 +367,19 @@ function createAgentHookServer({ terminalManager }) {
     return claudeHookUrl;
   }
 
+  function getHookPort() {
+    if (!hookServer) {
+      return undefined;
+    }
+    const address = hookServer.address();
+    return address && typeof address === "object" ? address.port : undefined;
+  }
+
   return {
     start,
     stop,
     getHookUrl,
+    getHookPort,
     handleAgentHook,
     handleAgentHookDebug
   };

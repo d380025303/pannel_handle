@@ -67,6 +67,7 @@ export function SessionSidebar({
       setDragOverId(null);
       return;
     }
+
     const orderedIds = sessions.map(s => s.id);
     const fromIndex = orderedIds.indexOf(draggedId);
     const toIndex = orderedIds.indexOf(targetId);
@@ -74,6 +75,7 @@ export function SessionSidebar({
       setDragOverId(null);
       return;
     }
+
     const [moved] = orderedIds.splice(fromIndex, 1);
     orderedIds.splice(toIndex, 0, moved);
     onReorder(orderedIds);
@@ -139,18 +141,16 @@ export function SessionSidebar({
                 )}
               </span>
               <span className="session-actions">
-                {session.type !== "ssh" && (
-                  <span
-                    className="mini-action"
-                    title="安装项目 Hook"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onInstallHooks(session);
-                    }}
-                  >
-                    <Webhook aria-hidden="true" />
-                  </span>
-                )}
+                <span
+                  className="mini-action"
+                  title="安装项目 Hook"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onInstallHooks(session);
+                  }}
+                >
+                  <Webhook aria-hidden="true" />
+                </span>
                 <span
                   className="mini-action"
                   title="编辑会话"

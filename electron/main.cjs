@@ -7,8 +7,10 @@ const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
 const { createRemoteFileService } = require("./remote-file-service.cjs");
+const { createRemoteHookConfigService } = require("./remote-hook-config-service.cjs");
 const { createRemoteSystemService } = require("./remote-system-service.cjs");
 const { createSessionStore } = require("./session-store.cjs");
+const { createSshHookTunnelService } = require("./ssh-hook-tunnel-service.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
 const { createWindowManager } = require("./window-manager.cjs");
 
@@ -20,6 +22,8 @@ let terminalManager = null;
 let agentHookServer = null;
 let remoteFileService = null;
 let remoteSystemService = null;
+let sshHookTunnelService = null;
+let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
 
@@ -75,6 +79,9 @@ if (!gotSingleInstanceLock) {
         if (remoteSystemService) {
           void remoteSystemService.disconnect(id);
         }
+        if (sshHookTunnelService) {
+          void sshHookTunnelService.disconnect(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -93,6 +100,18 @@ if (!gotSingleInstanceLock) {
       knownHostStore
     });
     agentHookServer = createAgentHookServer({ terminalManager });
+    sshHookTunnelService = createSshHookTunnelService({
+      terminalManager,
+      sessionStore,
+      knownHostStore,
+      getLocalHookPort: () => agentHookServer ? agentHookServer.getHookPort() : undefined
+    });
+    remoteHookConfigService = createRemoteHookConfigService({
+      terminalManager,
+      sessionStore,
+      knownHostStore,
+      sshHookTunnelService
+    });
 
     sessionStore.loadLibrary();
     agentHookServer.start();
@@ -105,7 +124,8 @@ if (!gotSingleInstanceLock) {
       dialog,
       remoteFileService,
       remoteSystemService,
-      hookConfigManager
+      hookConfigManager,
+      remoteHookConfigService
     });
     windowManager.createWindow();
 
@@ -132,6 +152,9 @@ app.on("window-all-closed", () => {
   }
   if (remoteSystemService) {
     void remoteSystemService.shutdown();
+  }
+  if (sshHookTunnelService) {
+    void sshHookTunnelService.shutdown();
   }
   if (agentHookServer) {
     agentHookServer.stop();

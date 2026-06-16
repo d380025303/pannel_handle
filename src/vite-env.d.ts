@@ -102,7 +102,8 @@ export type HookProvider = AgentProvider;
 
 export type HookInstallTarget =
   | { type: "windows"; path: string }
-  | { type: "wsl"; path: string; wslDistro: string };
+  | { type: "wsl"; path: string; wslDistro: string }
+  | { type: "ssh"; sessionId: string; path: string };
 
 export type HookInstallStatus = "not_installed" | "installed" | "needs_repair";
 

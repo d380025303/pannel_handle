@@ -173,6 +173,13 @@ describe("hook-config-manager", () => {
     expect(config.hooks.Stop[0].hooks[0].command).toBe("bash .claude/pannel-handle-hook.sh");
   });
 
+  it("builds SSH Linux hook config with a session tunnel command", () => {
+    const config = buildConfig({}, "codex", "ssh", "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:3000/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .codex/pannel-handle-hook.sh");
+
+    expect(config.hooks.SessionStart[0].hooks[0].command).toContain("PANNEL_HANDLE_SESSION_ID='run-1'");
+    expect(config.hooks.Stop[0].hooks[0].command).toContain(".codex/pannel-handle-hook.sh");
+  });
+
   it("reports missing project paths without creating files", () => {
     const projectPath = path.join(createProject(), "missing");
     const manager = createHookConfigManager({ assetsDir });

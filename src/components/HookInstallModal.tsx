@@ -11,7 +11,8 @@ type HookInstallModalProps = {
   onCancel: () => void;
 };
 
-const providers: HookProvider[] = ["claude", "codex", "opencode"];
+const localProviders: HookProvider[] = ["claude", "codex", "opencode"];
+const sshProviders: HookProvider[] = ["claude", "codex"];
 
 const providerNames: Record<HookProvider, string> = {
   claude: "Claude Code",
@@ -25,15 +26,27 @@ const statusLabels = {
   needs_repair: "需要修复"
 };
 
+function getInitialProjectPath(session: TerminalSession) {
+  if (session.type === "ssh") {
+    const cwd = String(session.cwd || "").trim();
+    return cwd && cwd !== "~" && cwd.startsWith("/") ? cwd : "";
+  }
+  return session.cwd === "~" ? "" : session.cwd;
+}
+
 export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
-  const [projectPath, setProjectPath] = useState(session.cwd === "~" ? "" : session.cwd);
-  const [selectedProviders, setSelectedProviders] = useState<HookProvider[]>(providers);
+  const [projectPath, setProjectPath] = useState(getInitialProjectPath(session));
+  const availableProviders = session.type === "ssh" ? sshProviders : localProviders;
+  const [selectedProviders, setSelectedProviders] = useState<HookProvider[]>(availableProviders);
   const [result, setResult] = useState<HookInspectionResult | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const target = useMemo<HookInstallTarget | null>(() => {
     const value = projectPath.trim();
     if (!value) return null;
+    if (session.type === "ssh") {
+      return { type: "ssh", sessionId: session.id, path: value };
+    }
     if (session.type === "wsl" && session.wslDistro) {
       return { type: "wsl", path: value, wslDistro: session.wslDistro };
     }
@@ -41,7 +54,28 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
       return { type: "windows", path: value };
     }
     return null;
-  }, [projectPath, session.type, session.wslDistro]);
+  }, [projectPath, session.id, session.type, session.wslDistro]);
+
+  useEffect(() => {
+    setProjectPath(getInitialProjectPath(session));
+    setSelectedProviders(session.type === "ssh" ? sshProviders : localProviders);
+    setResult(null);
+  }, [session]);
+
+  useEffect(() => {
+    if (session.type !== "ssh" || projectPath.trim()) return;
+    let cancelled = false;
+    window.remoteFileApi.getHome(session.id)
+      .then((home) => {
+        if (!cancelled && home) setProjectPath(home);
+      })
+      .catch(() => {
+        // The user can still type the remote project path manually.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath, session.id, session.type]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -55,10 +89,10 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
     setResult(null);
     if (!target) return;
     const timer = window.setTimeout(() => {
-      window.hookConfigApi.inspect(target, providers).then(setResult);
+      window.hookConfigApi.inspect(target, availableProviders).then(setResult);
     }, session.type === "wsl" ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [session.type, target]);
+  }, [availableProviders, session.type, target]);
 
   const toggleProvider = (provider: HookProvider) => {
     setSelectedProviders((current) => current.includes(provider)
@@ -81,22 +115,28 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
     }
   };
 
+  const environmentLabel = session.type === "ssh"
+    ? `SSH: ${session.sshConfig?.username ? `${session.sshConfig.username}@` : ""}${session.sshConfig?.host || session.title}`
+    : session.type === "wsl"
+      ? `WSL: ${session.wslDistro}`
+      : "Windows";
+
   return (
     <div className="modal-overlay">
       <div className="modal-dialog hook-install-dialog">
         <div className="modal-header">
           <h3>安装项目 Hook</h3>
-          <p className="modal-subtitle">{session.title} · {session.type === "wsl" ? session.wslDistro : "Windows"}</p>
+          <p className="modal-subtitle">{session.title} · {environmentLabel}</p>
         </div>
         <div className="modal-body hook-install-body">
           <label className="modal-field">
-            <span className="modal-label">项目目录</span>
+            <span className="modal-label">{session.type === "ssh" ? "远端项目目录" : "项目目录"}</span>
             <div className="hook-path-row">
               <input
                 className="modal-input"
                 value={projectPath}
                 readOnly={session.type === "windows"}
-                placeholder={session.type === "wsl" ? "/home/user/project" : "选择 Windows 项目目录"}
+                placeholder={session.type === "ssh" ? "/home/user/project" : session.type === "wsl" ? "/home/user/project" : "选择 Windows 项目目录"}
                 onChange={(event) => setProjectPath(event.target.value)}
               />
               {session.type === "windows" && (
@@ -107,8 +147,14 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
             </div>
           </label>
 
+          {session.type === "ssh" && (
+            <div className="hook-install-note">
+              SSH Hook 会通过反向隧道监听远端事件，不需要服务器访问本机网络。
+            </div>
+          )}
+
           <div className="hook-provider-list">
-            {providers.map((provider) => {
+            {availableProviders.map((provider) => {
               const inspection = result?.providers[provider];
               return (
                 <label className="hook-provider-row" key={provider}>

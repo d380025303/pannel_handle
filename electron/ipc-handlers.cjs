@@ -16,7 +16,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -208,10 +208,16 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
   });
 
   ipcMain.handle("hooks:inspect", (_event, { target, providers }) => {
+    if (target?.type === "ssh") {
+      return remoteHookConfigService.inspect(target, providers);
+    }
     return hookConfigManager.inspect(target, providers);
   });
 
   ipcMain.handle("hooks:install", (_event, { target, providers }) => {
+    if (target?.type === "ssh") {
+      return remoteHookConfigService.install(target, providers);
+    }
     return hookConfigManager.install(target, providers);
   });
 
