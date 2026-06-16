@@ -12,7 +12,7 @@ export const DEFAULT_THEME_ID: ThemeId = "dark-slate";
 export const APP_THEMES: AppTheme[] = [
   {
     id: "dark-slate",
-    label: "Dark Slate",
+    label: "深色石板",
     terminal: {
       background: "#101318",
       foreground: "#e7edf4",
@@ -38,7 +38,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "dark-blue",
-    label: "Dark Blue",
+    label: "深蓝色",
     terminal: {
       background: "#0b1220",
       foreground: "#e5edf8",
@@ -64,7 +64,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "dark-green",
-    label: "Dark Green",
+    label: "深绿色",
     terminal: {
       background: "#0f1512",
       foreground: "#e3eee8",
@@ -90,7 +90,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "light",
-    label: "Light",
+    label: "浅色",
     terminal: {
       background: "#f8fafc",
       foreground: "#1f2937",
