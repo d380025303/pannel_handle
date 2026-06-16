@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { TEXT_PREVIEW_LIMIT, createRemoteFileService } from "./remote-file-service.cjs";
 
 function createTerminalManager(session) {
@@ -65,14 +68,97 @@ describe("remote-file-service", () => {
     }));
   });
 
-  it("rejects non-SSH sessions", async () => {
+  it("rejects missing sessions", async () => {
     const service = createRemoteFileService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows" }),
+      terminalManager: createTerminalManager(undefined),
       sessionStore: createSessionStore(),
       sftpFactory: () => createSftpMock()
     });
 
-    await expect(service.list("run-1", ".")).rejects.toThrow("Remote files are only available for SSH sessions.");
+    await expect(service.list("run-1", ".")).rejects.toThrow("Session is not running.");
+  });
+
+  it("lists Windows files with directories first", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const childDir = path.join(dir, "src");
+    const childFile = path.join(dir, "readme.txt");
+    fs.mkdirSync(childDir);
+    fs.writeFileSync(childFile, "hello", "utf-8");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.getHome("run-1")).resolves.toBe(dir);
+      await expect(service.list("run-1", dir)).resolves.toEqual([
+        expect.objectContaining({ name: "src", path: childDir, type: "directory" }),
+        expect.objectContaining({ name: "readme.txt", path: childFile, type: "file", size: 5 })
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("previews and writes Windows text files with conflict detection", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const filePath = path.join(dir, "note.txt");
+    fs.writeFileSync(filePath, "text", "utf-8");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      const preview = await service.readText("run-1", filePath);
+      expect(preview).toEqual({
+        kind: "text",
+        size: 4,
+        content: "text",
+        version: "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
+      });
+
+      await expect(service.writeText("run-1", filePath, "updated", preview.version)).resolves.toEqual({
+        status: "saved",
+        size: 7,
+        version: "27eb5e51506c911f6fc4bb345c0d9db6f60415fceab7c18e1e9b862637415777"
+      });
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("updated");
+
+      await expect(service.writeText("run-1", filePath, "again", preview.version)).resolves.toEqual({
+        status: "conflict"
+      });
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("updated");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("maps WSL Linux paths to the distro UNC path", async () => {
+    const readdir = vi.fn(async () => [
+      { name: "app.js", isDirectory: () => false, isSymbolicLink: () => false }
+    ]);
+    const stat = vi.fn(async () => ({ size: 8, mtimeMs: 1234 }));
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => createSftpMock(),
+      fsApi: {
+        promises: {
+          readdir,
+          stat
+        }
+      }
+    });
+
+    await expect(service.getHome("run-1")).resolves.toBe("/home/me/project");
+    await expect(service.list("run-1", "/home/me/project")).resolves.toEqual([
+      expect.objectContaining({ name: "app.js", path: "/home/me/project/app.js", type: "file", size: 8 })
+    ]);
+    expect(readdir).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project", { withFileTypes: true });
+    expect(stat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\app.js");
   });
 
   it("returns preview states for text, binary, and oversized files", async () => {

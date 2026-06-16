@@ -216,7 +216,7 @@ export function useTerminalInstances({ activeId }: UseTerminalInstancesOptions) 
       try {
         entry?.fitAddon.fit();
         const dims = entry?.fitAddon.proposeDimensions();
-        if (dims) {
+        if (dims && dims.cols > 0 && dims.rows > 0) {
           window.terminalApi.resize(activeId, dims.cols, dims.rows);
         }
       } catch {

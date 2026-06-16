@@ -590,6 +590,9 @@ function createTerminalManager({
   }
 
   function resize(id, cols, rows) {
+    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) {
+      return;
+    }
     const session = sessions.get(id);
     if (typeof session?.term?.resize === "function") {
       session.term.resize(cols, rows);

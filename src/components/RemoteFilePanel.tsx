@@ -76,7 +76,6 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
   const dirtyRef = useRef(false);
   const matchNavigationRef = useRef(false);
 
-  const isSshSession = session?.type === "ssh";
   const sessionId = session?.id;
 
   const selectedEntry = useMemo(
@@ -140,7 +139,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
   }, [activePreviewMatch, previewSearchQuery]);
 
   const confirmDiscard = useCallback(() => (
-    !dirtyRef.current || window.confirm("Discard unsaved remote file changes?")
+    !dirtyRef.current || window.confirm("Discard unsaved file changes?")
   ), []);
 
   const resetEditor = useCallback(() => {
@@ -152,7 +151,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
   }, []);
 
   const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
-    if (!sessionId || !isSshSession) {
+    if (!sessionId) {
       return;
     }
     if (!skipConfirm && !confirmDiscard()) {
@@ -183,10 +182,10 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
         setLoading(false);
       }
     }
-  }, [confirmDiscard, isSshSession, resetEditor, sessionId]);
+  }, [confirmDiscard, resetEditor, sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !isSshSession) {
+    if (!sessionId) {
       setCurrentPath(".");
       setPathInput(".");
       setEntries([]);
@@ -223,7 +222,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
       requestRef.current += 1;
       previewRequestRef.current += 1;
     };
-  }, [confirmDiscard, isSshSession, loadDirectory, resetEditor, sessionId]);
+  }, [confirmDiscard, loadDirectory, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry) => {
     if (entry.path === selectedPath) {
@@ -358,7 +357,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
       if (result.status === "conflict") {
         setSaveState({
           status: "conflict",
-          message: "The remote file changed after it was opened. Reload it before editing again."
+          message: "The file changed after it was opened. Reload it before editing again."
         });
         return;
       }
@@ -402,16 +401,16 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     ));
   }, [previewMatches.length]);
 
-  if (!isSshSession) {
+  if (!sessionId || !session) {
     return (
       <aside className="remote-file-panel">
         <div className="remote-file-header">
           <div>
             <h2>Files</h2>
-            <span>No SSH session selected</span>
+            <span>No session selected</span>
           </div>
         </div>
-        <div className="remote-file-empty">Remote files are available after selecting an SSH session.</div>
+        <div className="remote-file-empty">Files are available after selecting a session.</div>
       </aside>
     );
   }
@@ -440,7 +439,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
       <div className="remote-file-path">
         <input
           type="text"
-          aria-label="Remote directory path"
+          aria-label="Directory path"
           title={currentPath}
           value={pathInput}
           onChange={(event) => setPathInput(event.target.value)}
@@ -539,8 +538,8 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
                   <button
                     className="icon-button"
                     type="button"
-                    title="Reload remote file"
-                    aria-label="Reload remote file"
+                    title="Reload file"
+                    aria-label="Reload file"
                     disabled={saveState.status === "saving"}
                     onClick={() => void handleReloadPreview()}
                   >
@@ -549,8 +548,8 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
                   <button
                     className="icon-button"
                     type="button"
-                    title="Save remote file"
-                    aria-label="Save remote file"
+                    title="Save file"
+                    aria-label="Save file"
                     disabled={!isDirty || saveState.status === "saving" || saveState.status === "conflict"}
                     onClick={() => void handleSavePreview()}
                   >
@@ -618,7 +617,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
                 <textarea
                   ref={previewContentRef}
                   className="remote-preview-editor"
-                  aria-label="Edit remote file content"
+                  aria-label="Edit file content"
                   spellCheck={false}
                   value={editorContent}
                   onChange={(event) => {

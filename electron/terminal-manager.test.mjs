@@ -199,6 +199,17 @@ describe("terminal-manager", () => {
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
   });
 
+  it("ignores invalid resize dimensions", () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ title: "Main" });
+
+    expect(() => manager.resize(session.id, 0, 24)).not.toThrow();
+    expect(() => manager.resize(session.id, 90, 0)).not.toThrow();
+    expect(() => manager.resize(session.id, Number.NaN, 24)).not.toThrow();
+
+    expect(term.resizes).toEqual([]);
+  });
+
   it("removes sessions and broadcasts agent status on PTY exit", () => {
     vi.spyOn(Date, "now").mockReturnValue(333);
     const { manager, term, broadcast } = createManager();

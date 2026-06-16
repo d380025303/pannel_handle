@@ -64,7 +64,7 @@ export function App() {
   }, []);
 
   const handleCreateSession = useCallback(async (request: CreateSessionRequest) => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     await terminalSessions.createSession(request);
@@ -72,7 +72,7 @@ export function App() {
   }, [remoteFilesDirty, terminalSessions]);
 
   const handleCloseSession = useCallback(async (id: string) => {
-    if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     await terminalSessions.closeSession(id);
@@ -83,7 +83,7 @@ export function App() {
     if (id === terminalSessions.activeId) {
       return;
     }
-    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     terminalSessions.setActiveId(id);
@@ -98,21 +98,21 @@ export function App() {
   }, [handleSelectSession, terminalSessions.sessions]);
 
   const handleLaunchSessions = useCallback(async (sessions: TerminalSession[]) => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     await terminalSessions.launchSessions(sessions);
   }, [remoteFilesDirty, terminalSessions]);
 
   const handleStartFresh = useCallback(async () => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     await terminalSessions.startFresh();
   }, [remoteFilesDirty, terminalSessions]);
 
   const handleRightToolChange = useCallback((tool: "files" | "debug") => {
-    if (tool !== "files" && remoteFilesDirty && !window.confirm("Discard unsaved remote file changes?")) {
+    if (tool !== "files" && remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
     setRightTool(tool);
@@ -136,16 +136,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!debugMode && terminalSessions.activeSession?.type === "ssh") {
+    if (!debugMode && terminalSessions.activeSession) {
       setRightTool("files");
       return;
     }
-    if (debugMode && terminalSessions.activeSession?.type !== "ssh") {
-      setRightTool("debug");
-    }
-  }, [debugMode, terminalSessions.activeSession?.type]);
+  }, [debugMode, terminalSessions.activeSession]);
 
-  const showFilesPanel = terminalSessions.activeSession?.type === "ssh";
+  const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showRightTools = showFilesPanel || debugMode;
   const activeRightTool = showFilesPanel && (!debugMode || rightTool === "files") ? "files" : "debug";
   const appShellColumns = debugMode
