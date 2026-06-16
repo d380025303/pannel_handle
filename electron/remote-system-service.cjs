@@ -31,7 +31,7 @@ const LINUX_METRICS_COMMAND = [
   `printf '${SECTION_MARKER} memory\\n'`,
   "cat /proc/meminfo",
   `printf '${SECTION_MARKER} disk\\n'`,
-  "df -PTk"
+  "df -PTk 2>/dev/null || :"
 ].join("; ");
 
 function splitSections(output) {
