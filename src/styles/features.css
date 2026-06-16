@@ -318,6 +318,41 @@
   overflow-y: auto;
 }
 
+.picker-library-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.picker-library-actions .modal-button {
+  gap: 6px;
+  min-width: 78px;
+}
+
+.picker-library-actions svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+.picker-library-status {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.picker-library-status.error {
+  border-color: var(--color-danger-hover);
+  color: #f3b6bc;
+  background: #31191e;
+}
+
 .picker-item {
   display: flex;
   align-items: center;

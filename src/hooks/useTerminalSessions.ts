@@ -163,6 +163,19 @@ export function useTerminalSessions() {
     setPickerManual(true);
   }, []);
 
+  const exportLibrary = useCallback(async () => {
+    return window.terminalApi.exportSavedSessions();
+  }, []);
+
+  const importLibrary = useCallback(async () => {
+    const result = await window.terminalApi.importSavedSessions();
+    if (!result.canceled && result.ok) {
+      setLibrarySessions(result.sessions);
+      setPendingSessions(result.sessions);
+    }
+    return result;
+  }, []);
+
   const launchSessions = useCallback(async (toLaunch: TerminalSession[]) => {
     const targetTemplateId = toLaunch[0]?.id;
     const updatedSessions = await window.terminalApi.launchSessions(toLaunch);
@@ -230,6 +243,8 @@ export function useTerminalSessions() {
     closeSession,
     updateSession,
     openPicker,
+    exportLibrary,
+    importLibrary,
     launchSessions,
     startFresh,
     deleteFromLibrary,

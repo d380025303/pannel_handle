@@ -40,6 +40,16 @@ export type AppConfig = {
   lastActiveSessionIds: string[];
 };
 
+export type SessionLibraryFileResult =
+  | { canceled: true }
+  | { canceled: false; ok: true; filePath: string; exportedCount: number }
+  | { canceled: false; ok: false; error: string };
+
+export type SessionLibraryImportResult =
+  | { canceled: true }
+  | { canceled: false; ok: true; filePath: string; importedCount: number; sessions: TerminalSession[] }
+  | { canceled: false; ok: false; error: string };
+
 export type RemoteFileEntry = {
   name: string;
   path: string;
@@ -151,6 +161,8 @@ export type TerminalApi = {
   onSessionSelectRequested: (callback: (payload: { id: string }) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
   loadSavedSessions: () => Promise<TerminalSession[]>;
+  exportSavedSessions: () => Promise<SessionLibraryFileResult>;
+  importSavedSessions: () => Promise<SessionLibraryImportResult>;
   launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
   reorderSavedSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;

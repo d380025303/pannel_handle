@@ -1,9 +1,94 @@
 const { ipcMain } = require("electron");
+const fs = require("node:fs");
+
+function getImportedSessions(input) {
+  const parsed = JSON.parse(input);
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (parsed && typeof parsed === "object" && Array.isArray(parsed.sessions)) {
+    return parsed.sessions;
+  }
+  throw new Error("Imported file must contain a sessions array.");
+}
+
+function getErrorMessage(err) {
+  return err instanceof Error ? err.message : String(err);
+}
 
 function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
+
+  ipcMain.handle("sessions:export-library", async (event) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showSaveDialog(ownerWindow, {
+      defaultPath: "pannel-handle-sessions.json",
+      filters: [
+        { name: "JSON", extensions: ["json"] }
+      ]
+    });
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+
+    try {
+      const payload = {
+        schemaVersion: 1,
+        exportedAt: Date.now(),
+        source: "pannel-handle",
+        sessions: sessionStore.exportLibrary({ includeEncryptedSecrets: true })
+      };
+      fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), "utf-8");
+      return {
+        canceled: false,
+        ok: true,
+        filePath: result.filePath,
+        exportedCount: payload.sessions.length
+      };
+    } catch (err) {
+      console.error("Failed to export session library:", err);
+      return {
+        canceled: false,
+        ok: false,
+        error: getErrorMessage(err)
+      };
+    }
+  });
+
+  ipcMain.handle("sessions:import-library", async (event) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      properties: ["openFile"],
+      filters: [
+        { name: "JSON", extensions: ["json"] }
+      ]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+
+    try {
+      const raw = fs.readFileSync(result.filePaths[0], "utf-8");
+      const importedSessions = getImportedSessions(raw);
+      const imported = sessionStore.importLibrary(importedSessions);
+      return {
+        canceled: false,
+        ok: true,
+        filePath: result.filePaths[0],
+        importedCount: imported.importedCount,
+        sessions: imported.sessions
+      };
+    } catch (err) {
+      console.error("Failed to import session library:", err);
+      return {
+        canceled: false,
+        ok: false,
+        error: getErrorMessage(err)
+      };
+    }
+  });
 
   ipcMain.handle("sessions:launch-selected", (_event, sessionsToLaunch) => {
     return terminalManager.launchSessions(sessionsToLaunch);

@@ -230,6 +230,47 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     return librarySessions.map(sanitizeTemplate);
   }
 
+  function exportLibrary(options = {}) {
+    const includeEncryptedSecrets = options.includeEncryptedSecrets === true;
+    return librarySessions.map((session) => (
+      includeEncryptedSecrets ? serializeTemplate(session) : sanitizeTemplate(session)
+    ));
+  }
+
+  function importLibrary(items) {
+    if (!Array.isArray(items)) {
+      throw new Error("Imported sessions must be an array.");
+    }
+
+    const imported = [];
+    const usedIds = new Set(librarySessions.map(session => session.id));
+    for (const item of items) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error("Each imported session must be an object.");
+      }
+      let id = createTemplateId();
+      while (usedIds.has(id)) {
+        id = createTemplateId();
+      }
+      usedIds.add(id);
+      const template = normalizeTemplate({
+        ...item,
+        id
+      });
+      imported.push(template);
+    }
+
+    if (imported.length > 0) {
+      librarySessions.push(...imported);
+      saveLibrary();
+    }
+
+    return {
+      importedCount: imported.length,
+      sessions: getLibrary()
+    };
+  }
+
   function getTemplate(id) {
     return librarySessions.find(item => item.id === id);
   }
@@ -261,6 +302,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     removeFromLibrary,
     updateLibrary,
     getLibrary,
+    exportLibrary,
+    importLibrary,
     getTemplate,
     reorderLibrary
   };

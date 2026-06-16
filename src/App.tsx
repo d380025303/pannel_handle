@@ -267,6 +267,8 @@ export function App() {
           onDelete={terminalSessions.deleteFromLibrary}
           onReorder={terminalSessions.reorderLibrary}
           onUpdateTags={terminalSessions.updateLibraryTags}
+          onImport={terminalSessions.importLibrary}
+          onExport={terminalSessions.exportLibrary}
           onCancel={handleClosePicker}
         />
       )}

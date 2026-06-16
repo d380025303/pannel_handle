@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld("terminalApi", {
   },
   listWslDistros: () => ipcRenderer.invoke("wsl:list-distros"),
   loadSavedSessions: () => ipcRenderer.invoke("sessions:load-saved"),
+  exportSavedSessions: () => ipcRenderer.invoke("sessions:export-library"),
+  importSavedSessions: () => ipcRenderer.invoke("sessions:import-library"),
   launchSessions: (sessions) => ipcRenderer.invoke("sessions:launch-selected", sessions),
   deleteSavedSession: (id) => ipcRenderer.invoke("sessions:delete-saved", id),
   reorderSavedSessions: (orderedIds) => ipcRenderer.invoke("sessions:reorder", orderedIds),

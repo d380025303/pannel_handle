@@ -237,4 +237,108 @@ describe("session-store", () => {
     expect(store.getTemplate("9").sshConfig.encryptedSecret).toBeUndefined();
     expect(store.getLibrary()[0].sshConfig.hasSecret).toBe(false);
   });
+
+  it("exports library templates with encrypted SSH secrets and without runtime fields", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+
+    store.addToLibrary({
+      id: "1",
+      title: "Prod",
+      type: "ssh",
+      term: {},
+      buffer: ["runtime"],
+      agentStatus: "running",
+      sshConfig: {
+        host: "example.com",
+        encryptedSecret: "ciphertext"
+      }
+    });
+
+    const exported = store.exportLibrary({ includeEncryptedSecrets: true });
+
+    expect(exported).toHaveLength(1);
+    expect(exported[0].sshConfig.encryptedSecret).toBe("ciphertext");
+    expect(exported[0].sshConfig.hasSecret).toBeUndefined();
+    expect(exported[0].term).toBeUndefined();
+    expect(exported[0].buffer).toBeUndefined();
+    expect(exported[0].agentStatus).toBeUndefined();
+  });
+
+  it("imports sessions by appending normalized templates with new ids", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({
+      id: "1",
+      title: "Existing",
+      cwd: "C:\\existing"
+    });
+
+    const result = store.importLibrary([
+      {
+        id: "1",
+        title: "Imported",
+        cwd: "C:\\imported",
+        tags: [" Work ", "work"]
+      }
+    ]);
+
+    expect(result.importedCount).toBe(1);
+    expect(result.sessions).toHaveLength(2);
+    expect(store.getTemplate("1").title).toBe("Existing");
+    expect(store.getTemplate("2")).toMatchObject({
+      id: "2",
+      title: "Imported",
+      cwd: "C:\\imported",
+      tags: ["Work"]
+    });
+
+    const persisted = JSON.parse(readFileSync(sessionsFile, "utf-8"));
+    expect(persisted.map((session) => session.id)).toEqual(["1", "2"]);
+  });
+
+  it("imports sessions from a legacy array payload shape", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    const legacyPayload = [
+      { id: "99", title: "First" },
+      { id: "100", title: "Second", type: "wsl", wslDistro: "Ubuntu" }
+    ];
+
+    const result = store.importLibrary(legacyPayload);
+
+    expect(result.importedCount).toBe(2);
+    expect(store.getLibrary().map((session) => session.title)).toEqual(["First", "Second"]);
+    expect(store.getLibrary().map((session) => session.id)).toEqual(["1", "2"]);
+  });
+
+  it("rejects invalid imported library payloads with clear errors", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+
+    expect(() => store.importLibrary({ sessions: [] })).toThrow("Imported sessions must be an array.");
+    expect(() => store.importLibrary([null])).toThrow("Each imported session must be an object.");
+  });
+
+  it("keeps imported SSH encrypted secrets hidden from renderer library data", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+
+    store.importLibrary([{
+      id: "5",
+      title: "Imported SSH",
+      type: "ssh",
+      sshConfig: {
+        host: "example.com",
+        encryptedSecret: "ciphertext"
+      }
+    }]);
+
+    expect(store.getTemplate("1").sshConfig.encryptedSecret).toBe("ciphertext");
+    expect(store.getLibrary()[0].sshConfig).toMatchObject({
+      host: "example.com",
+      hasSecret: true
+    });
+    expect(store.getLibrary()[0].sshConfig.encryptedSecret).toBeUndefined();
+  });
 });

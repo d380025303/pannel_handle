@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
-import type { TerminalSession } from "../vite-env";
+import { Download, GripVertical, Pencil, Search, Trash2, Upload, X } from "lucide-react";
+import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
 
 type SessionPickerModalProps = {
@@ -12,6 +12,8 @@ type SessionPickerModalProps = {
   onDelete: (id: string) => void;
   onReorder: (sessions: TerminalSession[]) => void;
   onUpdateTags: (id: string, tags: string[]) => void;
+  onImport: () => Promise<SessionLibraryImportResult>;
+  onExport: () => Promise<SessionLibraryFileResult>;
   onCancel: () => void;
 };
 
@@ -30,6 +32,8 @@ export function SessionPickerModal({
   onDelete,
   onReorder,
   onUpdateTags,
+  onImport,
+  onExport,
   onCancel
 }: SessionPickerModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -39,6 +43,9 @@ export function SessionPickerModal({
   const [selectedTags, setSelectedTags] = useState<Set<string>>(() => new Set());
   const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
   const [editingTags, setEditingTags] = useState<string[]>([]);
+  const [libraryStatus, setLibraryStatus] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
@@ -133,6 +140,41 @@ export function SessionPickerModal({
     setDragOverId(null);
   };
 
+  const handleImport = async () => {
+    setIsImporting(true);
+    setLibraryStatus(null);
+    try {
+      const result = await onImport();
+      if (result.canceled) {
+        setLibraryStatus({ kind: "info", text: "已取消导入" });
+      } else if (result.ok) {
+        setSelectedIds(new Set());
+        setLibraryStatus({ kind: "info", text: `已导入 ${result.importedCount} 个会话` });
+      } else {
+        setLibraryStatus({ kind: "error", text: `导入失败：${result.error}` });
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setLibraryStatus(null);
+    try {
+      const result = await onExport();
+      if (result.canceled) {
+        setLibraryStatus({ kind: "info", text: "已取消导出" });
+      } else if (result.ok) {
+        setLibraryStatus({ kind: "info", text: `已导出 ${result.exportedCount} 个会话：${result.filePath}` });
+      } else {
+        setLibraryStatus({ kind: "error", text: `导出失败：${result.error}` });
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal-dialog session-picker-dialog">
@@ -140,6 +182,21 @@ export function SessionPickerModal({
           <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
         </div>
         <div className="modal-body">
+          <div className="picker-library-actions">
+            <button className="modal-button" type="button" onClick={handleImport} disabled={isImporting || isExporting}>
+              <Upload aria-hidden="true" />
+              {isImporting ? "导入中" : "导入"}
+            </button>
+            <button className="modal-button" type="button" onClick={handleExport} disabled={isImporting || isExporting}>
+              <Download aria-hidden="true" />
+              {isExporting ? "导出中" : "导出"}
+            </button>
+          </div>
+          {libraryStatus && (
+            <div className={`picker-library-status ${libraryStatus.kind}`}>
+              {libraryStatus.text}
+            </div>
+          )}
           {pendingSessions.length === 0 ? (
             <div className="picker-empty"><p>没有已保存的会话</p></div>
           ) : (
