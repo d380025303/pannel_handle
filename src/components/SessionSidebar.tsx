@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { GripVertical, Library, Pencil, Plus, Webhook, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { GripVertical, Library, Pencil, Plus, Search, Webhook, X } from "lucide-react";
 import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 
@@ -34,8 +34,29 @@ export function SessionSidebar({
   onOpenCreate,
   onReorder
 }: SessionSidebarProps) {
+  const [searchQuery, setSearchQuery] = useState("");
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const isFiltering = searchQuery.trim().length > 0;
+
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return sessions;
+    return sessions.filter((session) => {
+      const tags = (session.tags ?? []).map((tag) => tag.toLowerCase());
+      return (
+        session.title.toLowerCase().includes(query) ||
+        session.type.toLowerCase().includes(query) ||
+        session.shell.toLowerCase().includes(query) ||
+        session.cwd.toLowerCase().includes(query) ||
+        Boolean(session.wslDistro?.toLowerCase().includes(query)) ||
+        Boolean(session.sshConfig?.host?.toLowerCase().includes(query)) ||
+        Boolean(session.sshConfig?.username?.toLowerCase().includes(query)) ||
+        tags.some((tag) => tag.includes(query))
+      );
+    });
+  }, [sessions, searchQuery]);
 
   useEffect(() => {
     if (!pendingCloseId) return;
@@ -92,7 +113,7 @@ export function SessionSidebar({
       <div className="sidebar-header">
         <div>
           <h1>命令会话</h1>
-          <span>{sessions.length} 个窗口</span>
+          <span>{sessions.length} 个窗口{isFiltering ? ` / 显示 ${filteredSessions.length} 个` : ""}</span>
         </div>
         <div className="sidebar-actions">
           <button className="icon-button" type="button" title="从库中启动" aria-label="从库中启动" onClick={onOpenPicker}>
@@ -104,8 +125,27 @@ export function SessionSidebar({
         </div>
       </div>
 
+      <div className="sidebar-search">
+        <Search className="sidebar-search-icon" aria-hidden="true" />
+        <input
+          className="modal-input sidebar-search-input"
+          type="text"
+          placeholder="搜索会话..."
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        {isFiltering && (
+          <button className="sidebar-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label="清除搜索">
+            <X aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
       <div className="session-list">
-        {sessions.map((session) => {
+        {filteredSessions.length === 0 ? (
+          <div className="sidebar-empty"><p>没有匹配的会话</p></div>
+        ) : (
+          filteredSessions.map((session) => {
           const agentStatus = agentStatusesBySessionId[session.id];
           const agentStatusLabel = getAgentStatusLabel(agentStatus);
           return (
@@ -113,7 +153,7 @@ export function SessionSidebar({
               className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
               key={session.id}
               type="button"
-              draggable={true}
+              draggable={!isFiltering}
               onClick={() => onSelectSession(session.id)}
               onDragStart={(e) => handleDragStart(e, session.id)}
               onDragOver={(e) => handleDragOver(e, session.id)}
@@ -179,7 +219,8 @@ export function SessionSidebar({
               </span>
             </button>
           );
-        })}
+        })
+      )}
       </div>
     </aside>
   );
