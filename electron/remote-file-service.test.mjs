@@ -31,6 +31,13 @@ function createSftpMock(overrides = {}) {
   };
 }
 
+function createShellMock(overrides = {}) {
+  return {
+    openPath: vi.fn(async () => ""),
+    ...overrides
+  };
+}
+
 describe("remote-file-service", () => {
   it("connects with saved SSH password and lists files", async () => {
     const session = {
@@ -159,6 +166,69 @@ describe("remote-file-service", () => {
     ]);
     expect(readdir).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project", { withFileTypes: true });
     expect(stat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\app.js");
+  });
+
+  it("opens the current Windows directory in Explorer", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const shellApi = createShellMock();
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock(),
+        shellApi
+      });
+
+      await expect(service.openInExplorer("run-1", ".")).resolves.toBeUndefined();
+      expect(shellApi.openPath).toHaveBeenCalledWith(path.resolve(dir, "."));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("opens the current WSL directory through the distro UNC path", async () => {
+    const shellApi = createShellMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => createSftpMock(),
+      shellApi
+    });
+
+    await expect(service.openInExplorer("run-1", "/home/me/project")).resolves.toBeUndefined();
+    expect(shellApi.openPath).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project");
+  });
+
+  it("does not open Explorer for SSH sessions", async () => {
+    const shellApi = createShellMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh", sshConfig: { host: "example.com", extraArgs: [] } }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => createSftpMock(),
+      shellApi
+    });
+
+    await expect(service.openInExplorer("run-1", "/home/deploy")).rejects.toThrow("local files");
+    expect(shellApi.openPath).not.toHaveBeenCalled();
+  });
+
+  it("rejects when Explorer cannot open the path", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const shellApi = createShellMock({
+      openPath: vi.fn(async () => "Cannot open path")
+    });
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock(),
+        shellApi
+      });
+
+      await expect(service.openInExplorer("run-1", dir)).rejects.toThrow("Cannot open path");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns preview states for text, binary, and oversized files", async () => {

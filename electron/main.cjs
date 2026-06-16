@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, clipboard, dialog, Notification, safeStorage } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, Notification, safeStorage, shell } = require("electron");
 const { createAgentNotificationManager } = require("./agent-notification-manager.cjs");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createConfigStore } = require("./config-store.cjs");
@@ -92,7 +92,8 @@ if (!gotSingleInstanceLock) {
     remoteFileService = createRemoteFileService({
       terminalManager,
       sessionStore,
-      knownHostStore
+      knownHostStore,
+      shellApi: shell
     });
     remoteSystemService = createRemoteSystemService({
       terminalManager,

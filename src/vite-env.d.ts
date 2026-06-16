@@ -195,6 +195,7 @@ export type RemoteFileApi = {
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+  openInExplorer: (sessionId: string, remotePath: string) => Promise<void>;
 };
 
 export type RemoteSystemApi = {

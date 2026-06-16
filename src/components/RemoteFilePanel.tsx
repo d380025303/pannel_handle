@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, RefreshCw, Save, Search, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, RefreshCw, Save, Search, Upload, X } from "lucide-react";
 import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -82,6 +82,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     () => entries.find((entry) => entry.path === selectedPath),
     [entries, selectedPath]
   );
+  const canOpenInExplorer = session?.type === "windows" || session?.type === "wsl";
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredEntries = useMemo(
     () => normalizedSearchQuery
@@ -288,6 +289,16 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     await window.remoteFileApi.downloadFile(sessionId, entry.path, entry.name);
   }, [sessionId]);
 
+  const handleOpenInExplorer = useCallback(async () => {
+    if (!sessionId) return;
+    setError(null);
+    try {
+      await window.remoteFileApi.openInExplorer(sessionId, currentPath);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }, [currentPath, sessionId]);
+
   const handleClosePreview = useCallback(() => {
     if (!confirmDiscard()) {
       return;
@@ -427,6 +438,11 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
           <button className="icon-button" type="button" title="Parent directory" aria-label="Parent directory" onClick={() => void loadDirectory(parentPath(currentPath))}>
             <ArrowUp aria-hidden="true" />
           </button>
+          {canOpenInExplorer && (
+            <button className="icon-button" type="button" title="Open in Explorer" aria-label="Open in Explorer" onClick={() => void handleOpenInExplorer()}>
+              <FolderOpen aria-hidden="true" />
+            </button>
+          )}
           <button className="icon-button" type="button" title="Refresh" aria-label="Refresh" onClick={handleRefresh}>
             <RefreshCw aria-hidden="true" />
           </button>

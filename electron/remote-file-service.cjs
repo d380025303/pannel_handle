@@ -106,7 +106,7 @@ function joinWslPath(basePath, name) {
   return path.posix.join(normalizedBase, name);
 }
 
-function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sftpFactory = () => new SftpClient(), fsApi = fs }) {
+function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
   const clients = new Map();
 
   function getSession(sessionId) {
@@ -365,6 +365,22 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return { localPath };
   }
 
+  async function openInExplorer(sessionId, remotePath) {
+    const session = getSession(sessionId);
+    if (session.type === "ssh") {
+      throw new Error("Open in Explorer is only available for local files.");
+    }
+    if (!shellApi || typeof shellApi.openPath !== "function") {
+      throw new Error("Explorer integration is not available.");
+    }
+
+    const explorerPath = toLocalHostPath(session, remotePath);
+    const error = await shellApi.openPath(explorerPath);
+    if (error) {
+      throw new Error(error);
+    }
+  }
+
   async function disconnect(sessionId) {
     const client = clients.get(sessionId);
     clients.delete(sessionId);
@@ -389,6 +405,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     writeText,
     uploadFile,
     downloadFile,
+    openInExplorer,
     disconnect,
     shutdown
   };

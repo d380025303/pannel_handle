@@ -193,6 +193,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return { canceled: false, ...downloaded };
   });
 
+  ipcMain.handle("remote-files:open-in-explorer", (_event, { sessionId, remotePath }) => {
+    return remoteFileService.openInExplorer(sessionId, remotePath);
+  });
+
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
   });
