@@ -5,6 +5,7 @@ import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vit
 type RemoteFilePanelProps = {
   session?: TerminalSession;
   onDirtyChange?: (dirty: boolean) => void;
+  onPreviewActive?: (active: boolean) => void;
 };
 
 type PreviewState =
@@ -54,7 +55,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
-export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps) {
+export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
@@ -96,6 +97,11 @@ export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps
     onDirtyChange?.(isDirty);
     return () => onDirtyChange?.(false);
   }, [isDirty, onDirtyChange]);
+
+  const isPreviewActive = preview.status !== "idle";
+  useEffect(() => {
+    onPreviewActive?.(isPreviewActive);
+  }, [isPreviewActive, onPreviewActive]);
 
   const previewMatches = useMemo<TextMatch[]>(() => {
     if (!previewSearchQuery || !editorContent) {
@@ -289,6 +295,17 @@ export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps
     resetEditor();
   }, [confirmDiscard, resetEditor]);
 
+  useEffect(() => {
+    if (!isPreviewActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handleClosePreview();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPreviewActive, handleClosePreview]);
+
   const handleReloadPreview = useCallback(async () => {
     if (preview.status !== "ready" || !confirmDiscard()) {
       return;
@@ -395,11 +412,12 @@ export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps
   }
 
   return (
-    <aside className="remote-file-panel">
-      <div className="remote-file-header">
-        <div>
-          <h2>Files</h2>
-          <span>{session.title}</span>
+    <>
+      <aside className="remote-file-panel">
+        <div className="remote-file-header">
+          <div>
+            <h2>Files</h2>
+            <span>{session.title}</span>
         </div>
         <div className="remote-file-actions">
           <button className="icon-button" type="button" title="Parent directory" aria-label="Parent directory" onClick={() => void loadDirectory(parentPath(currentPath))}>
@@ -498,9 +516,12 @@ export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps
           ))
         )}
       </div>
+    </aside>
 
-      {preview.status !== "idle" && (
-        <div className="remote-file-preview">
+    {preview.status !== "idle" && (
+      <div className="remote-preview-overlay" onClick={handleClosePreview}>
+        <div className="remote-preview-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="remote-file-preview">
           <div className="remote-preview-header">
             <span>
               <FileText aria-hidden="true" />
@@ -621,8 +642,10 @@ export function RemoteFilePanel({ session, onDirtyChange }: RemoteFilePanelProps
               <div className="remote-file-empty">Binary file. Download it to view locally.</div>
             )
           )}
+          </div>
         </div>
-      )}
-    </aside>
+      </div>
+    )}
+    </>
   );
 }

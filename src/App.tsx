@@ -29,6 +29,7 @@ export function App() {
   const [rightTool, setRightTool] = useState<"files" | "debug">("files");
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
+  const [previewActive, setPreviewActive] = useState(false);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
@@ -174,7 +175,7 @@ export function App() {
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
-          <div className="terminal-area">
+          <div className="terminal-area" style={{ display: previewActive ? "none" : undefined }}>
             <TerminalPanel
               terminalHostRef={terminalInstances.terminalHostRef}
               onContextMenu={terminalInstances.handleTerminalContextMenu}
@@ -220,7 +221,7 @@ export function App() {
                 </div>
               )}
               {activeRightTool === "files" && showFilesPanel ? (
-                <RemoteFilePanel session={terminalSessions.activeSession} onDirtyChange={setRemoteFilesDirty} />
+                <RemoteFilePanel session={terminalSessions.activeSession} onDirtyChange={setRemoteFilesDirty} onPreviewActive={setPreviewActive} />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}
