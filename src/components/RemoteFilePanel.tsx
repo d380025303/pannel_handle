@@ -74,6 +74,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
   const saveRequestRef = useRef(0);
   const previewContentRef = useRef<HTMLTextAreaElement>(null);
   const dirtyRef = useRef(false);
+  const matchNavigationRef = useRef(false);
 
   const isSshSession = session?.type === "ssh";
   const sessionId = session?.id;
@@ -131,7 +132,10 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     if (!match || !textarea) {
       return;
     }
-    textarea.focus();
+    if (matchNavigationRef.current) {
+      textarea.focus();
+      matchNavigationRef.current = false;
+    }
     textarea.setSelectionRange(match.start, match.end);
   }, [activePreviewMatch, previewSearchQuery]);
 
@@ -392,6 +396,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     if (!previewMatches.length) {
       return;
     }
+    matchNavigationRef.current = true;
     setActivePreviewMatch((current) => (
       (current + direction + previewMatches.length) % previewMatches.length
     ));
