@@ -173,6 +173,70 @@ describe("hook-config-manager", () => {
     expect(config.hooks.Stop[0].hooks[0].command).toBe("bash .claude/pannel-handle-hook.sh");
   });
 
+  it("creates missing WSL hook directories before writing temp files", () => {
+    const projectPath = "/home/me/project";
+    const dirs = new Set([
+      "/",
+      "/home",
+      "/home/me",
+      projectPath
+    ]);
+    const files = new Map();
+    const normalize = value => path.posix.normalize(String(value));
+    const unquote = value => String(value).match(/^'((?:'\\''|[^'])*)'$/)?.[1].replace(/'\\''/g, "'") || value;
+    const parsePath = script => unquote(script.match(/'((?:'\\''|[^'])*)'/)?.[0] || "");
+    const spawnSync = (_command, args, options = {}) => {
+      if (args[2] === "--" && args[3] === "test") {
+        const flag = args[4];
+        const key = normalize(args[5]);
+        return { status: flag === "-d" ? (dirs.has(key) ? 0 : 1) : (dirs.has(key) || files.has(key) ? 0 : 1), stdout: "", stderr: "" };
+      }
+      const script = args.at(-1);
+      if (script.startsWith("mkdir -p ")) {
+        const dirPath = normalize(parsePath(script));
+        const parts = dirPath.split("/").filter(Boolean);
+        let current = "/";
+        for (const part of parts) {
+          current = path.posix.join(current, part);
+          dirs.add(current);
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (script.startsWith("cat > ")) {
+        const filePath = normalize(parsePath(script));
+        if (!dirs.has(path.posix.dirname(filePath))) {
+          return { status: 1, stdout: "", stderr: "No such file or directory" };
+        }
+        files.set(filePath, options.input);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (script.startsWith("cat ")) {
+        const key = normalize(parsePath(script));
+        if (!files.has(key)) {
+          return { status: 1, stdout: "", stderr: "cat: No such file or directory" };
+        }
+        return { status: 0, stdout: files.get(key), stderr: "" };
+      }
+      if (script.startsWith("mv -f ")) {
+        const [, sourcePath, destinationPath] = script.match(/^mv -f ('(?:'\\''|[^'])*') ('(?:'\\''|[^'])*')$/);
+        const sourceKey = normalize(unquote(sourcePath));
+        files.set(normalize(unquote(destinationPath)), files.get(sourceKey));
+        files.delete(sourceKey);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `Unexpected script: ${script}` };
+    };
+    const manager = createHookConfigManager({ assetsDir, spawnSync });
+
+    const result = manager.install({ type: "wsl", path: "/home/me/project", wslDistro: "Ubuntu" }, ["codex"]);
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.codex.status).toBe("installed");
+    expect(dirs.has(path.posix.join(projectPath, ".codex"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".codex", "hooks.json"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".codex", "pannel-handle-hook.sh"))).toBe(true);
+  });
+
   it("builds SSH Linux hook config with a session tunnel command", () => {
     const config = buildConfig({}, "codex", "ssh", "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:3000/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .codex/pannel-handle-hook.sh");
 

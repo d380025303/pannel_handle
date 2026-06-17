@@ -113,6 +113,25 @@ export type GitStatusResult = {
   files: GitStatusEntry[];
 };
 
+export type GitDiffRowType = "context" | "add" | "delete" | "modify";
+
+export type GitDiffRow = {
+  type: GitDiffRowType;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+  oldText?: string;
+  newText?: string;
+};
+
+export type GitDiffResult = {
+  cwd: string;
+  path: string;
+  oldPath?: string;
+  status: string;
+  kind: "text" | "binary";
+  rows: GitDiffRow[];
+};
+
 export type AgentProvider = "claude" | "codex" | "opencode";
 export type HookProvider = AgentProvider;
 
@@ -217,6 +236,7 @@ export type RemoteSystemApi = {
 
 export type GitApi = {
   getStatus: (sessionId: string) => Promise<GitStatusResult>;
+  getDiff: (sessionId: string, file: GitStatusEntry) => Promise<GitDiffResult>;
 };
 
 export type HookConfigApi = {

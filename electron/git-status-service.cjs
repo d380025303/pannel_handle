@@ -72,6 +72,14 @@ function validateWslDistro(value) {
   return distro;
 }
 
+function validateRepoPath(value) {
+  const repoPath = String(value || "").trim();
+  if (!repoPath || repoPath.includes("\0") || path.isAbsolute(repoPath) || repoPath.split(/[\\/]+/).includes("..")) {
+    throw new Error("A valid repository-relative path is required.");
+  }
+  return repoPath.replace(/\\/g, "/");
+}
+
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
@@ -94,12 +102,13 @@ function runProcess(spawn, command, args, options = {}) {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    const allowExitCodes = options.allowExitCodes || [0];
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       child.kill();
-      reject(new Error("Git status timed out."));
+      reject(new Error(`${options.actionName || "Git command"} timed out.`));
     }, options.timeoutMs || STATUS_TIMEOUT_MS);
 
     child.stdout?.on("data", (data) => {
@@ -118,13 +127,109 @@ function runProcess(spawn, command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (Number.isInteger(code) && code !== 0) {
-        reject(new Error(stderr.trim() || `git status failed with exit code ${code}.`));
+      if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
+        reject(new Error(stderr.trim() || `${options.actionName || "Git command"} failed with exit code ${code}.`));
         return;
       }
       resolve(stdout);
     });
   });
+}
+
+function parseHunkHeader(line) {
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+  if (!match) return null;
+  return {
+    oldLine: Number(match[1]),
+    newLine: Number(match[2])
+  };
+}
+
+function pushChangedRows(rows, deletedRows, addedRows) {
+  const maxRows = Math.max(deletedRows.length, addedRows.length);
+  for (let index = 0; index < maxRows; index += 1) {
+    const deletedRow = deletedRows[index];
+    const addedRow = addedRows[index];
+    if (deletedRow && addedRow) {
+      rows.push({
+        type: "modify",
+        oldLineNumber: deletedRow.lineNumber,
+        newLineNumber: addedRow.lineNumber,
+        oldText: deletedRow.text,
+        newText: addedRow.text
+      });
+    } else if (deletedRow) {
+      rows.push({
+        type: "delete",
+        oldLineNumber: deletedRow.lineNumber,
+        oldText: deletedRow.text
+      });
+    } else if (addedRow) {
+      rows.push({
+        type: "add",
+        newLineNumber: addedRow.lineNumber,
+        newText: addedRow.text
+      });
+    }
+  }
+  deletedRows.length = 0;
+  addedRows.length = 0;
+}
+
+function parseUnifiedDiff(output) {
+  const text = String(output || "");
+  if (/^Binary files .+ differ$/m.test(text) || /^GIT binary patch$/m.test(text)) {
+    return { kind: "binary", rows: [] };
+  }
+
+  const rows = [];
+  const deletedRows = [];
+  const addedRows = [];
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (rawLine.startsWith("@@ ")) {
+      pushChangedRows(rows, deletedRows, addedRows);
+      const hunk = parseHunkHeader(rawLine);
+      if (hunk) {
+        oldLine = hunk.oldLine;
+        newLine = hunk.newLine;
+        inHunk = true;
+      }
+      continue;
+    }
+    if (!inHunk) continue;
+    if (rawLine === "") continue;
+    if (rawLine.startsWith("\\ No newline")) continue;
+
+    if (rawLine.startsWith("-")) {
+      deletedRows.push({ lineNumber: oldLine, text: rawLine.slice(1) });
+      oldLine += 1;
+      continue;
+    }
+    if (rawLine.startsWith("+")) {
+      addedRows.push({ lineNumber: newLine, text: rawLine.slice(1) });
+      newLine += 1;
+      continue;
+    }
+
+    pushChangedRows(rows, deletedRows, addedRows);
+    const textValue = rawLine.startsWith(" ") ? rawLine.slice(1) : rawLine;
+    rows.push({
+      type: "context",
+      oldLineNumber: oldLine,
+      newLineNumber: newLine,
+      oldText: textValue,
+      newText: textValue
+    });
+    oldLine += 1;
+    newLine += 1;
+  }
+  pushChangedRows(rows, deletedRows, addedRows);
+
+  return { kind: "text", rows };
 }
 
 function createGitStatusService({
@@ -152,15 +257,14 @@ function createGitStatusService({
     return sessionStore.decryptSecret(sshConfig.encryptedSecret);
   }
 
-  function getSshStatus(session) {
+  function runSshCommand(session, command, options = {}) {
     const client = clientFactory();
     const connectionConfig = buildSsh2ConnectionConfig({
       sshConfig: session.sshConfig || {},
       secret: getSecret(session.sshConfig),
       knownHostStore
     });
-    const cwd = normalizeWslPath(session.cwd);
-    const command = `cd ${shellQuote(cwd)} && git status --porcelain=v1 -z`;
+    const allowExitCodes = options.allowExitCodes || [0];
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -172,7 +276,7 @@ function createGitStatusService({
         } catch {
           // Ignore close failures after timeout.
         }
-        reject(new Error("Git status timed out."));
+        reject(new Error(`${options.actionName || "Git command"} timed out.`));
       }, STATUS_TIMEOUT_MS);
 
       const fail = (err) => {
@@ -202,8 +306,8 @@ function createGitStatusService({
             settled = true;
             clearTimeout(timer);
             client.end();
-            if (Number.isInteger(code) && code !== 0) {
-              reject(new Error(stderr.trim() || `git status failed with exit code ${code}.`));
+            if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
+              reject(new Error(stderr.trim() || `${options.actionName || "Git command"} failed with exit code ${code}.`));
               return;
             }
             resolve(stdout);
@@ -219,28 +323,38 @@ function createGitStatusService({
     });
   }
 
-  async function getStatus(sessionId) {
-    const session = getSession(sessionId);
-    let output;
+  function runGitForSession(session, args, options = {}) {
     if (session.type === "windows") {
-      output = await runProcess(spawn, "git", ["status", "--porcelain=v1", "-z"], {
-        cwd: normalizeWindowsPath(session.cwd)
+      return runProcess(spawn, "git", args, {
+        cwd: normalizeWindowsPath(session.cwd),
+        actionName: options.actionName,
+        allowExitCodes: options.allowExitCodes
       });
-    } else if (session.type === "wsl") {
-      output = await runProcess(spawn, "wsl.exe", [
+    }
+    if (session.type === "wsl") {
+      return runProcess(spawn, "wsl.exe", [
         "-d",
         validateWslDistro(session.wslDistro),
         "--cd",
         normalizeWslPath(session.cwd),
         "git",
-        "status",
-        "--porcelain=v1",
-        "-z"
-      ]);
-    } else {
-      output = await getSshStatus(session);
+        ...args
+      ], {
+        actionName: options.actionName,
+        allowExitCodes: options.allowExitCodes
+      });
     }
 
+    const cwd = normalizeWslPath(session.cwd);
+    const command = `cd ${shellQuote(cwd)} && git ${args.map(shellQuote).join(" ")}`;
+    return runSshCommand(session, command, options);
+  }
+
+  async function getStatus(sessionId) {
+    const session = getSession(sessionId);
+    const output = await runGitForSession(session, ["status", "--porcelain=v1", "-z"], {
+      actionName: "Git status"
+    });
     const files = parsePorcelainStatus(output);
     return {
       cwd: session.cwd,
@@ -249,9 +363,35 @@ function createGitStatusService({
     };
   }
 
+  async function getDiff(sessionId, file) {
+    const session = getSession(sessionId);
+    const repoPath = validateRepoPath(file?.path);
+    const oldPath = file?.oldPath ? validateRepoPath(file.oldPath) : undefined;
+    const isUntracked = file?.status === "?";
+    const args = isUntracked
+      ? ["diff", "--no-color", "--no-index", "--", "/dev/null", repoPath]
+      : ["diff", "--no-color", "--find-renames", "HEAD", "--", repoPath];
+    const output = await runGitForSession(session, args, {
+      actionName: "Git diff",
+      allowExitCodes: isUntracked ? [0, 1] : [0]
+    });
+    const parsed = parseUnifiedDiff(output);
+
+    return {
+      cwd: session.cwd,
+      path: repoPath,
+      oldPath,
+      status: file?.status || "M",
+      kind: parsed.kind,
+      rows: parsed.rows
+    };
+  }
+
   return {
     getStatus,
+    getDiff,
     parsePorcelainStatus,
+    parseUnifiedDiff,
     getErrorMessage
   };
 }
@@ -259,5 +399,6 @@ function createGitStatusService({
 module.exports = {
   STATUS_TIMEOUT_MS,
   createGitStatusService,
-  parsePorcelainStatus
+  parsePorcelainStatus,
+  parseUnifiedDiff
 };

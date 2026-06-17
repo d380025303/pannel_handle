@@ -205,6 +205,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return gitStatusService.getStatus(sessionId);
   });
 
+  ipcMain.handle("git:diff", (_event, { sessionId, file }) => {
+    return gitStatusService.getDiff(sessionId, file);
+  });
+
   ipcMain.handle("hooks:select-project-directory", async (event, defaultPath) => {
     const ownerWindow = windowManager.getWindowFromEvent(event);
     const result = await dialog.showOpenDialog(ownerWindow, {

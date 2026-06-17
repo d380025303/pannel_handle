@@ -76,7 +76,8 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
 });
 
 contextBridge.exposeInMainWorld("gitApi", {
-  getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId })
+  getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId }),
+  getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file })
 });
 
 contextBridge.exposeInMainWorld("windowApi", {
