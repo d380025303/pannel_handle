@@ -1,5 +1,5 @@
 const { Client } = require("ssh2");
-const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const SECTION_MARKER = "__PANNEL_HANDLE_SECTION__";
 const VIRTUAL_FILESYSTEMS = new Set([
@@ -114,11 +114,18 @@ function createRemoteSystemService({
   terminalManager,
   sessionStore,
   knownHostStore,
+  sshSessionRuntime,
   clientFactory = () => new Client(),
   now = () => Date.now()
 }) {
   const clients = new Map();
   const networkSamples = new Map();
+  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
+    terminalManager,
+    sessionStore,
+    knownHostStore,
+    clientFactory
+  });
 
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
@@ -127,25 +134,12 @@ function createRemoteSystemService({
     return session;
   }
 
-  function getSecret(sshConfig) {
-    if (!sshConfig?.encryptedSecret || typeof sessionStore.decryptSecret !== "function") {
-      return undefined;
-    }
-    return sessionStore.decryptSecret(sshConfig.encryptedSecret);
-  }
-
   function connect(sessionId) {
     const cached = clients.get(sessionId);
     if (cached) return cached.promise;
 
-    const session = getSession(sessionId);
-    const client = clientFactory();
-    const entry = { client, promise: null };
-    const connectionConfig = buildSsh2ConnectionConfig({
-      sshConfig: session.sshConfig || {},
-      secret: getSecret(session.sshConfig),
-      knownHostStore
-    });
+    getSession(sessionId);
+    const entry = { client: null, promise: null };
 
     entry.promise = new Promise((resolve, reject) => {
       let settled = false;
@@ -156,21 +150,17 @@ function createRemoteSystemService({
           reject(err);
         }
       };
-      client.once("ready", () => {
-        settled = true;
-        resolve(client);
-      });
-      client.on("error", fail);
-      client.on("close", () => {
-        clients.delete(sessionId);
-        networkSamples.delete(sessionId);
-        if (!settled) fail(new Error("SSH metrics connection closed."));
-      });
-      client.on("keyboard-interactive", (_name, _instructions, _language, prompts, finish) => {
-        const secret = connectionConfig.password || connectionConfig.passphrase;
-        finish(Array.isArray(prompts) ? prompts.map((prompt) => prompt?.echo ? "" : String(secret || "")) : []);
-      });
-      client.connect(connectionConfig);
+      sshRuntime.connectClient(sessionId, { actionName: "SSH metrics connection" })
+        .then((client) => {
+          entry.client = client;
+          client.on("close", () => {
+            clients.delete(sessionId);
+            networkSamples.delete(sessionId);
+          });
+          settled = true;
+          resolve(client);
+        })
+        .catch(fail);
     });
     clients.set(sessionId, entry);
     return entry.promise;
@@ -232,7 +222,12 @@ function createRemoteSystemService({
     networkSamples.delete(sessionId);
     if (entry) {
       try {
-        entry.client.end();
+        if (entry.client) {
+          entry.client.end();
+        } else {
+          const client = await entry.promise.catch(() => undefined);
+          client?.end?.();
+        }
       } catch {
         // Ignore close failures during cleanup.
       }

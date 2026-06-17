@@ -7,7 +7,7 @@ const {
   buildConfig,
   isManagedCommand
 } = require("./hook-config-manager.cjs");
-const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const SSH_PROVIDERS = ["claude", "codex"];
 
@@ -111,20 +111,21 @@ async function rollback(sftp, snapshots) {
   }
 }
 
-function getSecret(sessionStore, sshConfig) {
-  if (!sshConfig?.encryptedSecret || typeof sessionStore.decryptSecret !== "function") {
-    return undefined;
-  }
-  return sessionStore.decryptSecret(sshConfig.encryptedSecret);
-}
-
 function createRemoteHookConfigService({
   terminalManager,
   sessionStore,
   knownHostStore,
   sshHookTunnelService,
+  sshSessionRuntime,
   sftpFactory = () => new SftpClient()
 }) {
+  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
+    terminalManager,
+    sessionStore,
+    knownHostStore,
+    sftpFactory
+  });
+
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session) throw new Error("Session is not running.");
@@ -133,14 +134,8 @@ function createRemoteHookConfigService({
   }
 
   async function connect(sessionId) {
-    const session = getSession(sessionId);
-    const sftp = sftpFactory();
-    await sftp.connect(buildSsh2ConnectionConfig({
-      sshConfig: session.sshConfig || {},
-      secret: getSecret(sessionStore, session.sshConfig),
-      knownHostStore
-    }));
-    return sftp;
+    getSession(sessionId);
+    return sshRuntime.createSftpClient(sessionId);
   }
 
   async function inspectProvider(sftp, projectPath, provider, hookUrl, sessionId) {

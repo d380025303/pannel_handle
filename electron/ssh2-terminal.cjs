@@ -1,5 +1,6 @@
 const { EventEmitter } = require("node:events");
 const { Client } = require("ssh2");
+const { answerKeyboardInteractive } = require("./ssh-session-runtime.cjs");
 
 function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFactory = () => new Client() }) {
   const emitter = new EventEmitter();
@@ -56,11 +57,7 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
   }
 
   client.on("keyboard-interactive", (_name, _instructions, _instructionsLang, prompts, finish) => {
-    const secret = connectionConfig.password || connectionConfig.passphrase;
-    const answers = Array.isArray(prompts)
-      ? prompts.map((prompt) => prompt && prompt.echo ? "" : String(secret || ""))
-      : [];
-    finish(answers);
+    finish(answerKeyboardInteractive(connectionConfig, prompts));
   });
 
   client.on("ready", openShell);

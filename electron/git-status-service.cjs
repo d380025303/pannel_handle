@@ -1,6 +1,6 @@
 const path = require("node:path");
 const { spawn: defaultSpawn } = require("node:child_process");
-const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const STATUS_TIMEOUT_MS = 10000;
 
@@ -236,9 +236,17 @@ function createGitStatusService({
   terminalManager,
   sessionStore,
   knownHostStore,
+  sshSessionRuntime,
   spawn = defaultSpawn,
   clientFactory = createDefaultSshClient
 }) {
+  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
+    terminalManager,
+    sessionStore,
+    knownHostStore,
+    clientFactory,
+    timeoutMs: STATUS_TIMEOUT_MS
+  });
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session) {
@@ -250,76 +258,11 @@ function createGitStatusService({
     return session;
   }
 
-  function getSecret(sshConfig) {
-    if (!sshConfig?.encryptedSecret || typeof sessionStore?.decryptSecret !== "function") {
-      return undefined;
-    }
-    return sessionStore.decryptSecret(sshConfig.encryptedSecret);
-  }
-
   function runSshCommand(session, command, options = {}) {
-    const client = clientFactory();
-    const connectionConfig = buildSsh2ConnectionConfig({
-      sshConfig: session.sshConfig || {},
-      secret: getSecret(session.sshConfig),
-      knownHostStore
-    });
-    const allowExitCodes = options.allowExitCodes || [0];
-
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try {
-          client.end();
-        } catch {
-          // Ignore close failures after timeout.
-        }
-        reject(new Error(`${options.actionName || "Git command"} timed out.`));
-      }, STATUS_TIMEOUT_MS);
-
-      const fail = (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err);
-      };
-
-      client.once("ready", () => {
-        client.exec(command, (err, stream) => {
-          if (err) {
-            fail(err);
-            return;
-          }
-
-          let stdout = "";
-          let stderr = "";
-          stream.on("data", (data) => {
-            stdout += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-          });
-          stream.stderr?.on("data", (data) => {
-            stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-          });
-          stream.on("close", (code) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            client.end();
-            if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
-              reject(new Error(stderr.trim() || `${options.actionName || "Git command"} failed with exit code ${code}.`));
-              return;
-            }
-            resolve(stdout);
-          });
-        });
-      });
-      client.on("error", fail);
-      client.on("keyboard-interactive", (_name, _instructions, _language, prompts, finish) => {
-        const secret = connectionConfig.password || connectionConfig.passphrase;
-        finish(Array.isArray(prompts) ? prompts.map((prompt) => prompt?.echo ? "" : String(secret || "")) : []);
-      });
-      client.connect(connectionConfig);
+    return sshRuntime.exec(session.id, command, {
+      actionName: options.actionName || "Git command",
+      allowExitCodes: options.allowExitCodes,
+      timeoutMs: STATUS_TIMEOUT_MS
     });
   }
 

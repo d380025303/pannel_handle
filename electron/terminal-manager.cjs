@@ -1,6 +1,7 @@
 const os = require("node:os");
 const { execSync } = require("node:child_process");
 const nodePty = require("node-pty");
+const { sanitizeSshConfig } = require("./ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("./ssh2-connection.cjs");
 const { createSsh2Terminal } = require("./ssh2-terminal.cjs");
 
@@ -94,17 +95,6 @@ function buildSshArgs(sshConfig = {}) {
   }
 
   return args;
-}
-
-function sanitizeSshConfig(sshConfig) {
-  if (!sshConfig) {
-    return undefined;
-  }
-  const { secret, encryptedSecret, clearSecret, ...safeConfig } = sshConfig;
-  return {
-    ...safeConfig,
-    hasSecret: Boolean(encryptedSecret)
-  };
 }
 
 function createTerminalManager({
@@ -230,7 +220,7 @@ function createTerminalManager({
     return `${text.length}:${match[0]}`;
   }
 
-  function maybeWriteSshSecret(session) {
+  function maybeAutofillTerminalSecretPrompt(session) {
     if (session.type !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
       return;
     }
@@ -283,7 +273,7 @@ function createTerminalManager({
       if (session.buffer.length > 1000) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
-      maybeWriteSshSecret(session);
+      maybeAutofillTerminalSecretPrompt(session);
       maybeDetectCodexPermissionPrompt(session);
       broadcast("terminal:data", { id: session.id, data });
     });

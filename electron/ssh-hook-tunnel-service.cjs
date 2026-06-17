@@ -1,23 +1,23 @@
 const net = require("node:net");
 const { Client } = require("ssh2");
-const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
-
-function getSecret(sessionStore, sshConfig) {
-  if (!sshConfig?.encryptedSecret || typeof sessionStore.decryptSecret !== "function") {
-    return undefined;
-  }
-  return sessionStore.decryptSecret(sshConfig.encryptedSecret);
-}
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 function createSshHookTunnelService({
   terminalManager,
   sessionStore,
   knownHostStore,
+  sshSessionRuntime,
   getLocalHookPort,
   clientFactory = () => new Client(),
   netConnect = net.connect
 }) {
   const tunnels = new Map();
+  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
+    terminalManager,
+    sessionStore,
+    knownHostStore,
+    clientFactory
+  });
 
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
@@ -35,13 +35,6 @@ function createSshHookTunnelService({
   }
 
   function connectClient(sessionId, client, localHookPort) {
-    const session = getSession(sessionId);
-    const connectionConfig = buildSsh2ConnectionConfig({
-      sshConfig: session.sshConfig || {},
-      secret: getSecret(sessionStore, session.sshConfig),
-      knownHostStore
-    });
-
     return new Promise((resolve, reject) => {
       let settled = false;
 
@@ -52,11 +45,6 @@ function createSshHookTunnelService({
           reject(err);
         }
       }
-
-      client.on("keyboard-interactive", (_name, _instructions, _language, prompts, finish) => {
-        const secret = connectionConfig.password || connectionConfig.passphrase;
-        finish(Array.isArray(prompts) ? prompts.map((prompt) => prompt?.echo ? "" : String(secret || "")) : []);
-      });
 
       client.on("tcp connection", (_info, accept, rejectConnection) => {
         const remoteStream = accept();
@@ -70,7 +58,10 @@ function createSshHookTunnelService({
         remoteStream.pipe(localStream).pipe(remoteStream);
       });
 
-      client.once("ready", () => {
+      sshRuntime.connectClient(sessionId, {
+        client,
+        actionName: "SSH hook tunnel connection"
+      }).then(() => {
         client.forwardIn("127.0.0.1", 0, (err, remotePort) => {
           if (err) {
             fail(err);
@@ -84,14 +75,11 @@ function createSshHookTunnelService({
             hookUrl: `http://127.0.0.1:${remotePort}/claude-hook`
           });
         });
-      });
-
-      client.on("error", fail);
+      }).catch(fail);
       client.on("close", () => {
         tunnels.delete(sessionId);
         if (!settled) fail(new Error("SSH hook tunnel connection closed."));
       });
-      client.connect(connectionConfig);
     });
   }
 

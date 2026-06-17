@@ -80,6 +80,11 @@ contextBridge.exposeInMainWorld("gitApi", {
   getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file })
 });
 
+contextBridge.exposeInMainWorld("projectSearchApi", {
+  searchFiles: (sessionId, query) => ipcRenderer.invoke("project-search:files", { sessionId, query }),
+  searchText: (sessionId, query) => ipcRenderer.invoke("project-search:text", { sessionId, query })
+});
+
 contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),

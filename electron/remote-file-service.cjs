@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const SftpClient = require("ssh2-sftp-client");
-const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 1024 * 1024;
 
@@ -106,8 +106,14 @@ function joinWslPath(basePath, name) {
   return path.posix.join(normalizedBase, name);
 }
 
-function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
+function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
   const clients = new Map();
+  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
+    terminalManager,
+    sessionStore,
+    knownHostStore,
+    sftpFactory
+  });
 
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
@@ -152,19 +158,6 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return joinWslPath(basePath, name);
   }
 
-  function getSecret(sshConfig) {
-    if (!sshConfig?.encryptedSecret || typeof sessionStore.decryptSecret !== "function") {
-      return undefined;
-    }
-    return sessionStore.decryptSecret(sshConfig.encryptedSecret);
-  }
-
-  function buildConnectionConfig(session) {
-    const sshConfig = session.sshConfig || {};
-    const secret = getSecret(sshConfig);
-    return buildSsh2ConnectionConfig({ sshConfig, secret, knownHostStore });
-  }
-
   async function getClient(sessionId) {
     getSession(sessionId);
     const cached = clients.get(sessionId);
@@ -172,9 +165,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       return cached;
     }
 
-    const session = getSession(sessionId);
-    const client = sftpFactory();
-    await client.connect(buildConnectionConfig(session));
+    const client = await sshRuntime.createSftpClient(sessionId);
     clients.set(sessionId, client);
     return client;
   }

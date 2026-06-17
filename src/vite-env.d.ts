@@ -132,6 +132,29 @@ export type GitDiffResult = {
   rows: GitDiffRow[];
 };
 
+export type ProjectFileSearchResult = {
+  path: string;
+  relativePath: string;
+  name: string;
+};
+
+export type ProjectTextSearchResult = ProjectFileSearchResult & {
+  lineNumber: number;
+  line: string;
+  matchStart: number;
+  matchLength: number;
+};
+
+export type ProjectFileSearchResponse = {
+  root: string;
+  results: ProjectFileSearchResult[];
+};
+
+export type ProjectTextSearchResponse = {
+  root: string;
+  results: ProjectTextSearchResult[];
+};
+
 export type AgentProvider = "claude" | "codex" | "opencode";
 export type HookProvider = AgentProvider;
 
@@ -239,6 +262,11 @@ export type GitApi = {
   getDiff: (sessionId: string, file: GitStatusEntry) => Promise<GitDiffResult>;
 };
 
+export type ProjectSearchApi = {
+  searchFiles: (sessionId: string, query: string) => Promise<ProjectFileSearchResponse>;
+  searchText: (sessionId: string, query: string) => Promise<ProjectTextSearchResponse>;
+};
+
 export type HookConfigApi = {
   selectProjectDirectory: (defaultPath?: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   inspect: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
@@ -252,6 +280,7 @@ declare global {
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     gitApi: GitApi;
+    projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
     windowApi: WindowApi;
   }

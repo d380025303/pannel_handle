@@ -4,6 +4,7 @@ import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vit
 
 type RemoteFilePanelProps = {
   session?: TerminalSession;
+  openRequest?: { sessionId: string; path: string; requestId: number } | null;
   onDirtyChange?: (dirty: boolean) => void;
   onPreviewActive?: (active: boolean) => void;
 };
@@ -51,11 +52,17 @@ function parentPath(remotePath: string) {
   return normalized.slice(0, index);
 }
 
+function baseName(remotePath: string) {
+  const normalized = remotePath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const index = normalized.lastIndexOf("/");
+  return index === -1 ? normalized : normalized.slice(index + 1);
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
-export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
+export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
@@ -75,6 +82,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
   const previewContentRef = useRef<HTMLTextAreaElement>(null);
   const dirtyRef = useRef(false);
   const matchNavigationRef = useRef(false);
+  const handledOpenRequestRef = useRef(0);
 
   const sessionId = session?.id;
 
@@ -153,10 +161,10 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
 
   const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
     if (!sessionId) {
-      return;
+      return undefined;
     }
     if (!skipConfirm && !confirmDiscard()) {
-      return;
+      return undefined;
     }
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
@@ -175,6 +183,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
       if (!preserveSearch) {
         setSearchQuery("");
       }
+      return nextEntries;
     } catch (err) {
       if (requestRef.current !== requestId) return;
       setError(getErrorMessage(err));
@@ -183,6 +192,7 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
         setLoading(false);
       }
     }
+    return undefined;
   }, [confirmDiscard, resetEditor, sessionId]);
 
   useEffect(() => {
@@ -225,8 +235,8 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
     };
   }, [confirmDiscard, loadDirectory, resetEditor, sessionId]);
 
-  const handleOpenEntry = useCallback(async (entry: RemoteFileEntry) => {
-    if (entry.path === selectedPath) {
+  const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
+    if (!force && entry.path === selectedPath) {
       return;
     }
     if (!confirmDiscard()) {
@@ -266,6 +276,41 @@ export function RemoteFilePanel({ session, onDirtyChange, onPreviewActive }: Rem
       });
     }
   }, [confirmDiscard, loadDirectory, resetEditor, selectedPath, sessionId]);
+
+  useEffect(() => {
+    if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
+      return;
+    }
+    if (handledOpenRequestRef.current === openRequest.requestId) {
+      return;
+    }
+    handledOpenRequestRef.current = openRequest.requestId;
+
+    let disposed = false;
+    const openPath = async () => {
+      if (!confirmDiscard()) {
+        return;
+      }
+      const targetDirectory = parentPath(openRequest.path);
+      const nextEntries = await loadDirectory(targetDirectory, true, true);
+      if (disposed) {
+        return;
+      }
+      const entry = nextEntries?.find((item) => item.path === openRequest.path) || {
+        name: baseName(openRequest.path),
+        path: openRequest.path,
+        type: "file" as const,
+        size: 0,
+        modifiedAt: 0
+      };
+      await handleOpenEntry(entry, true);
+    };
+
+    void openPath();
+    return () => {
+      disposed = true;
+    };
+  }, [confirmDiscard, handleOpenEntry, loadDirectory, openRequest, sessionId]);
 
   const handleRefresh = useCallback(() => {
     void loadDirectory(currentPath, true);

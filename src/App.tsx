@@ -9,6 +9,7 @@ import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { QuickCommandBar } from "./components/QuickCommandBar";
+import { ProjectSearchModal } from "./components/ProjectSearchModal";
 import { RemoteFilePanel } from "./components/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/RemoteSystemStatus";
 import { TitleBar } from "./components/TitleBar";
@@ -20,6 +21,25 @@ import { useWindowState } from "./hooks/useWindowState";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/CreateSessionModal";
 import type { AgentHookDebugPayload, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+
+type ProjectSearchMode = "files" | "text";
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.closest(".terminal-host")) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function hasBlockingOverlay() {
+  return Boolean(document.querySelector(
+    ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .project-search-overlay"
+  ));
+}
 
 export function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -33,6 +53,8 @@ export function App() {
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
+  const [projectSearchMode, setProjectSearchMode] = useState<ProjectSearchMode | null>(null);
+  const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
@@ -42,6 +64,7 @@ export function App() {
     activeId: terminalSessions.activeId,
     terminalTheme: activeTheme.terminal
   });
+  const canSearchProject = Boolean(terminalSessions.activeSession && terminalSessions.activeSession.type !== "ssh");
 
   useEffect(() => {
     let isDisposed = false;
@@ -59,6 +82,41 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = themeId;
   }, [themeId]);
+
+  useEffect(() => {
+    let lastShiftAt = 0;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!terminalSessions.activeSession || terminalSessions.activeSession.type === "ssh") {
+        return;
+      }
+      if (projectSearchMode || hasBlockingOverlay()) {
+        return;
+      }
+      if (isEditableShortcutTarget(event.target)) {
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setProjectSearchMode("text");
+        return;
+      }
+
+      if (event.key === "Shift" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const now = Date.now();
+        if (now - lastShiftAt <= 450) {
+          event.preventDefault();
+          lastShiftAt = 0;
+          setProjectSearchMode("files");
+        } else {
+          lastShiftAt = now;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [projectSearchMode, terminalSessions.activeSession]);
 
   useEffect(() => {
     if (!debugMode) return undefined;
@@ -132,6 +190,19 @@ export function App() {
     await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig, tags);
     setEditDialogSession(null);
   }, [terminalSessions]);
+
+  const handleOpenSearchResult = useCallback((path: string) => {
+    const activeSession = terminalSessions.activeSession;
+    if (!activeSession || activeSession.type === "ssh") {
+      return;
+    }
+    setRightTool("files");
+    setFileOpenRequest((current) => ({
+      sessionId: activeSession.id,
+      path,
+      requestId: (current?.requestId || 0) + 1
+    }));
+  }, [terminalSessions.activeSession]);
 
   const handleClosePicker = useCallback(() => {
     terminalSessions.setPendingSessions(null);
@@ -255,7 +326,12 @@ export function App() {
                 </div>
               )}
               {activeRightTool === "files" && showFilesPanel ? (
-                <RemoteFilePanel session={terminalSessions.activeSession} onDirtyChange={setRemoteFilesDirty} onPreviewActive={setPreviewActive} />
+                <RemoteFilePanel
+                  session={terminalSessions.activeSession}
+                  openRequest={fileOpenRequest}
+                  onDirtyChange={setRemoteFilesDirty}
+                  onPreviewActive={setPreviewActive}
+                />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel session={terminalSessions.activeSession} />
               ) : (
@@ -320,6 +396,15 @@ export function App() {
           onToggleDebugMode={handleToggleDebugMode}
           onThemeChange={handleThemeChange}
           onCancel={() => setShowSettingsModal(false)}
+        />
+      )}
+
+      {projectSearchMode && terminalSessions.activeSession && canSearchProject && (
+        <ProjectSearchModal
+          mode={projectSearchMode}
+          session={terminalSessions.activeSession}
+          onClose={() => setProjectSearchMode(null)}
+          onOpenPath={handleOpenSearchResult}
         />
       )}
     </>

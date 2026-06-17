@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const os = require("node:os");
+const { sanitizeSshConfig } = require("./ssh-config-utils.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {
   const value = String(initialCommand || "").trim();
@@ -93,17 +94,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       extraArgs,
       remark,
       encryptedSecret
-    };
-  }
-
-  function sanitizeSshConfig(config) {
-    if (!config) {
-      return undefined;
-    }
-    const { secret, encryptedSecret, clearSecret, ...safeConfig } = config;
-    return {
-      ...safeConfig,
-      hasSecret: Boolean(encryptedSecret)
     };
   }
 

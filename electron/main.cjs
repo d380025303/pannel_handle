@@ -7,11 +7,13 @@ const { createGitStatusService } = require("./git-status-service.cjs");
 const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
+const { createProjectSearchService } = require("./project-search-service.cjs");
 const { createRemoteFileService } = require("./remote-file-service.cjs");
 const { createRemoteHookConfigService } = require("./remote-hook-config-service.cjs");
 const { createRemoteSystemService } = require("./remote-system-service.cjs");
 const { createSessionStore } = require("./session-store.cjs");
 const { createSshHookTunnelService } = require("./ssh-hook-tunnel-service.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal-manager.cjs");
 const { createWindowManager } = require("./window-manager.cjs");
 
@@ -24,10 +26,12 @@ let agentHookServer = null;
 let remoteFileService = null;
 let remoteSystemService = null;
 let sshHookTunnelService = null;
+let sshSessionRuntime = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
 let gitStatusService = null;
+let projectSearchService = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -91,34 +95,47 @@ if (!gotSingleInstanceLock) {
       windowManager,
       terminalManager
     });
+    sshSessionRuntime = createSshSessionRuntime({
+      terminalManager,
+      sessionStore,
+      knownHostStore
+    });
     remoteFileService = createRemoteFileService({
       terminalManager,
       sessionStore,
       knownHostStore,
+      sshSessionRuntime,
       shellApi: shell
     });
     remoteSystemService = createRemoteSystemService({
       terminalManager,
       sessionStore,
-      knownHostStore
+      knownHostStore,
+      sshSessionRuntime
     });
     agentHookServer = createAgentHookServer({ terminalManager });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
       sessionStore,
       knownHostStore,
+      sshSessionRuntime,
       getLocalHookPort: () => agentHookServer ? agentHookServer.getHookPort() : undefined
     });
     remoteHookConfigService = createRemoteHookConfigService({
       terminalManager,
       sessionStore,
       knownHostStore,
+      sshSessionRuntime,
       sshHookTunnelService
     });
     gitStatusService = createGitStatusService({
       terminalManager,
       sessionStore,
-      knownHostStore
+      knownHostStore,
+      sshSessionRuntime
+    });
+    projectSearchService = createProjectSearchService({
+      terminalManager
     });
 
     sessionStore.loadLibrary();
@@ -134,7 +151,8 @@ if (!gotSingleInstanceLock) {
       remoteSystemService,
       hookConfigManager,
       remoteHookConfigService,
-      gitStatusService
+      gitStatusService,
+      projectSearchService
     });
     windowManager.createWindow();
 

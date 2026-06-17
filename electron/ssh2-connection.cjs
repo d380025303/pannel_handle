@@ -1,19 +1,5 @@
 const fs = require("node:fs");
-
-function normalizeSshPort(value) {
-  const parsedPort = Number(value || 22);
-  return Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22;
-}
-
-function validateSsh2Config(sshConfig = {}) {
-  const host = String(sshConfig.host || "").trim();
-  if (!host) {
-    throw new Error("SSH host is required.");
-  }
-  if (Array.isArray(sshConfig.extraArgs) && sshConfig.extraArgs.length > 0) {
-    throw new Error("SSH extra arguments are not supported by the ssh2 backend.");
-  }
-}
+const { normalizeSshPort, validateSsh2Config } = require("./ssh-config-utils.cjs");
 
 function buildSsh2ConnectionConfig({ sshConfig = {}, secret, knownHostStore, onHostVerification }) {
   validateSsh2Config(sshConfig);
