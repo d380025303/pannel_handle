@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 const fs = require("node:fs");
-const { VALID_THEME_IDS } = require("./config-store.cjs");
+const { QQ_BOT_NOTIFY_STATUSES, VALID_THEME_IDS } = require("./config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -17,7 +17,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, qqBotNotificationService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -145,6 +145,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return clipboard.readText();
   });
 
+  ipcMain.handle("clipboard:paste-image-to-session", (_event, sessionId) => {
+    return clipboardImageService.pasteImageToSession(sessionId);
+  });
+
   ipcMain.on("terminal:write", (_event, { id, data }) => {
     terminalManager.write(id, data);
   });
@@ -163,6 +167,14 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
 
   ipcMain.handle("remote-files:read-text", (_event, { sessionId, remotePath }) => {
     return remoteFileService.readText(sessionId, remotePath);
+  });
+
+  ipcMain.handle("remote-files:preview-file", (_event, { sessionId, remotePath }) => {
+    return remoteFileService.previewFile(sessionId, remotePath);
+  });
+
+  ipcMain.handle("remote-files:release-preview", (_event, { previewId }) => {
+    return remoteFileService.releasePreview(previewId);
   });
 
   ipcMain.handle("remote-files:write-text", (_event, { sessionId, remotePath, content, expectedVersion }) => {
@@ -207,6 +219,34 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
 
   ipcMain.handle("git:diff", (_event, { sessionId, file }) => {
     return gitStatusService.getDiff(sessionId, file);
+  });
+
+  ipcMain.handle("git:branches", (_event, { sessionId }) => {
+    return gitStatusService.getBranches(sessionId);
+  });
+
+  ipcMain.handle("git:checkout-branch", (_event, { sessionId, branch }) => {
+    return gitStatusService.checkoutBranch(sessionId, branch);
+  });
+
+  ipcMain.handle("git:stashes", (_event, { sessionId }) => {
+    return gitStatusService.getStashes(sessionId);
+  });
+
+  ipcMain.handle("git:stash-changes", (_event, { sessionId }) => {
+    return gitStatusService.stashChanges(sessionId);
+  });
+
+  ipcMain.handle("git:apply-stash", (_event, { sessionId, ref }) => {
+    return gitStatusService.applyStash(sessionId, ref);
+  });
+
+  ipcMain.handle("git:pop-stash", (_event, { sessionId, ref }) => {
+    return gitStatusService.popStash(sessionId, ref);
+  });
+
+  ipcMain.handle("git:revert-file", (_event, { sessionId, file }) => {
+    return gitStatusService.revertFile(sessionId, file);
   });
 
   ipcMain.handle("project-search:files", (_event, { sessionId, query }) => {
@@ -264,6 +304,51 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
       configStore.updateConfig(updates);
     }
     return configStore.getConfig();
+  });
+
+  ipcMain.handle("qq-bot:get-config", () => configStore.getPublicQqBotConfig());
+
+  ipcMain.handle("qq-bot:set-config", (_event, partial) => {
+    const updates = {};
+    if (partial && typeof partial.enabled === "boolean") {
+      updates.enabled = partial.enabled;
+    }
+    if (partial && typeof partial.appId === "string") {
+      updates.appId = partial.appId;
+    }
+    if (partial && typeof partial.clientSecret === "string") {
+      updates.clientSecret = partial.clientSecret;
+    }
+    if (partial && partial.clearClientSecret === true) {
+      updates.clearClientSecret = true;
+    }
+    if (partial && typeof partial.targetOpenid === "string") {
+      updates.targetOpenid = partial.targetOpenid;
+    }
+    if (partial && Array.isArray(partial.notifyStatuses)) {
+      updates.notifyStatuses = partial.notifyStatuses.filter(status => QQ_BOT_NOTIFY_STATUSES.has(status));
+    }
+    if (partial && typeof partial.queueWhenUnavailable === "boolean") {
+      updates.queueWhenUnavailable = partial.queueWhenUnavailable;
+    }
+
+    const result = configStore.updateQqBotConfig(updates);
+    if (qqBotNotificationService) {
+      qqBotNotificationService.applyConfig();
+    }
+    return result;
+  });
+
+  ipcMain.handle("qq-bot:get-status", () => {
+    return qqBotNotificationService
+      ? qqBotNotificationService.getStatus()
+      : { enabled: false, connected: false, queuedCount: 0, droppedCount: 0, lastError: "" };
+  });
+
+  ipcMain.handle("qq-bot:test-send", () => {
+    return qqBotNotificationService
+      ? qqBotNotificationService.testSend()
+      : { ok: false, error: "QQ bot notification service is not available." };
   });
 
   ipcMain.on("window:minimize", (event) => {

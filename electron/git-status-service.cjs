@@ -15,6 +15,9 @@ const STATUS_LABELS = {
   "!": "已忽略"
 };
 
+const BRANCH_FORMAT = "%(refname)%09%(refname:short)%09%(HEAD)%09%(objectname:short)%09%(committerdate:relative)";
+const STASH_FORMAT = "%gd%x09%H%x09%cr%x09%gs";
+
 function getStatusCode(xy) {
   const code = String(xy || "").trim().charAt(0) || String(xy || "").trim().charAt(1) || "?";
   return STATUS_LABELS[code] ? code : "?";
@@ -78,6 +81,40 @@ function validateRepoPath(value) {
     throw new Error("A valid repository-relative path is required.");
   }
   return repoPath.replace(/\\/g, "/");
+}
+
+function validateBranchName(value) {
+  const branchName = String(value || "").trim();
+  if (
+    !branchName ||
+    branchName.includes("\0") ||
+    branchName.startsWith("-") ||
+    branchName.includes("..") ||
+    branchName.includes("//") ||
+    branchName.endsWith("/") ||
+    branchName.endsWith(".") ||
+    branchName.endsWith(".lock") ||
+    !/^[A-Za-z0-9._/-]+$/.test(branchName)
+  ) {
+    throw new Error("A valid Git branch name is required.");
+  }
+  return branchName;
+}
+
+function validateBranchEntry(value) {
+  const kind = value?.kind === "remote" ? "remote" : "local";
+  return {
+    kind,
+    name: validateBranchName(value?.name)
+  };
+}
+
+function validateStashRef(value) {
+  const ref = String(value || "").trim();
+  if (!/^stash@\{\d+\}$/.test(ref)) {
+    throw new Error("A valid stash reference is required.");
+  }
+  return ref;
 }
 
 function shellQuote(value) {
@@ -232,6 +269,48 @@ function parseUnifiedDiff(output) {
   return { kind: "text", rows };
 }
 
+function parseBranchList(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const [refname, shortName, head, commit, relativeTime] = line.split("\t");
+      const isRemote = refname.startsWith("refs/remotes/");
+      if (!refname || !shortName || (isRemote && /\/HEAD$/.test(refname))) {
+        return null;
+      }
+      return {
+        name: shortName,
+        kind: isRemote ? "remote" : "local",
+        current: head === "*",
+        commit: commit || "",
+        relativeTime: relativeTime || ""
+      };
+    })
+    .filter(Boolean);
+}
+
+function parseStashList(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const [ref, commit, relativeTime, ...messageParts] = line.split("\t");
+      if (!/^stash@\{\d+\}$/.test(ref || "")) {
+        return null;
+      }
+      return {
+        ref,
+        commit: commit || "",
+        relativeTime: relativeTime || "",
+        message: messageParts.join("\t") || ref
+      };
+    })
+    .filter(Boolean);
+}
+
 function createGitStatusService({
   terminalManager,
   sessionStore,
@@ -330,9 +409,126 @@ function createGitStatusService({
     };
   }
 
+  async function getBranches(sessionId) {
+    const session = getSession(sessionId);
+    const output = await runGitForSession(session, [
+      "for-each-ref",
+      `--format=${BRANCH_FORMAT}`,
+      "refs/heads",
+      "refs/remotes"
+    ], {
+      actionName: "Git branch list"
+    });
+    return {
+      cwd: session.cwd,
+      branches: parseBranchList(output)
+    };
+  }
+
+  async function checkoutBranch(sessionId, branch) {
+    const session = getSession(sessionId);
+    const target = validateBranchEntry(branch);
+    const args = target.kind === "remote"
+      ? ["checkout", "--track", target.name]
+      : ["checkout", target.name];
+    const output = await runGitForSession(session, args, {
+      actionName: "Git checkout"
+    });
+    const [status, branches] = await Promise.all([
+      getStatus(sessionId),
+      getBranches(sessionId)
+    ]);
+    return {
+      ok: true,
+      cwd: session.cwd,
+      message: output.trim(),
+      status,
+      branches
+    };
+  }
+
+  async function getStashes(sessionId) {
+    const session = getSession(sessionId);
+    const output = await runGitForSession(session, [
+      "stash",
+      "list",
+      `--format=${STASH_FORMAT}`
+    ], {
+      actionName: "Git stash list"
+    });
+    return {
+      cwd: session.cwd,
+      stashes: parseStashList(output)
+    };
+  }
+
+  async function stashChanges(sessionId) {
+    const session = getSession(sessionId);
+    const output = await runGitForSession(session, ["stash", "push", "-u"], {
+      actionName: "Git stash"
+    });
+    return {
+      ok: true,
+      cwd: session.cwd,
+      message: output.trim()
+    };
+  }
+
+  async function applyStash(sessionId, ref) {
+    const session = getSession(sessionId);
+    const stashRef = validateStashRef(ref);
+    const output = await runGitForSession(session, ["stash", "apply", stashRef], {
+      actionName: "Git stash apply"
+    });
+    return {
+      ok: true,
+      cwd: session.cwd,
+      message: output.trim()
+    };
+  }
+
+  async function popStash(sessionId, ref) {
+    const session = getSession(sessionId);
+    const stashRef = validateStashRef(ref);
+    const output = await runGitForSession(session, ["stash", "pop", stashRef], {
+      actionName: "Git stash pop"
+    });
+    return {
+      ok: true,
+      cwd: session.cwd,
+      message: output.trim()
+    };
+  }
+
+  async function revertFile(sessionId, file) {
+    const session = getSession(sessionId);
+    const repoPath = validateRepoPath(file?.path);
+    const oldPath = file?.oldPath ? validateRepoPath(file.oldPath) : undefined;
+    const isUntracked = file?.status === "?";
+    const paths = oldPath && oldPath !== repoPath ? [repoPath, oldPath] : [repoPath];
+    const args = isUntracked
+      ? ["clean", "-f", "--", ...paths]
+      : ["restore", "--staged", "--worktree", "--", ...paths];
+    const output = await runGitForSession(session, args, {
+      actionName: "Git revert file"
+    });
+    return {
+      ok: true,
+      cwd: session.cwd,
+      message: output.trim()
+    };
+  }
+
   return {
     getStatus,
     getDiff,
+    getBranches,
+    checkoutBranch,
+    getStashes,
+    stashChanges,
+    applyStash,
+    popStash,
+    revertFile,
     parsePorcelainStatus,
     parseUnifiedDiff,
     getErrorMessage
@@ -343,5 +539,7 @@ module.exports = {
   STATUS_TIMEOUT_MS,
   createGitStatusService,
   parsePorcelainStatus,
-  parseUnifiedDiff
+  parseUnifiedDiff,
+  parseBranchList,
+  parseStashList
 };

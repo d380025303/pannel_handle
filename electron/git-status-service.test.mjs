@@ -3,7 +3,13 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createGitStatusService, parsePorcelainStatus, parseUnifiedDiff } = require("./git-status-service.cjs");
+const {
+  createGitStatusService,
+  parseBranchList,
+  parsePorcelainStatus,
+  parseStashList,
+  parseUnifiedDiff
+} = require("./git-status-service.cjs");
 
 function createTerminalManager(session) {
   return {
@@ -23,6 +29,26 @@ function createSpawnMock({ stdout = "", stderr = "", code = 0 } = {}) {
       if (stdout) child.stdout.emit("data", Buffer.from(stdout, "utf-8"));
       if (stderr) child.stderr.emit("data", Buffer.from(stderr, "utf-8"));
       child.emit("close", code);
+    });
+    return child;
+  });
+  spawn.calls = calls;
+  return spawn;
+}
+
+function createSpawnSequenceMock(results) {
+  const calls = [];
+  const spawn = vi.fn((command, args, options) => {
+    calls.push({ command, args, options });
+    const result = results[Math.min(calls.length - 1, results.length - 1)] || {};
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn();
+    queueMicrotask(() => {
+      if (result.stdout) child.stdout.emit("data", Buffer.from(result.stdout, "utf-8"));
+      if (result.stderr) child.stderr.emit("data", Buffer.from(result.stderr, "utf-8"));
+      child.emit("close", result.code ?? 0);
     });
     return child;
   });
@@ -65,6 +91,33 @@ describe("git-status-service", () => {
       { status: "D", label: "已删除", path: "old.txt" },
       { status: "?", label: "未跟踪", path: "scratch.txt" },
       { status: "R", label: "已重命名", path: "src/new-name.ts", oldPath: "src/old-name.ts" }
+    ]);
+  });
+
+  it("parses branch entries and filters remote HEAD refs", () => {
+    const output = [
+      "refs/heads/main\tmain\t*\tabc1234\t2 hours ago",
+      "refs/heads/feature/git\tfeature/git\t\tdef5678\t3 days ago",
+      "refs/remotes/origin/HEAD\torigin/HEAD\t\tabc1234\t2 hours ago",
+      "refs/remotes/origin/main\torigin/main\t\tabc1234\t2 hours ago"
+    ].join("\n");
+
+    expect(parseBranchList(output)).toEqual([
+      { name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" },
+      { name: "feature/git", kind: "local", current: false, commit: "def5678", relativeTime: "3 days ago" },
+      { name: "origin/main", kind: "remote", current: false, commit: "abc1234", relativeTime: "2 hours ago" }
+    ]);
+  });
+
+  it("parses stash list entries", () => {
+    const output = [
+      "stash@{0}\tabc123456789\t5 minutes ago\tWIP on main: abc1234 work",
+      "stash@{1}\tdef567812345\t2 days ago\tOn feature: scratch"
+    ].join("\n");
+
+    expect(parseStashList(output)).toEqual([
+      { ref: "stash@{0}", commit: "abc123456789", relativeTime: "5 minutes ago", message: "WIP on main: abc1234 work" },
+      { ref: "stash@{1}", commit: "def567812345", relativeTime: "2 days ago", message: "On feature: scratch" }
     ]);
   });
 
@@ -311,6 +364,135 @@ describe("git-status-service", () => {
       ["diff", "--no-color", "--no-index", "--", "/dev/null", "new.txt"],
       expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
     );
+  });
+
+  it("lists branches in a Windows session cwd", async () => {
+    const spawn = createSpawnMock({ stdout: "refs/heads/main\tmain\t*\tabc1234\t2 hours ago\n" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn
+    });
+
+    await expect(service.getBranches("run-1")).resolves.toEqual({
+      cwd: "C:\\work\\repo",
+      branches: [{ name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" }]
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      "git",
+      ["for-each-ref", expect.stringContaining("--format="), "refs/heads", "refs/remotes"],
+      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
+    );
+  });
+
+  it("checks out local and remote branches", async () => {
+    const spawn = createSpawnSequenceMock([
+      { stdout: "Switched to branch 'feature'\n" },
+      { stdout: "" },
+      { stdout: "refs/heads/feature\tfeature\t*\tabc1234\t1 minute ago\n" },
+      { stdout: "branch 'main' set up to track 'origin/main'\n" },
+      { stdout: "" },
+      { stdout: "refs/heads/main\tmain\t*\tabc1234\t1 minute ago\n" }
+    ]);
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn
+    });
+
+    await expect(service.checkoutBranch("run-1", { kind: "local", name: "feature" })).resolves.toMatchObject({ ok: true });
+    await expect(service.checkoutBranch("run-1", { kind: "remote", name: "origin/main" })).resolves.toMatchObject({ ok: true });
+    expect(spawn.calls[0]).toMatchObject({ command: "git", args: ["checkout", "feature"] });
+    expect(spawn.calls[3]).toMatchObject({ command: "git", args: ["checkout", "--track", "origin/main"] });
+  });
+
+  it("runs stash operations in Windows and WSL sessions", async () => {
+    const windowsSpawn = createSpawnMock({ stdout: "Saved working directory and index state WIP\n" });
+    const windowsService = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn: windowsSpawn
+    });
+    await expect(windowsService.stashChanges("run-1")).resolves.toMatchObject({ ok: true });
+    expect(windowsSpawn).toHaveBeenCalledWith(
+      "git",
+      ["stash", "push", "-u"],
+      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
+    );
+
+    const wslSpawn = createSpawnMock({ stdout: "" });
+    const wslService = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      sessionStore: {},
+      spawn: wslSpawn
+    });
+    await expect(wslService.applyStash("run-1", "stash@{0}")).resolves.toMatchObject({ ok: true });
+    await expect(wslService.popStash("run-1", "stash@{1}")).resolves.toMatchObject({ ok: true });
+    expect(wslSpawn.calls[0]).toMatchObject({
+      command: "wsl.exe",
+      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "stash", "apply", "stash@{0}"]
+    });
+    expect(wslSpawn.calls[1]).toMatchObject({
+      command: "wsl.exe",
+      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "stash", "pop", "stash@{1}"]
+    });
+  });
+
+  it("runs branch, stash, and revert operations over SSH", async () => {
+    const client = createSshClientMock({ stdout: "" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "ssh",
+        cwd: "/srv/app",
+        sshConfig: { host: "example.com", username: "deploy", encryptedSecret: "ciphertext" }
+      }),
+      sessionStore: { decryptSecret: vi.fn(() => "secret") },
+      clientFactory: () => client
+    });
+
+    await expect(service.stashChanges("run-1")).resolves.toMatchObject({ ok: true });
+    await expect(service.revertFile("run-1", { status: "?", path: "scratch.txt" })).resolves.toMatchObject({ ok: true });
+    expect(client.exec).toHaveBeenNthCalledWith(
+      1,
+      "cd '/srv/app' && git 'stash' 'push' '-u'",
+      expect.any(Function)
+    );
+    expect(client.exec).toHaveBeenNthCalledWith(
+      2,
+      "cd '/srv/app' && git 'clean' '-f' '--' 'scratch.txt'",
+      expect.any(Function)
+    );
+  });
+
+  it("reverts tracked, untracked, and renamed files", async () => {
+    const spawn = createSpawnMock({ stdout: "" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn
+    });
+
+    await expect(service.revertFile("run-1", { status: "M", path: "src/App.tsx" })).resolves.toMatchObject({ ok: true });
+    await expect(service.revertFile("run-1", { status: "?", path: "scratch.txt" })).resolves.toMatchObject({ ok: true });
+    await expect(service.revertFile("run-1", { status: "R", path: "new-name.ts", oldPath: "old-name.ts" })).resolves.toMatchObject({ ok: true });
+    expect(spawn.calls[0]).toMatchObject({ command: "git", args: ["restore", "--staged", "--worktree", "--", "src/App.tsx"] });
+    expect(spawn.calls[1]).toMatchObject({ command: "git", args: ["clean", "-f", "--", "scratch.txt"] });
+    expect(spawn.calls[2]).toMatchObject({ command: "git", args: ["restore", "--staged", "--worktree", "--", "new-name.ts", "old-name.ts"] });
+  });
+
+  it("rejects invalid stash refs and repository paths", async () => {
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      sessionStore: {},
+      spawn: createSpawnMock()
+    });
+
+    await expect(service.applyStash("run-1", "stash@{x}")).rejects.toThrow("stash reference");
+    await expect(service.popStash("run-1", "main")).rejects.toThrow("stash reference");
+    await expect(service.revertFile("run-1", { status: "M", path: "../secret.txt" })).rejects.toThrow("repository-relative path");
+    await expect(service.revertFile("run-1", { status: "M", path: "C:\\secret.txt" })).rejects.toThrow("repository-relative path");
+    await expect(service.revertFile("run-1", { status: "M", path: "bad\0path" })).rejects.toThrow("repository-relative path");
   });
 
   it("rejects missing sessions and failed git commands", async () => {

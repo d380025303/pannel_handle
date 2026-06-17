@@ -56,15 +56,25 @@ contextBridge.exposeInMainWorld("hookConfigApi", {
   install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
 });
 
+contextBridge.exposeInMainWorld("qqBotApi", {
+  getConfig: () => ipcRenderer.invoke("qq-bot:get-config"),
+  setConfig: (partial) => ipcRenderer.invoke("qq-bot:set-config", partial),
+  getStatus: () => ipcRenderer.invoke("qq-bot:get-status"),
+  testSend: () => ipcRenderer.invoke("qq-bot:test-send")
+});
+
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
-  readText: () => ipcRenderer.invoke("clipboard:read-text")
+  readText: () => ipcRenderer.invoke("clipboard:read-text"),
+  pasteImageToSession: (sessionId) => ipcRenderer.invoke("clipboard:paste-image-to-session", sessionId)
 });
 
 contextBridge.exposeInMainWorld("remoteFileApi", {
   getHome: (sessionId) => ipcRenderer.invoke("remote-files:home", { sessionId }),
   list: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:list", { sessionId, remotePath }),
   readText: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:read-text", { sessionId, remotePath }),
+  previewFile: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:preview-file", { sessionId, remotePath }),
+  releasePreview: (previewId) => ipcRenderer.invoke("remote-files:release-preview", { previewId }),
   writeText: (sessionId, remotePath, content, expectedVersion) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion }),
   uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
   downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName }),
@@ -77,7 +87,14 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
 
 contextBridge.exposeInMainWorld("gitApi", {
   getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId }),
-  getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file })
+  getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file }),
+  getBranches: (sessionId) => ipcRenderer.invoke("git:branches", { sessionId }),
+  checkoutBranch: (sessionId, branch) => ipcRenderer.invoke("git:checkout-branch", { sessionId, branch }),
+  getStashes: (sessionId) => ipcRenderer.invoke("git:stashes", { sessionId }),
+  stashChanges: (sessionId) => ipcRenderer.invoke("git:stash-changes", { sessionId }),
+  applyStash: (sessionId, ref) => ipcRenderer.invoke("git:apply-stash", { sessionId, ref }),
+  popStash: (sessionId, ref) => ipcRenderer.invoke("git:pop-stash", { sessionId, ref }),
+  revertFile: (sessionId, file) => ipcRenderer.invoke("git:revert-file", { sessionId, file })
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {

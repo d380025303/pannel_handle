@@ -141,6 +141,10 @@
   gap: 12px;
 }
 
+.settings-dialog {
+  width: 680px;
+}
+
 .auto-restore-checkbox {
   display: none;
 }
@@ -418,4 +422,67 @@
 
 .settings-theme-select {
   font-family: inherit;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-app);
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-section-header span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.qq-bot-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.qq-bot-status span {
+  padding: 3px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-control);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .settings-grid.two {
+    grid-template-columns: 1fr;
+  }
 }

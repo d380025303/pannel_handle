@@ -270,6 +270,58 @@ describe("agent-hook-server", () => {
     });
   });
 
+  it.each([
+    ["SessionStart", {}, "running"],
+    ["UserPromptSubmit", {}, "running"],
+    ["PreToolUse", { tool_name: "Bash" }, "running"],
+    ["PermissionRequest", { tool_name: "Bash" }, "waiting_for_permission"],
+    ["Notification", { notification_type: "permission_prompt" }, "waiting_for_permission"],
+    ["Notification", { notification_type: "idle_prompt" }, "e_prompt"],
+    ["PostToolUse", {}, "running"],
+    ["PostToolUse", { is_error: true }, "failed"],
+    ["PostToolUseFailure", {}, "failed"],
+    ["Stop", {}, "completed"],
+    ["SessionEnd", {}, "ended"]
+  ])("maps Qoder %s to %s", (eventName, extra, expectedStatus) => {
+    const { server, terminalManager } = createServer();
+
+    const handled = server.handleAgentHook("qoder", {
+      hook_event_name: eventName,
+      session_id: "qoder-1",
+      pannel_handle_session_id: "run-1",
+      ...extra
+    });
+
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "qoder",
+      status: expectedStatus,
+      eventName
+    }));
+  });
+
+  it("broadcasts unknown Qoder events only to debug", () => {
+    const { server, terminalManager } = createServer();
+    const payload = {
+      hook_event_name: "UnknownEvent",
+      session_id: "qoder-1",
+      pannel_handle_session_id: "run-1"
+    };
+
+    const handled = server.handleAgentHookDebug("qoder", payload);
+
+    expect(handled).toBe(false);
+    expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
+    expect(terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith({
+      provider: "qoder",
+      eventName: "UnknownEvent",
+      matchedSessionId: "run-1",
+      handled: false,
+      payload
+    });
+  });
+
   it("maps Claude Notification+idle_prompt to e_prompt", () => {
     const { server, terminalManager } = createServer();
 

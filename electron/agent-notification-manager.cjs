@@ -24,6 +24,7 @@ function createAgentNotificationManager({
   function getProviderName(provider) {
     if (provider === "codex") return "Codex";
     if (provider === "opencode") return "OpenCode";
+    if (provider === "qoder") return "Qoder";
     return "Claude";
   }
 

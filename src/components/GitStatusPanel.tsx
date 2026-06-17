@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { FileDiff, GitBranch, RefreshCw, X } from "lucide-react";
-import type { GitDiffResult, GitStatusEntry, GitStatusResult, TerminalSession } from "../vite-env";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, FileDiff, GitBranch, RefreshCw, RotateCcw, X } from "lucide-react";
+import type {
+  GitBranchEntry,
+  GitBranchListResult,
+  GitDiffResult,
+  GitStashListResult,
+  GitStatusEntry,
+  GitStatusResult,
+  TerminalSession
+} from "../vite-env";
 
 type GitStatusPanelProps = {
   session?: TerminalSession;
@@ -9,7 +17,7 @@ type GitStatusPanelProps = {
 type GitStatusState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; result: GitStatusResult }
+  | { status: "ready"; result: GitStatusResult; branches: GitBranchListResult; stashes: GitStashListResult }
   | { status: "error"; message: string };
 
 type GitDiffState =
@@ -17,6 +25,11 @@ type GitDiffState =
   | { status: "loading"; file: GitStatusEntry }
   | { status: "ready"; file: GitStatusEntry; result: GitDiffResult }
   | { status: "error"; file: GitStatusEntry; message: string };
+
+type OperationState =
+  | { status: "idle" }
+  | { status: "running"; label: string }
+  | { status: "error"; message: string };
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
@@ -34,6 +47,10 @@ function formatFilePath(file: Pick<GitStatusEntry, "path" | "oldPath">) {
 
 function formatLineNumber(value?: number) {
   return typeof value === "number" ? String(value) : "";
+}
+
+function branchKey(branch: Pick<GitBranchEntry, "kind" | "name">) {
+  return `${branch.kind}:${branch.name}`;
 }
 
 function GitDiffDialog({ state, onRetry, onClose }: {
@@ -98,12 +115,56 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   );
 }
 
+function GitStashDialog({ stashes, busy, onApply, onPop, onClose }: {
+  stashes: GitStashListResult;
+  busy: boolean;
+  onApply: (ref: string) => void;
+  onPop: (ref: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="git-stash-overlay" onClick={onClose}>
+      <div className="git-stash-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="git-stash-header">
+          <span>
+            <Archive aria-hidden="true" />
+            Stashes
+          </span>
+          <button className="icon-button" type="button" title="Close stash list" aria-label="Close stash list" onClick={onClose}>
+            <X aria-hidden="true" />
+          </button>
+        </div>
+        <div className="git-stash-list">
+          {stashes.stashes.length === 0 ? (
+            <div className="git-status-empty">No stashes found.</div>
+          ) : stashes.stashes.map((stash) => (
+            <div className="git-stash-row" key={stash.ref}>
+              <div className="git-stash-main">
+                <strong>{stash.ref}</strong>
+                <span title={stash.message}>{stash.message}</span>
+                <small>{stash.commit.slice(0, 8)} · {stash.relativeTime}</small>
+              </div>
+              <div className="git-stash-actions">
+                <button className="modal-button" type="button" disabled={busy} onClick={() => onApply(stash.ref)}>Apply</button>
+                <button className="modal-button primary" type="button" disabled={busy} onClick={() => onPop(stash.ref)}>Pop</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GitStatusPanel({ session }: GitStatusPanelProps) {
   const [state, setState] = useState<GitStatusState>({ status: "idle" });
   const [diffState, setDiffState] = useState<GitDiffState>({ status: "idle" });
+  const [operation, setOperation] = useState<OperationState>({ status: "idle" });
+  const [showStashes, setShowStashes] = useState(false);
   const requestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const sessionId = session?.id;
+  const isBusy = state.status === "loading" || operation.status === "running";
 
   const loadStatus = useCallback(async () => {
     if (!sessionId) {
@@ -114,9 +175,13 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
     requestRef.current = requestId;
     setState({ status: "loading" });
     try {
-      const result = await window.gitApi.getStatus(sessionId);
+      const [result, branches, stashes] = await Promise.all([
+        window.gitApi.getStatus(sessionId),
+        window.gitApi.getBranches(sessionId),
+        window.gitApi.getStashes(sessionId)
+      ]);
       if (requestRef.current === requestId) {
-        setState({ status: "ready", result });
+        setState({ status: "ready", result, branches, stashes });
       }
     } catch (err) {
       if (requestRef.current === requestId) {
@@ -134,6 +199,8 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
 
   useEffect(() => {
     setDiffState({ status: "idle" });
+    setOperation({ status: "idle" });
+    setShowStashes(false);
     diffRequestRef.current += 1;
   }, [sessionId]);
 
@@ -158,6 +225,60 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
       }
     }
   }, [sessionId]);
+
+  const runOperation = useCallback(async (label: string, action: () => Promise<unknown>) => {
+    if (!sessionId) return;
+    setOperation({ status: "running", label });
+    try {
+      await action();
+      setOperation({ status: "idle" });
+      await loadStatus();
+    } catch (err) {
+      setOperation({ status: "error", message: getErrorMessage(err) });
+    }
+  }, [loadStatus, sessionId]);
+
+  const currentBranch = useMemo(() => {
+    if (state.status !== "ready") return undefined;
+    return state.branches.branches.find((branch) => branch.current);
+  }, [state]);
+
+  const handleCheckout = useCallback((value: string) => {
+    if (!sessionId || state.status !== "ready" || !value) return;
+    const branch = state.branches.branches.find((candidate) => branchKey(candidate) === value);
+    if (!branch || branch.current) return;
+    void runOperation(`Checking out ${branch.name}`, () => window.gitApi.checkoutBranch(sessionId, {
+      name: branch.name,
+      kind: branch.kind
+    }));
+  }, [runOperation, sessionId, state]);
+
+  const handleStash = useCallback(() => {
+    if (!sessionId) return;
+    void runOperation("Stashing changes", () => window.gitApi.stashChanges(sessionId));
+  }, [runOperation, sessionId]);
+
+  const handleApplyStash = useCallback((ref: string) => {
+    if (!sessionId) return;
+    void runOperation(`Applying ${ref}`, () => window.gitApi.applyStash(sessionId, ref));
+  }, [runOperation, sessionId]);
+
+  const handlePopStash = useCallback((ref: string) => {
+    if (!sessionId) return;
+    void runOperation(`Popping ${ref}`, () => window.gitApi.popStash(sessionId, ref));
+  }, [runOperation, sessionId]);
+
+  const handleRevertFile = useCallback((file: GitStatusEntry) => {
+    if (!sessionId) return;
+    const fileTitle = formatFilePath(file);
+    if (!window.confirm(`Discard changes to ${fileTitle}?`)) {
+      return;
+    }
+    void runOperation(`Discarding ${file.path}`, async () => {
+      await window.gitApi.revertFile(sessionId, file);
+      closeDiff();
+    });
+  }, [closeDiff, runOperation, sessionId]);
 
   if (!sessionId || !session) {
     return (
@@ -186,12 +307,52 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
             type="button"
             title="Refresh Git status"
             aria-label="Refresh Git status"
-            disabled={state.status === "loading"}
+            disabled={isBusy}
             onClick={() => void loadStatus()}
           >
             <RefreshCw aria-hidden="true" />
           </button>
         </div>
+
+        {state.status === "ready" && (
+          <div className="git-status-actions">
+            <label className="git-branch-select">
+              <GitBranch aria-hidden="true" />
+              <select
+                value={currentBranch ? branchKey(currentBranch) : ""}
+                disabled={isBusy}
+                title="Checkout branch"
+                aria-label="Checkout branch"
+                onChange={(event) => handleCheckout(event.target.value)}
+              >
+                <option value="" disabled>Checkout branch</option>
+                {state.branches.branches.map((branch) => (
+                  <option value={branchKey(branch)} key={branchKey(branch)}>
+                    {branch.current ? "✓ " : ""}{branch.name}{branch.kind === "remote" ? " (remote)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="git-action-button" type="button" disabled={isBusy} onClick={handleStash}>
+              <Archive aria-hidden="true" />
+              Stash
+            </button>
+            <button className="git-action-button" type="button" disabled={isBusy} onClick={() => setShowStashes(true)}>
+              Stashes ({state.stashes.stashes.length})
+            </button>
+          </div>
+        )}
+
+        {operation.status === "running" && (
+          <div className="git-status-note">{operation.label}...</div>
+        )}
+
+        {operation.status === "error" && (
+          <div className="git-status-error">
+            <span>{operation.message}</span>
+            <button type="button" onClick={() => setOperation({ status: "idle" })}>Dismiss</button>
+          </div>
+        )}
 
         {state.status === "error" && (
           <div className="git-status-error">
@@ -200,7 +361,7 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
           </div>
         )}
 
-        <div className="git-status-list" aria-busy={state.status === "loading"}>
+        <div className="git-status-list" aria-busy={state.status === "loading" || operation.status === "running"}>
           {state.status === "loading" ? (
             <div className="git-status-empty">Loading Git status...</div>
           ) : state.status === "ready" && state.result.clean ? (
@@ -213,18 +374,32 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
               const fileTitle = formatFilePath(file);
               const isDiffLoading = diffState.status === "loading" && diffState.file.path === file.path;
               return (
-                <button
+                <div
                   className={`git-status-row ${isDiffLoading ? "loading" : ""}`}
-                  type="button"
                   key={`${file.status}:${file.path}:${file.oldPath || ""}`}
-                  title={`Open diff: ${fileTitle}`}
-                  onClick={() => void loadDiff(file)}
                 >
-                  <span className={`git-status-badge status-${getStatusClass(file.status)}`}>{file.label}</span>
-                  <span className="git-status-path" title={fileTitle}>
-                    {fileTitle}
-                  </span>
-                </button>
+                  <button
+                    className="git-status-file-btn"
+                    type="button"
+                    title={`Open diff: ${fileTitle}`}
+                    onClick={() => void loadDiff(file)}
+                  >
+                    <span className={`git-status-badge status-${getStatusClass(file.status)}`}>{file.label}</span>
+                    <span className="git-status-path" title={fileTitle}>
+                      {fileTitle}
+                    </span>
+                  </button>
+                  <button
+                    className="git-status-revert"
+                    type="button"
+                    title={`Discard changes: ${fileTitle}`}
+                    aria-label={`Discard changes: ${fileTitle}`}
+                    disabled={isBusy}
+                    onClick={() => handleRevertFile(file)}
+                  >
+                    <RotateCcw aria-hidden="true" />
+                  </button>
+                </div>
               );
             })
           ) : (
@@ -235,6 +410,16 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
 
       {diffState.status !== "idle" && (
         <GitDiffDialog state={diffState} onRetry={(file) => void loadDiff(file)} onClose={closeDiff} />
+      )}
+
+      {showStashes && state.status === "ready" && (
+        <GitStashDialog
+          stashes={state.stashes}
+          busy={isBusy}
+          onApply={handleApplyStash}
+          onPop={handlePopStash}
+          onClose={() => setShowStashes(false)}
+        />
       )}
     </>
   );

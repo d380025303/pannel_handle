@@ -96,6 +96,14 @@ describe("agent-notification-manager", () => {
     expect(notifications[0].options.title).toBe("OpenCode 已完成");
   });
 
+  it("uses the Qoder provider name", () => {
+    const { manager, notifications } = createHarness();
+
+    manager.handleStatus(status("completed", "qoder"));
+
+    expect(notifications[0].options.title).toMatch(/^Qoder /);
+  });
+
   it("does not notify for other statuses or while the window is focused", () => {
     const { manager, notifications, windowManager } = createHarness();
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, RefreshCw, Save, Search, Upload, X } from "lucide-react";
-import type { RemoteFileEntry, RemoteTextPreview, TerminalSession } from "../vite-env";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Upload, Video, X } from "lucide-react";
+import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
   session?: TerminalSession;
@@ -12,7 +12,7 @@ type RemoteFilePanelProps = {
 type PreviewState =
   | { status: "idle" }
   | { status: "loading"; path: string }
-  | { status: "ready"; sessionId: string; path: string; fileName: string; preview: RemoteTextPreview }
+  | { status: "ready"; sessionId: string; path: string; fileName: string; preview: RemoteFilePreview }
   | { status: "error"; path: string; message: string };
 
 type SaveState =
@@ -62,6 +62,10 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
+function getPreviewId(preview: RemoteFilePreview) {
+  return preview.kind === "image" || preview.kind === "video" ? preview.previewId : null;
+}
+
 export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
@@ -83,6 +87,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   const dirtyRef = useRef(false);
   const matchNavigationRef = useRef(false);
   const handledOpenRequestRef = useRef(0);
+  const activePreviewIdRef = useRef<string | null>(null);
 
   const sessionId = session?.id;
 
@@ -151,6 +156,14 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     !dirtyRef.current || window.confirm("Discard unsaved file changes?")
   ), []);
 
+  const releaseActivePreview = useCallback(() => {
+    const previewId = activePreviewIdRef.current;
+    if (previewId) {
+      void window.remoteFileApi.releasePreview(previewId);
+      activePreviewIdRef.current = null;
+    }
+  }, []);
+
   const resetEditor = useCallback(() => {
     saveRequestRef.current += 1;
     setOriginalContent("");
@@ -169,6 +182,10 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     previewRequestRef.current += 1;
+    releaseActivePreview();
+    setSelectedPath(null);
+    setPreview({ status: "idle" });
+    resetEditor();
     setLoading(true);
     setError(null);
     try {
@@ -177,9 +194,6 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       setCurrentPath(path);
       setPathInput(path);
       setEntries(nextEntries);
-      setSelectedPath(null);
-      setPreview({ status: "idle" });
-      resetEditor();
       if (!preserveSearch) {
         setSearchQuery("");
       }
@@ -193,7 +207,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       }
     }
     return undefined;
-  }, [confirmDiscard, resetEditor, sessionId]);
+  }, [confirmDiscard, releaseActivePreview, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -204,6 +218,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       setPreview({ status: "idle" });
       setSearchQuery("");
       resetEditor();
+      releaseActivePreview();
       setError(null);
       setLoading(false);
       previewRequestRef.current += 1;
@@ -232,8 +247,9 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
+      releaseActivePreview();
     };
-  }, [confirmDiscard, loadDirectory, resetEditor, sessionId]);
+  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.path === selectedPath) {
@@ -244,6 +260,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     }
     setSelectedPath(entry.path);
     resetEditor();
+    releaseActivePreview();
     if (entry.type === "directory") {
       await loadDirectory(entry.path, false, true);
       return;
@@ -254,8 +271,15 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     previewRequestRef.current = requestId;
     setPreview({ status: "loading", path: entry.path });
     try {
-      const nextPreview = await window.remoteFileApi.readText(sessionId, entry.path);
-      if (previewRequestRef.current !== requestId) return;
+      const nextPreview = await window.remoteFileApi.previewFile(sessionId, entry.path);
+      if (previewRequestRef.current !== requestId) {
+        const stalePreviewId = getPreviewId(nextPreview);
+        if (stalePreviewId) {
+          void window.remoteFileApi.releasePreview(stalePreviewId);
+        }
+        return;
+      }
+      activePreviewIdRef.current = getPreviewId(nextPreview);
       setPreview({
         status: "ready",
         sessionId,
@@ -275,7 +299,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         message: getErrorMessage(err)
       });
     }
-  }, [confirmDiscard, loadDirectory, resetEditor, selectedPath, sessionId]);
+  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, selectedPath, sessionId]);
 
   useEffect(() => {
     if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
@@ -349,10 +373,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       return;
     }
     previewRequestRef.current += 1;
+    releaseActivePreview();
     setSelectedPath(null);
     setPreview({ status: "idle" });
     resetEditor();
-  }, [confirmDiscard, resetEditor]);
+  }, [confirmDiscard, releaseActivePreview, resetEditor]);
 
   useEffect(() => {
     if (!isPreviewActive) return;
@@ -373,8 +398,16 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     previewRequestRef.current = requestId;
     setSaveState({ status: "idle" });
     try {
-      const nextPreview = await window.remoteFileApi.readText(preview.sessionId, preview.path);
-      if (previewRequestRef.current !== requestId) return;
+      releaseActivePreview();
+      const nextPreview = await window.remoteFileApi.previewFile(preview.sessionId, preview.path);
+      if (previewRequestRef.current !== requestId) {
+        const stalePreviewId = getPreviewId(nextPreview);
+        if (stalePreviewId) {
+          void window.remoteFileApi.releasePreview(stalePreviewId);
+        }
+        return;
+      }
+      activePreviewIdRef.current = getPreviewId(nextPreview);
       setPreview({ ...preview, preview: nextPreview });
       if (nextPreview.kind === "text") {
         setOriginalContent(nextPreview.content);
@@ -387,7 +420,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       if (previewRequestRef.current !== requestId) return;
       setSaveState({ status: "error", message: getErrorMessage(err) });
     }
-  }, [confirmDiscard, preview]);
+  }, [confirmDiscard, preview, releaseActivePreview]);
 
   const handleSavePreview = useCallback(async () => {
     if (
@@ -456,6 +489,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       (current + direction + previewMatches.length) % previewMatches.length
     ));
   }, [previewMatches.length]);
+
+  const previewIcon = preview.status === "ready" && preview.preview.kind === "image"
+    ? <ImageIcon aria-hidden="true" />
+    : preview.status === "ready" && preview.preview.kind === "video"
+      ? <Video aria-hidden="true" />
+      : <FileText aria-hidden="true" />;
 
   if (!sessionId || !session) {
     return (
@@ -589,7 +628,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
           <div className="remote-file-preview">
           <div className="remote-preview-header">
             <span>
-              <FileText aria-hidden="true" />
+              {previewIcon}
               {selectedEntry?.name || preview.path}
               {isDirty && <strong className="remote-preview-dirty" title="Unsaved changes">*</strong>}
             </span>
@@ -702,6 +741,14 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
                 File is {formatSize(preview.preview.size)}. Download it to view locally.
+              </div>
+            ) : preview.preview.kind === "image" ? (
+              <div className="remote-preview-media">
+                <img src={preview.preview.url} alt={preview.fileName} />
+              </div>
+            ) : preview.preview.kind === "video" ? (
+              <div className="remote-preview-media">
+                <video src={preview.preview.url} controls preload="metadata" />
               </div>
             ) : (
               <div className="remote-file-empty">Binary file. Download it to view locally.</div>

@@ -11,13 +11,14 @@ type HookInstallModalProps = {
   onCancel: () => void;
 };
 
-const localProviders: HookProvider[] = ["claude", "codex", "opencode"];
-const sshProviders: HookProvider[] = ["claude", "codex"];
+const localProviders: HookProvider[] = ["claude", "codex", "opencode", "qoder"];
+const sshProviders: HookProvider[] = ["claude", "codex", "qoder"];
 
 const providerNames: Record<HookProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
-  opencode: "OpenCode"
+  opencode: "OpenCode",
+  qoder: "Qoder"
 };
 
 const statusLabels = {

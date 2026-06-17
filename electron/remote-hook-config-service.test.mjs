@@ -92,6 +92,9 @@ describe("remote-hook-config-service", () => {
     expect(buildRemoteHookCommand("claude", "http://127.0.0.1:31847/claude-hook", "run-1")).toBe(
       "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:31847/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .claude/pannel-handle-hook.sh"
     );
+    expect(buildRemoteHookCommand("qoder", "http://127.0.0.1:31847/claude-hook", "run-1")).toBe(
+      "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:31847/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .qoder/pannel-handle-hook.sh"
+    );
   });
 
   it("installs Claude and Codex hooks into a remote Linux project", async () => {
@@ -122,6 +125,31 @@ describe("remote-hook-config-service", () => {
 
     const codexConfig = JSON.parse(sftp.read("/srv/app/.codex/hooks.json"));
     expect(codexConfig.hooks.SessionStart[0].hooks[0].command).toContain(".codex/pannel-handle-hook.sh");
+  });
+
+  it("installs Qoder hooks into a remote Linux project", async () => {
+    const sftp = createMemorySftp({
+      "/srv/app/.qoder/settings.json": JSON.stringify({
+        env: { EXAMPLE: "1" }
+      })
+    });
+    const service = createService(sftp);
+
+    const result = await service.install(
+      { type: "ssh", sessionId: "run-1", path: "/srv/app" },
+      ["qoder"]
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.qoder.status).toBe("installed");
+    expect(sftp.read("/srv/app/.qoder/settings.json.pannel-handle.bak")).toContain("EXAMPLE");
+    expect(sftp.read("/srv/app/.qoder/pannel-handle-hook.sh")).toContain("qoder_hook_url");
+
+    const qoderConfig = JSON.parse(sftp.read("/srv/app/.qoder/settings.json"));
+    expect(qoderConfig.env.EXAMPLE).toBe("1");
+    expect(qoderConfig.hooks.SessionStart[0].hooks[0].command).toContain("PANNEL_HANDLE_SESSION_ID='run-1'");
+    expect(qoderConfig.hooks.SessionStart[0].hooks[0].command).toContain("127.0.0.1:31847");
+    expect(qoderConfig.hooks.Stop[0].hooks[0].command).toContain(".qoder/pannel-handle-hook.sh");
   });
 
   it("rolls back earlier remote writes when a later write fails", async () => {

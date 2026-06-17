@@ -37,7 +37,7 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 
 function hasBlockingOverlay() {
   return Boolean(document.querySelector(
-    ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .project-search-overlay"
+    ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .git-stash-overlay, .project-search-overlay"
   ));
 }
 

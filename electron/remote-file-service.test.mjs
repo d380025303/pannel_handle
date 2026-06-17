@@ -23,6 +23,7 @@ function createSftpMock(overrides = {}) {
     list: vi.fn(async () => []),
     stat: vi.fn(async () => ({ size: 4 })),
     get: vi.fn(async () => Buffer.from("text")),
+    mkdir: vi.fn(),
     put: vi.fn(),
     fastPut: vi.fn(),
     fastGet: vi.fn(),
@@ -36,6 +37,15 @@ function createShellMock(overrides = {}) {
     openPath: vi.fn(async () => ""),
     ...overrides
   };
+}
+
+function readStream(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
 }
 
 describe("remote-file-service", () => {
@@ -143,6 +153,51 @@ describe("remote-file-service", () => {
     }
   });
 
+  it("creates Windows image preview urls and streams media ranges", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const filePath = path.join(dir, "image.png");
+    const content = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    fs.writeFileSync(filePath, content);
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      const preview = await service.previewFile("run-1", filePath);
+      expect(preview).toEqual(expect.objectContaining({
+        kind: "image",
+        size: content.length,
+        mime: "image/png",
+        previewId: expect.any(String),
+        url: expect.stringMatching(/^pannel-media:\/\/preview\//)
+      }));
+
+      const fullResponse = service.createPreviewStreamResponse(preview.previewId);
+      expect(fullResponse.statusCode).toBe(200);
+      expect(fullResponse.headers).toEqual(expect.objectContaining({
+        "Content-Type": "image/png",
+        "Content-Length": String(content.length),
+        "Accept-Ranges": "bytes"
+      }));
+      await expect(readStream(fullResponse.data)).resolves.toEqual(content);
+
+      const rangeResponse = service.createPreviewStreamResponse(preview.url, "bytes=2-5");
+      expect(rangeResponse.statusCode).toBe(206);
+      expect(rangeResponse.headers).toEqual(expect.objectContaining({
+        "Content-Range": "bytes 2-5/10",
+        "Content-Length": "4"
+      }));
+      await expect(readStream(rangeResponse.data)).resolves.toEqual(Buffer.from([2, 3, 4, 5]));
+
+      expect(service.releasePreview(preview.previewId)).toBe(true);
+      expect(() => service.createPreviewStreamResponse(preview.previewId)).toThrow("Preview is not available.");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("maps WSL Linux paths to the distro UNC path", async () => {
     const readdir = vi.fn(async () => [
       { name: "app.js", isDirectory: () => false, isSymbolicLink: () => false }
@@ -166,6 +221,31 @@ describe("remote-file-service", () => {
     ]);
     expect(readdir).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project", { withFileTypes: true });
     expect(stat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\app.js");
+  });
+
+  it("creates WSL video previews through the distro UNC path", async () => {
+    const stat = vi.fn(async () => ({ size: 128, isFile: () => true }));
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => createSftpMock(),
+      fsApi: {
+        promises: {
+          stat
+        }
+      }
+    });
+
+    const preview = await service.previewFile("run-1", "/home/me/project/clip.mp4");
+    expect(preview).toEqual(expect.objectContaining({
+      kind: "video",
+      size: 128,
+      mime: "video/mp4",
+      previewId: expect.any(String),
+      url: expect.stringMatching(/^pannel-media:\/\/preview\//)
+    }));
+    expect(stat).toHaveBeenCalledWith("\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\project\\clip.mp4");
+    expect(service.releasePreview(preview.previewId)).toBe(true);
   });
 
   it("opens the current Windows directory in Explorer", async () => {
@@ -266,6 +346,28 @@ describe("remote-file-service", () => {
     });
   });
 
+  it("does not create local media previews for SSH files", async () => {
+    const session = {
+      id: "run-1",
+      type: "ssh",
+      sshConfig: { host: "example.com", extraArgs: [] }
+    };
+    const sftp = createSftpMock({
+      stat: vi.fn(async () => ({ size: 3 })),
+      get: vi.fn(async () => Buffer.from([0, 1, 2]))
+    });
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.previewFile("run-1", "/tmp/image.png")).resolves.toEqual({
+      kind: "binary",
+      size: 3
+    });
+  });
+
   it("writes text when the expected content version still matches", async () => {
     const session = {
       id: "run-1",
@@ -290,6 +392,49 @@ describe("remote-file-service", () => {
       version: "27eb5e51506c911f6fc4bb345c0d9db6f60415fceab7c18e1e9b862637415777"
     });
     expect(sftp.put).toHaveBeenCalledWith(Buffer.from("updated"), "/tmp/a.txt");
+  });
+
+  it("writes Windows binary files and creates parent directories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
+    const imagePath = path.join(dir, ".pannel-handle-images", "image.png");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.writeBinaryFile("run-1", imagePath, Buffer.from([1, 2, 3]))).resolves.toEqual({
+        remotePath: imagePath
+      });
+      expect(fs.readFileSync(imagePath)).toEqual(Buffer.from([1, 2, 3]));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes SSH binary files after ensuring the remote directory exists", async () => {
+    const session = {
+      id: "run-1",
+      type: "ssh",
+      sshConfig: { host: "example.com", extraArgs: [] }
+    };
+    const sftp = createSftpMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.writeBinaryFile(
+      "run-1",
+      "/home/deploy/.pannel-handle-images/image.png",
+      Buffer.from([4, 5, 6])
+    )).resolves.toEqual({
+      remotePath: "/home/deploy/.pannel-handle-images/image.png"
+    });
+    expect(sftp.mkdir).toHaveBeenCalledWith("/home/deploy/.pannel-handle-images", true);
+    expect(sftp.put).toHaveBeenCalledWith(Buffer.from([4, 5, 6]), "/home/deploy/.pannel-handle-images/image.png");
   });
 
   it("rejects a conflicting remote change without writing", async () => {

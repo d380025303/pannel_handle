@@ -1,14 +1,17 @@
 const path = require("node:path");
-const { app, BrowserWindow, clipboard, dialog, Notification, safeStorage, shell } = require("electron");
+const { Readable } = require("node:stream");
+const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
 const { createAgentNotificationManager } = require("./agent-notification-manager.cjs");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
+const { createClipboardImageService } = require("./clipboard-image-service.cjs");
 const { createConfigStore } = require("./config-store.cjs");
 const { createGitStatusService } = require("./git-status-service.cjs");
 const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
 const { createProjectSearchService } = require("./project-search-service.cjs");
-const { createRemoteFileService } = require("./remote-file-service.cjs");
+const { createQqBotNotificationService } = require("./qq-bot-notification-service.cjs");
+const { MEDIA_PROTOCOL, createRemoteFileService } = require("./remote-file-service.cjs");
 const { createRemoteHookConfigService } = require("./remote-hook-config-service.cjs");
 const { createRemoteSystemService } = require("./remote-system-service.cjs");
 const { createSessionStore } = require("./session-store.cjs");
@@ -30,8 +33,42 @@ let sshSessionRuntime = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
+let qqBotNotificationService = null;
 let gitStatusService = null;
 let projectSearchService = null;
+let clipboardImageService = null;
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: MEDIA_PROTOCOL,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    stream: true
+  }
+}]);
+
+function registerMediaPreviewProtocol() {
+  protocol.registerStreamProtocol(MEDIA_PROTOCOL, (request, callback) => {
+    try {
+      if (!remoteFileService) {
+        throw new Error("Media preview service is not available.");
+      }
+      const rangeHeader = request.headers?.Range || request.headers?.range;
+      callback(remoteFileService.createPreviewStreamResponse(request.url, rangeHeader));
+    } catch (err) {
+      callback({
+        statusCode: 404,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Type": "text/plain",
+          "Content-Length": "0"
+        },
+        data: Readable.from([])
+      });
+    }
+  });
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -56,7 +93,8 @@ if (!gotSingleInstanceLock) {
       safeStorage
     });
     configStore = createConfigStore({
-      configFile: path.join(app.getPath("userData"), "config.json")
+      configFile: path.join(app.getPath("userData"), "config.json"),
+      safeStorage
     });
     knownHostStore = createKnownHostStore({
       knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json")
@@ -74,10 +112,16 @@ if (!gotSingleInstanceLock) {
         if (agentNotificationManager) {
           agentNotificationManager.handleStatus(payload);
         }
+        if (qqBotNotificationService) {
+          void qqBotNotificationService.handleStatus(payload);
+        }
       },
       onSessionClosed: (id) => {
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
+        }
+        if (qqBotNotificationService) {
+          qqBotNotificationService.clearSession(id);
         }
         if (remoteFileService) {
           void remoteFileService.disconnect(id);
@@ -95,6 +139,10 @@ if (!gotSingleInstanceLock) {
       windowManager,
       terminalManager
     });
+    qqBotNotificationService = createQqBotNotificationService({
+      configStore,
+      terminalManager
+    });
     sshSessionRuntime = createSshSessionRuntime({
       terminalManager,
       sessionStore,
@@ -106,6 +154,12 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime,
       shellApi: shell
+    });
+    registerMediaPreviewProtocol();
+    clipboardImageService = createClipboardImageService({
+      clipboard,
+      terminalManager,
+      remoteFileService
     });
     remoteSystemService = createRemoteSystemService({
       terminalManager,
@@ -146,14 +200,17 @@ if (!gotSingleInstanceLock) {
       configStore,
       windowManager,
       clipboard,
+      clipboardImageService,
       dialog,
       remoteFileService,
       remoteSystemService,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,
-      projectSearchService
+      projectSearchService,
+      qqBotNotificationService
     });
+    qqBotNotificationService.start();
     windowManager.createWindow();
 
     app.on("activate", () => {
@@ -188,6 +245,9 @@ app.on("window-all-closed", () => {
   }
   if (agentNotificationManager) {
     agentNotificationManager.shutdown();
+  }
+  if (qqBotNotificationService) {
+    qqBotNotificationService.shutdown();
   }
   if (windowManager) {
     windowManager.closeWindowManager();

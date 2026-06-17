@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 
-const PROVIDERS = ["claude", "codex", "opencode"];
+const PROVIDERS = ["claude", "codex", "opencode", "qoder"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -41,6 +41,27 @@ const PROVIDER_CONFIG = {
       ["Stop", "*"]
     ]
   },
+  qoder: {
+    configPath: [".qoder", "settings.json"],
+    windowsScriptPath: [".qoder", "pannel-handle-hook.ps1"],
+    wslScriptPath: [".qoder", "pannel-handle-hook.sh"],
+    windowsAsset: "pannel-handle-qoder-hook.ps1",
+    wslAsset: "pannel-handle-qoder-hook.sh",
+    windowsCommand: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .qoder/pannel-handle-hook.ps1",
+    wslCommand: "bash .qoder/pannel-handle-hook.sh",
+    events: [
+      ["SessionStart", "*"],
+      ["UserPromptSubmit", "*"],
+      ["PreToolUse", "*"],
+      ["PermissionRequest", "*"],
+      ["PostToolUse", "*"],
+      ["PostToolUseFailure", "*"],
+      ["Notification", "permission_prompt"],
+      ["Notification", "idle_prompt"],
+      ["Stop", "*"],
+      ["SessionEnd", "*"]
+    ]
+  },
   opencode: {
     scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
     asset: "pannel-handle-opencode-plugin.js"
@@ -48,7 +69,7 @@ const PROVIDER_CONFIG = {
 };
 
 function isManagedCommand(command) {
-  return typeof command === "string" && /pannel-handle-(?:codex-)?hook\.(?:ps1|sh)/i.test(command);
+  return typeof command === "string" && /pannel-handle-(?:codex-|qoder-)?hook\.(?:ps1|sh)/i.test(command);
 }
 
 function normalizeProviders(providers) {

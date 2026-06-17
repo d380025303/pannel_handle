@@ -23,21 +23,25 @@ afterEach(() => {
 });
 
 describe("hook-config-manager", () => {
-  it("installs Claude, Codex, and OpenCode hooks into an empty Windows project", () => {
+  it("installs Claude, Codex, OpenCode, and Qoder hooks into an empty Windows project", () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });
 
-    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "opencode"]);
+    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "opencode", "qoder"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.claude.status).toBe("installed");
     expect(result.providers.codex.status).toBe("installed");
     expect(result.providers.opencode.status).toBe("installed");
+    expect(result.providers.qoder.status).toBe("installed");
     expect(result.providers.opencode.configPath).toBeUndefined();
     expect(result.providers.opencode.managedHookCount).toBe(1);
     expect(fs.existsSync(path.join(projectPath, ".claude", "pannel-handle-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".codex", "pannel-handle-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".qoder", "pannel-handle-hook.ps1"))).toBe(true);
+    expect(manager.inspect({ type: "windows", path: projectPath }, ["qoder"]).providers.qoder.status).toBe("installed");
   });
 
   it("reports and repairs a modified OpenCode plugin without creating opencode.json", () => {
@@ -100,6 +104,35 @@ describe("hook-config-manager", () => {
     expect(commands.filter(command => command === "other-hook")).toHaveLength(1);
     expect(commands.filter(command => command.includes("pannel-handle-hook.ps1"))).toHaveLength(9);
     expect(fs.existsSync(`${configPath}.pannel-handle.bak`)).toBe(true);
+  });
+
+  it("preserves Qoder settings and non-managed hooks", () => {
+    const projectPath = createProject();
+    const configPath = path.join(projectPath, ".qoder", "settings.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      env: { EXAMPLE: "1" },
+      hooks: {
+        Stop: [
+          { hooks: [{ type: "command", command: "custom-qoder-hook" }] },
+          { hooks: [{ type: "command", command: "powershell -File old/pannel-handle-qoder-hook.ps1" }] }
+        ]
+      }
+    }), "utf-8");
+    const manager = createHookConfigManager({ assetsDir });
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["qoder"]);
+    const saved = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const commands = Object.values(saved.hooks)
+      .flat()
+      .flatMap(group => group.hooks || [])
+      .map(hook => hook.command);
+
+    expect(result.providers.qoder.status).toBe("installed");
+    expect(saved.env.EXAMPLE).toBe("1");
+    expect(commands.filter(command => command === "custom-qoder-hook")).toHaveLength(1);
+    expect(commands.some(command => command.includes(".qoder/pannel-handle-hook.ps1"))).toBe(true);
+    expect(commands.some(command => command.includes("old/pannel-handle-qoder-hook.ps1"))).toBe(false);
   });
 
   it("does not write any provider when an existing config contains invalid JSON", () => {
@@ -235,6 +268,69 @@ describe("hook-config-manager", () => {
     expect(dirs.has(path.posix.join(projectPath, ".codex"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".codex", "hooks.json"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".codex", "pannel-handle-hook.sh"))).toBe(true);
+  });
+
+  it("installs Qoder hooks into WSL projects", () => {
+    const projectPath = "/home/me/project";
+    const dirs = new Set([
+      "/",
+      "/home",
+      "/home/me",
+      projectPath
+    ]);
+    const files = new Map();
+    const normalize = value => path.posix.normalize(String(value));
+    const unquote = value => String(value).match(/^'((?:'\\''|[^'])*)'$/)?.[1].replace(/'\\''/g, "'") || value;
+    const parsePath = script => unquote(script.match(/'((?:'\\''|[^'])*)'/)?.[0] || "");
+    const spawnSync = (_command, args, options = {}) => {
+      if (args[2] === "--" && args[3] === "test") {
+        const flag = args[4];
+        const key = normalize(args[5]);
+        return { status: flag === "-d" ? (dirs.has(key) ? 0 : 1) : (dirs.has(key) || files.has(key) ? 0 : 1), stdout: "", stderr: "" };
+      }
+      const script = args.at(-1);
+      if (script.startsWith("mkdir -p ")) {
+        const dirPath = normalize(parsePath(script));
+        const parts = dirPath.split("/").filter(Boolean);
+        let current = "/";
+        for (const part of parts) {
+          current = path.posix.join(current, part);
+          dirs.add(current);
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (script.startsWith("cat > ")) {
+        const filePath = normalize(parsePath(script));
+        if (!dirs.has(path.posix.dirname(filePath))) {
+          return { status: 1, stdout: "", stderr: "No such file or directory" };
+        }
+        files.set(filePath, options.input);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (script.startsWith("cat ")) {
+        const key = normalize(parsePath(script));
+        if (!files.has(key)) {
+          return { status: 1, stdout: "", stderr: "cat: No such file or directory" };
+        }
+        return { status: 0, stdout: files.get(key), stderr: "" };
+      }
+      if (script.startsWith("mv -f ")) {
+        const [, sourcePath, destinationPath] = script.match(/^mv -f ('(?:'\\''|[^'])*') ('(?:'\\''|[^'])*')$/);
+        const sourceKey = normalize(unquote(sourcePath));
+        files.set(normalize(unquote(destinationPath)), files.get(sourceKey));
+        files.delete(sourceKey);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `Unexpected script: ${script}` };
+    };
+    const manager = createHookConfigManager({ assetsDir, spawnSync });
+
+    const result = manager.install({ type: "wsl", path: projectPath, wslDistro: "Ubuntu" }, ["qoder"]);
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.qoder.status).toBe("installed");
+    expect(files.has(path.posix.join(projectPath, ".qoder", "settings.json"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".qoder", "pannel-handle-hook.sh"))).toBe(true);
   });
 
   it("builds SSH Linux hook config with a session tunnel command", () => {

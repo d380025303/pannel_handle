@@ -2,10 +2,30 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { Readable } = require("node:stream");
 const SftpClient = require("ssh2-sftp-client");
 const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 1024 * 1024;
+const MEDIA_PROTOCOL = "pannel-media";
+const IMAGE_MIME_BY_EXTENSION = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+  [".ico", "image/x-icon"],
+  [".avif", "image/avif"]
+]);
+const VIDEO_MIME_BY_EXTENSION = new Map([
+  [".mp4", "video/mp4"],
+  [".webm", "video/webm"],
+  [".ogg", "video/ogg"],
+  [".ogv", "video/ogg"],
+  [".mov", "video/quicktime"],
+  [".m4v", "video/mp4"]
+]);
 
 function normalizeRemotePath(value) {
   const remotePath = String(value || ".").trim() || ".";
@@ -34,6 +54,73 @@ function isLikelyBinary(buffer) {
 
 function getContentVersion(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function getMediaType(filePath) {
+  const extension = path.extname(String(filePath || "")).toLowerCase();
+  if (IMAGE_MIME_BY_EXTENSION.has(extension)) {
+    return { kind: "image", mime: IMAGE_MIME_BY_EXTENSION.get(extension) };
+  }
+  if (VIDEO_MIME_BY_EXTENSION.has(extension)) {
+    return { kind: "video", mime: VIDEO_MIME_BY_EXTENSION.get(extension) };
+  }
+  return null;
+}
+
+function getPreviewTokenFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== `${MEDIA_PROTOCOL}:` || parsed.hostname !== "preview") {
+      return "";
+    }
+    return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  } catch {
+    return "";
+  }
+}
+
+function parseRangeHeader(rangeHeader, size) {
+  if (typeof rangeHeader !== "string" || !rangeHeader.trim()) {
+    return null;
+  }
+  const match = rangeHeader.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) {
+    return { invalid: true };
+  }
+  const startText = match[1];
+  const endText = match[2];
+  if (!startText && !endText) {
+    return { invalid: true };
+  }
+
+  let start;
+  let end;
+  if (!startText) {
+    const suffixLength = Number(endText);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return { invalid: true };
+    }
+    start = Math.max(size - suffixLength, 0);
+    end = size - 1;
+  } else {
+    start = Number(startText);
+    end = endText ? Number(endText) : size - 1;
+  }
+
+  if (
+    !Number.isSafeInteger(start)
+    || !Number.isSafeInteger(end)
+    || start < 0
+    || end < start
+    || start >= size
+  ) {
+    return { invalid: true };
+  }
+
+  return {
+    start,
+    end: Math.min(end, size - 1)
+  };
 }
 
 function sortEntries(entries) {
@@ -108,6 +195,7 @@ function joinWslPath(basePath, name) {
 
 function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
   const clients = new Map();
+  const previews = new Map();
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
     terminalManager,
     sessionStore,
@@ -214,6 +302,38 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     };
   }
 
+  async function previewLocalFile(sessionId, session, filePath) {
+    const mediaType = getMediaType(filePath);
+    if (!mediaType) {
+      return readLocalText(session, filePath);
+    }
+
+    const hostPath = toLocalHostPath(session, filePath);
+    const stat = await fsApi.promises.stat(hostPath);
+    if (typeof stat.isFile === "function" && !stat.isFile()) {
+      return { kind: "binary", size: Number(stat.size || 0) };
+    }
+
+    const previewId = crypto.randomBytes(18).toString("base64url");
+    const size = Number(stat.size || 0);
+    previews.set(previewId, {
+      sessionId,
+      hostPath,
+      size,
+      kind: mediaType.kind,
+      mime: mediaType.mime,
+      createdAt: Date.now()
+    });
+
+    return {
+      kind: mediaType.kind,
+      size,
+      mime: mediaType.mime,
+      previewId,
+      url: `${MEDIA_PROTOCOL}://preview/${encodeURIComponent(previewId)}`
+    };
+  }
+
   async function writeLocalText(session, filePath, content, expectedVersion) {
     const contentBuffer = Buffer.from(content, "utf-8");
     const hostPath = toLocalHostPath(session, filePath);
@@ -296,6 +416,70 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     };
   }
 
+  async function previewFile(sessionId, remotePath) {
+    const session = getSession(sessionId);
+    if (session.type !== "ssh") {
+      return previewLocalFile(sessionId, session, remotePath);
+    }
+    return readText(sessionId, remotePath);
+  }
+
+  function releasePreview(previewId) {
+    if (typeof previewId !== "string" || !previewId) {
+      return false;
+    }
+    return previews.delete(previewId);
+  }
+
+  function createPreviewStreamResponse(previewIdOrUrl, rangeHeader) {
+    const previewId = String(previewIdOrUrl || "").includes("://")
+      ? getPreviewTokenFromUrl(previewIdOrUrl)
+      : String(previewIdOrUrl || "");
+    const preview = previews.get(previewId);
+    if (!preview) {
+      throw new Error("Preview is not available.");
+    }
+    if (typeof fsApi.createReadStream !== "function") {
+      throw new Error("Media streaming is not available.");
+    }
+
+    const size = Number(preview.size || 0);
+    const range = parseRangeHeader(rangeHeader, size);
+    if (range?.invalid) {
+      return {
+        statusCode: 416,
+        headers: {
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "no-store",
+          "Content-Range": `bytes */${size}`,
+          "Content-Length": "0"
+        },
+        data: Readable.from([])
+      };
+    }
+
+    const start = range ? range.start : 0;
+    const end = range ? range.end : Math.max(size - 1, 0);
+    const contentLength = size === 0 ? 0 : end - start + 1;
+    const headers = {
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+      "Content-Type": preview.mime,
+      "Content-Length": String(contentLength)
+    };
+    if (range) {
+      headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+    }
+
+    return {
+      statusCode: range ? 206 : 200,
+      headers,
+      data: size === 0
+        ? Readable.from([])
+        : fsApi.createReadStream(preview.hostPath, { start, end })
+    };
+  }
+
   async function writeText(sessionId, remotePath, content, expectedVersion) {
     if (typeof content !== "string" || typeof expectedVersion !== "string" || !expectedVersion) {
       throw new Error("Invalid text save request.");
@@ -328,6 +512,27 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       size: contentBuffer.length,
       version: getContentVersion(contentBuffer)
     };
+  }
+
+  async function writeBinaryFile(sessionId, remotePath, contentBuffer) {
+    const buffer = Buffer.isBuffer(contentBuffer) ? contentBuffer : Buffer.from(contentBuffer);
+    const session = getSession(sessionId);
+    if (session.type !== "ssh") {
+      const hostPath = toLocalHostPath(session, remotePath);
+      await fsApi.promises.mkdir(path.dirname(hostPath), { recursive: true });
+      await fsApi.promises.writeFile(hostPath, buffer);
+      return {
+        remotePath: session.type === "wsl" ? normalizeWslPath(remotePath) : normalizeWindowsPath(remotePath, getLocalHome(session))
+      };
+    }
+
+    const normalizedPath = normalizeRemotePath(remotePath);
+    const client = await getClient(sessionId);
+    if (typeof client.mkdir === "function") {
+      await client.mkdir(path.posix.dirname(normalizedPath), true);
+    }
+    await client.put(buffer, normalizedPath);
+    return { remotePath: normalizedPath };
   }
 
   async function uploadFile(sessionId, localPath, remoteDir) {
@@ -375,6 +580,11 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
   async function disconnect(sessionId) {
     const client = clients.get(sessionId);
     clients.delete(sessionId);
+    for (const [previewId, preview] of previews) {
+      if (preview.sessionId === sessionId) {
+        previews.delete(previewId);
+      }
+    }
     if (client) {
       try {
         await client.end();
@@ -387,13 +597,18 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
   async function shutdown() {
     const ids = Array.from(clients.keys());
     await Promise.all(ids.map((id) => disconnect(id)));
+    previews.clear();
   }
 
   return {
     getHome,
     list,
     readText,
+    previewFile,
+    releasePreview,
+    createPreviewStreamResponse,
     writeText,
+    writeBinaryFile,
     uploadFile,
     downloadFile,
     openInExplorer,
@@ -404,7 +619,10 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
 
 module.exports = {
   TEXT_PREVIEW_LIMIT,
+  MEDIA_PROTOCOL,
   normalizeWslPath,
   toWslHostPath,
+  getPreviewTokenFromUrl,
+  parseRangeHeader,
   createRemoteFileService
 };

@@ -41,6 +41,7 @@ export type AppConfig = {
   debugMode: boolean;
   lastActiveSessionIds: string[];
   themeId: ThemeId;
+  qqBot: QqBotPublicConfig;
 };
 
 export type SessionLibraryFileResult =
@@ -70,6 +71,12 @@ export type RemoteTextPreview =
   | { kind: "text"; size: number; content: string; version: string }
   | { kind: "binary"; size: number }
   | { kind: "too_large"; size: number; limit: number };
+
+export type RemoteMediaPreview =
+  | { kind: "image"; size: number; mime: string; previewId: string; url: string }
+  | { kind: "video"; size: number; mime: string; previewId: string; url: string };
+
+export type RemoteFilePreview = RemoteTextPreview | RemoteMediaPreview;
 
 export type RemoteTextWriteResult =
   | { status: "saved"; size: number; version: string }
@@ -132,6 +139,39 @@ export type GitDiffResult = {
   rows: GitDiffRow[];
 };
 
+export type GitBranchEntry = {
+  name: string;
+  kind: "local" | "remote";
+  current: boolean;
+  commit: string;
+  relativeTime: string;
+};
+
+export type GitBranchListResult = {
+  cwd: string;
+  branches: GitBranchEntry[];
+};
+
+export type GitStashEntry = {
+  ref: string;
+  commit: string;
+  relativeTime: string;
+  message: string;
+};
+
+export type GitStashListResult = {
+  cwd: string;
+  stashes: GitStashEntry[];
+};
+
+export type GitOperationResult = {
+  ok: boolean;
+  cwd: string;
+  message?: string;
+  status?: GitStatusResult;
+  branches?: GitBranchListResult;
+};
+
 export type ProjectFileSearchResult = {
   path: string;
   relativePath: string;
@@ -155,7 +195,7 @@ export type ProjectTextSearchResponse = {
   results: ProjectTextSearchResult[];
 };
 
-export type AgentProvider = "claude" | "codex" | "opencode";
+export type AgentProvider = "claude" | "codex" | "opencode" | "qoder";
 export type HookProvider = AgentProvider;
 
 export type HookInstallTarget =
@@ -182,6 +222,8 @@ export type HookInspectionResult = {
 
 export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited";
 
+export type QqBotNotifyStatus = "waiting_for_permission" | "completed" | "failed" | "ended";
+
 export type AgentStatusPayload = {
   id: string;
   provider: AgentProvider;
@@ -203,6 +245,40 @@ export type AgentHookDebugPayload = {
   handled: boolean;
   payload: unknown;
 };
+
+export type QqBotPublicConfig = {
+  enabled: boolean;
+  appId: string;
+  clientSecretSet: boolean;
+  targetOpenid: string;
+  notifyStatuses: QqBotNotifyStatus[];
+  queueWhenUnavailable: boolean;
+};
+
+export type QqBotConfigUpdate = Partial<Omit<QqBotPublicConfig, "clientSecretSet">> & {
+  clientSecret?: string;
+  clearClientSecret?: boolean;
+};
+
+export type QqBotStatus = {
+  enabled: boolean;
+  connected: boolean;
+  targetOpenid?: string;
+  hasClientSecret?: boolean;
+  queuedCount: number;
+  droppedCount: number;
+  lastError?: string;
+  lastInboundAt?: number;
+  lastSentAt?: number;
+};
+
+export type QqBotConfigResult =
+  | { ok: true; config: QqBotPublicConfig }
+  | { ok: false; error: string; config: QqBotPublicConfig };
+
+export type QqBotTestResult =
+  | { ok: true; status: QqBotStatus }
+  | { ok: false; error: string; status?: QqBotStatus };
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
@@ -241,12 +317,18 @@ export type WindowApi = {
 export type ClipboardApi = {
   writeText: (text: string) => Promise<boolean>;
   readText: () => Promise<string>;
+  pasteImageToSession: (sessionId: string) => Promise<
+    | { status: "no_image" }
+    | { status: "saved"; path: string; size: number }
+  >;
 };
 
 export type RemoteFileApi = {
   getHome: (sessionId: string) => Promise<string>;
   list: (sessionId: string, remotePath: string) => Promise<RemoteFileEntry[]>;
   readText: (sessionId: string, remotePath: string) => Promise<RemoteTextPreview>;
+  previewFile: (sessionId: string, remotePath: string) => Promise<RemoteFilePreview>;
+  releasePreview: (previewId: string) => Promise<boolean>;
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
@@ -260,6 +342,13 @@ export type RemoteSystemApi = {
 export type GitApi = {
   getStatus: (sessionId: string) => Promise<GitStatusResult>;
   getDiff: (sessionId: string, file: GitStatusEntry) => Promise<GitDiffResult>;
+  getBranches: (sessionId: string) => Promise<GitBranchListResult>;
+  checkoutBranch: (sessionId: string, branch: Pick<GitBranchEntry, "name" | "kind">) => Promise<GitOperationResult>;
+  getStashes: (sessionId: string) => Promise<GitStashListResult>;
+  stashChanges: (sessionId: string) => Promise<GitOperationResult>;
+  applyStash: (sessionId: string, ref: string) => Promise<GitOperationResult>;
+  popStash: (sessionId: string, ref: string) => Promise<GitOperationResult>;
+  revertFile: (sessionId: string, file: GitStatusEntry) => Promise<GitOperationResult>;
 };
 
 export type ProjectSearchApi = {
@@ -273,6 +362,13 @@ export type HookConfigApi = {
   install: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
 };
 
+export type QqBotApi = {
+  getConfig: () => Promise<QqBotPublicConfig>;
+  setConfig: (partial: QqBotConfigUpdate) => Promise<QqBotConfigResult>;
+  getStatus: () => Promise<QqBotStatus>;
+  testSend: () => Promise<QqBotTestResult>;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -282,6 +378,7 @@ declare global {
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
+    qqBotApi: QqBotApi;
     windowApi: WindowApi;
   }
 }

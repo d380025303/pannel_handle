@@ -14,6 +14,14 @@ type UseTerminalInstancesOptions = {
   terminalTheme: ITheme;
 };
 
+function getErrorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function getTerminalStatusMessage(err: unknown) {
+  return getErrorMessage(err).replace(/[\x00-\x1F\x7F]/g, " ").slice(0, 240);
+}
+
 function createTerminalEntry(terminalTheme: ITheme) {
   const terminal = new Terminal({
     cursorBlink: true,
@@ -86,6 +94,24 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
     }
   }, []);
 
+  const pasteIntoTerminal = useCallback(async (sessionId: string, terminal: Terminal) => {
+    try {
+      const imageResult = await window.clipboardApi.pasteImageToSession(sessionId);
+      if (imageResult.status === "saved") {
+        window.terminalApi.write(sessionId, imageResult.path);
+        return;
+      }
+
+      const text = await window.clipboardApi.readText();
+      if (text) {
+        window.terminalApi.write(sessionId, text);
+      }
+    } catch (err) {
+      console.error("Failed to paste clipboard image:", err);
+      terminal.writeln(`\r\n[Image paste failed: ${getTerminalStatusMessage(err)}]`);
+    }
+  }, []);
+
   useEffect(() => {
     const removeDataListener = window.terminalApi.onData(({ id, data }) => {
       const entry = terminalsRef.current.get(id);
@@ -127,11 +153,9 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
           (event.shiftKey && !event.ctrlKey && !event.altKey && event.key === "Insert");
 
         if (isPasteKey) {
-          window.clipboardApi.readText().then((text) => {
-            if (text && activeId) {
-              window.terminalApi.write(activeId, text);
-            }
-          });
+          if (activeId && entry) {
+            void pasteIntoTerminal(activeId, entry.terminal);
+          }
           return false;
         }
 
@@ -213,7 +237,7 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
       textarea?.removeEventListener("paste", onPaste, true);
       resizeObserver.disconnect();
     };
-  }, [activeId, copyTerminalSelection, terminalTheme]);
+  }, [activeId, copyTerminalSelection, pasteIntoTerminal, terminalTheme]);
 
   useEffect(() => {
     terminalsRef.current.forEach((entry) => {
