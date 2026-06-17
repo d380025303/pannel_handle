@@ -75,6 +75,10 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
   getMetrics: (sessionId) => ipcRenderer.invoke("remote-system:metrics", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("gitApi", {
+  getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId })
+});
+
 contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),

@@ -3,6 +3,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { CreateSessionModal } from "./components/CreateSessionModal";
 import { DebugSidebar } from "./components/DebugSidebar";
 import { EditSessionModal } from "./components/EditSessionModal";
+import { GitStatusPanel } from "./components/GitStatusPanel";
 import { HookInstallModal } from "./components/HookInstallModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
@@ -28,7 +29,7 @@ export function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
-  const [rightTool, setRightTool] = useState<"files" | "debug">("files");
+  const [rightTool, setRightTool] = useState<"files" | "git" | "debug">("files");
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
@@ -120,7 +121,7 @@ export function App() {
     await terminalSessions.startFresh();
   }, [remoteFilesDirty, terminalSessions]);
 
-  const handleRightToolChange = useCallback((tool: "files" | "debug") => {
+  const handleRightToolChange = useCallback((tool: "files" | "git" | "debug") => {
     if (tool !== "files" && remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
       return;
     }
@@ -150,15 +151,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!debugMode && terminalSessions.activeSession) {
+    if (!terminalSessions.activeSession) {
+      setRightTool(debugMode ? "debug" : "files");
+      return;
+    }
+    if (!debugMode && rightTool === "debug") {
       setRightTool("files");
       return;
     }
-  }, [debugMode, terminalSessions.activeSession]);
+  }, [debugMode, rightTool, terminalSessions.activeSession]);
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showRightTools = showFilesPanel || debugMode;
-  const activeRightTool = showFilesPanel && (!debugMode || rightTool === "files") ? "files" : "debug";
+  const activeRightTool = showFilesPanel && rightTool !== "debug"
+    ? rightTool
+    : debugMode
+      ? "debug"
+    : "files";
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) clamp(320px, 28vw, 460px)`
     : showRightTools
@@ -174,6 +183,7 @@ export function App() {
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
+            showInstanceIds={debugMode}
             agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
             onSelectSession={handleSelectSession}
             onEditSession={setEditDialogSession}
@@ -207,32 +217,47 @@ export function App() {
 
           {showRightTools && (
             <aside className="right-tools">
-              {debugMode && (
+              {(showFilesPanel || debugMode) && (
                 <div className="right-tool-tabs" role="tablist" aria-label="Right sidebar tools">
                   {showFilesPanel && (
+                    <>
+                      <button
+                        className={activeRightTool === "files" ? "active" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeRightTool === "files"}
+                        onClick={() => handleRightToolChange("files")}
+                      >
+                        Files
+                      </button>
+                      <button
+                        className={activeRightTool === "git" ? "active" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeRightTool === "git"}
+                        onClick={() => handleRightToolChange("git")}
+                      >
+                        Git
+                      </button>
+                    </>
+                  )}
+                  {debugMode && (
                     <button
-                      className={activeRightTool === "files" ? "active" : ""}
+                      className={activeRightTool === "debug" ? "active" : ""}
                       type="button"
                       role="tab"
-                      aria-selected={activeRightTool === "files"}
-                      onClick={() => handleRightToolChange("files")}
+                      aria-selected={activeRightTool === "debug"}
+                      onClick={() => handleRightToolChange("debug")}
                     >
-                      Files
+                      Debug
                     </button>
                   )}
-                  <button
-                    className={activeRightTool === "debug" ? "active" : ""}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeRightTool === "debug"}
-                  onClick={() => handleRightToolChange("debug")}
-                  >
-                    Debug
-                  </button>
                 </div>
               )}
               {activeRightTool === "files" && showFilesPanel ? (
                 <RemoteFilePanel session={terminalSessions.activeSession} onDirtyChange={setRemoteFilesDirty} onPreviewActive={setPreviewActive} />
+              ) : activeRightTool === "git" && showFilesPanel ? (
+                <GitStatusPanel session={terminalSessions.activeSession} />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}

@@ -17,7 +17,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -199,6 +199,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
 
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
+  });
+
+  ipcMain.handle("git:status", (_event, { sessionId }) => {
+    return gitStatusService.getStatus(sessionId);
   });
 
   ipcMain.handle("hooks:select-project-directory", async (event, defaultPath) => {

@@ -6,6 +6,7 @@ import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 type SessionSidebarProps = {
   sessions: TerminalSession[];
   activeId?: string;
+  showInstanceIds?: boolean;
   agentStatusesBySessionId: Record<string, AgentStatusPayload>;
   onSelectSession: (id: string) => void;
   onEditSession: (session: TerminalSession) => void;
@@ -25,6 +26,7 @@ function getSessionTypeLabel(session: TerminalSession) {
 export function SessionSidebar({
   sessions,
   activeId,
+  showInstanceIds = false,
   agentStatusesBySessionId,
   onSelectSession,
   onEditSession,
@@ -53,6 +55,8 @@ export function SessionSidebar({
         Boolean(session.wslDistro?.toLowerCase().includes(query)) ||
         Boolean(session.sshConfig?.host?.toLowerCase().includes(query)) ||
         Boolean(session.sshConfig?.username?.toLowerCase().includes(query)) ||
+        session.id.toLowerCase().includes(query) ||
+        Boolean(session.templateId?.toLowerCase().includes(query)) ||
         tags.some((tag) => tag.includes(query))
       );
     });
@@ -174,6 +178,11 @@ export function SessionSidebar({
                     {getSessionTypeLabel(session)}
                   </span>
                 </span>
+                {showInstanceIds && (
+                  <span className="session-instance-id" title={`Instance ${session.id}${session.templateId ? ` / Template ${session.templateId}` : ""}`}>
+                    ID {session.id}{session.templateId ? ` / Template ${session.templateId}` : ""}
+                  </span>
+                )}
                 {agentStatusLabel && (
                   <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
                     {agentStatusLabel}

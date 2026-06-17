@@ -100,6 +100,19 @@ export type RemoteSystemMetrics = {
   };
 };
 
+export type GitStatusEntry = {
+  status: string;
+  label: string;
+  path: string;
+  oldPath?: string;
+};
+
+export type GitStatusResult = {
+  cwd: string;
+  clean: boolean;
+  files: GitStatusEntry[];
+};
+
 export type AgentProvider = "claude" | "codex" | "opencode";
 export type HookProvider = AgentProvider;
 
@@ -202,6 +215,10 @@ export type RemoteSystemApi = {
   getMetrics: (sessionId: string) => Promise<RemoteSystemMetrics>;
 };
 
+export type GitApi = {
+  getStatus: (sessionId: string) => Promise<GitStatusResult>;
+};
+
 export type HookConfigApi = {
   selectProjectDirectory: (defaultPath?: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   inspect: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
@@ -214,6 +231,7 @@ declare global {
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
+    gitApi: GitApi;
     hookConfigApi: HookConfigApi;
     windowApi: WindowApi;
   }

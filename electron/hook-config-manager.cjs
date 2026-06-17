@@ -140,8 +140,30 @@ function countManagedCommands(config) {
   return count;
 }
 
+function ensureDir(fsApi, dirPath) {
+  try {
+    fsApi.mkdirSync(dirPath, { recursive: true });
+  } catch (err) {
+    if (err.code !== "EEXIST") throw err;
+  }
+  if (!fsApi.existsSync(dirPath)) {
+    const parts = dirPath.split(path.sep).filter(Boolean);
+    let current = dirPath.startsWith(path.sep + path.sep) ? path.sep + path.sep + parts[0] : parts[0];
+    if (!current.startsWith(path.sep)) current = path.sep + current;
+    for (let i = 1; i < parts.length; i++) {
+      current = path.join(current, parts[i]);
+      if (fsApi.existsSync(current)) continue;
+      try {
+        fsApi.mkdirSync(current);
+      } catch (e) {
+        if (e.code !== "EEXIST") throw e;
+      }
+    }
+  }
+}
+
 function atomicWrite(fsApi, filePath, content) {
-  fsApi.mkdirSync(path.dirname(filePath), { recursive: true });
+  ensureDir(fsApi, path.dirname(filePath));
   if (fsApi.existsSync(filePath)) {
     fsApi.copyFileSync(filePath, `${filePath}.pannel-handle.bak`);
   }

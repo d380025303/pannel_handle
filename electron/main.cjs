@@ -3,6 +3,7 @@ const { app, BrowserWindow, clipboard, dialog, Notification, safeStorage, shell 
 const { createAgentNotificationManager } = require("./agent-notification-manager.cjs");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createConfigStore } = require("./config-store.cjs");
+const { createGitStatusService } = require("./git-status-service.cjs");
 const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
@@ -26,6 +27,7 @@ let sshHookTunnelService = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
+let gitStatusService = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -113,6 +115,11 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshHookTunnelService
     });
+    gitStatusService = createGitStatusService({
+      terminalManager,
+      sessionStore,
+      knownHostStore
+    });
 
     sessionStore.loadLibrary();
     agentHookServer.start();
@@ -126,7 +133,8 @@ if (!gotSingleInstanceLock) {
       remoteFileService,
       remoteSystemService,
       hookConfigManager,
-      remoteHookConfigService
+      remoteHookConfigService,
+      gitStatusService
     });
     windowManager.createWindow();
 
