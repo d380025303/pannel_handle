@@ -60,11 +60,11 @@ describe("git-status-service", () => {
     ].join("\0");
 
     expect(parsePorcelainStatus(output)).toEqual([
-      { status: "M", label: "Modified", path: "src/App.tsx" },
-      { status: "A", label: "Added", path: "src/new.ts" },
-      { status: "D", label: "Deleted", path: "old.txt" },
-      { status: "?", label: "Untracked", path: "scratch.txt" },
-      { status: "R", label: "Renamed", path: "src/new-name.ts", oldPath: "src/old-name.ts" }
+      { status: "M", label: "已修改", path: "src/App.tsx" },
+      { status: "A", label: "已添加", path: "src/new.ts" },
+      { status: "D", label: "已删除", path: "old.txt" },
+      { status: "?", label: "未跟踪", path: "scratch.txt" },
+      { status: "R", label: "已重命名", path: "src/new-name.ts", oldPath: "src/old-name.ts" }
     ]);
   });
 
@@ -79,7 +79,7 @@ describe("git-status-service", () => {
     await expect(service.getStatus("run-1")).resolves.toEqual({
       cwd: "C:\\work\\repo",
       clean: false,
-      files: [{ status: "M", label: "Modified", path: "README.md" }]
+      files: [{ status: "M", label: "已修改", path: "README.md" }]
     });
     expect(spawn).toHaveBeenCalledWith(
       "git",
@@ -133,7 +133,7 @@ describe("git-status-service", () => {
     await expect(service.getStatus("run-1")).resolves.toEqual({
       cwd: "/srv/app",
       clean: false,
-      files: [{ status: "?", label: "Untracked", path: "remote.txt" }]
+      files: [{ status: "?", label: "未跟踪", path: "remote.txt" }]
     });
     expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({
       host: "example.com",

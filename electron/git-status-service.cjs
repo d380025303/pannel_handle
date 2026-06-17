@@ -5,14 +5,14 @@ const { buildSsh2ConnectionConfig } = require("./ssh2-connection.cjs");
 const STATUS_TIMEOUT_MS = 10000;
 
 const STATUS_LABELS = {
-  M: "Modified",
-  A: "Added",
-  D: "Deleted",
-  R: "Renamed",
-  C: "Copied",
-  U: "Unmerged",
-  "?": "Untracked",
-  "!": "Ignored"
+  M: "已修改",
+  A: "已添加",
+  D: "已删除",
+  R: "已重命名",
+  C: "已复制",
+  U: "未合并",
+  "?": "未跟踪",
+  "!": "已忽略"
 };
 
 function getStatusCode(xy) {
