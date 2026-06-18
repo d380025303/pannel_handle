@@ -100,7 +100,8 @@ contextBridge.exposeInMainWorld("gitApi", {
 
 contextBridge.exposeInMainWorld("projectSearchApi", {
   searchFiles: (sessionId, query) => ipcRenderer.invoke("project-search:files", { sessionId, query }),
-  searchText: (sessionId, query) => ipcRenderer.invoke("project-search:text", { sessionId, query })
+  searchText: (sessionId, query, requestId) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId }),
+  cancelTextSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-text", { sessionId, requestId })
 });
 
 contextBridge.exposeInMainWorld("windowApi", {

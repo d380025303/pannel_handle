@@ -104,7 +104,9 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   const dirtyRef = useRef(false);
   const matchNavigationRef = useRef(false);
   const handledOpenRequestRef = useRef(0);
+  const openRequestAttemptRef = useRef(0);
   const activePreviewIdRef = useRef<string | null>(null);
+  const selectedPathRef = useRef<string | null>(null);
 
   const sessionId = session?.id;
 
@@ -246,6 +248,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     previewRequestRef.current += 1;
     releaseActivePreview();
     closeFileContextMenu();
+    selectedPathRef.current = null;
     setSelectedPath(null);
     setPreview({ status: "idle" });
     resetEditor();
@@ -277,6 +280,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       setCurrentPath(".");
       setPathInput(".");
       setEntries([]);
+      selectedPathRef.current = null;
       setSelectedPath(null);
       closeFileContextMenu();
       setPreview({ status: "idle" });
@@ -290,13 +294,14 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     }
 
     let disposed = false;
+    const initialRequestId = requestRef.current;
     setSearchQuery("");
     setPreviewSearchQuery("");
     setLoading(true);
     setError(null);
     window.remoteFileApi.getHome(sessionId)
       .then((home) => {
-        if (!disposed) {
+        if (!disposed && requestRef.current === initialRequestId) {
           void loadDirectory(home || ".", false, true);
         }
       })
@@ -316,12 +321,13 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   }, [closeFileContextMenu, confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
-    if (!force && entry.path === selectedPath) {
+    if (!force && entry.path === selectedPathRef.current) {
       return;
     }
     if (!confirmDiscard()) {
       return;
     }
+    selectedPathRef.current = entry.path;
     setSelectedPath(entry.path);
     resetEditor();
     releaseActivePreview();
@@ -363,7 +369,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         message: getErrorMessage(err)
       });
     }
-  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, selectedPath, sessionId]);
+  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
@@ -373,15 +379,17 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       return;
     }
     handledOpenRequestRef.current = openRequest.requestId;
+    const requestId = openRequest.requestId;
+    const attemptId = openRequestAttemptRef.current + 1;
+    openRequestAttemptRef.current = attemptId;
 
-    let disposed = false;
     const openPath = async () => {
       if (!confirmDiscard()) {
         return;
       }
       const targetDirectory = parentPath(openRequest.path);
       const nextEntries = await loadDirectory(targetDirectory, true, true);
-      if (disposed) {
+      if (openRequestAttemptRef.current !== attemptId || !nextEntries) {
         return;
       }
       const entry = nextEntries?.find((item) => item.path === openRequest.path) || {
@@ -396,7 +404,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
 
     void openPath();
     return () => {
-      disposed = true;
+      if (openRequestAttemptRef.current === attemptId) {
+        openRequestAttemptRef.current += 1;
+      }
+      if (handledOpenRequestRef.current === requestId) {
+        handledOpenRequestRef.current = 0;
+      }
     };
   }, [confirmDiscard, handleOpenEntry, loadDirectory, openRequest, sessionId]);
 

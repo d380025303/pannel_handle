@@ -198,6 +198,7 @@ export type ProjectFileSearchResponse = {
 export type ProjectTextSearchResponse = {
   root: string;
   results: ProjectTextSearchResult[];
+  engine: "ripgrep" | "fallback";
 };
 
 export type AgentProvider = "claude" | "codex" | "opencode" | "qoder";
@@ -324,7 +325,8 @@ export type GitApi = {
 
 export type ProjectSearchApi = {
   searchFiles: (sessionId: string, query: string) => Promise<ProjectFileSearchResponse>;
-  searchText: (sessionId: string, query: string) => Promise<ProjectTextSearchResponse>;
+  searchText: (sessionId: string, query: string, requestId: string) => Promise<ProjectTextSearchResponse>;
+  cancelTextSearch: (sessionId: string, requestId: string) => Promise<boolean>;
 };
 
 export type HookConfigApi = {

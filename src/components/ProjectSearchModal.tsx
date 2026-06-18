@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { File, FileText, Search, X } from "lucide-react";
 import { useI18n } from "../i18n";
-import type { ProjectFileSearchResult, ProjectTextSearchResult, TerminalSession } from "../vite-env";
+import type { ProjectFileSearchResult, ProjectTextSearchResponse, ProjectTextSearchResult, TerminalSession } from "../vite-env";
 
 type ProjectSearchMode = "files" | "text";
 
@@ -15,7 +15,7 @@ type ProjectSearchModalProps = {
 type SearchState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; root: string; fileResults: ProjectFileSearchResult[]; textResults: ProjectTextSearchResult[] }
+  | { status: "ready"; root: string; fileResults: ProjectFileSearchResult[]; textResults: ProjectTextSearchResult[]; textEngine?: "ripgrep" | "fallback" }
   | { status: "error"; message: string };
 
 function getErrorMessage(error: unknown) {
@@ -59,6 +59,7 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
+  const modalRequestPrefixRef = useRef(`project-search-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   const title = mode === "files" ? t("projectSearch.filesTitle") : t("projectSearch.textTitle");
   const placeholder = mode === "files" ? t("projectSearch.filesPlaceholder") : t("projectSearch.textPlaceholder");
@@ -87,6 +88,7 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
     const trimmedQuery = query.trim();
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
+    const ipcRequestId = `${modalRequestPrefixRef.current}-${requestId}`;
 
     if (!trimmedQuery) {
       setSearchState({ status: "idle" });
@@ -97,7 +99,7 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
     const timeout = window.setTimeout(() => {
       const runSearch = mode === "files"
         ? window.projectSearchApi.searchFiles(session.id, trimmedQuery)
-        : window.projectSearchApi.searchText(session.id, trimmedQuery);
+        : window.projectSearchApi.searchText(session.id, trimmedQuery, ipcRequestId);
 
       runSearch
         .then((response) => {
@@ -106,7 +108,8 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
             status: "ready",
             root: response.root,
             fileResults: mode === "files" ? response.results as ProjectFileSearchResult[] : [],
-            textResults: mode === "text" ? response.results as ProjectTextSearchResult[] : []
+            textResults: mode === "text" ? response.results as ProjectTextSearchResult[] : [],
+            textEngine: mode === "text" ? (response as ProjectTextSearchResponse).engine : undefined
           });
         })
         .catch((error) => {
@@ -115,7 +118,12 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
         });
     }, 180);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      if (mode === "text") {
+        void window.projectSearchApi.cancelTextSearch(session.id, ipcRequestId);
+      }
+    };
   }, [mode, query, session.id]);
 
   const handleOpen = (path: string) => {
@@ -144,6 +152,7 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
           <span>{title}</span>
           <span>{session.title}</span>
           {searchState.status === "ready" && <span>{t("projectSearch.results", { count: resultsCount })}</span>}
+          {searchState.status === "ready" && searchState.textEngine === "fallback" && <span>{t("projectSearch.fallbackEngine")}</span>}
         </div>
         <div className="project-search-results">
           {searchState.status === "idle" ? (

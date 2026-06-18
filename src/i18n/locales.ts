@@ -189,6 +189,7 @@ export type TranslationKey =
   | "projectSearch.searching"
   | "projectSearch.noFiles"
   | "projectSearch.noText"
+  | "projectSearch.fallbackEngine"
   | "git.noSession"
   | "git.availableAfterSession"
   | "git.refreshStatus"
@@ -418,6 +419,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.searching": "搜索中...",
     "projectSearch.noFiles": "没有匹配的文件。",
     "projectSearch.noText": "没有文本匹配。",
+    "projectSearch.fallbackEngine": "兼容搜索（WSL 未安装 ripgrep，速度较慢）",
     "git.noSession": "未选择会话",
     "git.availableAfterSession": "选择会话后可查看 Git 状态。",
     "git.refreshStatus": "刷新 Git 状态",
@@ -639,6 +641,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.searching": "Searching...",
     "projectSearch.noFiles": "No matching files.",
     "projectSearch.noText": "No text matches.",
+    "projectSearch.fallbackEngine": "Compatibility search (ripgrep is not installed in WSL and may be slower)",
     "git.noSession": "No session selected",
     "git.availableAfterSession": "Git status is available after selecting a session.",
     "git.refreshStatus": "Refresh Git status",

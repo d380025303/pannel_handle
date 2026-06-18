@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const { normalizeWslPath, toWslHostPath } = require("./remote-file-service.cjs");
 
 const DEFAULT_EXCLUDED_DIRS = new Set([
@@ -13,6 +14,7 @@ const DEFAULT_EXCLUDED_DIRS = new Set([
   "dist",
   "release",
   "build",
+  "target",
   "coverage",
   ".cache",
   ".vite"
@@ -21,7 +23,9 @@ const DEFAULT_EXCLUDED_DIRS = new Set([
 const MAX_FILE_RESULTS = 200;
 const MAX_TEXT_RESULTS = 300;
 const MAX_TEXT_FILE_SIZE = 1024 * 1024;
-const MAX_VISITED_ENTRIES = 30000;
+const MAX_FILE_VISITED_ENTRIES = 100000;
+const MAX_TEXT_VISITED_ENTRIES = 30000;
+const SEARCH_TIMEOUT_MS = 30000;
 
 function normalizeWindowsPath(value, fallbackPath) {
   const rawPath = String(value || fallbackPath || os.homedir()).trim() || fallbackPath || os.homedir();
@@ -38,9 +42,6 @@ function getSession(terminalManager, sessionId) {
   const session = terminalManager.getSession(sessionId);
   if (!session) {
     throw new Error("Session is not running.");
-  }
-  if (session.type === "ssh") {
-    throw new Error("Project search is only available for Windows and WSL sessions.");
   }
   if (!["windows", "wsl"].includes(session.type)) {
     throw new Error("Project search is only available for Windows and WSL sessions.");
@@ -82,6 +83,12 @@ function isExcludedDirectory(name) {
   return DEFAULT_EXCLUDED_DIRS.has(String(name || "").toLowerCase());
 }
 
+function hasExcludedPathSegment(relativePath) {
+  return String(relativePath || "")
+    .split(/[\\/]+/)
+    .some((segment) => isExcludedDirectory(segment));
+}
+
 function isLikelyBinary(buffer) {
   if (!buffer || buffer.length === 0) {
     return false;
@@ -116,11 +123,19 @@ function getLineMatches(content, query, limit) {
   return matches;
 }
 
-async function walkProject({ fsApi, hostRoot, onFile, maxResults }) {
+function throwIfCancelled(task) {
+  if (!task?.cancelled) return;
+  const error = new Error("Project search was cancelled.");
+  error.code = "SEARCH_CANCELLED";
+  throw error;
+}
+
+async function walkProject({ fsApi, hostRoot, onFile, maxResults, maxVisitedEntries, task }) {
   const queue = [{ hostPath: hostRoot, relativePath: "" }];
   let visitedEntries = 0;
 
-  while (queue.length > 0 && visitedEntries < MAX_VISITED_ENTRIES) {
+  while (queue.length > 0 && visitedEntries < maxVisitedEntries) {
+    throwIfCancelled(task);
     const current = queue.shift();
     let dirents;
     try {
@@ -130,8 +145,9 @@ async function walkProject({ fsApi, hostRoot, onFile, maxResults }) {
     }
 
     for (const dirent of dirents) {
+      throwIfCancelled(task);
       visitedEntries += 1;
-      if (visitedEntries > MAX_VISITED_ENTRIES) break;
+      if (visitedEntries > maxVisitedEntries) break;
 
       const childRelativePath = current.relativePath
         ? path.join(current.relativePath, dirent.name)
@@ -159,7 +175,374 @@ function normalizeQuery(query) {
   return String(query || "").trim();
 }
 
-function createProjectSearchService({ terminalManager, fsApi = fs }) {
+function normalizeRequestId(requestId) {
+  const value = String(requestId || "").trim();
+  if (!value) {
+    throw new Error("A search request ID is required.");
+  }
+  return value;
+}
+
+function decodeRipgrepText(value) {
+  if (typeof value?.text === "string") return value.text;
+  if (typeof value?.bytes === "string") return Buffer.from(value.bytes, "base64").toString("utf-8");
+  return "";
+}
+
+function byteOffsetToStringIndex(value, byteOffset) {
+  return Buffer.from(value, "utf-8").subarray(0, Math.max(0, byteOffset)).toString("utf-8").length;
+}
+
+function normalizeRipgrepRelativePath(session, rawPath) {
+  const withoutPrefix = String(rawPath || "").replace(/^(?:\.\\|\.\/)+/, "");
+  if (session.type === "windows") {
+    return path.normalize(withoutPrefix);
+  }
+  return withoutPrefix.replace(/\\/g, "/");
+}
+
+function parseRipgrepMatch(event, session, displayRoot) {
+  if (event?.type !== "match" || !event.data) return null;
+  const relativePath = normalizeRipgrepRelativePath(session, decodeRipgrepText(event.data.path));
+  const fullLine = decodeRipgrepText(event.data.lines).replace(/\r?\n$/, "");
+  const submatch = event.data.submatches?.[0];
+  if (!relativePath || !submatch || !Number.isInteger(event.data.line_number)) return null;
+
+  const fullMatchStart = byteOffsetToStringIndex(fullLine, submatch.start);
+  const fullMatchEnd = byteOffsetToStringIndex(fullLine, submatch.end);
+  const snippetStart = Math.max(0, fullMatchStart - 80);
+  const snippetEnd = Math.min(fullLine.length, fullMatchEnd + 120);
+  const displayRelativePath = toDisplayRelativePath(session, relativePath);
+
+  return {
+    path: toDisplayPath(session, displayRoot, relativePath),
+    relativePath: displayRelativePath,
+    name: session.type === "windows" ? path.basename(relativePath) : path.posix.basename(displayRelativePath),
+    lineNumber: event.data.line_number,
+    line: fullLine.slice(snippetStart, snippetEnd),
+    matchStart: fullMatchStart - snippetStart,
+    matchLength: fullMatchEnd - fullMatchStart
+  };
+}
+
+function getRipgrepArgs(query) {
+  const args = [
+    "--json",
+    "--fixed-strings",
+    "--ignore-case",
+    "--line-number",
+    "--with-filename",
+    "--hidden",
+    "--max-filesize",
+    String(MAX_TEXT_FILE_SIZE)
+  ];
+  for (const excludedDir of DEFAULT_EXCLUDED_DIRS) {
+    args.push("--glob", `!${excludedDir}/**`);
+  }
+  args.push("--", query, ".");
+  return args;
+}
+
+async function resolveBundledRipgrepPath() {
+  const { rgPath } = await import("@vscode/ripgrep");
+  return rgPath.replace(
+    `${path.sep}app.asar${path.sep}`,
+    `${path.sep}app.asar.unpacked${path.sep}`
+  );
+}
+
+async function createRipgrepInvocation(session, query, resolveRipgrepPath = resolveBundledRipgrepPath) {
+  const args = getRipgrepArgs(query);
+  if (session.type === "windows") {
+    return {
+      command: await resolveRipgrepPath(),
+      args,
+      cwd: normalizeWindowsPath(session.cwd, os.homedir())
+    };
+  }
+  return {
+    command: "wsl.exe",
+    args: [
+      "-d",
+      String(session.wslDistro || "").trim(),
+      "--cd",
+      normalizeWslPath(session.cwd || "~"),
+      "--exec",
+      "rg",
+      ...args
+    ]
+  };
+}
+
+function createProcessError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function isRipgrepUnavailable(code, stderr) {
+  return code === 127
+    || code === 126
+    || /(?:rg|ripgrep).*(?:not found|no such file)/i.test(stderr)
+    || /(?:not found|no such file).*(?:rg|ripgrep)/i.test(stderr);
+}
+
+function runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task }) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawnProcess(invocation.command, invocation.args, {
+        cwd: invocation.cwd,
+        windowsHide: true
+      });
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        reject(createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
+        return;
+      }
+      reject(error);
+      return;
+    }
+
+    task.child = child;
+    const results = [];
+    let stdoutBuffer = "";
+    let stderr = "";
+    let settled = false;
+    let reachedLimit = false;
+
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (task.child === child) task.child = null;
+      callback(value);
+    };
+
+    const consumeLine = (line) => {
+      if (!line || reachedLimit) return;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        return;
+      }
+      const result = parseRipgrepMatch(event, session, displayRoot);
+      if (!result) return;
+      results.push(result);
+      if (results.length >= MAX_TEXT_RESULTS) {
+        reachedLimit = true;
+        child.kill();
+      }
+    };
+
+    const timer = setTimeout(() => {
+      task.timedOut = true;
+      child.kill();
+    }, SEARCH_TIMEOUT_MS);
+
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuffer += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk);
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || "";
+      for (const line of lines) consumeLine(line);
+    });
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length < 8192) {
+        stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk);
+      }
+    });
+    child.on("error", (error) => {
+      if (error?.code === "ENOENT") {
+        settle(reject, createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
+        return;
+      }
+      settle(reject, error);
+    });
+    child.on("close", (code) => {
+      consumeLine(stdoutBuffer);
+      if (task.cancelled) {
+        settle(reject, createProcessError("Project search was cancelled.", "SEARCH_CANCELLED"));
+        return;
+      }
+      if (task.timedOut) {
+        settle(reject, createProcessError("Project search timed out.", "SEARCH_TIMEOUT"));
+        return;
+      }
+      if (reachedLimit || code === 0 || code === 1) {
+        settle(resolve, results);
+        return;
+      }
+      if (isRipgrepUnavailable(code, stderr)) {
+        settle(reject, createProcessError("ripgrep is not available.", "RG_UNAVAILABLE"));
+        return;
+      }
+      settle(reject, new Error(stderr.trim() || `ripgrep failed with exit code ${code}.`));
+    });
+  });
+}
+
+function collectProcessOutput({ spawnProcess, command, args, task }) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawnProcess(command, args, { windowsHide: true });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    task.child = child;
+    const chunks = [];
+    let settled = false;
+    const timer = setTimeout(() => child.kill(), SEARCH_TIMEOUT_MS);
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (task.child === child) task.child = null;
+      callback(value);
+    };
+    child.stdout?.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    child.on("error", (error) => finish(reject, error));
+    child.on("close", (code) => {
+      if (task.cancelled) {
+        finish(reject, createProcessError("Project search was cancelled.", "SEARCH_CANCELLED"));
+      } else if (code === 0) {
+        finish(resolve, Buffer.concat(chunks));
+      } else {
+        finish(resolve, null);
+      }
+    });
+  });
+}
+
+async function listWslGitFiles({ spawnProcess, session, task }) {
+  const output = await collectProcessOutput({
+    spawnProcess,
+    command: "wsl.exe",
+    args: [
+      "-d",
+      String(session.wslDistro || "").trim(),
+      "--cd",
+      normalizeWslPath(session.cwd || "~"),
+      "--exec",
+      "git",
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z"
+    ],
+    task
+  });
+  if (!output) return null;
+  return output.toString("utf-8").split("\0").filter((entry) => entry && !hasExcludedPathSegment(entry));
+}
+
+async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task }) {
+  throwIfCancelled(task);
+  let stat;
+  try {
+    stat = await fsApi.promises.stat(hostPath);
+  } catch {
+    return;
+  }
+  if (Number(stat.size || 0) > MAX_TEXT_FILE_SIZE) return;
+
+  let buffer;
+  try {
+    buffer = await fsApi.promises.readFile(hostPath);
+  } catch {
+    return;
+  }
+  throwIfCancelled(task);
+  if (buffer.length > MAX_TEXT_FILE_SIZE || isLikelyBinary(buffer)) return;
+
+  const matches = getLineMatches(buffer.toString("utf-8"), query, MAX_TEXT_RESULTS - results.length);
+  for (const match of matches) {
+    results.push({
+      path: toDisplayPath(session, displayRoot, relativePath),
+      relativePath: toDisplayRelativePath(session, relativePath),
+      name,
+      ...match
+    });
+    if (results.length >= MAX_TEXT_RESULTS) break;
+  }
+}
+
+async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, task }) {
+  const { hostRoot, displayRoot } = getSearchRoot(session);
+  const results = [];
+  const gitFiles = session.type === "wsl"
+    ? await listWslGitFiles({ spawnProcess, session, task }).catch((error) => {
+      if (error?.code === "SEARCH_CANCELLED") throw error;
+      return null;
+    })
+    : null;
+
+  if (gitFiles) {
+    for (const relativePath of gitFiles) {
+      if (results.length >= MAX_TEXT_RESULTS) break;
+      await searchTextFile({
+        fsApi,
+        hostPath: path.join(hostRoot, ...relativePath.split("/")),
+        relativePath,
+        name: path.posix.basename(relativePath),
+        query,
+        session,
+        displayRoot,
+        results,
+        task
+      });
+    }
+    return { root: displayRoot, results, engine: "fallback" };
+  }
+
+  await walkProject({
+    fsApi,
+    hostRoot,
+    maxVisitedEntries: MAX_TEXT_VISITED_ENTRIES,
+    task,
+    maxResults: () => results.length >= MAX_TEXT_RESULTS,
+    onFile: ({ hostPath, relativePath, name }) => searchTextFile({
+      fsApi,
+      hostPath,
+      relativePath,
+      name,
+      query,
+      session,
+      displayRoot,
+      results,
+      task
+    })
+  });
+  return { root: displayRoot, results, engine: "fallback" };
+}
+
+function createProjectSearchService({
+  terminalManager,
+  fsApi = fs,
+  spawnProcess = spawn,
+  resolveRipgrepPath = resolveBundledRipgrepPath,
+  forceTextFallback = false
+}) {
+  const activeTextSearches = new Map();
+
+  function cancelTextSearch(sessionId, requestId) {
+    const active = activeTextSearches.get(String(sessionId || ""));
+    if (!active || active.requestId !== String(requestId || "")) return false;
+    active.cancelled = true;
+    active.child?.kill();
+    return true;
+  }
+
+  function cancelActiveTextSearch(sessionId) {
+    const active = activeTextSearches.get(String(sessionId || ""));
+    if (!active) return;
+    active.cancelled = true;
+    active.child?.kill();
+  }
+
   async function searchFiles(sessionId, query) {
     const normalizedQuery = normalizeQuery(query);
     if (!normalizedQuery) {
@@ -174,6 +557,7 @@ function createProjectSearchService({ terminalManager, fsApi = fs }) {
     await walkProject({
       fsApi,
       hostRoot,
+      maxVisitedEntries: MAX_FILE_VISITED_ENTRIES,
       maxResults: () => results.length >= MAX_FILE_RESULTS,
       onFile: async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(session, relativePath);
@@ -193,62 +577,49 @@ function createProjectSearchService({ terminalManager, fsApi = fs }) {
     return { root: displayRoot, results };
   }
 
-  async function searchText(sessionId, query) {
+  async function searchText(sessionId, query, requestId) {
     const normalizedQuery = normalizeQuery(query);
+    const normalizedRequestId = normalizeRequestId(requestId);
     if (!normalizedQuery) {
-      return { root: "", results: [] };
+      return { root: "", results: [], engine: "ripgrep" };
     }
 
     const session = getSession(terminalManager, sessionId);
-    const { hostRoot, displayRoot } = getSearchRoot(session);
-    const results = [];
+    cancelActiveTextSearch(sessionId);
+    const task = {
+      requestId: normalizedRequestId,
+      child: null,
+      cancelled: false,
+      timedOut: false
+    };
+    activeTextSearches.set(String(sessionId), task);
 
-    await walkProject({
-      fsApi,
-      hostRoot,
-      maxResults: () => results.length >= MAX_TEXT_RESULTS,
-      onFile: async ({ hostPath, relativePath, name }) => {
-        let stat;
-        try {
-          stat = await fsApi.promises.stat(hostPath);
-        } catch {
-          return;
-        }
-        if (Number(stat.size || 0) > MAX_TEXT_FILE_SIZE) {
-          return;
-        }
-
-        let buffer;
-        try {
-          buffer = await fsApi.promises.readFile(hostPath);
-        } catch {
-          return;
-        }
-        if (buffer.length > MAX_TEXT_FILE_SIZE || isLikelyBinary(buffer)) {
-          return;
-        }
-
-        const matches = getLineMatches(buffer.toString("utf-8"), normalizedQuery, MAX_TEXT_RESULTS - results.length);
-        for (const match of matches) {
-          results.push({
-            path: toDisplayPath(session, displayRoot, relativePath),
-            relativePath: toDisplayRelativePath(session, relativePath),
-            name,
-            ...match
-          });
-          if (results.length >= MAX_TEXT_RESULTS) {
-            break;
-          }
-        }
+    try {
+      if (forceTextFallback) {
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, task });
       }
-    });
-
-    return { root: displayRoot, results };
+      const { displayRoot } = getSearchRoot(session);
+      try {
+        const invocation = await createRipgrepInvocation(session, normalizedQuery, resolveRipgrepPath);
+        throwIfCancelled(task);
+        const results = await runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task });
+        return { root: displayRoot, results, engine: "ripgrep" };
+      } catch (error) {
+        if (session.type !== "wsl" || error?.code !== "RG_UNAVAILABLE") throw error;
+        throwIfCancelled(task);
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, task });
+      }
+    } finally {
+      if (activeTextSearches.get(String(sessionId)) === task) {
+        activeTextSearches.delete(String(sessionId));
+      }
+    }
   }
 
   return {
     searchFiles,
-    searchText
+    searchText,
+    cancelTextSearch
   };
 }
 
@@ -256,5 +627,7 @@ module.exports = {
   MAX_FILE_RESULTS,
   MAX_TEXT_FILE_SIZE,
   MAX_TEXT_RESULTS,
-  createProjectSearchService
+  createProjectSearchService,
+  createRipgrepInvocation,
+  parseRipgrepMatch
 };

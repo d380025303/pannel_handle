@@ -294,8 +294,12 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return projectSearchService.searchFiles(sessionId, query);
   });
 
-  ipcMain.handle("project-search:text", (_event, { sessionId, query }) => {
-    return projectSearchService.searchText(sessionId, query);
+  ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId }) => {
+    return projectSearchService.searchText(sessionId, query, requestId);
+  });
+
+  ipcMain.handle("project-search:cancel-text", (_event, { sessionId, requestId }) => {
+    return projectSearchService.cancelTextSearch(sessionId, requestId);
   });
 
   ipcMain.handle("hooks:select-project-directory", async (event, defaultPath) => {
