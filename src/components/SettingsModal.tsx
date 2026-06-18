@@ -269,6 +269,23 @@ export function SettingsModal({
                   <span>最近唤醒 {formatStatusTime(qqStatus?.lastInboundAt)}</span>
                   <span>最近发送 {formatStatusTime(qqStatus?.lastSentAt)}</span>
                 </div>
+                {qqStatus?.targetOpenid && (
+                  <div className="qq-bot-openid-display">
+                    <span className="modal-label">当前 openid</span>
+                    <code>{qqStatus.targetOpenid}</code>
+                    <button
+                      className="modal-button copy-openid-btn"
+                      type="button"
+                      title="复制 openid 到剪贴板"
+                      onClick={() => {
+                        void window.clipboardApi.writeText(qqStatus.targetOpenid ?? "");
+                        setQqMessage("openid 已复制到剪贴板");
+                      }}
+                    >
+                      复制
+                    </button>
+                  </div>
+                )}
                 {qqStatus?.lastError && <div className="hook-install-error">{qqStatus.lastError}</div>}
                 {qqMessage && <div className="hook-install-note">{qqMessage}</div>}
 
