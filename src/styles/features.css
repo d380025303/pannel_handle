@@ -1487,6 +1487,104 @@
   flex-shrink: 0;
 }
 
+.git-diff-search {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto auto auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-app);
+}
+
+.git-diff-search > svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  stroke-width: 2;
+}
+
+.git-diff-search input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font-size: 12px;
+}
+
+.git-diff-search input:focus {
+  border-color: var(--color-accent);
+}
+
+.git-diff-search-scope {
+  display: inline-flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.git-diff-search-scope button {
+  width: auto;
+  min-width: 46px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 0;
+  border-right: 1px solid var(--color-border-strong);
+  font-size: 11px;
+}
+
+.git-diff-search-scope button:last-child {
+  border-right: 0;
+}
+
+.git-diff-search-scope button.active {
+  color: var(--color-text);
+  background: var(--color-bg-selection);
+}
+
+.git-diff-match-count {
+  min-width: 46px;
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  text-align: center;
+}
+
+.git-diff-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.git-diff-search button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+}
+
+.git-diff-search button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.git-diff-search button svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
 .git-diff-empty,
 .git-diff-error {
   display: flex;
@@ -1562,6 +1660,17 @@
   padding: 2px 10px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.git-diff-cell mark {
+  border-radius: 2px;
+  color: var(--color-text);
+  background: var(--color-warning-bg);
+}
+
+.git-diff-cell mark.active {
+  outline: 1px solid var(--color-accent);
+  background: var(--color-warning-text);
 }
 
 .git-diff-line-number {

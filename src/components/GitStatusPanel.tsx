@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, FileDiff, GitBranch, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, FileDiff, GitBranch, RefreshCw, RotateCcw, Search, X } from "lucide-react";
 import type {
   GitBranchEntry,
   GitBranchListResult,
@@ -31,6 +31,16 @@ type OperationState =
   | { status: "running"; label: string }
   | { status: "error"; message: string };
 
+type GitDiffSearchSide = "both" | "old" | "new";
+
+type GitDiffSearchMatch = {
+  id: string;
+  rowIndex: number;
+  side: Exclude<GitDiffSearchSide, "both">;
+  start: number;
+  end: number;
+};
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
@@ -53,12 +63,142 @@ function branchKey(branch: Pick<GitBranchEntry, "kind" | "name">) {
   return `${branch.kind}:${branch.name}`;
 }
 
+function getDiffSearchMatches(text: string | undefined, query: string) {
+  if (!text || !query) {
+    return [];
+  }
+  const matches: Array<{ start: number; end: number }> = [];
+  const normalizedText = text.toLowerCase();
+  let start = normalizedText.indexOf(query);
+  while (start !== -1) {
+    matches.push({ start, end: start + query.length });
+    start = normalizedText.indexOf(query, start + query.length);
+  }
+  return matches;
+}
+
+function HighlightDiffText({ text, matches, activeMatchId }: {
+  text: string;
+  matches: GitDiffSearchMatch[];
+  activeMatchId?: string;
+}) {
+  if (!matches.length) {
+    return <>{text}</>;
+  }
+
+  const content = [];
+  let offset = 0;
+  for (const match of matches) {
+    if (match.start > offset) {
+      content.push(text.slice(offset, match.start));
+    }
+    const isActive = match.id === activeMatchId;
+    content.push(
+      <mark
+        className={isActive ? "active" : undefined}
+        data-active-diff-match={isActive ? "true" : undefined}
+        key={match.id}
+      >
+        {text.slice(match.start, match.end)}
+      </mark>
+    );
+    offset = match.end;
+  }
+  if (offset < text.length) {
+    content.push(text.slice(offset));
+  }
+
+  return <>{content}</>;
+}
+
 function GitDiffDialog({ state, onRetry, onClose }: {
   state: Exclude<GitDiffState, { status: "idle" }>;
   onRetry: (file: GitStatusEntry) => void;
   onClose: () => void;
 }) {
   const fileTitle = formatFilePath(state.file);
+  const [diffSearchQuery, setDiffSearchQuery] = useState("");
+  const [diffSearchSide, setDiffSearchSide] = useState<GitDiffSearchSide>("both");
+  const [activeDiffMatch, setActiveDiffMatch] = useState(0);
+  const diffGridRef = useRef<HTMLDivElement>(null);
+  const normalizedDiffSearchQuery = diffSearchQuery.trim().toLowerCase();
+  const textRows = state.status === "ready" && state.result.kind === "text" ? state.result.rows : [];
+
+  const diffMatches = useMemo<GitDiffSearchMatch[]>(() => {
+    if (!normalizedDiffSearchQuery || !textRows.length) {
+      return [];
+    }
+
+    const matches: GitDiffSearchMatch[] = [];
+    for (const [rowIndex, row] of textRows.entries()) {
+      const sides: Array<Exclude<GitDiffSearchSide, "both">> = diffSearchSide === "both"
+        ? ["old", "new"]
+        : [diffSearchSide];
+      for (const side of sides) {
+        const text = side === "old" ? row.oldText : row.newText;
+        for (const [matchIndex, match] of getDiffSearchMatches(text, normalizedDiffSearchQuery).entries()) {
+          matches.push({
+            id: `${rowIndex}:${side}:${matchIndex}`,
+            rowIndex,
+            side,
+            start: match.start,
+            end: match.end
+          });
+        }
+      }
+    }
+    return matches;
+  }, [diffSearchSide, normalizedDiffSearchQuery, textRows]);
+
+  const diffMatchesByCell = useMemo(() => {
+    const matchesByCell = new Map<string, GitDiffSearchMatch[]>();
+    for (const match of diffMatches) {
+      const key = `${match.rowIndex}:${match.side}`;
+      const current = matchesByCell.get(key);
+      if (current) {
+        current.push(match);
+      } else {
+        matchesByCell.set(key, [match]);
+      }
+    }
+    return matchesByCell;
+  }, [diffMatches]);
+
+  const activeDiffMatchId = diffMatches[activeDiffMatch]?.id;
+  const showDiffSearch = state.status === "ready" && state.result.kind === "text" && state.result.rows.length > 0;
+
+  useEffect(() => {
+    setActiveDiffMatch(0);
+  }, [diffSearchSide, normalizedDiffSearchQuery, state.file.path]);
+
+  useEffect(() => {
+    if (!diffMatches.length) {
+      if (activeDiffMatch !== 0) {
+        setActiveDiffMatch(0);
+      }
+      return;
+    }
+    if (activeDiffMatch >= diffMatches.length) {
+      setActiveDiffMatch(0);
+    }
+  }, [activeDiffMatch, diffMatches.length]);
+
+  useEffect(() => {
+    if (!diffMatches.length) {
+      return;
+    }
+    const activeElement = diffGridRef.current?.querySelector('[data-active-diff-match="true"]');
+    activeElement?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [activeDiffMatch, diffMatches.length]);
+
+  const moveDiffMatch = useCallback((direction: number) => {
+    if (!diffMatches.length) {
+      return;
+    }
+    setActiveDiffMatch((current) => (
+      (current + direction + diffMatches.length) % diffMatches.length
+    ));
+  }, [diffMatches.length]);
 
   return (
     <div className="git-diff-overlay" onClick={onClose}>
@@ -72,6 +212,63 @@ function GitDiffDialog({ state, onRetry, onClose }: {
             <X aria-hidden="true" />
           </button>
         </div>
+
+        {showDiffSearch && (
+          <div className="git-diff-search">
+            <Search aria-hidden="true" />
+            <input
+              type="text"
+              aria-label="Search diff"
+              placeholder="Search diff..."
+              value={diffSearchQuery}
+              onChange={(event) => setDiffSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  moveDiffMatch(event.shiftKey ? -1 : 1);
+                }
+              }}
+            />
+            <div className="git-diff-search-scope" aria-label="Diff search side">
+              <button
+                type="button"
+                className={diffSearchSide === "both" ? "active" : ""}
+                aria-pressed={diffSearchSide === "both"}
+                onClick={() => setDiffSearchSide("both")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={diffSearchSide === "old" ? "active" : ""}
+                aria-pressed={diffSearchSide === "old"}
+                onClick={() => setDiffSearchSide("old")}
+              >
+                HEAD
+              </button>
+              <button
+                type="button"
+                className={diffSearchSide === "new" ? "active" : ""}
+                aria-pressed={diffSearchSide === "new"}
+                onClick={() => setDiffSearchSide("new")}
+              >
+                Working tree
+              </button>
+            </div>
+            <span className="git-diff-match-count">
+              {diffMatches.length ? activeDiffMatch + 1 : 0} / {diffMatches.length}
+            </span>
+            <button type="button" title="Previous match" aria-label="Previous match" disabled={!diffMatches.length} onClick={() => moveDiffMatch(-1)}>
+              <ArrowUp aria-hidden="true" />
+            </button>
+            <button type="button" title="Next match" aria-label="Next match" disabled={!diffMatches.length} onClick={() => moveDiffMatch(1)}>
+              <ArrowDown aria-hidden="true" />
+            </button>
+            <button type="button" title="Clear diff search" aria-label="Clear diff search" disabled={!diffSearchQuery} onClick={() => setDiffSearchQuery("")}>
+              <X aria-hidden="true" />
+            </button>
+          </div>
+        )}
 
         {state.status === "loading" && (
           <div className="git-diff-empty">Loading diff...</div>
@@ -93,18 +290,30 @@ function GitDiffDialog({ state, onRetry, onClose }: {
         )}
 
         {state.status === "ready" && state.result.kind === "text" && state.result.rows.length > 0 && (
-          <div className="git-diff-grid" role="table" aria-label={`Diff for ${fileTitle}`}>
+          <div className="git-diff-grid" role="table" aria-label={`Diff for ${fileTitle}`} ref={diffGridRef}>
             <div className="git-diff-column-title old" role="columnheader">HEAD</div>
             <div className="git-diff-column-title new" role="columnheader">Working tree</div>
             {state.result.rows.map((row, index) => (
               <div className={`git-diff-row row-${row.type}`} role="row" key={`${index}:${row.oldLineNumber || ""}:${row.newLineNumber || ""}`}>
                 <div className="git-diff-cell old" role="cell">
                   <span className="git-diff-line-number">{formatLineNumber(row.oldLineNumber)}</span>
-                  <code>{row.oldText || ""}</code>
+                  <code>
+                    <HighlightDiffText
+                      text={row.oldText || ""}
+                      matches={diffMatchesByCell.get(`${index}:old`) || []}
+                      activeMatchId={activeDiffMatchId}
+                    />
+                  </code>
                 </div>
                 <div className="git-diff-cell new" role="cell">
                   <span className="git-diff-line-number">{formatLineNumber(row.newLineNumber)}</span>
-                  <code>{row.newText || ""}</code>
+                  <code>
+                    <HighlightDiffText
+                      text={row.newText || ""}
+                      matches={diffMatchesByCell.get(`${index}:new`) || []}
+                      activeMatchId={activeDiffMatchId}
+                    />
+                  </code>
                 </div>
               </div>
             ))}
