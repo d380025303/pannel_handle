@@ -302,6 +302,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return projectSearchService.searchFiles(sessionId, query, rootPath);
   });
 
+  ipcMain.handle("project-search:workspace-entries", (_event, { sessionId, query }) => {
+    return projectSearchService.searchWorkspaceEntries(sessionId, query);
+  });
+
   ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId, rootPath }) => {
     return projectSearchService.searchText(sessionId, query, requestId, rootPath);
   });

@@ -8,6 +8,7 @@ import { HookInstallModal } from "./components/HookInstallModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
+import { TerminalComposer } from "./components/TerminalComposer";
 import { QuickCommandBar } from "./components/QuickCommandBar";
 import { ProjectSearchModal } from "./components/ProjectSearchModal";
 import { RemoteFilePanel } from "./components/RemoteFilePanel";
@@ -306,6 +307,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
               onContextMenu={terminalInstances.handleTerminalContextMenu}
               onWheel={terminalInstances.handleTerminalWheel}
             />
+            <TerminalComposer session={terminalSessions.activeSession} />
             {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
               <footer className="terminal-footer">
                 <QuickCommandBar
@@ -417,7 +419,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onStartFresh={handleStartFresh}
           onDelete={terminalSessions.deleteFromLibrary}
           onReorder={terminalSessions.reorderLibrary}
-          onUpdateTags={terminalSessions.updateLibraryTags}
           onImport={terminalSessions.importLibrary}
           onExport={terminalSessions.exportLibrary}
           onCancel={handleClosePicker}

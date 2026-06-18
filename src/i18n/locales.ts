@@ -24,6 +24,8 @@ export type TranslationKey =
   | "common.retry"
   | "common.refresh"
   | "common.search"
+  | "common.searchOptions"
+  | "common.noMatchingOptions"
   | "common.loading"
   | "common.none"
   | "common.select"
@@ -97,6 +99,16 @@ export type TranslationKey =
   | "agent.exited"
   | "terminal.exited"
   | "terminal.imagePasteFailed"
+  | "composer.inputLabel"
+  | "composer.placeholder"
+  | "composer.send"
+  | "composer.pasteImage"
+  | "composer.searchWorkspace"
+  | "composer.noMatches"
+  | "composer.searchFailed"
+  | "composer.uploadingImage"
+  | "composer.noClipboardImage"
+  | "composer.imageUploadFailed"
   | "tabs.files"
   | "tabs.git"
   | "tabs.debug"
@@ -160,11 +172,8 @@ export type TranslationKey =
   | "picker.empty"
   | "picker.searchPlaceholder"
   | "picker.tagFilter"
-  | "picker.maintainTags"
-  | "picker.closeTagEditor"
   | "picker.noMatches"
   | "picker.runningCount"
-  | "picker.editTags"
   | "picker.deleteFromLibrary"
   | "picker.confirmDelete"
   | "picker.startFresh"
@@ -268,6 +277,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.retry": "重试",
     "common.refresh": "刷新",
     "common.search": "搜索",
+    "common.searchOptions": "搜索选项...",
+    "common.noMatchingOptions": "没有匹配的选项",
     "common.loading": "加载中...",
     "common.none": "无",
     "common.select": "选择",
@@ -341,6 +352,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.exited": "进程已退出",
     "terminal.exited": "[进程已退出，退出码 {exitCode}]",
     "terminal.imagePasteFailed": "[图片粘贴失败: {message}]",
+    "composer.inputLabel": "终端输入",
+    "composer.placeholder": "输入内容，使用 @ 引用工作区文件...",
+    "composer.send": "发送到终端",
+    "composer.pasteImage": "上传剪贴板图片",
+    "composer.searchWorkspace": "工作区文件与文件夹",
+    "composer.noMatches": "没有匹配的文件或文件夹",
+    "composer.searchFailed": "搜索失败：{message}",
+    "composer.uploadingImage": "正在上传剪贴板图片...",
+    "composer.noClipboardImage": "剪贴板中没有图片",
+    "composer.imageUploadFailed": "图片上传失败：{message}",
     "tabs.files": "文件",
     "tabs.git": "Git",
     "tabs.debug": "Debug",
@@ -404,11 +425,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.empty": "没有已保存的会话",
     "picker.searchPlaceholder": "搜索会话或标签...",
     "picker.tagFilter": "标签筛选",
-    "picker.maintainTags": "维护标签",
-    "picker.closeTagEditor": "关闭标签编辑",
     "picker.noMatches": "没有匹配的会话",
     "picker.runningCount": "运行中 {count}",
-    "picker.editTags": "维护标签",
     "picker.deleteFromLibrary": "从库中删除",
     "picker.confirmDelete": "再次点击确认删除",
     "picker.startFresh": "重新开始",
@@ -504,6 +522,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.retry": "Retry",
     "common.refresh": "Refresh",
     "common.search": "Search",
+    "common.searchOptions": "Search options...",
+    "common.noMatchingOptions": "No matching options",
     "common.loading": "Loading...",
     "common.none": "None",
     "common.select": "Select",
@@ -577,6 +597,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.exited": "Process exited",
     "terminal.exited": "[Process exited with code {exitCode}]",
     "terminal.imagePasteFailed": "[Image paste failed: {message}]",
+    "composer.inputLabel": "Terminal input",
+    "composer.placeholder": "Type a message, use @ to reference workspace files...",
+    "composer.send": "Send to terminal",
+    "composer.pasteImage": "Upload clipboard image",
+    "composer.searchWorkspace": "Workspace files and folders",
+    "composer.noMatches": "No matching files or folders",
+    "composer.searchFailed": "Search failed: {message}",
+    "composer.uploadingImage": "Uploading clipboard image...",
+    "composer.noClipboardImage": "No image found in the clipboard",
+    "composer.imageUploadFailed": "Image upload failed: {message}",
     "tabs.files": "Files",
     "tabs.git": "Git",
     "tabs.debug": "Debug",
@@ -640,11 +670,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.empty": "No saved sessions",
     "picker.searchPlaceholder": "Search sessions or tags...",
     "picker.tagFilter": "Tag filter",
-    "picker.maintainTags": "Manage tags",
-    "picker.closeTagEditor": "Close tag editor",
     "picker.noMatches": "No matching sessions",
     "picker.runningCount": "Running {count}",
-    "picker.editTags": "Manage tags",
     "picker.deleteFromLibrary": "Delete from library",
     "picker.confirmDelete": "Click again to confirm delete",
     "picker.startFresh": "Start fresh",

@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { LOCALE_OPTIONS, useI18n } from "../i18n";
 import type { AppTheme } from "../themes";
 import type { Locale, ThemeId } from "../vite-env";
+import { SearchableSelect } from "./SearchableSelect";
 
 type SettingsModalProps = {
   autoRestore: boolean;
@@ -29,6 +30,14 @@ export function SettingsModal({
   onCancel
 }: SettingsModalProps) {
   const { t } = useI18n();
+  const themeOptions = useMemo(() => themes.map((theme) => ({
+    value: theme.id,
+    label: t(theme.labelKey)
+  })), [t, themes]);
+  const localeOptions = useMemo(() => LOCALE_OPTIONS.map((option) => ({
+    value: option.id,
+    label: t(option.labelKey)
+  })), [t]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -66,34 +75,26 @@ export function SettingsModal({
               <span className="auto-restore-track" />
               <span className="auto-restore-text">{t("settings.debugMode")}</span>
             </label>
-            <label className="settings-field">
+            <div className="settings-field">
               <span className="modal-label">{t("settings.theme")}</span>
-              <select
-                className="modal-input settings-theme-select"
+              <SearchableSelect
+                className="settings-theme-select"
                 value={themeId}
-                onChange={(event) => onThemeChange(event.target.value as ThemeId)}
-              >
-                {themes.map((theme) => (
-                  <option key={theme.id} value={theme.id}>
-                    {t(theme.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="settings-field">
+                options={themeOptions}
+                ariaLabel={t("settings.theme")}
+                onChange={(nextThemeId) => onThemeChange(nextThemeId as ThemeId)}
+              />
+            </div>
+            <div className="settings-field">
               <span className="modal-label">{t("settings.language")}</span>
-              <select
-                className="modal-input settings-theme-select"
+              <SearchableSelect
+                className="settings-theme-select"
                 value={locale}
-                onChange={(event) => onLocaleChange(event.target.value as Locale)}
-              >
-                {LOCALE_OPTIONS.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={localeOptions}
+                ariaLabel={t("settings.language")}
+                onChange={(nextLocale) => onLocaleChange(nextLocale as Locale)}
+              />
+            </div>
           </section>
         </div>
         <div className="modal-footer">

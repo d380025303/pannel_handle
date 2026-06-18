@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, GripVertical, Pencil, Search, Trash2, Upload, X } from "lucide-react";
+import { Download, GripVertical, Search, Trash2, Upload, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../vite-env";
-import { TagInput } from "./TagInput";
 
 type SessionPickerModalProps = {
   pendingSessions: TerminalSession[];
@@ -12,7 +11,6 @@ type SessionPickerModalProps = {
   onStartFresh: () => void;
   onDelete: (id: string) => void;
   onReorder: (sessions: TerminalSession[]) => void;
-  onUpdateTags: (id: string, tags: string[]) => void;
   onImport: () => Promise<SessionLibraryImportResult>;
   onExport: () => Promise<SessionLibraryFileResult>;
   onCancel: () => void;
@@ -32,7 +30,6 @@ export function SessionPickerModal({
   onStartFresh,
   onDelete,
   onReorder,
-  onUpdateTags,
   onImport,
   onExport,
   onCancel
@@ -43,8 +40,6 @@ export function SessionPickerModal({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(() => new Set());
-  const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
-  const [editingTags, setEditingTags] = useState<string[]>([]);
   const [libraryStatus, setLibraryStatus] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -239,31 +234,6 @@ export function SessionPickerModal({
                 </div>
               )}
 
-              {editingTagsId && (
-                <div className="picker-tag-editor">
-                  <div className="picker-tag-editor-header">
-                    <strong>{t("picker.maintainTags")}</strong>
-                    <button type="button" className="picker-search-clear" aria-label={t("picker.closeTagEditor")} onClick={() => setEditingTagsId(null)}>
-                      <X aria-hidden="true" />
-                    </button>
-                  </div>
-                  <TagInput tags={editingTags} suggestions={availableTags} onChange={setEditingTags} compact />
-                  <div className="picker-tag-editor-actions">
-                    <button type="button" className="modal-button" onClick={() => setEditingTagsId(null)}>{t("common.cancel")}</button>
-                    <button
-                      type="button"
-                      className="modal-button primary"
-                      onClick={() => {
-                        onUpdateTags(editingTagsId, editingTags);
-                        setEditingTagsId(null);
-                      }}
-                    >
-                      {t("common.save")}
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {filteredSessions.length === 0 ? (
                 <div className="picker-empty"><p>{t("picker.noMatches")}</p></div>
               ) : (
@@ -335,17 +305,6 @@ export function SessionPickerModal({
                               ))}
                             </span>
                           )}
-                        </span>
-                        <span
-                          className="picker-edit-tags-btn"
-                          title={t("picker.editTags")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditingTagsId(session.id);
-                            setEditingTags(session.tags ?? []);
-                          }}
-                        >
-                          <Pencil aria-hidden="true" />
                         </span>
                         <span
                           className={`picker-delete-btn${confirmDeleteId === session.id ? " confirm" : ""}`}

@@ -16,6 +16,18 @@
     padding-inline: 8px;
   }
 
+  .terminal-composer-wrap {
+    margin-inline: 8px;
+  }
+
+  .terminal-composer-mentions > button {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .terminal-composer-entry-path {
+    display: none;
+  }
+
   .remote-system-status {
     gap: 8px;
   }

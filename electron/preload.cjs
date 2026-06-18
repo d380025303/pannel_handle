@@ -100,6 +100,7 @@ contextBridge.exposeInMainWorld("gitApi", {
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {
+  searchWorkspaceEntries: (sessionId, query) => ipcRenderer.invoke("project-search:workspace-entries", { sessionId, query }),
   listDirectories: (sessionId, rootPath) => ipcRenderer.invoke("project-search:list-directories", { sessionId, rootPath }),
   searchFiles: (sessionId, query, rootPath) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath }),
   searchText: (sessionId, query, requestId, rootPath) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath }),

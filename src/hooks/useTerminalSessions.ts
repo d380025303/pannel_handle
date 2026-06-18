@@ -202,13 +202,6 @@ export function useTerminalSessions() {
     await window.terminalApi.reorderSavedSessions(orderedSessions.map(s => s.id));
   }, []);
 
-  const updateLibraryTags = useCallback(async (id: string, tags: string[]) => {
-    await window.terminalApi.updateSession(id, { tags });
-    const library = await window.terminalApi.loadSavedSessions();
-    setLibrarySessions(library);
-    setPendingSessions(library);
-  }, []);
-
   const reorderRunningSessions = useCallback(async (orderedIds: string[]) => {
     setSessions(prev => {
       const map = new Map(prev.map(s => [s.id, s]));
@@ -249,7 +242,6 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     reorderLibrary,
-    updateLibraryTags,
     reorderRunningSessions,
     autoRestore,
     toggleAutoRestore,

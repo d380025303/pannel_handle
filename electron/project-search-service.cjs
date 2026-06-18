@@ -194,7 +194,7 @@ function throwIfCancelled(task) {
   throw error;
 }
 
-async function walkProject({ fsApi, hostRoot, onFile, maxResults, maxVisitedEntries, task }) {
+async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, maxVisitedEntries, task }) {
   const queue = [{ hostPath: hostRoot, relativePath: "" }];
   let visitedEntries = 0;
 
@@ -220,6 +220,12 @@ async function walkProject({ fsApi, hostRoot, onFile, maxResults, maxVisitedEntr
 
       if (dirent.isDirectory()) {
         if (!isExcludedDirectory(dirent.name)) {
+          if (onDirectory) {
+            await onDirectory({ hostPath: childHostPath, relativePath: childRelativePath, name: dirent.name });
+            if (maxResults && maxResults()) {
+              return;
+            }
+          }
           queue.push({ hostPath: childHostPath, relativePath: childRelativePath });
         }
         continue;
@@ -237,6 +243,20 @@ async function walkProject({ fsApi, hostRoot, onFile, maxResults, maxVisitedEntr
 
 function normalizeQuery(query) {
   return String(query || "").trim();
+}
+
+function isOrderedSubsequence(candidate, query) {
+  const normalizedCandidate = String(candidate || "").toLowerCase();
+  const normalizedQuery = String(query || "").toLowerCase();
+  let queryIndex = 0;
+
+  for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length && queryIndex < normalizedQuery.length; candidateIndex += 1) {
+    if (normalizedCandidate[candidateIndex] === normalizedQuery[queryIndex]) {
+      queryIndex += 1;
+    }
+  }
+
+  return queryIndex === normalizedQuery.length;
 }
 
 function normalizeRequestId(requestId) {
@@ -586,6 +606,7 @@ async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root
 
 function createProjectSearchService({
   terminalManager,
+  remoteFileService,
   fsApi = fs,
   spawnProcess = spawn,
   resolveRipgrepPath = resolveBundledRipgrepPath,
@@ -634,7 +655,6 @@ function createProjectSearchService({
 
     const session = getSession(terminalManager, sessionId);
     const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, session, rootPath);
-    const normalizedNeedle = normalizedQuery.toLowerCase();
     const results = [];
 
     await walkProject({
@@ -645,8 +665,8 @@ function createProjectSearchService({
       onFile: async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(session, relativePath);
         if (
-          name.toLowerCase().includes(normalizedNeedle)
-          || displayRelativePath.toLowerCase().includes(normalizedNeedle)
+          isOrderedSubsequence(name, normalizedQuery)
+          || isOrderedSubsequence(displayRelativePath, normalizedQuery)
         ) {
           results.push({
             path: toDisplayPath(session, displayRoot, relativePath),
@@ -658,6 +678,95 @@ function createProjectSearchService({
     });
 
     return { root: displayRoot, results };
+  }
+
+  async function searchWorkspaceEntries(sessionId, query) {
+    const normalizedQuery = normalizeQuery(query);
+    const session = terminalManager.getSession(sessionId);
+    if (!session) {
+      throw new Error("Session is not running.");
+    }
+
+    const matchesQuery = (name, relativePath) => !normalizedQuery
+      || isOrderedSubsequence(name, normalizedQuery)
+      || isOrderedSubsequence(relativePath, normalizedQuery);
+    const results = [];
+
+    if (session.type !== "ssh") {
+      const localSession = getSession(terminalManager, sessionId);
+      let configuredRoot = localSession.cwd || ".";
+      if (String(configuredRoot).startsWith("~") && remoteFileService) {
+        const home = await remoteFileService.getHome(sessionId);
+        configuredRoot = configuredRoot === "~"
+          ? home
+          : localSession.type === "windows"
+            ? path.win32.join(home, configuredRoot.slice(2))
+            : path.posix.join(home, configuredRoot.slice(2));
+      }
+      const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, localSession, configuredRoot);
+      const addResult = (type) => async ({ relativePath, name }) => {
+        const displayRelativePath = toDisplayRelativePath(localSession, relativePath);
+        if (matchesQuery(name, displayRelativePath)) {
+          results.push({
+            path: toDisplayPath(localSession, displayRoot, relativePath),
+            relativePath: displayRelativePath,
+            name,
+            type
+          });
+        }
+      };
+      await walkProject({
+        fsApi,
+        hostRoot,
+        maxVisitedEntries: MAX_FILE_VISITED_ENTRIES,
+        maxResults: () => results.length >= MAX_FILE_RESULTS,
+        onDirectory: addResult("directory"),
+        onFile: addResult("file")
+      });
+      return { root: displayRoot, results };
+    }
+
+    if (!remoteFileService) {
+      throw new Error("Remote file search is not available.");
+    }
+    const home = await remoteFileService.getHome(sessionId);
+    const configuredCwd = String(session.cwd || "~").trim() || "~";
+    const root = configuredCwd === "~"
+      ? home
+      : configuredCwd.startsWith("~/")
+        ? path.posix.join(home, configuredCwd.slice(2))
+        : configuredCwd.startsWith("/")
+          ? path.posix.normalize(configuredCwd)
+          : path.posix.join(home, configuredCwd);
+    const queue = [{ path: root, relativePath: "" }];
+    let visitedEntries = 0;
+
+    while (queue.length > 0 && visitedEntries < MAX_FILE_VISITED_ENTRIES && results.length < MAX_FILE_RESULTS) {
+      const current = queue.shift();
+      let entries;
+      try {
+        entries = await remoteFileService.list(sessionId, current.path);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        visitedEntries += 1;
+        if (visitedEntries > MAX_FILE_VISITED_ENTRIES || results.length >= MAX_FILE_RESULTS) break;
+        const relativePath = current.relativePath
+          ? path.posix.join(current.relativePath, entry.name)
+          : entry.name;
+        if (entry.type === "directory" && !isExcludedDirectory(entry.name)) {
+          if (matchesQuery(entry.name, relativePath)) {
+            results.push({ path: entry.path, relativePath, name: entry.name, type: "directory" });
+          }
+          queue.push({ path: entry.path, relativePath });
+        } else if (entry.type === "file" && matchesQuery(entry.name, relativePath)) {
+          results.push({ path: entry.path, relativePath, name: entry.name, type: "file" });
+        }
+      }
+    }
+
+    return { root, results };
   }
 
   async function searchText(sessionId, query, requestId, rootPath) {
@@ -703,6 +812,7 @@ function createProjectSearchService({
   return {
     listDirectories,
     searchFiles,
+    searchWorkspaceEntries,
     searchText,
     cancelTextSearch
   };

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { File, FileText, Folder, Search, X } from "lucide-react";
 import { useI18n } from "../i18n";
+import { SearchableSelect } from "./SearchableSelect";
 import type { ProjectFileSearchResult, ProjectTextSearchResponse, ProjectTextSearchResult, TerminalSession } from "../vite-env";
 
 export type ProjectSearchMode = "files" | "text";
@@ -160,19 +161,24 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
           <Folder aria-hidden="true" />
           <input value={rootInput} aria-label={t("projectSearch.directory")} placeholder={t("projectSearch.directoryPlaceholder")} onChange={(event) => setRootInput(event.target.value)} />
           {directoryState.status === "ready" && (
-            <select
+            <SearchableSelect
+              className="project-search-directory-select"
               value={directoryState.path}
-              aria-label={t("projectSearch.directory")}
-              onChange={(event) => loadDirectories(event.target.value)}
-            >
-              <option value={directoryState.path}>{t("projectSearch.directory")}</option>
-              {!samePath(directoryState.path, directoryState.workspaceRoot) && (
-                <option value={parentPath(directoryState.path)}>.. {t("projectSearch.parentDirectory")}</option>
-              )}
-              {directoryState.directories.map((directory) => (
-                <option value={directory.path} key={directory.path}>{directory.name}</option>
-              ))}
-            </select>
+              options={[
+                { value: directoryState.path, label: t("projectSearch.directory"), searchText: directoryState.path },
+                ...(!samePath(directoryState.path, directoryState.workspaceRoot)
+                  ? [{ value: parentPath(directoryState.path), label: `.. ${t("projectSearch.parentDirectory")}`, searchText: parentPath(directoryState.path) }]
+                  : []),
+                ...directoryState.directories.map((directory) => ({
+                  value: directory.path,
+                  label: directory.name,
+                  searchText: directory.path
+                }))
+              ]}
+              ariaLabel={t("projectSearch.directory")}
+              menuMinWidth={260}
+              onChange={loadDirectories}
+            />
           )}
           <button type="submit">{t("projectSearch.go")}</button>
         </form>

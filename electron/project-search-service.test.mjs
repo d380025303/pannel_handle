@@ -98,6 +98,102 @@ describe("project-search-service", () => {
     }
   });
 
+  it("matches file names and relative paths by case-insensitive character order", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-fuzzy-"));
+    try {
+      writeFile(path.join(dir, "src", "CustomerDataController.java"), "class CustomerDataController {}");
+      writeFile(path.join(dir, "src", "CustomerControllerData.java"), "class CustomerControllerData {}");
+      writeFile(path.join(dir, "customer-data", "Controller.java"), "class Controller {}");
+
+      const service = createProjectSearchService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir })
+      });
+
+      const lowerCaseResult = await service.searchFiles("run-1", "custdatacon");
+      expect(lowerCaseResult.results).toHaveLength(2);
+      expect(lowerCaseResult.results).toEqual(expect.arrayContaining([
+        {
+          path: path.join(dir, "src", "CustomerDataController.java"),
+          relativePath: path.join("src", "CustomerDataController.java"),
+          name: "CustomerDataController.java"
+        },
+        {
+          path: path.join(dir, "customer-data", "Controller.java"),
+          relativePath: path.join("customer-data", "Controller.java"),
+          name: "Controller.java"
+        }
+      ]));
+      await expect(service.searchFiles("run-1", "CUSTDATACON")).resolves.toEqual(lowerCaseResult);
+      expect(lowerCaseResult.results.some((result) => result.name === "CustomerControllerData.java")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("searches workspace files and directories without changing file search results", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-workspace-entries-"));
+    try {
+      writeFile(path.join(dir, "src", "components", "TerminalComposer.tsx"), "component");
+      writeFile(path.join(dir, "node_modules", "hidden", "TerminalComposer.tsx"), "ignored");
+      const service = createProjectSearchService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir })
+      });
+
+      const response = await service.searchWorkspaceEntries("run-1", "comp");
+      expect(response.root).toBe(dir);
+      expect(response.results).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          relativePath: "src\\components",
+          name: "components",
+          type: "directory"
+        }),
+        expect.objectContaining({
+          relativePath: "src\\components\\TerminalComposer.tsx",
+          name: "TerminalComposer.tsx",
+          type: "file"
+        })
+      ]));
+      expect(response.results.some((entry) => entry.relativePath.includes("node_modules"))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("searches SSH workspace entries through SFTP without following symlinks", async () => {
+    const remoteFileService = {
+      getHome: vi.fn(async () => "/home/deploy"),
+      list: vi.fn(async (_sessionId, remotePath) => {
+        if (remotePath === "/srv/app") {
+          return [
+            { name: "src", path: "/srv/app/src", type: "directory" },
+            { name: "node_modules", path: "/srv/app/node_modules", type: "directory" },
+            { name: "linked", path: "/srv/app/linked", type: "symlink" }
+          ];
+        }
+        if (remotePath === "/srv/app/src") {
+          return [{ name: "TerminalComposer.tsx", path: "/srv/app/src/TerminalComposer.tsx", type: "file" }];
+        }
+        return [];
+      })
+    };
+    const service = createProjectSearchService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh", cwd: "/srv/app" }),
+      remoteFileService
+    });
+
+    await expect(service.searchWorkspaceEntries("run-1", "comp")).resolves.toEqual({
+      root: "/srv/app",
+      results: [{
+        path: "/srv/app/src/TerminalComposer.tsx",
+        relativePath: "src/TerminalComposer.tsx",
+        name: "TerminalComposer.tsx",
+        type: "file"
+      }]
+    });
+    expect(remoteFileService.list).not.toHaveBeenCalledWith("run-1", "/srv/app/node_modules");
+    expect(remoteFileService.list).not.toHaveBeenCalledWith("run-1", "/srv/app/linked");
+  });
+
   it("continues file-name searches beyond the text-search traversal limit", async () => {
     const entries = Array.from({ length: 30000 }, (_, index) => ({
       name: `unrelated-${index}.txt`,

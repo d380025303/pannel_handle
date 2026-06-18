@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArrowDown, ArrowUp, ChevronDown, FileDiff, FolderInput, GitBranch, RefreshCw, RotateCcw, Search, X } from "lucide-react";
 import { useI18n } from "../i18n";
+import { SearchableSelect } from "./SearchableSelect";
 import type {
   GitBranchEntry,
   GitBranchListResult,
@@ -685,23 +686,22 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
 
         {state.status === "ready" && (
           <div className="git-status-actions">
-            <label className="git-branch-select">
+            <div className="git-branch-select">
               <GitBranch aria-hidden="true" />
-              <select
+              <SearchableSelect
                 value={currentBranch ? branchKey(currentBranch) : ""}
+                options={state.branches.branches.map((branch) => ({
+                  value: branchKey(branch),
+                  label: `${branch.current ? "* " : ""}${branch.name}${branch.kind === "remote" ? t("git.remoteBranch") : ""}`,
+                  searchText: branch.name
+                }))}
                 disabled={isBusy}
-                title={t("git.checkoutBranch")}
-                aria-label={t("git.checkoutBranch")}
-                onChange={(event) => handleCheckout(event.target.value)}
-              >
-                <option value="" disabled>{t("git.checkoutBranch")}</option>
-                {state.branches.branches.map((branch) => (
-                  <option value={branchKey(branch)} key={branchKey(branch)}>
-                    {branch.current ? "* " : ""}{branch.name}{branch.kind === "remote" ? t("git.remoteBranch") : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+                ariaLabel={t("git.checkoutBranch")}
+                placeholder={t("git.checkoutBranch")}
+                menuMinWidth={260}
+                onChange={handleCheckout}
+              />
+            </div>
             <button className="git-action-button" type="button" disabled={isBusy} onClick={handleStash}>
               <Archive aria-hidden="true" />
               {t("git.stash")}

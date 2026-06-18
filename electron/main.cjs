@@ -177,7 +177,8 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime
     });
     projectSearchService = createProjectSearchService({
-      terminalManager
+      terminalManager,
+      remoteFileService
     });
 
     sessionStore.loadLibrary();

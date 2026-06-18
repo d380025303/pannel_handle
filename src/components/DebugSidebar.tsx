@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { AgentHookDebugPayload, AgentProvider, TerminalSession } from "../vite-env";
+import { SearchableSelect } from "./SearchableSelect";
 
 type DebugSidebarProps = {
   events: AgentHookDebugPayload[];
@@ -25,6 +26,11 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
   const [sessionFilter, setSessionFilter] = useState<string>("all");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const eventListRef = useRef<HTMLDivElement | null>(null);
+  const sessionOptions = useMemo(() => [
+    { value: "all", label: t("debug.allInstances") },
+    { value: "__no_session__", label: t("debug.noMatchedSession") },
+    ...sessions.map((session) => ({ value: session.id, label: session.id }))
+  ], [sessions, t]);
 
   const filteredEvents = useMemo(() => {
     let result = providerFilter === "all" ? events : events.filter((event) => event.provider === providerFilter);
@@ -81,13 +87,12 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
       </div>
 
       <div className="debug-session-filter">
-        <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)}>
-          <option value="all">{t("debug.allInstances")}</option>
-          <option value="__no_session__">{t("debug.noMatchedSession")}</option>
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>{s.id}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          value={sessionFilter}
+          options={sessionOptions}
+          ariaLabel={t("debug.allInstances")}
+          onChange={setSessionFilter}
+        />
       </div>
 
       <div className="debug-event-list" ref={eventListRef}>

@@ -193,6 +193,15 @@ export type ProjectFileSearchResult = {
   name: string;
 };
 
+export type WorkspaceEntrySearchResult = ProjectFileSearchResult & {
+  type: "file" | "directory";
+};
+
+export type WorkspaceEntrySearchResponse = {
+  root: string;
+  results: WorkspaceEntrySearchResult[];
+};
+
 export type ProjectTextSearchResult = ProjectFileSearchResult & {
   lineNumber: number;
   line: string;
@@ -335,6 +344,7 @@ export type GitApi = {
 };
 
 export type ProjectSearchApi = {
+  searchWorkspaceEntries: (sessionId: string, query: string) => Promise<WorkspaceEntrySearchResponse>;
   listDirectories: (sessionId: string, rootPath: string) => Promise<{
     workspaceRoot: string;
     path: string;

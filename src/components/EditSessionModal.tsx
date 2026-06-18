@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
+import { SearchableSelect } from "./SearchableSelect";
 import { generateId } from "../utils/id";
 
 type EditSessionModalProps = {
@@ -242,15 +243,18 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   value={qc.command}
                   onChange={(e) => handleCommandChange(qc.id, "command", e.target.value)}
                 />
-                <select
+                <SearchableSelect
                   className="quick-cmd-mode-select"
                   value={qc.mode || "write"}
-                  onChange={(e) => handleCommandChange(qc.id, "mode", e.target.value)}
-                >
-                  <option value="write">{t("quickCommand.write")}</option>
-                  <option value="auto-enter">{t("quickCommand.autoEnter")}</option>
-                  <option value="one-time">{t("quickCommand.oneTime")}</option>
-                </select>
+                  options={[
+                    { value: "write", label: t("quickCommand.write") },
+                    { value: "auto-enter", label: t("quickCommand.autoEnter") },
+                    { value: "one-time", label: t("quickCommand.oneTime") }
+                  ]}
+                  ariaLabel={t("quickCommand.heading")}
+                  menuMinWidth={180}
+                  onChange={(mode) => handleCommandChange(qc.id, "mode", mode)}
+                />
                 <button
                   type="button"
                   className="mini-action danger"
