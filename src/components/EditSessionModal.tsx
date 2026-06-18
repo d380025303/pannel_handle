@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
 import { generateId } from "../utils/id";
@@ -12,11 +13,12 @@ type EditSessionModalProps = {
 };
 
 export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: EditSessionModalProps) {
+  const { t } = useI18n();
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
-    () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || 'write' as const }))
+    () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || "write" as const }))
   );
   const [sshHost, setSshHost] = useState(session.sshConfig?.host || "");
   const [sshUsername, setSshUsername] = useState(session.sshConfig?.username || "");
@@ -79,21 +81,21 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     <div className="modal-overlay">
       <div className="modal-dialog">
         <div className="modal-header">
-          <h3>编辑会话</h3>
+          <h3>{t("session.editTitle")}</h3>
         </div>
         <div className="modal-body">
           <label className="modal-field">
-            <span className="modal-label">会话名称</span>
+            <span className="modal-label">{t("session.name")}</span>
             <input
               autoFocus
               className="modal-input"
-              placeholder="输入会话名称"
+              placeholder={t("session.namePlaceholder")}
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
-                          />
+            />
           </label>
           <label className="modal-field">
-            <span className="modal-label">标签</span>
+            <span className="modal-label">{t("session.tags")}</span>
             <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
           </label>
 
@@ -101,40 +103,44 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
             <div className="ssh-form">
               <div className="modal-grid two">
                 <label className="modal-field">
-                  <span className="modal-label">主机</span>
+                  <span className="modal-label">{t("session.host")}</span>
                   <input
                     className="modal-input"
-                    placeholder="example.com 或 192.168.1.10"
+                    placeholder={t("session.hostPlaceholder")}
                     value={sshHost}
-                    onChange={(e) => setSshHost(e.target.value)}                  />
+                    onChange={(e) => setSshHost(e.target.value)}
+                  />
                 </label>
                 <label className="modal-field">
-                  <span className="modal-label">端口</span>
+                  <span className="modal-label">{t("session.port")}</span>
                   <input
                     className="modal-input"
                     placeholder="22"
                     value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}                  />
+                    onChange={(e) => setSshPort(e.target.value)}
+                  />
                 </label>
               </div>
               <div className="modal-grid two">
                 <label className="modal-field">
-                  <span className="modal-label">用户名</span>
+                  <span className="modal-label">{t("session.username")}</span>
                   <input
                     className="modal-input"
                     placeholder="root"
                     value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}                  />
+                    onChange={(e) => setSshUsername(e.target.value)}
+                  />
                 </label>
                 <label className="modal-field">
-                  <span className="modal-label">密码或密钥口令</span>
+                  <span className="modal-label">{t("session.passwordOrKeyPassphrase")}</span>
                   <input
                     className="modal-input"
                     type="password"
-                    placeholder={session.sshConfig?.hasSecret ? "已保存密码，留空保持不变" : "加密保存，用于自动登录"}
+                    placeholder={session.sshConfig?.hasSecret ? t("session.passwordEditPlaceholder") : t("session.passwordCreatePlaceholder")}
                     value={sshSecret}
                     disabled={clearSshSecret}
-                    onChange={(e) => setSshSecret(e.target.value)}                  />
+                    onChange={(e) => setSshSecret(e.target.value)}
+                  />
                 </label>
               </div>
               {session.sshConfig?.hasSecret && (
@@ -149,107 +155,107 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                       }
                     }}
                   />
-                  <span>清除已保存密码</span>
+                  <span>{t("session.clearSavedPassword")}</span>
                 </label>
               )}
               <label className="modal-field">
-                <span className="modal-label">密钥路径</span>
+                <span className="modal-label">{t("session.identityFile")}</span>
                 <input
                   className="modal-input"
                   placeholder="C:\\Users\\me\\.ssh\\id_rsa"
                   value={sshIdentityFile}
                   onChange={(e) => setSshIdentityFile(e.target.value)}
-                                  />
+                />
               </label>
               <label className="modal-field">
-                <span className="modal-label">工作目录</span>
+                <span className="modal-label">{t("session.cwd")}</span>
                 <input
                   className="modal-input"
                   placeholder="/srv/app"
                   value={editCwd}
                   onChange={(e) => setEditCwd(e.target.value)}
-                                  />
+                />
               </label>
               <label className="modal-field">
-                <span className="modal-label">初始命令</span>
+                <span className="modal-label">{t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
-                  placeholder="输入初始命令（可选），如：pnpm dev"
+                  placeholder={t("session.initialCommandPlaceholder", { example: "pnpm dev" })}
                   value={editCommand}
                   onChange={(e) => setEditCommand(e.target.value)}
                   rows={3}
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">额外 SSH 参数</span>
+                <span className="modal-label">{t("session.sshArgs")}</span>
                 <input
                   className="modal-input"
                   placeholder="-o ServerAliveInterval=30"
                   value={sshExtraArgs}
                   disabled
                   onChange={(e) => setSshExtraArgs(e.target.value)}
-                                  />
+                />
               </label>
               <label className="modal-field">
-                <span className="modal-label">备注</span>
+                <span className="modal-label">{t("session.remark")}</span>
                 <textarea
                   className="modal-input modal-textarea"
-                  placeholder="备注信息（可选）"
+                  placeholder={t("session.remarkPlaceholder")}
                   value={sshRemark}
                   onChange={(e) => setSshRemark(e.target.value)}
-                                    rows={2}
+                  rows={2}
                 />
               </label>
             </div>
           ) : (
             <>
-            <label className="modal-field">
-              <span className="modal-label">工作目录</span>
-              <input
-                className="modal-input"
-                placeholder={session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"}
-                value={editCwd}
-                onChange={(e) => setEditCwd(e.target.value)}
-                              />
-            </label>
-            <label className="modal-field">
-              <span className="modal-label">初始命令</span>
-              <textarea
-                className="modal-input modal-textarea"
-                placeholder="输入初始命令（可选），如：cd D:\\projects\\myapp"
-                value={editCommand}
-                onChange={(e) => setEditCommand(e.target.value)}
-                                rows={3}
-              />
-            </label>
+              <label className="modal-field">
+                <span className="modal-label">{t("session.cwd")}</span>
+                <input
+                  className="modal-input"
+                  placeholder={session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"}
+                  value={editCwd}
+                  onChange={(e) => setEditCwd(e.target.value)}
+                />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">{t("session.initialCommand")}</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
+                  value={editCommand}
+                  onChange={(e) => setEditCommand(e.target.value)}
+                  rows={3}
+                />
+              </label>
             </>
           )}
           <label className="modal-label quick-command-heading">
-            快捷命令
+            {t("quickCommand.heading")}
           </label>
           <div className="quick-command-edit-list">
             {quickCommands.map((qc) => (
               <div key={qc.id} className="quick-command-edit-row">
                 <input
                   className="modal-input quick-cmd-input"
-                  placeholder="命令内容"
+                  placeholder={t("quickCommand.commandPlaceholder")}
                   value={qc.command}
                   onChange={(e) => handleCommandChange(qc.id, "command", e.target.value)}
                 />
                 <select
                   className="quick-cmd-mode-select"
-                  value={qc.mode || 'write'}
+                  value={qc.mode || "write"}
                   onChange={(e) => handleCommandChange(qc.id, "mode", e.target.value)}
                 >
-                  <option value="write">手动写入</option>
-                  <option value="auto-enter">自动执行</option>
-                  <option value="one-time">一次性</option>
+                  <option value="write">{t("quickCommand.write")}</option>
+                  <option value="auto-enter">{t("quickCommand.autoEnter")}</option>
+                  <option value="one-time">{t("quickCommand.oneTime")}</option>
                 </select>
                 <button
                   type="button"
                   className="mini-action danger"
                   onClick={() => handleRemoveCommand(qc.id)}
-                  title="删除"
+                  title={t("common.delete")}
                 >
                   <X size={13} />
                 </button>
@@ -261,16 +267,16 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onClick={handleAddCommand}
             >
               <Plus size={14} />
-              <span>添加命令</span>
+              <span>{t("quickCommand.add")}</span>
             </button>
           </div>
         </div>
         <div className="modal-footer">
           <button className="modal-button" type="button" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </button>
           <button className="modal-button primary" type="button" onClick={handleSave} disabled={isSsh && sshHost.trim().length === 0}>
-            保存
+            {t("common.save")}
           </button>
         </div>
       </div>

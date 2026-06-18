@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, GripVertical, Pencil, Search, Trash2, Upload, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../vite-env";
 import { TagInput } from "./TagInput";
 
@@ -36,6 +37,7 @@ export function SessionPickerModal({
   onExport,
   onCancel
 }: SessionPickerModalProps) {
+  const { t } = useI18n();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -146,12 +148,12 @@ export function SessionPickerModal({
     try {
       const result = await onImport();
       if (result.canceled) {
-        setLibraryStatus({ kind: "info", text: "已取消导入" });
+        setLibraryStatus({ kind: "info", text: t("picker.importCanceled") });
       } else if (result.ok) {
         setSelectedIds(new Set());
-        setLibraryStatus({ kind: "info", text: `已导入 ${result.importedCount} 个会话` });
+        setLibraryStatus({ kind: "info", text: t("picker.imported", { count: result.importedCount }) });
       } else {
-        setLibraryStatus({ kind: "error", text: `导入失败：${result.error}` });
+        setLibraryStatus({ kind: "error", text: t("picker.importFailed", { error: result.error }) });
       }
     } finally {
       setIsImporting(false);
@@ -164,11 +166,11 @@ export function SessionPickerModal({
     try {
       const result = await onExport();
       if (result.canceled) {
-        setLibraryStatus({ kind: "info", text: "已取消导出" });
+        setLibraryStatus({ kind: "info", text: t("picker.exportCanceled") });
       } else if (result.ok) {
-        setLibraryStatus({ kind: "info", text: `已导出 ${result.exportedCount} 个会话：${result.filePath}` });
+        setLibraryStatus({ kind: "info", text: t("picker.exported", { count: result.exportedCount, path: result.filePath }) });
       } else {
-        setLibraryStatus({ kind: "error", text: `导出失败：${result.error}` });
+        setLibraryStatus({ kind: "error", text: t("picker.exportFailed", { error: result.error }) });
       }
     } finally {
       setIsExporting(false);
@@ -179,17 +181,17 @@ export function SessionPickerModal({
     <div className="modal-overlay">
       <div className="modal-dialog session-picker-dialog">
         <div className="modal-header">
-          <h3>{pickerManual ? "会话库" : "恢复会话"}</h3>
+          <h3>{pickerManual ? t("picker.libraryTitle") : t("picker.restoreTitle")}</h3>
         </div>
         <div className="modal-body">
           <div className="picker-library-actions">
             <button className="modal-button" type="button" onClick={handleImport} disabled={isImporting || isExporting}>
               <Upload aria-hidden="true" />
-              {isImporting ? "导入中" : "导入"}
+              {isImporting ? t("common.importing") : t("common.import")}
             </button>
             <button className="modal-button" type="button" onClick={handleExport} disabled={isImporting || isExporting}>
               <Download aria-hidden="true" />
-              {isExporting ? "导出中" : "导出"}
+              {isExporting ? t("common.exporting") : t("common.export")}
             </button>
           </div>
           {libraryStatus && (
@@ -198,7 +200,7 @@ export function SessionPickerModal({
             </div>
           )}
           {pendingSessions.length === 0 ? (
-            <div className="picker-empty"><p>没有已保存的会话</p></div>
+            <div className="picker-empty"><p>{t("picker.empty")}</p></div>
           ) : (
             <>
               <div className="picker-search">
@@ -206,13 +208,13 @@ export function SessionPickerModal({
                 <input
                   className="modal-input picker-search-input"
                   type="text"
-                  placeholder="搜索会话或标签..."
+                  placeholder={t("picker.searchPlaceholder")}
                   value={searchQuery}
                   autoFocus
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />
                 {searchQuery.trim() && (
-                  <button className="picker-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label="清除搜索">
+                  <button className="picker-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label={t("sidebar.clearSearch")}>
                     <X aria-hidden="true" />
                   </button>
                 )}
@@ -220,7 +222,7 @@ export function SessionPickerModal({
 
               {availableTags.length > 0 && (
                 <div className="picker-tag-filters">
-                  <span className="picker-tag-filter-label">标签筛选</span>
+                  <span className="picker-tag-filter-label">{t("picker.tagFilter")}</span>
                   {availableTags.map((tag) => (
                     <button
                       type="button"
@@ -232,7 +234,7 @@ export function SessionPickerModal({
                     </button>
                   ))}
                   {selectedTags.size > 0 && (
-                    <button type="button" className="picker-tag-clear" onClick={() => setSelectedTags(new Set())}>清除</button>
+                    <button type="button" className="picker-tag-clear" onClick={() => setSelectedTags(new Set())}>{t("common.clear")}</button>
                   )}
                 </div>
               )}
@@ -240,14 +242,14 @@ export function SessionPickerModal({
               {editingTagsId && (
                 <div className="picker-tag-editor">
                   <div className="picker-tag-editor-header">
-                    <strong>维护标签</strong>
-                    <button type="button" className="picker-search-clear" aria-label="关闭标签编辑" onClick={() => setEditingTagsId(null)}>
+                    <strong>{t("picker.maintainTags")}</strong>
+                    <button type="button" className="picker-search-clear" aria-label={t("picker.closeTagEditor")} onClick={() => setEditingTagsId(null)}>
                       <X aria-hidden="true" />
                     </button>
                   </div>
                   <TagInput tags={editingTags} suggestions={availableTags} onChange={setEditingTags} compact />
                   <div className="picker-tag-editor-actions">
-                    <button type="button" className="modal-button" onClick={() => setEditingTagsId(null)}>取消</button>
+                    <button type="button" className="modal-button" onClick={() => setEditingTagsId(null)}>{t("common.cancel")}</button>
                     <button
                       type="button"
                       className="modal-button primary"
@@ -256,14 +258,14 @@ export function SessionPickerModal({
                         setEditingTagsId(null);
                       }}
                     >
-                      保存
+                      {t("common.save")}
                     </button>
                   </div>
                 </div>
               )}
 
               {filteredSessions.length === 0 ? (
-                <div className="picker-empty"><p>没有匹配的会话</p></div>
+                <div className="picker-empty"><p>{t("picker.noMatches")}</p></div>
               ) : (
                 <div className="picker-list">
                   {filteredSessions.map((session) => {
@@ -314,7 +316,7 @@ export function SessionPickerModal({
                           <span className="picker-item-info">
                             <span className="picker-item-title">{session.title}</span>
                             <span className={`session-type-badge ${session.type}`}>{getSessionTypeLabel(session)}</span>
-                            {isRunning && <span className="picker-running-badge">运行中 {runningCount}</span>}
+                            {isRunning && <span className="picker-running-badge">{t("picker.runningCount", { count: runningCount })}</span>}
                           </span>
                           {(session.tags ?? []).length > 0 && (
                             <span className="picker-item-tags">
@@ -336,7 +338,7 @@ export function SessionPickerModal({
                         </span>
                         <span
                           className="picker-edit-tags-btn"
-                          title="维护标签"
+                          title={t("picker.editTags")}
                           onClick={(event) => {
                             event.stopPropagation();
                             setEditingTagsId(session.id);
@@ -347,7 +349,7 @@ export function SessionPickerModal({
                         </span>
                         <span
                           className={`picker-delete-btn${confirmDeleteId === session.id ? " confirm" : ""}`}
-                          title={confirmDeleteId === session.id ? "再次点击确认删除" : "从库中删除"}
+                          title={confirmDeleteId === session.id ? t("picker.confirmDelete") : t("picker.deleteFromLibrary")}
                           onClick={(event) => {
                             event.stopPropagation();
                             event.preventDefault();
@@ -364,7 +366,7 @@ export function SessionPickerModal({
                             }
                           }}
                         >
-                          {confirmDeleteId === session.id ? "确认" : <Trash2 aria-hidden="true" />}
+                          {confirmDeleteId === session.id ? t("common.confirm") : <Trash2 aria-hidden="true" />}
                         </span>
                       </div>
                     );
@@ -375,10 +377,10 @@ export function SessionPickerModal({
           )}
         </div>
         <div className="modal-footer">
-          {!pickerManual && <button className="modal-button" type="button" onClick={onStartFresh}>重新开始</button>}
-          <button className="modal-button" type="button" onClick={onCancel}>{pickerManual ? "关闭" : "取消"}</button>
+          {!pickerManual && <button className="modal-button" type="button" onClick={onStartFresh}>{t("picker.startFresh")}</button>}
+          <button className="modal-button" type="button" onClick={onCancel}>{pickerManual ? t("common.close") : t("common.cancel")}</button>
           <button className="modal-button primary" type="button" onClick={() => onLaunch(toLaunch)} disabled={toLaunch.length === 0}>
-            启动所选 ({toLaunch.length})
+            {t("picker.launchSelected", { count: toLaunch.length })}
           </button>
         </div>
       </div>

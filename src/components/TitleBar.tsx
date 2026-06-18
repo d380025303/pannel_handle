@@ -1,4 +1,5 @@
 import { Minus, PanelsTopLeft, Settings, Square, X } from "lucide-react";
+import { useI18n } from "../i18n";
 
 type TitleBarProps = {
   activeTitle?: string;
@@ -7,6 +8,8 @@ type TitleBarProps = {
 };
 
 export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarProps) {
+  const { t } = useI18n();
+
   return (
     <header className="custom-titlebar" onDoubleClick={() => window.windowApi.toggleMaximize()}>
       <div className="titlebar-brand">
@@ -14,20 +17,20 @@ export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarP
         <button
           className="titlebar-settings-btn"
           type="button"
-          title="设置"
-          aria-label="打开设置"
+          title={t("settings.title")}
+          aria-label={t("settings.open")}
           onClick={onOpenSettings}
         >
           <Settings aria-hidden="true" />
         </button>
       </div>
-      <div className="titlebar-session">{activeTitle || "No active session"}</div>
+      <div className="titlebar-session">{activeTitle || t("app.noActiveSession")}</div>
       <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
         <button
           className="window-control"
           type="button"
-          title="Minimize"
-          aria-label="Minimize window"
+          title={t("window.minimize")}
+          aria-label={t("window.minimize")}
           onClick={() => window.windowApi.minimize()}
         >
           <Minus aria-hidden="true" />
@@ -35,8 +38,8 @@ export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarP
         <button
           className="window-control"
           type="button"
-          title={isMaximized ? "Restore" : "Maximize"}
-          aria-label={isMaximized ? "Restore window" : "Maximize window"}
+          title={isMaximized ? t("window.restore") : t("window.maximize")}
+          aria-label={isMaximized ? t("window.restore") : t("window.maximize")}
           onClick={() => window.windowApi.toggleMaximize()}
         >
           {isMaximized ? <PanelsTopLeft aria-hidden="true" /> : <Square aria-hidden="true" />}
@@ -44,8 +47,8 @@ export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarP
         <button
           className="window-control close"
           type="button"
-          title="Close"
-          aria-label="Close window"
+          title={t("window.close")}
+          aria-label={t("window.close")}
           onClick={() => window.windowApi.close()}
         >
           <X aria-hidden="true" />

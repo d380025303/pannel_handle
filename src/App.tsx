@@ -18,9 +18,10 @@ import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
 import { useWindowState } from "./hooks/useWindowState";
+import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/CreateSessionModal";
-import type { AgentHookDebugPayload, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 
@@ -41,7 +42,13 @@ function hasBlockingOverlay() {
   ));
 }
 
-export function App() {
+type AppContentProps = {
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
+};
+
+function AppContent({ locale, onLocaleChange }: AppContentProps) {
+  const { t } = useI18n();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
@@ -72,16 +79,21 @@ export function App() {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
         setThemeId(config.themeId);
+        onLocaleChange(normalizeLocale(config.locale));
       }
     });
     return () => {
       isDisposed = true;
     };
-  }, []);
+  }, [onLocaleChange]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeId;
   }, [themeId]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   useEffect(() => {
     let lastShiftAt = 0;
@@ -132,30 +144,30 @@ export function App() {
   }, []);
 
   const handleCreateSession = useCallback(async (request: CreateSessionRequest) => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     await terminalSessions.createSession(request);
     setShowCreateModal(false);
-  }, [remoteFilesDirty, terminalSessions]);
+  }, [remoteFilesDirty, terminalSessions, t]);
 
   const handleCloseSession = useCallback(async (id: string) => {
-    if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     await terminalSessions.closeSession(id);
     terminalInstances.disposeTerminal(id);
-  }, [remoteFilesDirty, terminalInstances, terminalSessions]);
+  }, [remoteFilesDirty, terminalInstances, terminalSessions, t]);
 
   const handleSelectSession = useCallback((id: string) => {
     if (id === terminalSessions.activeId) {
       return;
     }
-    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     terminalSessions.setActiveId(id);
-  }, [remoteFilesDirty, terminalSessions]);
+  }, [remoteFilesDirty, terminalSessions, t]);
 
   useEffect(() => {
     return window.terminalApi.onSessionSelectRequested(({ id }) => {
@@ -166,25 +178,25 @@ export function App() {
   }, [handleSelectSession, terminalSessions.sessions]);
 
   const handleLaunchSessions = useCallback(async (sessions: TerminalSession[]) => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     await terminalSessions.launchSessions(sessions);
-  }, [remoteFilesDirty, terminalSessions]);
+  }, [remoteFilesDirty, terminalSessions, t]);
 
   const handleStartFresh = useCallback(async () => {
-    if (remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     await terminalSessions.startFresh();
-  }, [remoteFilesDirty, terminalSessions]);
+  }, [remoteFilesDirty, terminalSessions, t]);
 
   const handleRightToolChange = useCallback((tool: "files" | "git" | "debug") => {
-    if (tool !== "files" && remoteFilesDirty && !window.confirm("Discard unsaved file changes?")) {
+    if (tool !== "files" && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
     setRightTool(tool);
-  }, [remoteFilesDirty]);
+  }, [remoteFilesDirty, t]);
 
   const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
     await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig, tags);
@@ -220,6 +232,11 @@ export function App() {
     const config = await window.terminalApi.setConfig({ themeId: nextThemeId });
     setThemeId(config.themeId);
   }, []);
+
+  const handleLocaleChange = useCallback(async (nextLocale: Locale) => {
+    const config = await window.terminalApi.setConfig({ locale: nextLocale });
+    onLocaleChange(normalizeLocale(config.locale));
+  }, [onLocaleChange]);
 
   useEffect(() => {
     if (!terminalSessions.activeSession) {
@@ -299,7 +316,7 @@ export function App() {
                         aria-selected={activeRightTool === "files"}
                         onClick={() => handleRightToolChange("files")}
                       >
-                        Files
+                        {t("tabs.files")}
                       </button>
                       <button
                         className={activeRightTool === "git" ? "active" : ""}
@@ -308,7 +325,7 @@ export function App() {
                         aria-selected={activeRightTool === "git"}
                         onClick={() => handleRightToolChange("git")}
                       >
-                        Git
+                        {t("tabs.git")}
                       </button>
                     </>
                   )}
@@ -320,7 +337,7 @@ export function App() {
                       aria-selected={activeRightTool === "debug"}
                       onClick={() => handleRightToolChange("debug")}
                     >
-                      Debug
+                      {t("tabs.debug")}
                     </button>
                   )}
                 </div>
@@ -392,10 +409,12 @@ export function App() {
           autoRestore={terminalSessions.autoRestore}
           debugMode={debugMode}
           themeId={themeId}
+          locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
           onThemeChange={handleThemeChange}
+          onLocaleChange={handleLocaleChange}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}
@@ -409,5 +428,15 @@ export function App() {
         />
       )}
     </>
+  );
+}
+
+export function App() {
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
+
+  return (
+    <I18nProvider locale={locale}>
+      <AppContent locale={locale} onLocaleChange={setLocale} />
+    </I18nProvider>
   );
 }

@@ -31,23 +31,26 @@ describe("config-store", () => {
       autoRestore: true,
       debugMode: false,
       lastActiveSessionIds: [],
-      themeId: "dark-slate"
+      themeId: "dark-slate",
+      locale: "zh-CN"
     });
   });
 
-  it("loads and persists debugMode and themeId", () => {
+  it("loads and persists debugMode, themeId, and locale", () => {
     const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, debugMode: true, themeId: "light" }), "utf-8");
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, debugMode: true, themeId: "light", locale: "en-US" }), "utf-8");
     const store = createConfigStore({ configFile });
 
     store.loadConfig();
     expect(store.getConfig().debugMode).toBe(true);
     expect(store.getConfig().themeId).toBe("light");
+    expect(store.getConfig().locale).toBe("en-US");
 
-    store.updateConfig({ debugMode: false, themeId: "dark-blue" });
+    store.updateConfig({ debugMode: false, themeId: "dark-blue", locale: "zh-CN" });
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(saved.debugMode).toBe(false);
     expect(saved.themeId).toBe("dark-blue");
+    expect(saved.locale).toBe("zh-CN");
   });
 
   it("falls back to the default themeId when an invalid value is loaded or saved", () => {
@@ -61,6 +64,19 @@ describe("config-store", () => {
     store.updateConfig({ themeId: "neon" });
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(saved.themeId).toBe("dark-slate");
+  });
+
+  it("falls back to the default locale when an invalid value is loaded or saved", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ locale: "fr-FR" }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+    expect(store.getConfig().locale).toBe("zh-CN");
+
+    store.updateConfig({ locale: "de-DE" });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.locale).toBe("zh-CN");
   });
 
   it("ignores stale QQ bot config fields when loading older config files", () => {
@@ -83,7 +99,8 @@ describe("config-store", () => {
       autoRestore: false,
       debugMode: true,
       lastActiveSessionIds: [],
-      themeId: "light"
+      themeId: "light",
+      locale: "zh-CN"
     });
   });
 });

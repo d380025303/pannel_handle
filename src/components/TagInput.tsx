@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { useI18n } from "../i18n";
 
 type TagInputProps = {
   tags: string[];
@@ -13,6 +14,7 @@ function normalizeTag(value: string) {
 }
 
 export function TagInput({ tags, suggestions = [], onChange, compact = false }: TagInputProps) {
+  const { t } = useI18n();
   const [input, setInput] = useState("");
   const availableSuggestions = useMemo(() => {
     const selected = new Set(tags.map((tag) => tag.toLowerCase()));
@@ -36,14 +38,14 @@ export function TagInput({ tags, suggestions = [], onChange, compact = false }: 
         {tags.map((tag) => (
           <span className="tag-chip selected" key={tag}>
             {tag}
-            <button type="button" aria-label={`删除标签 ${tag}`} onClick={() => removeTag(tag)}>
+            <button type="button" aria-label={t("tag.remove", { tag })} onClick={() => removeTag(tag)}>
               <X aria-hidden="true" />
             </button>
           </span>
         ))}
         <input
           value={input}
-          placeholder={tags.length === 0 ? "输入标签，按 Enter 添加" : "添加标签"}
+          placeholder={tags.length === 0 ? t("tag.placeholderEmpty") : t("tag.placeholderAdd")}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === ",") {

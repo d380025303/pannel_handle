@@ -535,8 +535,17 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return { remotePath: normalizedPath };
   }
 
-  async function uploadFile(sessionId, localPath, remoteDir) {
-    const session = getSession(sessionId);
+  async function validateLocalUploadPath(localPath) {
+    if (typeof localPath !== "string" || !localPath.trim()) {
+      throw new Error("A local file path is required.");
+    }
+    const stat = await fsApi.promises.stat(localPath);
+    if (typeof stat.isFile === "function" && !stat.isFile()) {
+      throw new Error("Only files can be uploaded. Directory upload is not supported.");
+    }
+  }
+
+  async function uploadValidatedFile(sessionId, session, localPath, remoteDir) {
     if (session.type !== "ssh") {
       const fileName = path.basename(localPath);
       const targetPath = joinLocalPath(session, remoteDir, fileName);
@@ -548,6 +557,25 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     const remotePath = joinRemotePath(normalizeRemotePath(remoteDir), fileName);
     await client.fastPut(localPath, remotePath);
     return { remotePath };
+  }
+
+  async function uploadFile(sessionId, localPath, remoteDir) {
+    const session = getSession(sessionId);
+    await validateLocalUploadPath(localPath);
+    return uploadValidatedFile(sessionId, session, localPath, remoteDir);
+  }
+
+  async function uploadFiles(sessionId, localPaths, remoteDir) {
+    const session = getSession(sessionId);
+    if (!Array.isArray(localPaths) || localPaths.length === 0) {
+      throw new Error("No local files were provided.");
+    }
+    await Promise.all(localPaths.map((localPath) => validateLocalUploadPath(localPath)));
+    const uploaded = [];
+    for (const localPath of localPaths) {
+      uploaded.push(await uploadValidatedFile(sessionId, session, localPath, remoteDir));
+    }
+    return uploaded;
   }
 
   async function downloadFile(sessionId, remotePath, localPath) {
@@ -610,6 +638,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     writeText,
     writeBinaryFile,
     uploadFile,
+    uploadFiles,
     downloadFile,
     openInExplorer,
     disconnect,

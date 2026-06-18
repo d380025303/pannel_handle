@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { GripVertical, Library, Pencil, Plus, Search, Webhook, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../utils/agentStatus";
 
@@ -36,6 +37,7 @@ export function SessionSidebar({
   onOpenCreate,
   onReorder
 }: SessionSidebarProps) {
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -81,10 +83,6 @@ export function SessionSidebar({
     setDragOverId(sessionId);
   };
 
-  const handleDragLeave = () => {
-    setDragOverId(null);
-  };
-
   const handleDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     const draggedId = e.dataTransfer.getData("text/plain");
@@ -116,14 +114,18 @@ export function SessionSidebar({
     <aside className="session-sidebar">
       <div className="sidebar-header">
         <div>
-          <h1>命令会话</h1>
-          <span>{sessions.length} 个窗口{isFiltering ? ` / 显示 ${filteredSessions.length} 个` : ""}</span>
+          <h1>{t("sidebar.title")}</h1>
+          <span>
+            {isFiltering
+              ? t("sidebar.countFiltered", { count: sessions.length, filtered: filteredSessions.length })
+              : t("sidebar.count", { count: sessions.length })}
+          </span>
         </div>
         <div className="sidebar-actions">
-          <button className="icon-button" type="button" title="从库中启动" aria-label="从库中启动" onClick={onOpenPicker}>
+          <button className="icon-button" type="button" title={t("sidebar.openLibrary")} aria-label={t("sidebar.openLibrary")} onClick={onOpenPicker}>
             <Library aria-hidden="true" />
           </button>
-          <button className="icon-button primary" type="button" title="新建会话" aria-label="新建会话" onClick={onOpenCreate}>
+          <button className="icon-button primary" type="button" title={t("sidebar.newSession")} aria-label={t("sidebar.newSession")} onClick={onOpenCreate}>
             <Plus aria-hidden="true" />
           </button>
         </div>
@@ -134,12 +136,12 @@ export function SessionSidebar({
         <input
           className="modal-input sidebar-search-input"
           type="text"
-          placeholder="搜索会话..."
+          placeholder={t("sidebar.searchPlaceholder")}
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
         />
         {isFiltering && (
-          <button className="sidebar-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label="清除搜索">
+          <button className="sidebar-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label={t("sidebar.clearSearch")}>
             <X aria-hidden="true" />
           </button>
         )}
@@ -147,89 +149,89 @@ export function SessionSidebar({
 
       <div className="session-list">
         {filteredSessions.length === 0 ? (
-          <div className="sidebar-empty"><p>没有匹配的会话</p></div>
+          <div className="sidebar-empty"><p>{t("sidebar.empty")}</p></div>
         ) : (
           filteredSessions.map((session) => {
-          const agentStatus = agentStatusesBySessionId[session.id];
-          const agentStatusLabel = getAgentStatusLabel(agentStatus);
-          return (
-            <button
-              className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
-              key={session.id}
-              type="button"
-              draggable={!isFiltering}
-              onClick={() => onSelectSession(session.id)}
-              onDragStart={(e) => handleDragStart(e, session.id)}
-              onDragOver={(e) => handleDragOver(e, session.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, session.id)}
-              onDragEnd={handleDragEnd}
-            >
-              <span
-                className="session-drag-handle"
-                onMouseDown={(e) => e.stopPropagation()}
+            const agentStatus = agentStatusesBySessionId[session.id];
+            const agentStatusLabel = getAgentStatusLabel(agentStatus, t);
+            return (
+              <button
+                className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
+                key={session.id}
+                type="button"
+                draggable={!isFiltering}
+                onClick={() => onSelectSession(session.id)}
+                onDragStart={(e) => handleDragStart(e, session.id)}
+                onDragOver={(e) => handleDragOver(e, session.id)}
+                onDragLeave={() => setDragOverId(null)}
+                onDrop={(e) => handleDrop(e, session.id)}
+                onDragEnd={handleDragEnd}
               >
-                <GripVertical aria-hidden="true" />
-              </span>
-              <span className="session-main">
-                <span className="session-title">
-                  {session.title}
-                  <span className={`session-type-badge ${session.type}`}>
-                    {getSessionTypeLabel(session)}
+                <span
+                  className="session-drag-handle"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <GripVertical aria-hidden="true" />
+                </span>
+                <span className="session-main">
+                  <span className="session-title">
+                    {session.title}
+                    <span className={`session-type-badge ${session.type}`}>
+                      {getSessionTypeLabel(session)}
+                    </span>
+                  </span>
+                  {showInstanceIds && (
+                    <span className="session-instance-id" title={`Instance ${session.id}${session.templateId ? ` / Template ${session.templateId}` : ""}`}>
+                      ID {session.id}{session.templateId ? ` / Template ${session.templateId}` : ""}
+                    </span>
+                  )}
+                  {agentStatusLabel && (
+                    <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
+                      {agentStatusLabel}
+                    </span>
+                  )}
+                </span>
+                <span className="session-actions">
+                  <span
+                    className="mini-action"
+                    title={t("sidebar.installHooks")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onInstallHooks(session);
+                    }}
+                  >
+                    <Webhook aria-hidden="true" />
+                  </span>
+                  <span
+                    className="mini-action"
+                    title={t("sidebar.editSession")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onEditSession(session);
+                    }}
+                  >
+                    <Pencil aria-hidden="true" />
+                  </span>
+                  <span
+                    className={`mini-action danger${pendingCloseId === session.id ? " confirm" : ""}`}
+                    title={pendingCloseId === session.id ? t("sidebar.confirmClose") : t("sidebar.closeSession")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (pendingCloseId === session.id) {
+                        setPendingCloseId(null);
+                        onCloseSession(session.id);
+                      } else {
+                        setPendingCloseId(session.id);
+                      }
+                    }}
+                  >
+                    {pendingCloseId === session.id ? t("common.confirm") : <X aria-hidden="true" />}
                   </span>
                 </span>
-                {showInstanceIds && (
-                  <span className="session-instance-id" title={`Instance ${session.id}${session.templateId ? ` / Template ${session.templateId}` : ""}`}>
-                    ID {session.id}{session.templateId ? ` / Template ${session.templateId}` : ""}
-                  </span>
-                )}
-                {agentStatusLabel && (
-                  <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
-                    {agentStatusLabel}
-                  </span>
-                )}
-              </span>
-              <span className="session-actions">
-                <span
-                  className="mini-action"
-                  title="安装项目 Hook"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onInstallHooks(session);
-                  }}
-                >
-                  <Webhook aria-hidden="true" />
-                </span>
-                <span
-                  className="mini-action"
-                  title="编辑会话"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onEditSession(session);
-                  }}
-                >
-                  <Pencil aria-hidden="true" />
-                </span>
-                <span
-                  className={`mini-action danger${pendingCloseId === session.id ? " confirm" : ""}`}
-                  title={pendingCloseId === session.id ? "再次点击确认关闭" : "关闭"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (pendingCloseId === session.id) {
-                      setPendingCloseId(null);
-                      onCloseSession(session.id);
-                    } else {
-                      setPendingCloseId(session.id);
-                    }
-                  }}
-                >
-                  {pendingCloseId === session.id ? "确认?" : <X aria-hidden="true" />}
-                </span>
-              </span>
-            </button>
-          );
-        })
-      )}
+              </button>
+            );
+          })
+        )}
       </div>
     </aside>
   );

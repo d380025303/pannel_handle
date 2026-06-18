@@ -437,6 +437,105 @@ describe("remote-file-service", () => {
     expect(sftp.put).toHaveBeenCalledWith(Buffer.from([4, 5, 6]), "/home/deploy/.pannel-handle-images/image.png");
   });
 
+  it("uploads multiple Windows files to the target directory", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-dst-"));
+    const firstFile = path.join(sourceDir, "first.txt");
+    const secondFile = path.join(sourceDir, "second.txt");
+    fs.writeFileSync(firstFile, "one", "utf-8");
+    fs.writeFileSync(secondFile, "two", "utf-8");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: targetDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.uploadFiles("run-1", [firstFile, secondFile], targetDir)).resolves.toEqual([
+        { remotePath: path.join(targetDir, "first.txt") },
+        { remotePath: path.join(targetDir, "second.txt") }
+      ]);
+      expect(fs.readFileSync(path.join(targetDir, "first.txt"), "utf-8")).toBe("one");
+      expect(fs.readFileSync(path.join(targetDir, "second.txt"), "utf-8")).toBe("two");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects directory uploads before copying any Windows files", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-dst-"));
+    const firstFile = path.join(sourceDir, "first.txt");
+    const childDir = path.join(sourceDir, "folder");
+    fs.writeFileSync(firstFile, "one", "utf-8");
+    fs.mkdirSync(childDir);
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: targetDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.uploadFiles("run-1", [firstFile, childDir], targetDir)).rejects.toThrow("Directory upload");
+      expect(fs.existsSync(path.join(targetDir, "first.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uploads multiple SSH files with remote target paths", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-src-"));
+    const firstFile = path.join(sourceDir, "first.txt");
+    const secondFile = path.join(sourceDir, "second.txt");
+    fs.writeFileSync(firstFile, "one", "utf-8");
+    fs.writeFileSync(secondFile, "two", "utf-8");
+    try {
+      const session = {
+        id: "run-1",
+        type: "ssh",
+        sshConfig: { host: "example.com", extraArgs: [] }
+      };
+      const sftp = createSftpMock();
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager(session),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => sftp
+      });
+
+      await expect(service.uploadFiles("run-1", [firstFile, secondFile], "/home/deploy")).resolves.toEqual([
+        { remotePath: "/home/deploy/first.txt" },
+        { remotePath: "/home/deploy/second.txt" }
+      ]);
+      expect(sftp.fastPut).toHaveBeenCalledWith(firstFile, "/home/deploy/first.txt");
+      expect(sftp.fastPut).toHaveBeenCalledWith(secondFile, "/home/deploy/second.txt");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads a Windows file to a specified local path", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-dst-"));
+    const sourceFile = path.join(sourceDir, "note.txt");
+    const targetFile = path.join(targetDir, "note-copy.txt");
+    fs.writeFileSync(sourceFile, "downloaded", "utf-8");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: sourceDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.downloadFile("run-1", sourceFile, targetFile)).resolves.toEqual({ localPath: targetFile });
+      expect(fs.readFileSync(targetFile, "utf-8")).toBe("downloaded");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a conflicting remote change without writing", async () => {
     const session = {
       id: "run-1",

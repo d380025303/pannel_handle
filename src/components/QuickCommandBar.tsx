@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Play } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { QuickCommand } from "../vite-env";
 
 type QuickCommandBarProps = {
   quickCommands: QuickCommand[];
   activeSessionId?: string;
   onFocusTerminal: () => void;
-  onAddQuickCommand: (command: string, mode: QuickCommand['mode']) => void;
+  onAddQuickCommand: (command: string, mode: QuickCommand["mode"]) => void;
   onRemoveQuickCommand: (id: string) => void;
 };
 
 export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal, onAddQuickCommand, onRemoveQuickCommand }: QuickCommandBarProps) {
+  const { t } = useI18n();
   const [addInput, setAddInput] = useState("");
 
   if (!activeSessionId) {
@@ -54,7 +56,7 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
       <input
         className="quick-command-add-input"
         type="text"
-        placeholder="快捷命令..."
+        placeholder={t("quickCommand.placeholder")}
         value={addInput}
         onChange={(e) => setAddInput(e.target.value)}
         onKeyDown={(e) => {

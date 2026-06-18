@@ -1,4 +1,7 @@
+import type { TranslationKey, TranslationParams } from "../i18n";
 import type { AgentStatusPayload } from "../vite-env";
+
+type Translate = (key: TranslationKey, params?: TranslationParams) => string;
 
 function getAgentName(status: AgentStatusPayload) {
   if (status.provider === "codex") return "Codex";
@@ -7,19 +10,21 @@ function getAgentName(status: AgentStatusPayload) {
   return "Claude";
 }
 
-export function getAgentStatusLabel(status?: AgentStatusPayload) {
+export function getAgentStatusLabel(status: AgentStatusPayload | undefined, t: Translate) {
   if (!status) return "";
-  const agentName = getAgentName(status);
+  const agent = getAgentName(status);
 
   if (status.status === "waiting_for_permission") {
-    return status.toolName ? `${agentName} 等待确认: ${status.toolName}` : `${agentName} 等待确认`;
+    return status.toolName
+      ? t("agent.waitingForPermissionTool", { agent, tool: status.toolName })
+      : t("agent.waitingForPermission", { agent });
   }
-  if (status.status === "e_prompt") return `${agentName} 空闲中`;
-  if (status.status === "completed") return `${agentName} 已完成`;
-  if (status.status === "failed") return `${agentName} 失败`;
-  if (status.status === "running") return `${agentName} 运行中`;
-  if (status.status === "ended") return `${agentName} 已结束`;
-  if (status.status === "exited") return "进程已退出";
+  if (status.status === "e_prompt") return t("agent.idlePrompt", { agent });
+  if (status.status === "completed") return t("agent.completed", { agent });
+  if (status.status === "failed") return t("agent.failed", { agent });
+  if (status.status === "running") return t("agent.running", { agent });
+  if (status.status === "ended") return t("agent.ended", { agent });
+  if (status.status === "exited") return t("agent.exited");
   return "";
 }
 

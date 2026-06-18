@@ -9,7 +9,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `pnpm dev` | 仅启动 Vite 开发服务器（127.0.0.1:5173） |
 | `pnpm start` | 同时启动 Vite + Electron，完整开发流程 |
 | `pnpm build` | `tsc` 类型检查 + `vite build` → `dist/` |
-| `pnpm dist:dir` | 修补 rcedit + 构建 + `electron-builder --dir` → `release/win-unpacked/` |
 | `pnpm dist:portable` | 修补 rcedit + 构建 + `electron-builder` → `release/Pannel Handle.exe` 绿色单文件 |
 | `pnpm test` | `vitest run`，测试文件在 `electron/*.test.mjs` |
 

@@ -1,9 +1,10 @@
 import type { ITheme } from "xterm";
+import type { TranslationKey } from "./i18n";
 import type { ThemeId } from "./vite-env";
 
 export type AppTheme = {
   id: ThemeId;
-  label: string;
+  labelKey: TranslationKey;
   terminal: ITheme;
 };
 
@@ -12,7 +13,7 @@ export const DEFAULT_THEME_ID: ThemeId = "dark-slate";
 export const APP_THEMES: AppTheme[] = [
   {
     id: "dark-slate",
-    label: "深色石板",
+    labelKey: "theme.darkSlate",
     terminal: {
       background: "#101318",
       foreground: "#e7edf4",
@@ -38,7 +39,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "dark-blue",
-    label: "深蓝色",
+    labelKey: "theme.darkBlue",
     terminal: {
       background: "#0b1220",
       foreground: "#e5edf8",
@@ -64,7 +65,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "dark-green",
-    label: "深绿色",
+    labelKey: "theme.darkGreen",
     terminal: {
       background: "#0f1512",
       foreground: "#e3eee8",
@@ -90,7 +91,7 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "light",
-    label: "浅色",
+    labelKey: "theme.light",
     terminal: {
       background: "#f8fafc",
       foreground: "#1f2937",

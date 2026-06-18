@@ -21,7 +21,6 @@
 - `pnpm start`：完整开发模式，先启动 Vite，再等待服务可用后启动 Electron。
 - `pnpm test`：运行 Vitest 单元测试。
 - `pnpm build`：执行 `tsc` 类型检查，并将生产构建输出到 `dist/`。
-- `pnpm dist:dir`：构建应用，并将 Windows 解包版本输出到 `release/win-unpacked/`。
 - `pnpm dist:portable`：构建 Windows portable 安装包。
 
 ## 代码风格与命名约定

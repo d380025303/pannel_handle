@@ -2,9 +2,15 @@ const fs = require("node:fs");
 
 const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
+const DEFAULT_LOCALE = "zh-CN";
+const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
 
 function normalizeThemeId(themeId) {
   return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
+}
+
+function normalizeLocale(locale) {
+  return VALID_LOCALES.has(locale) ? locale : DEFAULT_LOCALE;
 }
 
 function createConfigStore({ configFile }) {
@@ -12,7 +18,8 @@ function createConfigStore({ configFile }) {
     autoRestore: true,
     debugMode: false,
     lastActiveSessionIds: [],
-    themeId: DEFAULT_THEME_ID
+    themeId: DEFAULT_THEME_ID,
+    locale: DEFAULT_LOCALE
   };
 
   function serializeConfig() {
@@ -20,7 +27,8 @@ function createConfigStore({ configFile }) {
       autoRestore: config.autoRestore,
       debugMode: config.debugMode,
       lastActiveSessionIds: config.lastActiveSessionIds,
-      themeId: config.themeId
+      themeId: config.themeId,
+      locale: config.locale
     };
   }
 
@@ -35,7 +43,8 @@ function createConfigStore({ configFile }) {
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
             : [],
-          themeId: normalizeThemeId(parsed.themeId)
+          themeId: normalizeThemeId(parsed.themeId),
+          locale: normalizeLocale(parsed.locale)
         };
       }
     } catch (err) {
@@ -60,7 +69,8 @@ function createConfigStore({ configFile }) {
       autoRestore: config.autoRestore,
       debugMode: config.debugMode,
       lastActiveSessionIds: [...config.lastActiveSessionIds],
-      themeId: config.themeId
+      themeId: config.themeId,
+      locale: config.locale
     };
   }
 
@@ -78,6 +88,9 @@ function createConfigStore({ configFile }) {
       if (typeof partial.themeId === "string") {
         config.themeId = normalizeThemeId(partial.themeId);
       }
+      if (typeof partial.locale === "string") {
+        config.locale = normalizeLocale(partial.locale);
+      }
     }
     saveConfig();
   }
@@ -93,6 +106,9 @@ function createConfigStore({ configFile }) {
 module.exports = {
   DEFAULT_THEME_ID,
   VALID_THEME_IDS,
+  DEFAULT_LOCALE,
+  VALID_LOCALES,
   createConfigStore,
-  normalizeThemeId
+  normalizeThemeId,
+  normalizeLocale
 };

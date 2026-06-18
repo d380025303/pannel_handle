@@ -1,4 +1,5 @@
 import { HardDrive, MemoryStick, Network } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { RemoteSystemMetrics } from "../vite-env";
 
 type RemoteSystemStatusProps = {
@@ -31,13 +32,15 @@ function formatPercent(used: number, total: number) {
 }
 
 export function RemoteSystemStatus({ state }: RemoteSystemStatusProps) {
+  const { t } = useI18n();
+
   if (state.status === "hidden") return null;
 
   if (state.status === "loading" || state.status === "error") {
     return (
       <div className={`remote-system-status ${state.status}`} role="status">
         <Network aria-hidden="true" />
-        <span>{state.status === "loading" ? "正在读取服务器状态..." : "服务器监控不可用"}</span>
+        <span>{state.status === "loading" ? t("system.loading") : t("system.unavailable")}</span>
       </div>
     );
   }
@@ -46,10 +49,13 @@ export function RemoteSystemStatus({ state }: RemoteSystemStatusProps) {
   const memoryPercent = formatPercent(memory.usedBytes, memory.totalBytes);
 
   return (
-    <div className="remote-system-status" aria-label="SSH server metrics">
+    <div className="remote-system-status" aria-label={t("system.metrics")}>
       <span
         className="remote-system-metric"
-        title={`网络：下载 ${formatRate(network.receivedBytesPerSecond)}，上传 ${formatRate(network.transmittedBytesPerSecond)}`}
+        title={t("system.networkTitle", {
+          download: formatRate(network.receivedBytesPerSecond),
+          upload: formatRate(network.transmittedBytesPerSecond)
+        })}
       >
         <Network aria-hidden="true" />
         <span>↓ {formatRate(network.receivedBytesPerSecond)}</span>
@@ -57,15 +63,25 @@ export function RemoteSystemStatus({ state }: RemoteSystemStatusProps) {
       </span>
       <span
         className="remote-system-metric"
-        title={disk ? `磁盘 ${disk.mountPoint}：已用 ${disk.usedPercent}%，剩余 ${formatBytes(disk.availableBytes)}` : "未找到磁盘指标"}
+        title={disk
+          ? t("system.diskTitle", {
+            mountPoint: disk.mountPoint,
+            usedPercent: disk.usedPercent,
+            available: formatBytes(disk.availableBytes)
+          })
+          : t("system.diskMissing")}
       >
         <HardDrive aria-hidden="true" />
-        <span>{disk ? `${disk.mountPoint} ${disk.usedPercent}%` : "磁盘 --"}</span>
-        {disk && <span className="remote-system-detail">余 {formatBytes(disk.availableBytes)}</span>}
+        <span>{disk ? `${disk.mountPoint} ${disk.usedPercent}%` : t("system.diskLabel")}</span>
+        {disk && <span className="remote-system-detail">{t("system.diskRemaining", { available: formatBytes(disk.availableBytes) })}</span>}
       </span>
       <span
         className="remote-system-metric"
-        title={`内存：已用 ${formatBytes(memory.usedBytes)} / ${formatBytes(memory.totalBytes)}（${memoryPercent}）`}
+        title={t("system.memoryTitle", {
+          used: formatBytes(memory.usedBytes),
+          total: formatBytes(memory.totalBytes),
+          percent: memoryPercent
+        })}
       >
         <MemoryStick aria-hidden="true" />
         <span>{memoryPercent}</span>

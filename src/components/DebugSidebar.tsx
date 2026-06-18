@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { AgentHookDebugPayload, AgentProvider, TerminalSession } from "../vite-env";
 
 type DebugSidebarProps = {
@@ -19,6 +20,7 @@ function formatTime(timestamp: number) {
 }
 
 export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
+  const { t } = useI18n();
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
   const [sessionFilter, setSessionFilter] = useState<string>("all");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -57,15 +59,15 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
     <aside className="debug-sidebar">
       <div className="debug-sidebar-header">
         <div>
-          <h2>Debug</h2>
-          <span>{filteredEvents.length} hook events</span>
+          <h2>{t("tabs.debug")}</h2>
+          <span>{t("debug.eventsCount", { count: filteredEvents.length })}</span>
         </div>
-        <button className="icon-button" type="button" title="Clear events" aria-label="Clear events" onClick={onClear}>
+        <button className="icon-button" type="button" title={t("debug.clearEvents")} aria-label={t("debug.clearEvents")} onClick={onClear}>
           <Trash2 aria-hidden="true" />
         </button>
       </div>
 
-      <div className="debug-filter" role="group" aria-label="Provider filter">
+      <div className="debug-filter" role="group" aria-label={t("debug.providerFilter")}>
         {(["all", "claude", "codex", "opencode", "qoder"] as ProviderFilter[]).map((provider) => (
           <button
             key={provider}
@@ -80,8 +82,8 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
 
       <div className="debug-session-filter">
         <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)}>
-          <option value="all">全部实例</option>
-          <option value="__no_session__">无匹配会话</option>
+          <option value="all">{t("debug.allInstances")}</option>
+          <option value="__no_session__">{t("debug.noMatchedSession")}</option>
           {sessions.map((s) => (
             <option key={s.id} value={s.id}>{s.id}</option>
           ))}
@@ -90,7 +92,7 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
 
       <div className="debug-event-list" ref={eventListRef}>
         {filteredEvents.length === 0 ? (
-          <div className="debug-empty">No hook events yet</div>
+          <div className="debug-empty">{t("debug.noEvents")}</div>
         ) : (
           filteredEvents.map((event, index) => {
             const key = `${event.timestamp}-${index}`;
@@ -101,11 +103,11 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
                   <span className={`debug-provider ${event.provider}`}>{event.provider}</span>
                   <span className="debug-event-name">{event.eventName}</span>
                   <span className="debug-event-sep">·</span>
-                  <span className="debug-event-session-id">{event.matchedSessionId || "无匹配会话"}</span>
+                  <span className="debug-event-session-id">{event.matchedSessionId || t("debug.noMatchedSession")}</span>
                   <span className="debug-event-sep">·</span>
                   <span>{formatTime(event.timestamp)}</span>
                   <span className={event.handled ? "debug-handled" : "debug-unhandled"}>
-                    {event.handled ? "handled" : "unhandled"}
+                    {event.handled ? t("debug.handled") : t("debug.unhandled")}
                   </span>
                   <span
                     className="debug-toggle-payload"
@@ -114,7 +116,7 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
                     onClick={() => toggleExpand(key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleExpand(key); }}
                   >
-                    {expanded ? "▼ payload" : "▶ payload"}
+                    {expanded ? "▾ payload" : "▸ payload"}
                   </span>
                 </div>
                 {expanded && (

@@ -35,12 +35,14 @@ export type TerminalSession = {
 };
 
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
+export type Locale = "zh-CN" | "en-US";
 
 export type AppConfig = {
   autoRestore: boolean;
   debugMode: boolean;
   lastActiveSessionIds: string[];
   themeId: ThemeId;
+  locale: Locale;
 };
 
 export type SessionLibraryFileResult =
@@ -84,6 +86,10 @@ export type RemoteTextWriteResult =
 export type RemoteFileDialogResult =
   | { canceled: true }
   | { canceled: false; remotePath?: string; localPath?: string };
+
+export type RemoteFileBatchUploadResult =
+  | { canceled: true }
+  | { canceled: false; uploaded: { remotePath: string }[] };
 
 export type RemoteSystemMetrics = {
   sampledAt: number;
@@ -294,7 +300,9 @@ export type RemoteFileApi = {
   releasePreview: (previewId: string) => Promise<boolean>;
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
+  uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[]) => Promise<RemoteFileBatchUploadResult>;
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+  startDownloadDrag: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
   openInExplorer: (sessionId: string, remotePath: string) => Promise<void>;
 };
 

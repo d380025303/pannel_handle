@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef } from "react";
 import type { MouseEvent } from "react";
 import { Terminal, type ITheme } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
+import { useI18n } from "../i18n";
+import { createImeInputGuard } from "../utils/terminalInput";
 
 type TerminalEntry = {
   terminal: Terminal;
   fitAddon: FitAddon;
+  inputGuard: ReturnType<typeof createImeInputGuard>;
   mountedSessionId?: string;
 };
 
@@ -33,10 +36,12 @@ function createTerminalEntry(terminalTheme: ITheme) {
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
-  return { terminal, fitAddon };
+  const inputGuard = createImeInputGuard();
+  return { terminal, fitAddon, inputGuard };
 }
 
 export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalInstancesOptions) {
+  const { t } = useI18n();
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
@@ -108,9 +113,9 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
       }
     } catch (err) {
       console.error("Failed to paste clipboard image:", err);
-      terminal.writeln(`\r\n[Image paste failed: ${getTerminalStatusMessage(err)}]`);
+      terminal.writeln(`\r\n${t("terminal.imagePasteFailed", { message: getTerminalStatusMessage(err) })}`);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const removeDataListener = window.terminalApi.onData(({ id, data }) => {
@@ -123,7 +128,7 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
     const removeExitListener = window.terminalApi.onExit(({ id, exitCode }) => {
       const entry = terminalsRef.current.get(id);
       if (entry) {
-        entry.terminal.writeln(`\r\n[进程已退出，退出码 ${exitCode}]`);
+        entry.terminal.writeln(`\r\n${t("terminal.exited", { exitCode })}`);
       }
     });
 
@@ -131,20 +136,25 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
       removeDataListener();
       removeExitListener();
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!activeId || !terminalHostRef.current) {
       return;
     }
 
-    terminalHostRef.current.replaceChildren();
+    const terminalHost = terminalHostRef.current;
     let entry = terminalsRef.current.get(activeId);
 
     if (!entry) {
       entry = createTerminalEntry(terminalTheme);
+      const sessionId = activeId;
       entry.terminal.attachCustomKeyEventHandler((event) => {
         if (event.type !== "keydown") {
+          return true;
+        }
+
+        if (event.isComposing) {
           return true;
         }
 
@@ -153,16 +163,14 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
           (event.shiftKey && !event.ctrlKey && !event.altKey && event.key === "Insert");
 
         if (isPasteKey) {
-          if (activeId && entry) {
-            void pasteIntoTerminal(activeId, entry.terminal);
+          if (entry) {
+            void pasteIntoTerminal(sessionId, entry.terminal);
           }
           return false;
         }
 
         if (event.key === "Enter" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
-          if (activeId) {
-            window.terminalApi.write(activeId, "\n");
-          }
+          window.terminalApi.write(sessionId, "\n");
           return false;
         }
 
@@ -191,7 +199,9 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
         return true;
       });
       entry.terminal.onData((data) => {
-        window.terminalApi.write(activeId, data);
+        if (entry?.inputGuard.shouldForwardData(data) ?? true) {
+          window.terminalApi.write(sessionId, data);
+        }
       });
       terminalsRef.current.set(activeId, entry);
 
@@ -202,19 +212,34 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
       });
     }
 
-    entry.terminal.open(terminalHostRef.current);
+    if (!entry.terminal.element) {
+      terminalHost.replaceChildren();
+      entry.terminal.open(terminalHost);
+    } else if (entry.terminal.element.parentElement !== terminalHost) {
+      terminalHost.replaceChildren(entry.terminal.element);
+    }
     entry.mountedSessionId = activeId;
 
-    const textarea = terminalHostRef.current.querySelector(
-      ".xterm-helper-textarea"
-    ) as HTMLTextAreaElement | null;
+    const textarea = entry.terminal.textarea;
 
     const onPaste = (e: ClipboardEvent) => {
       e.preventDefault();
       e.stopImmediatePropagation();
     };
+    const onCompositionStart = () => entry?.inputGuard.handleCompositionStart();
+    const onCompositionEnd = () => entry?.inputGuard.handleCompositionEnd();
+    const onBeforeInput = (event: Event) => {
+      entry?.inputGuard.handleBeforeInput(event as InputEvent);
+    };
+    const onInput = (event: Event) => {
+      entry?.inputGuard.handleInput(event as InputEvent);
+    };
 
     textarea?.addEventListener("paste", onPaste, true);
+    textarea?.addEventListener("compositionstart", onCompositionStart);
+    textarea?.addEventListener("compositionend", onCompositionEnd);
+    textarea?.addEventListener("beforeinput", onBeforeInput);
+    textarea?.addEventListener("input", onInput);
 
     const fit = () => {
       try {
@@ -231,10 +256,14 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
     fit();
     entry.terminal.focus();
     const resizeObserver = new ResizeObserver(fit);
-    resizeObserver.observe(terminalHostRef.current);
+    resizeObserver.observe(terminalHost);
 
     return () => {
       textarea?.removeEventListener("paste", onPaste, true);
+      textarea?.removeEventListener("compositionstart", onCompositionStart);
+      textarea?.removeEventListener("compositionend", onCompositionEnd);
+      textarea?.removeEventListener("beforeinput", onBeforeInput);
+      textarea?.removeEventListener("input", onInput);
       resizeObserver.disconnect();
     };
   }, [activeId, copyTerminalSelection, pasteIntoTerminal, terminalTheme]);

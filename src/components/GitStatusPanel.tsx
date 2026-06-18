@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArrowDown, ArrowUp, FileDiff, GitBranch, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type {
   GitBranchEntry,
   GitBranchListResult,
@@ -116,6 +117,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
   onRetry: (file: GitStatusEntry) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const fileTitle = formatFilePath(state.file);
   const [diffSearchQuery, setDiffSearchQuery] = useState("");
   const [diffSearchSide, setDiffSearchSide] = useState<GitDiffSearchSide>("both");
@@ -208,7 +210,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
             <FileDiff aria-hidden="true" />
             {fileTitle}
           </span>
-          <button className="icon-button" type="button" title="Close diff" aria-label="Close diff" onClick={onClose}>
+          <button className="icon-button" type="button" title={t("git.closeDiff")} aria-label={t("git.closeDiff")} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
         </div>
@@ -218,8 +220,8 @@ function GitDiffDialog({ state, onRetry, onClose }: {
             <Search aria-hidden="true" />
             <input
               type="text"
-              aria-label="Search diff"
-              placeholder="Search diff..."
+              aria-label={t("git.searchDiff")}
+              placeholder={t("git.searchDiffPlaceholder")}
               value={diffSearchQuery}
               onChange={(event) => setDiffSearchQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -229,14 +231,14 @@ function GitDiffDialog({ state, onRetry, onClose }: {
                 }
               }}
             />
-            <div className="git-diff-search-scope" aria-label="Diff search side">
+            <div className="git-diff-search-scope" aria-label={t("git.diffSearchSide")}>
               <button
                 type="button"
                 className={diffSearchSide === "both" ? "active" : ""}
                 aria-pressed={diffSearchSide === "both"}
                 onClick={() => setDiffSearchSide("both")}
               >
-                All
+                {t("git.all")}
               </button>
               <button
                 type="button"
@@ -244,7 +246,7 @@ function GitDiffDialog({ state, onRetry, onClose }: {
                 aria-pressed={diffSearchSide === "old"}
                 onClick={() => setDiffSearchSide("old")}
               >
-                HEAD
+                {t("git.head")}
               </button>
               <button
                 type="button"
@@ -252,47 +254,47 @@ function GitDiffDialog({ state, onRetry, onClose }: {
                 aria-pressed={diffSearchSide === "new"}
                 onClick={() => setDiffSearchSide("new")}
               >
-                Working tree
+                {t("git.workingTree")}
               </button>
             </div>
             <span className="git-diff-match-count">
               {diffMatches.length ? activeDiffMatch + 1 : 0} / {diffMatches.length}
             </span>
-            <button type="button" title="Previous match" aria-label="Previous match" disabled={!diffMatches.length} onClick={() => moveDiffMatch(-1)}>
+            <button type="button" title={t("files.previousMatch")} aria-label={t("files.previousMatch")} disabled={!diffMatches.length} onClick={() => moveDiffMatch(-1)}>
               <ArrowUp aria-hidden="true" />
             </button>
-            <button type="button" title="Next match" aria-label="Next match" disabled={!diffMatches.length} onClick={() => moveDiffMatch(1)}>
+            <button type="button" title={t("files.nextMatch")} aria-label={t("files.nextMatch")} disabled={!diffMatches.length} onClick={() => moveDiffMatch(1)}>
               <ArrowDown aria-hidden="true" />
             </button>
-            <button type="button" title="Clear diff search" aria-label="Clear diff search" disabled={!diffSearchQuery} onClick={() => setDiffSearchQuery("")}>
+            <button type="button" title={t("git.clearDiffSearch")} aria-label={t("git.clearDiffSearch")} disabled={!diffSearchQuery} onClick={() => setDiffSearchQuery("")}>
               <X aria-hidden="true" />
             </button>
           </div>
         )}
 
         {state.status === "loading" && (
-          <div className="git-diff-empty">Loading diff...</div>
+          <div className="git-diff-empty">{t("git.loadingDiff")}</div>
         )}
 
         {state.status === "error" && (
           <div className="git-diff-error">
             <span>{state.message}</span>
-            <button type="button" onClick={() => onRetry(state.file)}>Retry</button>
+            <button type="button" onClick={() => onRetry(state.file)}>{t("common.retry")}</button>
           </div>
         )}
 
         {state.status === "ready" && state.result.kind === "binary" && (
-          <div className="git-diff-empty">Binary file. Diff preview is not available.</div>
+          <div className="git-diff-empty">{t("git.binaryDiff")}</div>
         )}
 
         {state.status === "ready" && state.result.kind === "text" && state.result.rows.length === 0 && (
-          <div className="git-diff-empty">No textual changes to display.</div>
+          <div className="git-diff-empty">{t("git.noTextChanges")}</div>
         )}
 
         {state.status === "ready" && state.result.kind === "text" && state.result.rows.length > 0 && (
-          <div className="git-diff-grid" role="table" aria-label={`Diff for ${fileTitle}`} ref={diffGridRef}>
-            <div className="git-diff-column-title old" role="columnheader">HEAD</div>
-            <div className="git-diff-column-title new" role="columnheader">Working tree</div>
+          <div className="git-diff-grid" role="table" aria-label={t("git.diffFor", { file: fileTitle })} ref={diffGridRef}>
+            <div className="git-diff-column-title old" role="columnheader">{t("git.head")}</div>
+            <div className="git-diff-column-title new" role="columnheader">{t("git.workingTree")}</div>
             {state.result.rows.map((row, index) => (
               <div className={`git-diff-row row-${row.type}`} role="row" key={`${index}:${row.oldLineNumber || ""}:${row.newLineNumber || ""}`}>
                 <div className="git-diff-cell old" role="cell">
@@ -331,31 +333,33 @@ function GitStashDialog({ stashes, busy, onApply, onPop, onClose }: {
   onPop: (ref: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="git-stash-overlay" onClick={onClose}>
       <div className="git-stash-dialog" onClick={(event) => event.stopPropagation()}>
         <div className="git-stash-header">
           <span>
             <Archive aria-hidden="true" />
-            Stashes
+            {t("git.stash")}
           </span>
-          <button className="icon-button" type="button" title="Close stash list" aria-label="Close stash list" onClick={onClose}>
+          <button className="icon-button" type="button" title={t("git.closeStashes")} aria-label={t("git.closeStashes")} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
         </div>
         <div className="git-stash-list">
           {stashes.stashes.length === 0 ? (
-            <div className="git-status-empty">No stashes found.</div>
+            <div className="git-status-empty">{t("git.noStashes")}</div>
           ) : stashes.stashes.map((stash) => (
             <div className="git-stash-row" key={stash.ref}>
               <div className="git-stash-main">
                 <strong>{stash.ref}</strong>
                 <span title={stash.message}>{stash.message}</span>
-                <small>{stash.commit.slice(0, 8)} · {stash.relativeTime}</small>
+                <small>{stash.commit.slice(0, 8)} - {stash.relativeTime}</small>
               </div>
               <div className="git-stash-actions">
-                <button className="modal-button" type="button" disabled={busy} onClick={() => onApply(stash.ref)}>Apply</button>
-                <button className="modal-button primary" type="button" disabled={busy} onClick={() => onPop(stash.ref)}>Pop</button>
+                <button className="modal-button" type="button" disabled={busy} onClick={() => onApply(stash.ref)}>{t("git.apply")}</button>
+                <button className="modal-button primary" type="button" disabled={busy} onClick={() => onPop(stash.ref)}>{t("git.pop")}</button>
               </div>
             </div>
           ))}
@@ -366,6 +370,7 @@ function GitStashDialog({ stashes, busy, onApply, onPop, onClose }: {
 }
 
 export function GitStatusPanel({ session }: GitStatusPanelProps) {
+  const { t } = useI18n();
   const [state, setState] = useState<GitStatusState>({ status: "idle" });
   const [diffState, setDiffState] = useState<GitDiffState>({ status: "idle" });
   const [operation, setOperation] = useState<OperationState>({ status: "idle" });
@@ -480,14 +485,14 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
   const handleRevertFile = useCallback((file: GitStatusEntry) => {
     if (!sessionId) return;
     const fileTitle = formatFilePath(file);
-    if (!window.confirm(`Discard changes to ${fileTitle}?`)) {
+    if (!window.confirm(t("git.discardConfirm", { file: fileTitle }))) {
       return;
     }
     void runOperation(`Discarding ${file.path}`, async () => {
       await window.gitApi.revertFile(sessionId, file);
       closeDiff();
     });
-  }, [closeDiff, runOperation, sessionId]);
+  }, [closeDiff, runOperation, sessionId, t]);
 
   if (!sessionId || !session) {
     return (
@@ -495,10 +500,10 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
         <div className="git-status-header">
           <div>
             <h2>Git</h2>
-            <span>No session selected</span>
+            <span>{t("git.noSession")}</span>
           </div>
         </div>
-        <div className="git-status-empty">Git status is available after selecting a session.</div>
+        <div className="git-status-empty">{t("git.availableAfterSession")}</div>
       </aside>
     );
   }
@@ -514,8 +519,8 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
           <button
             className="icon-button"
             type="button"
-            title="Refresh Git status"
-            aria-label="Refresh Git status"
+            title={t("git.refreshStatus")}
+            aria-label={t("git.refreshStatus")}
             disabled={isBusy}
             onClick={() => void loadStatus()}
           >
@@ -530,53 +535,53 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
               <select
                 value={currentBranch ? branchKey(currentBranch) : ""}
                 disabled={isBusy}
-                title="Checkout branch"
-                aria-label="Checkout branch"
+                title={t("git.checkoutBranch")}
+                aria-label={t("git.checkoutBranch")}
                 onChange={(event) => handleCheckout(event.target.value)}
               >
-                <option value="" disabled>Checkout branch</option>
+                <option value="" disabled>{t("git.checkoutBranch")}</option>
                 {state.branches.branches.map((branch) => (
                   <option value={branchKey(branch)} key={branchKey(branch)}>
-                    {branch.current ? "✓ " : ""}{branch.name}{branch.kind === "remote" ? " (remote)" : ""}
+                    {branch.current ? "* " : ""}{branch.name}{branch.kind === "remote" ? t("git.remoteBranch") : ""}
                   </option>
                 ))}
               </select>
             </label>
             <button className="git-action-button" type="button" disabled={isBusy} onClick={handleStash}>
               <Archive aria-hidden="true" />
-              Stash
+              {t("git.stash")}
             </button>
             <button className="git-action-button" type="button" disabled={isBusy} onClick={() => setShowStashes(true)}>
-              Stashes ({state.stashes.stashes.length})
+              {t("git.stashes", { count: state.stashes.stashes.length })}
             </button>
           </div>
         )}
 
         {operation.status === "running" && (
-          <div className="git-status-note">{operation.label}...</div>
+          <div className="git-status-note">{t("git.operationRunning", { label: operation.label })}</div>
         )}
 
         {operation.status === "error" && (
           <div className="git-status-error">
             <span>{operation.message}</span>
-            <button type="button" onClick={() => setOperation({ status: "idle" })}>Dismiss</button>
+            <button type="button" onClick={() => setOperation({ status: "idle" })}>{t("git.dismiss")}</button>
           </div>
         )}
 
         {state.status === "error" && (
           <div className="git-status-error">
             <span>{state.message}</span>
-            <button type="button" onClick={() => void loadStatus()}>Retry</button>
+            <button type="button" onClick={() => void loadStatus()}>{t("common.retry")}</button>
           </div>
         )}
 
         <div className="git-status-list" aria-busy={state.status === "loading" || operation.status === "running"}>
           {state.status === "loading" ? (
-            <div className="git-status-empty">Loading Git status...</div>
+            <div className="git-status-empty">{t("git.loadingStatus")}</div>
           ) : state.status === "ready" && state.result.clean ? (
             <div className="git-status-empty">
               <GitBranch aria-hidden="true" />
-              <span>Working directory is clean.</span>
+              <span>{t("git.clean")}</span>
             </div>
           ) : state.status === "ready" ? (
             state.result.files.map((file) => {
@@ -590,7 +595,7 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
                   <button
                     className="git-status-file-btn"
                     type="button"
-                    title={`Open diff: ${fileTitle}`}
+                    title={t("git.openDiff", { file: fileTitle })}
                     onClick={() => void loadDiff(file)}
                   >
                     <span className={`git-status-badge status-${getStatusClass(file.status)}`}>{file.label}</span>
@@ -601,8 +606,8 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
                   <button
                     className="git-status-revert"
                     type="button"
-                    title={`Discard changes: ${fileTitle}`}
-                    aria-label={`Discard changes: ${fileTitle}`}
+                    title={t("git.discardChanges", { file: fileTitle })}
+                    aria-label={t("git.discardChanges", { file: fileTitle })}
                     disabled={isBusy}
                     onClick={() => handleRevertFile(file)}
                   >
@@ -612,7 +617,7 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
               );
             })
           ) : (
-            <div className="git-status-empty">Git status has not been loaded.</div>
+            <div className="git-status-empty">{t("git.notLoaded")}</div>
           )}
         </div>
       </aside>

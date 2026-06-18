@@ -1,6 +1,8 @@
 const { ipcMain } = require("electron");
 const fs = require("node:fs");
-const { VALID_THEME_IDS } = require("./config-store.cjs");
+const os = require("node:os");
+const path = require("node:path");
+const { VALID_LOCALES, VALID_THEME_IDS } = require("./config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -15,6 +17,27 @@ function getImportedSessions(input) {
 
 function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
+}
+
+function sanitizeLocalPaths(localPaths) {
+  if (!Array.isArray(localPaths)) {
+    throw new Error("Local file paths are required.");
+  }
+  const paths = localPaths
+    .filter((filePath) => typeof filePath === "string")
+    .map((filePath) => filePath.trim())
+    .filter(Boolean);
+  if (paths.length === 0) {
+    throw new Error("No local files were provided.");
+  }
+  return paths;
+}
+
+function getDownloadFileName(fileName, remotePath) {
+  const fallback = path.posix.basename(String(remotePath || "download").replace(/\\/g, "/")) || "download";
+  const rawName = String(fileName || fallback).trim() || fallback;
+  const baseName = path.basename(rawName).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+  return baseName || "download";
 }
 
 function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
@@ -193,6 +216,11 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return { canceled: false, ...uploaded };
   });
 
+  ipcMain.handle("remote-files:upload-files", async (_event, { sessionId, remoteDir, localPaths }) => {
+    const uploaded = await remoteFileService.uploadFiles(sessionId, sanitizeLocalPaths(localPaths), remoteDir);
+    return { canceled: false, uploaded };
+  });
+
   ipcMain.handle("remote-files:download-file", async (event, { sessionId, remotePath, fileName }) => {
     const ownerWindow = windowManager.getWindowFromEvent(event);
     const result = await dialog.showSaveDialog(ownerWindow, {
@@ -202,6 +230,19 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
       return { canceled: true };
     }
     const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, result.filePath);
+    return { canceled: false, ...downloaded };
+  });
+
+  ipcMain.handle("remote-files:start-download-drag", async (event, { sessionId, remotePath, fileName }) => {
+    const tempRoot = path.join(os.tmpdir(), "pannel-handle-drag-downloads");
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    const tempDir = await fs.promises.mkdtemp(path.join(tempRoot, "drag-"));
+    const localPath = path.join(tempDir, getDownloadFileName(fileName, remotePath));
+    const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, localPath);
+    event.sender.startDrag({
+      file: downloaded.localPath,
+      icon: path.join(__dirname, "..", "build", "icon.png")
+    });
     return { canceled: false, ...downloaded };
   });
 
@@ -299,6 +340,9 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     }
     if (partial && typeof partial.themeId === "string" && VALID_THEME_IDS.has(partial.themeId)) {
       updates.themeId = partial.themeId;
+    }
+    if (partial && typeof partial.locale === "string" && VALID_LOCALES.has(partial.locale)) {
+      updates.locale = partial.locale;
     }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);

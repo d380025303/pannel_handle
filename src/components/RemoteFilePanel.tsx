@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Terminal as TerminalIcon, Upload, Video, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -73,7 +74,12 @@ function getPreviewId(preview: RemoteFilePreview) {
   return preview.kind === "image" || preview.kind === "video" ? preview.previewId : null;
 }
 
+function hasLocalFileDrag(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
 export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
+  const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
@@ -87,6 +93,9 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [downloadDragPath, setDownloadDragPath] = useState<string | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
@@ -162,8 +171,8 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   }, [activePreviewMatch, previewSearchQuery]);
 
   const confirmDiscard = useCallback(() => (
-    !dirtyRef.current || window.confirm("Discard unsaved file changes?")
-  ), []);
+    !dirtyRef.current || window.confirm(t("confirm.discardUnsavedFileChanges"))
+  ), [t]);
 
   const closeFileContextMenu = useCallback(() => {
     setFileContextMenu(null);
@@ -408,6 +417,75 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     }
   }, [currentPath, sessionId]);
 
+  const uploadDroppedFiles = useCallback(async (files: FileList, targetDir: string) => {
+    if (!sessionId) return;
+    if (files.length === 0) {
+      setError(t("files.onlyLocalFiles"));
+      return;
+    }
+    closeFileContextMenu();
+    setError(null);
+    setUploadingCount(files.length);
+    try {
+      const result = await window.remoteFileApi.uploadDroppedFiles(sessionId, targetDir, files);
+      if (!result.canceled) {
+        const nextEntries = await window.remoteFileApi.list(sessionId, currentPath);
+        setEntries(nextEntries);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setUploadingCount(0);
+    }
+  }, [closeFileContextMenu, currentPath, sessionId, t]);
+
+  const handleLocalFileDragOver = useCallback((event: DragEvent<HTMLElement>, targetDir = currentPath) => {
+    if (!hasLocalFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setDropTargetPath(targetDir);
+  }, [currentPath]);
+
+  const handleLocalFileDrop = useCallback((event: DragEvent<HTMLElement>, targetDir = currentPath) => {
+    if (!hasLocalFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTargetPath(null);
+    void uploadDroppedFiles(event.dataTransfer.files, targetDir);
+  }, [currentPath, uploadDroppedFiles]);
+
+  const handleLocalFileDragLeave = useCallback((event: DragEvent<HTMLElement>, targetDir = currentPath) => {
+    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setDropTargetPath((current) => current === targetDir ? null : current);
+  }, [currentPath]);
+
+  const handleRemoteFileDragStart = useCallback((event: DragEvent<HTMLButtonElement>, entry: RemoteFileEntry) => {
+    if (!sessionId || entry.type === "directory") {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    closeFileContextMenu();
+    setError(null);
+    setDownloadDragPath(entry.path);
+    void window.remoteFileApi.startDownloadDrag(sessionId, entry.path, entry.name)
+      .catch((err) => {
+        setError(getErrorMessage(err));
+      })
+      .finally(() => {
+        setDownloadDragPath((current) => current === entry.path ? null : current);
+      });
+  }, [closeFileContextMenu, sessionId]);
+
   const handleDownload = useCallback(async (entry: RemoteFileEntry) => {
     closeFileContextMenu();
     if (!sessionId || entry.type === "directory") return;
@@ -508,7 +586,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       if (result.status === "conflict") {
         setSaveState({
           status: "conflict",
-          message: "The file changed after it was opened. Reload it before editing again."
+          message: t("files.conflict")
         });
         return;
       }
@@ -540,7 +618,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       if (saveRequestRef.current !== requestId) return;
       setSaveState({ status: "error", message: getErrorMessage(err) });
     }
-  }, [currentPath, editorContent, isDirty, preview, saveState.status, sessionId]);
+  }, [currentPath, editorContent, isDirty, preview, saveState.status, sessionId, t]);
 
   const movePreviewMatch = useCallback((direction: 1 | -1) => {
     if (!previewMatches.length) {
@@ -563,36 +641,41 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       <aside className="remote-file-panel">
         <div className="remote-file-header">
           <div>
-            <h2>Files</h2>
-            <span>No session selected</span>
+            <h2>{t("files.title")}</h2>
+            <span>{t("files.noSession")}</span>
           </div>
         </div>
-        <div className="remote-file-empty">Files are available after selecting a session.</div>
+        <div className="remote-file-empty">{t("files.availableAfterSession")}</div>
       </aside>
     );
   }
 
   return (
     <>
-      <aside className="remote-file-panel">
+      <aside
+        className={`remote-file-panel ${dropTargetPath === currentPath ? "drop-active" : ""}`}
+        onDragOver={(event) => handleLocalFileDragOver(event)}
+        onDragLeave={(event) => handleLocalFileDragLeave(event)}
+        onDrop={(event) => handleLocalFileDrop(event)}
+      >
         <div className="remote-file-header">
           <div>
-            <h2>Files</h2>
+            <h2>{t("files.title")}</h2>
             <span>{session.title}</span>
         </div>
         <div className="remote-file-actions">
-          <button className="icon-button" type="button" title="Parent directory" aria-label="Parent directory" onClick={() => void loadDirectory(parentPath(currentPath))}>
+          <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} onClick={() => void loadDirectory(parentPath(currentPath))}>
             <ArrowUp aria-hidden="true" />
           </button>
           {canOpenInExplorer && (
-            <button className="icon-button" type="button" title="Open in Explorer" aria-label="Open in Explorer" onClick={() => void handleOpenInExplorer()}>
+            <button className="icon-button" type="button" title={t("files.openInExplorer")} aria-label={t("files.openInExplorer")} onClick={() => void handleOpenInExplorer()}>
               <FolderOpen aria-hidden="true" />
             </button>
           )}
-          <button className="icon-button" type="button" title="Refresh" aria-label="Refresh" onClick={handleRefresh}>
+          <button className="icon-button" type="button" title={t("common.refresh")} aria-label={t("common.refresh")} onClick={handleRefresh}>
             <RefreshCw aria-hidden="true" />
           </button>
-          <button className="icon-button" type="button" title="Upload file" aria-label="Upload file" onClick={() => void handleUpload()}>
+          <button className="icon-button" type="button" title={t("common.uploadFile")} aria-label={t("common.uploadFile")} onClick={() => void handleUpload()}>
             <Upload aria-hidden="true" />
           </button>
         </div>
@@ -601,7 +684,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       <div className="remote-file-path">
         <input
           type="text"
-          aria-label="Directory path"
+          aria-label={t("files.directoryPath")}
           title={currentPath}
           value={pathInput}
           onChange={(event) => setPathInput(event.target.value)}
@@ -618,12 +701,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         <Search aria-hidden="true" />
         <input
           type="text"
-          placeholder="Search current directory..."
+          placeholder={t("files.searchPlaceholder")}
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
         />
         {normalizedSearchQuery && (
-          <button type="button" title="Clear search" aria-label="Clear search" onClick={() => setSearchQuery("")}>
+          <button type="button" title={t("files.clearSearch")} aria-label={t("files.clearSearch")} onClick={() => setSearchQuery("")}>
             <X aria-hidden="true" />
           </button>
         )}
@@ -632,34 +715,59 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       {error && (
         <div className="remote-file-error">
           <span>{error}</span>
-          <button type="button" onClick={handleRefresh}>Retry</button>
+          <button type="button" onClick={handleRefresh}>{t("common.retry")}</button>
+        </div>
+      )}
+
+      {(uploadingCount > 0 || downloadDragPath) && (
+        <div className="remote-file-transfer-status">
+          {uploadingCount > 0
+            ? t("files.uploading", { count: uploadingCount })
+            : t("files.preparingDownload")}
         </div>
       )}
 
       <div className="remote-file-list" aria-busy={loading} onScroll={closeFileContextMenu}>
         {loading ? (
-          <div className="remote-file-empty">Loading files...</div>
+          <div className="remote-file-empty">{t("files.loading")}</div>
         ) : entries.length === 0 && !error ? (
-          <div className="remote-file-empty">Directory is empty</div>
+          <div className="remote-file-empty">{t("files.emptyDirectory")}</div>
         ) : filteredEntries.length === 0 ? (
-          <div className="remote-file-empty">No matching files in this directory.</div>
+          <div className="remote-file-empty">{t("files.noMatches")}</div>
         ) : (
           filteredEntries.map((entry) => (
             <button
-              className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""}`}
+              className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""} ${dropTargetPath === entry.path ? "drop-target" : ""} ${downloadDragPath === entry.path ? "drag-preparing" : ""}`}
               key={entry.path}
               type="button"
+              draggable={entry.type !== "directory"}
               onClick={() => {
                 closeFileContextMenu();
                 void handleOpenEntry(entry);
               }}
               onContextMenu={(event) => handleFileContextMenu(event, entry)}
+              onDragStart={(event) => handleRemoteFileDragStart(event, entry)}
+              onDragOver={(event) => {
+                if (entry.type === "directory") {
+                  handleLocalFileDragOver(event, entry.path);
+                }
+              }}
+              onDragLeave={(event) => {
+                if (entry.type === "directory") {
+                  handleLocalFileDragLeave(event, entry.path);
+                }
+              }}
+              onDrop={(event) => {
+                if (entry.type === "directory") {
+                  handleLocalFileDrop(event, entry.path);
+                }
+              }}
             >
               <span className={`remote-file-icon ${entry.type}`}>
                 {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
               </span>
               <span className="remote-file-name">{entry.name}</span>
-              <span className="remote-file-meta">{entry.type === "directory" ? "Folder" : formatSize(entry.size)}</span>
+              <span className="remote-file-meta">{entry.type === "directory" ? t("files.folder") : formatSize(entry.size)}</span>
               <span className="remote-file-meta">{formatModifiedAt(entry.modifiedAt)}</span>
             </button>
           ))
@@ -675,12 +783,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         >
           <button type="button" role="menuitem" onClick={() => handleAddToTerminal(contextEntry)}>
             <TerminalIcon aria-hidden="true" />
-            <span>添加到终端</span>
+            <span>{t("files.addToTerminal")}</span>
           </button>
           {contextEntry.type !== "directory" && (
             <button type="button" role="menuitem" onClick={() => void handleDownload(contextEntry)}>
               <Download aria-hidden="true" />
-              <span>下载</span>
+              <span>{t("common.download")}</span>
             </button>
           )}
         </div>
@@ -695,7 +803,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
             <span>
               {previewIcon}
               {selectedEntry?.name || preview.path}
-              {isDirty && <strong className="remote-preview-dirty" title="Unsaved changes">*</strong>}
+              {isDirty && <strong className="remote-preview-dirty" title={t("files.unsavedMarker")}>*</strong>}
             </span>
             <div className="remote-preview-actions">
               {preview.status === "ready" && preview.preview.kind === "text" && (
@@ -703,8 +811,8 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   <button
                     className="icon-button"
                     type="button"
-                    title="Reload file"
-                    aria-label="Reload file"
+                    title={t("files.reloadFile")}
+                    aria-label={t("files.reloadFile")}
                     disabled={saveState.status === "saving"}
                     onClick={() => void handleReloadPreview()}
                   >
@@ -713,8 +821,8 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   <button
                     className="icon-button"
                     type="button"
-                    title="Save file"
-                    aria-label="Save file"
+                    title={t("files.saveFile")}
+                    aria-label={t("files.saveFile")}
                     disabled={!isDirty || saveState.status === "saving" || saveState.status === "conflict"}
                     onClick={() => void handleSavePreview()}
                   >
@@ -723,17 +831,17 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                 </>
               )}
               {preview.status === "ready" && selectedEntry && selectedEntry.type !== "directory" && (
-                <button className="icon-button" type="button" title="Download" aria-label="Download" onClick={() => void handleDownload(selectedEntry)}>
+                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} onClick={() => void handleDownload(selectedEntry)}>
                   <Download aria-hidden="true" />
                 </button>
               )}
-              <button className="icon-button" type="button" title="Close preview" aria-label="Close preview" onClick={handleClosePreview}>
+              <button className="icon-button" type="button" title={t("files.closePreview")} aria-label={t("files.closePreview")} onClick={handleClosePreview}>
                 <X aria-hidden="true" />
               </button>
             </div>
           </div>
           {preview.status === "loading" && (
-            <div className="remote-file-empty">Loading preview...</div>
+            <div className="remote-file-empty">{t("files.loadingPreview")}</div>
           )}
           {preview.status === "error" && (
             <div className="remote-file-error">
@@ -747,7 +855,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   <div className={`remote-preview-save-message ${saveState.status}`}>
                     <span>{saveState.message}</span>
                     {saveState.status === "conflict" && (
-                      <button type="button" onClick={() => void handleReloadPreview()}>Reload</button>
+                      <button type="button" onClick={() => void handleReloadPreview()}>{t("common.reload")}</button>
                     )}
                   </div>
                 )}
@@ -755,8 +863,8 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   <Search aria-hidden="true" />
                   <input
                     type="text"
-                    aria-label="Search preview content"
-                    placeholder="Search preview..."
+                    aria-label={t("files.searchPreview")}
+                    placeholder={t("files.searchPreview")}
                     value={previewSearchQuery}
                     onChange={(event) => setPreviewSearchQuery(event.target.value)}
                     onKeyDown={(event) => {
@@ -769,20 +877,20 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   <span className="remote-preview-match-count">
                     {previewMatches.length ? activePreviewMatch + 1 : 0} / {previewMatches.length}
                   </span>
-                  <button type="button" title="Previous match" aria-label="Previous match" disabled={!previewMatches.length} onClick={() => movePreviewMatch(-1)}>
+                  <button type="button" title={t("files.previousMatch")} aria-label={t("files.previousMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(-1)}>
                     <ArrowUp aria-hidden="true" />
                   </button>
-                  <button type="button" title="Next match" aria-label="Next match" disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
+                  <button type="button" title={t("files.nextMatch")} aria-label={t("files.nextMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
                     <ArrowDown aria-hidden="true" />
                   </button>
-                  <button type="button" title="Clear preview search" aria-label="Clear preview search" disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
+                  <button type="button" title={t("files.clearPreviewSearch")} aria-label={t("files.clearPreviewSearch")} disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
                     <X aria-hidden="true" />
                   </button>
                 </div>
                 <textarea
                   ref={previewContentRef}
                   className="remote-preview-editor"
-                  aria-label="Edit file content"
+                  aria-label={t("files.editContent")}
                   spellCheck={false}
                   value={editorContent}
                   onChange={(event) => {
@@ -800,12 +908,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                 />
                 <div className="remote-preview-status">
                   <span>{formatSize(new TextEncoder().encode(editorContent).length)}</span>
-                  <span>{saveState.status === "saving" ? "Saving..." : isDirty ? "Unsaved changes" : "Saved"}</span>
+                  <span>{saveState.status === "saving" ? t("common.saving") : isDirty ? t("common.unsavedChanges") : t("common.saved")}</span>
                 </div>
               </>
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
-                File is {formatSize(preview.preview.size)}. Download it to view locally.
+                {t("files.tooLarge", { size: formatSize(preview.preview.size) })}
               </div>
             ) : preview.preview.kind === "image" ? (
               <div className="remote-preview-media">
@@ -816,7 +924,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                 <video src={preview.preview.url} controls preload="metadata" />
               </div>
             ) : (
-              <div className="remote-file-empty">Binary file. Download it to view locally.</div>
+              <div className="remote-file-empty">{t("files.binary")}</div>
             )
           )}
           </div>

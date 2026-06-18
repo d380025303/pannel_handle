@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "../i18n";
 import type {
   HookInspectionResult,
   HookInstallTarget,
@@ -21,12 +22,6 @@ const providerNames: Record<HookProvider, string> = {
   qoder: "Qoder"
 };
 
-const statusLabels = {
-  not_installed: "未安装",
-  installed: "已安装",
-  needs_repair: "需要修复"
-};
-
 function getInitialProjectPath(session: TerminalSession) {
   if (session.type === "ssh") {
     const cwd = String(session.cwd || "").trim();
@@ -36,11 +31,18 @@ function getInitialProjectPath(session: TerminalSession) {
 }
 
 export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
+  const { t } = useI18n();
   const [projectPath, setProjectPath] = useState(getInitialProjectPath(session));
   const availableProviders = session.type === "ssh" ? sshProviders : localProviders;
   const [selectedProviders, setSelectedProviders] = useState<HookProvider[]>(availableProviders);
   const [result, setResult] = useState<HookInspectionResult | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+
+  const statusLabels = {
+    not_installed: t("hooks.notInstalled"),
+    installed: t("hooks.installed"),
+    needs_repair: t("hooks.needsRepair")
+  };
 
   const target = useMemo<HookInstallTarget | null>(() => {
     const value = projectPath.trim();
@@ -126,23 +128,23 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
     <div className="modal-overlay">
       <div className="modal-dialog hook-install-dialog">
         <div className="modal-header">
-          <h3>安装项目 Hook</h3>
-          <p className="modal-subtitle">{session.title} · {environmentLabel}</p>
+          <h3>{t("hooks.title")}</h3>
+          <p className="modal-subtitle">{session.title} - {environmentLabel}</p>
         </div>
         <div className="modal-body hook-install-body">
           <label className="modal-field">
-            <span className="modal-label">{session.type === "ssh" ? "远端项目目录" : "项目目录"}</span>
+            <span className="modal-label">{session.type === "ssh" ? t("hooks.remoteProjectDirectory") : t("hooks.localProjectDirectory")}</span>
             <div className="hook-path-row">
               <input
                 className="modal-input"
                 value={projectPath}
                 readOnly={session.type === "windows"}
-                placeholder={session.type === "ssh" ? "/home/user/project" : session.type === "wsl" ? "/home/user/project" : "选择 Windows 项目目录"}
+                placeholder={session.type === "ssh" ? "/home/user/project" : session.type === "wsl" ? "/home/user/project" : t("hooks.chooseWindowsPlaceholder")}
                 onChange={(event) => setProjectPath(event.target.value)}
               />
               {session.type === "windows" && (
                 <button className="modal-button" type="button" onClick={chooseWindowsDirectory}>
-                  选择
+                  {t("common.select")}
                 </button>
               )}
             </div>
@@ -150,7 +152,7 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
 
           {session.type === "ssh" && (
             <div className="hook-install-note">
-              SSH Hook 会通过反向隧道监听远端事件，不需要服务器访问本机网络。
+              {t("hooks.sshNote")}
             </div>
           )}
 
@@ -166,7 +168,7 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
                   />
                   <span className="hook-provider-name">{providerNames[provider]}</span>
                   <span className={`hook-install-status ${inspection?.status || "unknown"}`}>
-                    {inspection ? statusLabels[inspection.status] : "待检查"}
+                    {inspection ? statusLabels[inspection.status] : t("hooks.pendingCheck")}
                   </span>
                 </label>
               );
@@ -175,18 +177,18 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
 
           {result && !result.ok && <div className="hook-install-error">{result.error}</div>}
           {result?.ok && result.providers.codex?.status === "installed" && (
-            <div className="hook-install-note">Codex 首次使用项目 Hook 时，仍需在 Codex 的 /hooks 中确认信任。</div>
+            <div className="hook-install-note">{t("hooks.codexTrustNote")}</div>
           )}
         </div>
         <div className="modal-footer">
-          <button className="modal-button" type="button" disabled={isBusy} onClick={onCancel}>关闭</button>
+          <button className="modal-button" type="button" disabled={isBusy} onClick={onCancel}>{t("common.close")}</button>
           <button
             className="modal-button primary"
             type="button"
             disabled={isBusy || !target || selectedProviders.length === 0}
             onClick={install}
           >
-            {isBusy ? "安装中..." : "安装或修复"}
+            {isBusy ? t("hooks.installing") : t("hooks.installOrRepair")}
           </button>
         </div>
       </div>

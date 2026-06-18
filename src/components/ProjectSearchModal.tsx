@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { File, FileText, Search, X } from "lucide-react";
+import { useI18n } from "../i18n";
 import type { ProjectFileSearchResult, ProjectTextSearchResult, TerminalSession } from "../vite-env";
 
 type ProjectSearchMode = "files" | "text";
@@ -53,13 +54,14 @@ function HighlightLine({ result }: { result: ProjectTextSearchResult }) {
 }
 
 export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: ProjectSearchModalProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
 
-  const title = mode === "files" ? "Search Files" : "Search Text";
-  const placeholder = mode === "files" ? "Type a file name or path..." : "Type text to search in project...";
+  const title = mode === "files" ? t("projectSearch.filesTitle") : t("projectSearch.textTitle");
+  const placeholder = mode === "files" ? t("projectSearch.filesPlaceholder") : t("projectSearch.textPlaceholder");
   const resultsCount = useMemo(() => {
     if (searchState.status !== "ready") return 0;
     return mode === "files" ? searchState.fileResults.length : searchState.textResults.length;
@@ -134,25 +136,25 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
             aria-label={title}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <button type="button" title="Close search" aria-label="Close search" onClick={onClose}>
+          <button type="button" title={t("projectSearch.close")} aria-label={t("projectSearch.close")} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
         </div>
         <div className="project-search-meta">
           <span>{title}</span>
           <span>{session.title}</span>
-          {searchState.status === "ready" && <span>{resultsCount} results</span>}
+          {searchState.status === "ready" && <span>{t("projectSearch.results", { count: resultsCount })}</span>}
         </div>
         <div className="project-search-results">
           {searchState.status === "idle" ? (
-            <div className="project-search-empty">{mode === "files" ? "Start typing to find files in this working directory." : "Start typing to search text in this working directory."}</div>
+            <div className="project-search-empty">{mode === "files" ? t("projectSearch.idleFiles") : t("projectSearch.idleText")}</div>
           ) : searchState.status === "loading" ? (
-            <div className="project-search-empty">Searching...</div>
+            <div className="project-search-empty">{t("projectSearch.searching")}</div>
           ) : searchState.status === "error" ? (
             <div className="project-search-error">{searchState.message}</div>
           ) : mode === "files" ? (
             searchState.fileResults.length === 0 ? (
-              <div className="project-search-empty">No matching files.</div>
+              <div className="project-search-empty">{t("projectSearch.noFiles")}</div>
             ) : (
               searchState.fileResults.map((result) => (
                 <button className="project-search-row" type="button" key={result.path} onClick={() => handleOpen(result.path)}>
@@ -163,7 +165,7 @@ export function ProjectSearchModal({ mode, session, onClose, onOpenPath }: Proje
               ))
             )
           ) : searchState.textResults.length === 0 ? (
-            <div className="project-search-empty">No text matches.</div>
+            <div className="project-search-empty">{t("projectSearch.noText")}</div>
           ) : (
             searchState.textResults.map((result) => (
               <button className="project-search-row text" type="button" key={`${result.path}:${result.lineNumber}:${result.line}`} onClick={() => handleOpen(result.path)}>
