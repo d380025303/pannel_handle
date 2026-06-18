@@ -1108,9 +1108,20 @@
   flex: 1;
   border: 0;
   outline: 0;
+  color-scheme: inherit;
   color: var(--color-text);
   background: transparent;
   font-size: 12px;
+}
+
+.git-branch-select option {
+  color: var(--color-text);
+  background: var(--color-bg-control);
+}
+
+.git-branch-select option:checked {
+  color: var(--color-text-strong);
+  background: var(--color-bg-selection-strong);
 }
 
 .git-action-button {
