@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsModal } from "./components/SettingsModal";
 import { CreateSessionModal } from "./components/CreateSessionModal";
 import { DebugSidebar } from "./components/DebugSidebar";
@@ -64,6 +64,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [projectSearchRoot, setProjectSearchRoot] = useState(".");
   const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
+  const fileOpenRequestIdRef = useRef(0);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const terminalSessions = useTerminalSessions();
@@ -219,12 +220,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       return;
     }
     setRightTool("files");
-    setFileOpenRequest((current) => ({
+    fileOpenRequestIdRef.current += 1;
+    setFileOpenRequest({
       sessionId: activeSession.id,
       path,
-      requestId: (current?.requestId || 0) + 1
-    }));
+      requestId: fileOpenRequestIdRef.current
+    });
   }, [terminalSessions.activeSession]);
+
+  const handleFileOpenRequestHandled = useCallback((requestId: number) => {
+    setFileOpenRequest((current) => current?.requestId === requestId ? null : current);
+  }, []);
 
   const handleClosePicker = useCallback(() => {
     terminalSessions.setPendingSessions(null);
@@ -357,6 +363,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 <RemoteFilePanel
                   session={terminalSessions.activeSession}
                   openRequest={fileOpenRequest}
+                  onOpenRequestHandled={handleFileOpenRequestHandled}
                   onDirtyChange={setRemoteFilesDirty}
                   onPreviewActive={setPreviewActive}
                   onCurrentPathChange={handleFilePanelPathChange}

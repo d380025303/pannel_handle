@@ -7,6 +7,7 @@ import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vit
 type RemoteFilePanelProps = {
   session?: TerminalSession;
   openRequest?: { sessionId: string; path: string; requestId: number } | null;
+  onOpenRequestHandled?: (requestId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onPreviewActive?: (active: boolean) => void;
   onCurrentPathChange?: (path: string) => void;
@@ -80,7 +81,43 @@ function hasLocalFileDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
-export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest }: RemoteFilePanelProps) {
+function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: number, end: number) {
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  const marker = document.createElement("span");
+
+  Object.assign(mirror.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    visibility: "hidden",
+    pointerEvents: "none",
+    boxSizing: "border-box",
+    width: `${textarea.clientWidth}px`,
+    padding: style.padding,
+    border: "0",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: style.wordBreak,
+    font: style.font,
+    letterSpacing: style.letterSpacing,
+    lineHeight: style.lineHeight,
+    tabSize: style.tabSize
+  });
+
+  mirror.append(document.createTextNode(textarea.value.slice(0, start)));
+  marker.textContent = textarea.value.slice(start, end) || "\u200b";
+  mirror.append(marker);
+  document.body.append(mirror);
+
+  const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.45;
+  const matchHeight = Math.max(marker.offsetHeight, lineHeight);
+  textarea.scrollTop = Math.max(0, marker.offsetTop - (textarea.clientHeight - matchHeight) / 2);
+
+  mirror.remove();
+}
+
+export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest }: RemoteFilePanelProps) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
@@ -167,11 +204,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     if (!match || !textarea) {
       return;
     }
+    textarea.setSelectionRange(match.start, match.end);
     if (matchNavigationRef.current) {
       textarea.focus();
-      matchNavigationRef.current = false;
+      scrollTextareaMatchIntoView(textarea, match.start, match.end);
     }
-    textarea.setSelectionRange(match.start, match.end);
   }, [activePreviewMatch, previewSearchQuery]);
 
   const confirmDiscard = useCallback(() => (
@@ -386,9 +423,12 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     const requestId = openRequest.requestId;
     const attemptId = openRequestAttemptRef.current + 1;
     openRequestAttemptRef.current = attemptId;
+    let completed = false;
 
     const openPath = async () => {
       if (!confirmDiscard()) {
+        completed = true;
+        onOpenRequestHandled?.(requestId);
         return;
       }
       const targetDirectory = parentPath(openRequest.path);
@@ -404,6 +444,10 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         modifiedAt: 0
       };
       await handleOpenEntry(entry, true);
+      if (openRequestAttemptRef.current === attemptId) {
+        completed = true;
+        onOpenRequestHandled?.(requestId);
+      }
     };
 
     void openPath();
@@ -411,11 +455,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       if (openRequestAttemptRef.current === attemptId) {
         openRequestAttemptRef.current += 1;
       }
-      if (handledOpenRequestRef.current === requestId) {
+      if (!completed && handledOpenRequestRef.current === requestId) {
         handledOpenRequestRef.current = 0;
       }
     };
-  }, [confirmDiscard, handleOpenEntry, loadDirectory, openRequest, sessionId]);
+  }, [confirmDiscard, handleOpenEntry, loadDirectory, onOpenRequestHandled, openRequest, sessionId]);
 
   const handleRefresh = useCallback(() => {
     void loadDirectory(currentPath, true);
@@ -901,6 +945,9 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                     placeholder={t("files.searchPreview")}
                     value={previewSearchQuery}
                     onChange={(event) => setPreviewSearchQuery(event.target.value)}
+                    onFocus={() => {
+                      matchNavigationRef.current = false;
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
@@ -927,13 +974,22 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
                   aria-label={t("files.editContent")}
                   spellCheck={false}
                   value={editorContent}
+                  onPointerDown={() => {
+                    matchNavigationRef.current = false;
+                  }}
                   onChange={(event) => {
+                    matchNavigationRef.current = false;
                     setEditorContent(event.target.value);
                     if (saveState.status === "error") {
                       setSaveState({ status: "idle" });
                     }
                   }}
                   onKeyDown={(event) => {
+                    if (matchNavigationRef.current && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                      event.preventDefault();
+                      movePreviewMatch(event.shiftKey ? -1 : 1);
+                      return;
+                    }
                     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
                       event.preventDefault();
                       void handleSavePreview();
