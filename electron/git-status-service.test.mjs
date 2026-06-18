@@ -193,7 +193,7 @@ describe("git-status-service", () => {
     });
     expect(spawn).toHaveBeenCalledWith(
       "wsl.exe",
-      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "status", "--porcelain=v1", "-z"],
+      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "status", "--porcelain=v1", "-z"],
       expect.objectContaining({ windowsHide: true })
     );
   });
@@ -287,7 +287,7 @@ describe("git-status-service", () => {
     });
     expect(spawn).toHaveBeenCalledWith(
       "wsl.exe",
-      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "diff", "--no-color", "--find-renames", "HEAD", "--", "old.txt"],
+      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "diff", "--no-color", "--find-renames", "HEAD", "--", "old.txt"],
       expect.objectContaining({ windowsHide: true })
     );
   });
@@ -385,6 +385,41 @@ describe("git-status-service", () => {
     );
   });
 
+  it("lists branches through wsl.exe --exec for WSL sessions", async () => {
+    const spawn = createSpawnMock({ stdout: "refs/heads/main\tmain\t*\tabc1234\t2 hours ago\n" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "wsl",
+        cwd: "/home/me/project",
+        wslDistro: "Ubuntu-24.04"
+      }),
+      sessionStore: {},
+      spawn
+    });
+
+    await expect(service.getBranches("run-1")).resolves.toEqual({
+      cwd: "/home/me/project",
+      branches: [{ name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" }]
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      "wsl.exe",
+      [
+        "-d",
+        "Ubuntu-24.04",
+        "--cd",
+        "/home/me/project",
+        "--exec",
+        "git",
+        "for-each-ref",
+        expect.stringContaining("--format=%(refname)"),
+        "refs/heads",
+        "refs/remotes"
+      ],
+      expect.objectContaining({ windowsHide: true })
+    );
+  });
+
   it("checks out local and remote branches", async () => {
     const spawn = createSpawnSequenceMock([
       { stdout: "Switched to branch 'feature'\n" },
@@ -430,11 +465,11 @@ describe("git-status-service", () => {
     await expect(wslService.popStash("run-1", "stash@{1}")).resolves.toMatchObject({ ok: true });
     expect(wslSpawn.calls[0]).toMatchObject({
       command: "wsl.exe",
-      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "stash", "apply", "stash@{0}"]
+      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "stash", "apply", "stash@{0}"]
     });
     expect(wslSpawn.calls[1]).toMatchObject({
       command: "wsl.exe",
-      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "git", "stash", "pop", "stash@{1}"]
+      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "stash", "pop", "stash@{1}"]
     });
   });
 

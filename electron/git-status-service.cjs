@@ -359,6 +359,7 @@ function createGitStatusService({
         validateWslDistro(session.wslDistro),
         "--cd",
         normalizeWslPath(session.cwd),
+        "--exec",
         "git",
         ...args
       ], {
