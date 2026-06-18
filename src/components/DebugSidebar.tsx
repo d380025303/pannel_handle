@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import type { AgentHookDebugPayload, AgentProvider } from "../vite-env";
+import type { AgentHookDebugPayload, AgentProvider, TerminalSession } from "../vite-env";
 
 type DebugSidebarProps = {
   events: AgentHookDebugPayload[];
+  sessions: TerminalSession[];
   onClear: () => void;
 };
 
@@ -17,15 +18,21 @@ function formatTime(timestamp: number) {
   });
 }
 
-export function DebugSidebar({ events, onClear }: DebugSidebarProps) {
+export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
+  const [sessionFilter, setSessionFilter] = useState<string>("all");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const eventListRef = useRef<HTMLDivElement | null>(null);
 
   const filteredEvents = useMemo(() => {
-    if (providerFilter === "all") return events;
-    return events.filter((event) => event.provider === providerFilter);
-  }, [events, providerFilter]);
+    let result = providerFilter === "all" ? events : events.filter((event) => event.provider === providerFilter);
+    if (sessionFilter !== "all") {
+      result = result.filter((event) =>
+        sessionFilter === "__no_session__" ? !event.matchedSessionId : event.matchedSessionId === sessionFilter
+      );
+    }
+    return result;
+  }, [events, providerFilter, sessionFilter]);
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedKeys((prev) => {
@@ -71,6 +78,16 @@ export function DebugSidebar({ events, onClear }: DebugSidebarProps) {
         ))}
       </div>
 
+      <div className="debug-session-filter">
+        <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)}>
+          <option value="all">全部实例</option>
+          <option value="__no_session__">无匹配会话</option>
+          {sessions.map((s) => (
+            <option key={s.id} value={s.id}>{s.id}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="debug-event-list" ref={eventListRef}>
         {filteredEvents.length === 0 ? (
           <div className="debug-empty">No hook events yet</div>
@@ -84,7 +101,7 @@ export function DebugSidebar({ events, onClear }: DebugSidebarProps) {
                   <span className={`debug-provider ${event.provider}`}>{event.provider}</span>
                   <span className="debug-event-name">{event.eventName}</span>
                   <span className="debug-event-sep">·</span>
-                  <span className="debug-event-session-id">{event.matchedSessionId || "No matched session"}</span>
+                  <span className="debug-event-session-id">{event.matchedSessionId || "无匹配会话"}</span>
                   <span className="debug-event-sep">·</span>
                   <span>{formatTime(event.timestamp)}</span>
                   <span className={event.handled ? "debug-handled" : "debug-unhandled"}>

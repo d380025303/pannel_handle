@@ -337,6 +337,7 @@ export function App() {
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}
+                  sessions={terminalSessions.sessions}
                   onClear={() => setHookDebugEvents([])}
                 />
               )}
