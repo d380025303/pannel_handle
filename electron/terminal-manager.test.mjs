@@ -67,7 +67,9 @@ function createManager(overrides = {}) {
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
       quickCommands: template.quickCommands || [],
-      tags: template.tags || []
+      tags: template.tags || [],
+      gitCwd: template.gitCwd,
+      gitCwdHistory: template.gitCwdHistory || []
     })),
     addToLibrary: vi.fn((template) => templates.set(template.id, template)),
     removeFromLibrary: vi.fn(),
@@ -197,6 +199,28 @@ describe("terminal-manager", () => {
     expect(() => manager.resize(session.id, 90, 24)).not.toThrow();
     expect(manager.closeSession(session.id)).toEqual([]);
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("shares and persists the ten most recent Git directories per template", () => {
+    const { manager, sessionStore } = createManager();
+    const first = manager.createSession({ title: "Main", cwd: "C:\\terminal" });
+    manager.launchSessions([{ id: first.templateId }]);
+    const second = manager.listSessions().find(session => session.id !== first.id);
+
+    for (let index = 0; index < 12; index += 1) {
+      manager.updateGitDirectory(first.id, `C:\\repo-${index}`);
+    }
+
+    const sessions = manager.listSessions();
+    expect(sessions.find(session => session.id === first.id)).toMatchObject({
+      cwd: "C:\\terminal",
+      gitCwd: "C:\\repo-11",
+      gitCwdHistory: Array.from({ length: 10 }, (_, index) => `C:\\repo-${11 - index}`)
+    });
+    expect(sessions.find(session => session.id === second.id)?.gitCwd).toBe("C:\\repo-11");
+    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith(first.templateId, expect.objectContaining({
+      gitCwd: "C:\\repo-11"
+    }));
   });
 
   it("ignores invalid resize dimensions", () => {

@@ -114,7 +114,11 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
       quickCommands: normalizeQuickCommands(template.quickCommands),
-      tags: normalizeTags(template.tags)
+      tags: normalizeTags(template.tags),
+      gitCwd: typeof template.gitCwd === "string" && template.gitCwd.trim() ? template.gitCwd.trim() : undefined,
+      gitCwdHistory: Array.isArray(template.gitCwdHistory)
+        ? template.gitCwdHistory.filter(item => typeof item === "string" && item.trim()).map(item => item.trim()).slice(0, 10)
+        : []
     };
   }
 
@@ -150,7 +154,9 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       initialCommand,
       sshConfig,
       quickCommands: normalizeQuickCommands(template.quickCommands),
-      tags: normalizeTags(template.tags)
+      tags: normalizeTags(template.tags),
+      gitCwd: typeof template.gitCwd === "string" && template.gitCwd.trim() ? template.gitCwd.trim() : undefined,
+      gitCwdHistory: Array.isArray(template.gitCwdHistory) ? template.gitCwdHistory : []
     });
   }
 

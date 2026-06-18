@@ -49,7 +49,7 @@ function getSession(terminalManager, sessionId) {
   return session;
 }
 
-function getSearchRoot(session) {
+function getWorkspaceRoot(session) {
   if (session.type === "windows") {
     const displayPath = normalizeWindowsPath(session.cwd, os.homedir());
     return {
@@ -65,6 +65,70 @@ function getSearchRoot(session) {
     displayRoot: displayPath,
     hostRoot: toWslHostPath(session.wslDistro, displayPath)
   };
+}
+
+function hasParentSegment(value) {
+  return String(value || "").replace(/\\/g, "/").split("/").includes("..");
+}
+
+function isPathInside(pathApi, parentPath, childPath) {
+  const relativePath = pathApi.relative(parentPath, childPath);
+  return relativePath === "" || (!relativePath.startsWith(`..${pathApi.sep}`) && relativePath !== ".." && !pathApi.isAbsolute(relativePath));
+}
+
+async function resolveSearchRoot(fsApi, session, rootPath = ".") {
+  const workspace = getWorkspaceRoot(session);
+  const rawPath = String(rootPath || ".").trim() || ".";
+  if (rawPath.includes("\0") || hasParentSegment(rawPath)) {
+    throw new Error("Search directory must stay inside the session working directory.");
+  }
+
+  let displayRoot;
+  if (session.type === "windows") {
+    displayRoot = path.win32.isAbsolute(rawPath)
+      ? path.win32.normalize(rawPath)
+      : path.win32.resolve(workspace.displayRoot, rawPath);
+    if (!isPathInside(path.win32, workspace.displayRoot, displayRoot)) {
+      throw new Error("Search directory must stay inside the session working directory.");
+    }
+  } else {
+    const normalizedInput = rawPath.replace(/\\/g, "/");
+    displayRoot = normalizedInput.startsWith("/")
+      ? path.posix.normalize(normalizedInput)
+      : path.posix.resolve(workspace.displayRoot, normalizedInput);
+    if (!isPathInside(path.posix, workspace.displayRoot, displayRoot)) {
+      throw new Error("Search directory must stay inside the session working directory.");
+    }
+  }
+
+  const hostRoot = session.type === "windows"
+    ? displayRoot
+    : toWslHostPath(session.wslDistro, displayRoot);
+  let stat;
+  try {
+    stat = await fsApi.promises.stat(hostRoot);
+  } catch {
+    throw new Error("Search directory does not exist.");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error("Search path must be a directory.");
+  }
+
+  let realWorkspaceRoot;
+  let realHostRoot;
+  try {
+    [realWorkspaceRoot, realHostRoot] = await Promise.all([
+      fsApi.promises.realpath(workspace.hostRoot),
+      fsApi.promises.realpath(hostRoot)
+    ]);
+  } catch {
+    throw new Error("Search directory could not be resolved.");
+  }
+  if (!isPathInside(path.win32, realWorkspaceRoot, realHostRoot)) {
+    throw new Error("Search directory must stay inside the session working directory.");
+  }
+
+  return { displayRoot, hostRoot, workspaceDisplayRoot: workspace.displayRoot };
 }
 
 function toDisplayPath(session, displayRoot, relativePath) {
@@ -251,13 +315,14 @@ async function resolveBundledRipgrepPath() {
   );
 }
 
-async function createRipgrepInvocation(session, query, resolveRipgrepPath = resolveBundledRipgrepPath) {
+async function createRipgrepInvocation(session, query, resolveRipgrepPath = resolveBundledRipgrepPath, displayRoot) {
   const args = getRipgrepArgs(query);
+  const searchRoot = displayRoot || getWorkspaceRoot(session).displayRoot;
   if (session.type === "windows") {
     return {
       command: await resolveRipgrepPath(),
       args,
-      cwd: normalizeWindowsPath(session.cwd, os.homedir())
+      cwd: searchRoot
     };
   }
   return {
@@ -266,7 +331,7 @@ async function createRipgrepInvocation(session, query, resolveRipgrepPath = reso
       "-d",
       String(session.wslDistro || "").trim(),
       "--cd",
-      normalizeWslPath(session.cwd || "~"),
+      searchRoot,
       "--exec",
       "rg",
       ...args
@@ -416,7 +481,7 @@ function collectProcessOutput({ spawnProcess, command, args, task }) {
   });
 }
 
-async function listWslGitFiles({ spawnProcess, session, task }) {
+async function listWslGitFiles({ spawnProcess, session, displayRoot, task }) {
   const output = await collectProcessOutput({
     spawnProcess,
     command: "wsl.exe",
@@ -424,7 +489,7 @@ async function listWslGitFiles({ spawnProcess, session, task }) {
       "-d",
       String(session.wslDistro || "").trim(),
       "--cd",
-      normalizeWslPath(session.cwd || "~"),
+      displayRoot,
       "--exec",
       "git",
       "ls-files",
@@ -470,11 +535,11 @@ async function searchTextFile({ fsApi, hostPath, relativePath, name, query, sess
   }
 }
 
-async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, task }) {
-  const { hostRoot, displayRoot } = getSearchRoot(session);
+async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root, task }) {
+  const { hostRoot, displayRoot } = root;
   const results = [];
   const gitFiles = session.type === "wsl"
-    ? await listWslGitFiles({ spawnProcess, session, task }).catch((error) => {
+    ? await listWslGitFiles({ spawnProcess, session, displayRoot, task }).catch((error) => {
       if (error?.code === "SEARCH_CANCELLED") throw error;
       return null;
     })
@@ -543,14 +608,32 @@ function createProjectSearchService({
     active.child?.kill();
   }
 
-  async function searchFiles(sessionId, query) {
+  async function listDirectories(sessionId, rootPath) {
+    const session = getSession(terminalManager, sessionId);
+    const root = await resolveSearchRoot(fsApi, session, rootPath);
+    const dirents = await fsApi.promises.readdir(root.hostRoot, { withFileTypes: true });
+    const directories = dirents
+      .filter((dirent) => dirent.isDirectory() && !isExcludedDirectory(dirent.name))
+      .map((dirent) => ({
+        name: dirent.name,
+        path: toDisplayPath(session, root.displayRoot, dirent.name)
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      workspaceRoot: root.workspaceDisplayRoot,
+      path: root.displayRoot,
+      directories
+    };
+  }
+
+  async function searchFiles(sessionId, query, rootPath) {
     const normalizedQuery = normalizeQuery(query);
     if (!normalizedQuery) {
       return { root: "", results: [] };
     }
 
     const session = getSession(terminalManager, sessionId);
-    const { hostRoot, displayRoot } = getSearchRoot(session);
+    const { hostRoot, displayRoot } = await resolveSearchRoot(fsApi, session, rootPath);
     const normalizedNeedle = normalizedQuery.toLowerCase();
     const results = [];
 
@@ -577,7 +660,7 @@ function createProjectSearchService({
     return { root: displayRoot, results };
   }
 
-  async function searchText(sessionId, query, requestId) {
+  async function searchText(sessionId, query, requestId, rootPath) {
     const normalizedQuery = normalizeQuery(query);
     const normalizedRequestId = normalizeRequestId(requestId);
     if (!normalizedQuery) {
@@ -585,6 +668,7 @@ function createProjectSearchService({
     }
 
     const session = getSession(terminalManager, sessionId);
+    const root = await resolveSearchRoot(fsApi, session, rootPath);
     cancelActiveTextSearch(sessionId);
     const task = {
       requestId: normalizedRequestId,
@@ -596,18 +680,18 @@ function createProjectSearchService({
 
     try {
       if (forceTextFallback) {
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, task });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task });
       }
-      const { displayRoot } = getSearchRoot(session);
+      const { displayRoot } = root;
       try {
-        const invocation = await createRipgrepInvocation(session, normalizedQuery, resolveRipgrepPath);
+        const invocation = await createRipgrepInvocation(session, normalizedQuery, resolveRipgrepPath, displayRoot);
         throwIfCancelled(task);
         const results = await runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task });
         return { root: displayRoot, results, engine: "ripgrep" };
       } catch (error) {
         if (session.type !== "wsl" || error?.code !== "RG_UNAVAILABLE") throw error;
         throwIfCancelled(task);
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, task });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task });
       }
     } finally {
       if (activeTextSearches.get(String(sessionId)) === task) {
@@ -617,6 +701,7 @@ function createProjectSearchService({
   }
 
   return {
+    listDirectories,
     searchFiles,
     searchText,
     cancelTextSearch
@@ -629,5 +714,6 @@ module.exports = {
   MAX_TEXT_RESULTS,
   createProjectSearchService,
   createRipgrepInvocation,
-  parseRipgrepMatch
+  parseRipgrepMatch,
+  resolveSearchRoot
 };

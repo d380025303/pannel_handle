@@ -41,6 +41,28 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("preserves Git directory state and defaults old sessions to no override", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", title: "Old", type: "windows", cwd: "C:\\old" },
+      {
+        id: "2",
+        title: "Git",
+        type: "windows",
+        cwd: "C:\\terminal",
+        gitCwd: " C:\\repo ",
+        gitCwdHistory: ["C:\\repo", "C:\\other"]
+      }
+    ]));
+    const sessions = createStore(sessionsFile).loadLibrary();
+
+    expect(sessions[0]).toMatchObject({ gitCwd: undefined, gitCwdHistory: [] });
+    expect(sessions[1]).toMatchObject({
+      gitCwd: "C:\\repo",
+      gitCwdHistory: ["C:\\repo", "C:\\other"]
+    });
+  });
+
   it("normalizes tags case-insensitively while preserving the first display value", () => {
     expect(normalizeTags([" Work ", "", "work", "SSH", "ssh", null])).toEqual(["Work", "SSH"]);
   });

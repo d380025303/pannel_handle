@@ -258,6 +258,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return gitStatusService.getStatus(sessionId);
   });
 
+  ipcMain.handle("git:change-directory", (_event, { sessionId, cwd }) => {
+    return gitStatusService.changeDirectory(sessionId, cwd);
+  });
+
   ipcMain.handle("git:diff", (_event, { sessionId, file }) => {
     return gitStatusService.getDiff(sessionId, file);
   });
@@ -290,12 +294,16 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     return gitStatusService.revertFile(sessionId, file);
   });
 
-  ipcMain.handle("project-search:files", (_event, { sessionId, query }) => {
-    return projectSearchService.searchFiles(sessionId, query);
+  ipcMain.handle("project-search:list-directories", (_event, { sessionId, rootPath }) => {
+    return projectSearchService.listDirectories(sessionId, rootPath);
   });
 
-  ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId }) => {
-    return projectSearchService.searchText(sessionId, query, requestId);
+  ipcMain.handle("project-search:files", (_event, { sessionId, query, rootPath }) => {
+    return projectSearchService.searchFiles(sessionId, query, rootPath);
+  });
+
+  ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId, rootPath }) => {
+    return projectSearchService.searchText(sessionId, query, requestId, rootPath);
   });
 
   ipcMain.handle("project-search:cancel-text", (_event, { sessionId, requestId }) => {

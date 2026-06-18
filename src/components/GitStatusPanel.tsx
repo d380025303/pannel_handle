@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArrowDown, ArrowUp, FileDiff, GitBranch, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, ChevronDown, FileDiff, FolderInput, GitBranch, RefreshCw, RotateCcw, Search, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type {
   GitBranchEntry,
@@ -375,10 +375,28 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
   const [diffState, setDiffState] = useState<GitDiffState>({ status: "idle" });
   const [operation, setOperation] = useState<OperationState>({ status: "idle" });
   const [showStashes, setShowStashes] = useState(false);
+  const [directoryInput, setDirectoryInput] = useState("");
+  const [directoryError, setDirectoryError] = useState("");
+  const [directoryChanging, setDirectoryChanging] = useState(false);
+  const [directoryHistoryOpen, setDirectoryHistoryOpen] = useState(false);
+  const [highlightedDirectoryIndex, setHighlightedDirectoryIndex] = useState(-1);
   const requestRef = useRef(0);
   const diffRequestRef = useRef(0);
+  const directoryControlRef = useRef<HTMLDivElement>(null);
   const sessionId = session?.id;
-  const isBusy = state.status === "loading" || operation.status === "running";
+  const currentGitCwd = session?.gitCwd || session?.cwd || "";
+  const isBusy = state.status === "loading" || operation.status === "running" || directoryChanging;
+  const directoryHistory = useMemo(() => {
+    const values = [currentGitCwd, ...(session?.gitCwdHistory || []), session?.cwd || ""];
+    const seen = new Set<string>();
+    return values.filter((value) => {
+      const trimmed = value.trim();
+      const key = session?.type === "windows" ? trimmed.toLowerCase() : trimmed;
+      if (!trimmed || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [currentGitCwd, session?.cwd, session?.gitCwdHistory, session?.type]);
 
   const loadStatus = useCallback(async () => {
     if (!sessionId) {
@@ -402,7 +420,7 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
         setState({ status: "error", message: getErrorMessage(err) });
       }
     }
-  }, [sessionId]);
+  }, [currentGitCwd, sessionId]);
 
   useEffect(() => {
     void loadStatus();
@@ -417,6 +435,22 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
     setShowStashes(false);
     diffRequestRef.current += 1;
   }, [sessionId]);
+
+  useEffect(() => {
+    setDirectoryInput(currentGitCwd);
+    setDirectoryError("");
+    setDirectoryHistoryOpen(false);
+  }, [currentGitCwd, sessionId]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!directoryControlRef.current?.contains(event.target as Node)) {
+        setDirectoryHistoryOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
 
   const closeDiff = useCallback(() => {
     diffRequestRef.current += 1;
@@ -494,6 +528,35 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
     });
   }, [closeDiff, runOperation, sessionId, t]);
 
+  const handleDirectoryChange = useCallback(async (directory = directoryInput) => {
+    const nextCwd = directory.trim();
+    if (!sessionId || !nextCwd || nextCwd === currentGitCwd || directoryChanging) return;
+    setDirectoryHistoryOpen(false);
+    setDirectoryChanging(true);
+    setDirectoryError("");
+    try {
+      const result = await window.gitApi.changeDirectory(sessionId, nextCwd);
+      requestRef.current += 1;
+      diffRequestRef.current += 1;
+      setState({ status: "ready", result: result.status, branches: result.branches, stashes: result.stashes });
+      setDirectoryInput(result.cwd);
+      setDiffState({ status: "idle" });
+      setOperation({ status: "idle" });
+      setShowStashes(false);
+    } catch (err) {
+      setDirectoryInput(currentGitCwd);
+      setDirectoryError(getErrorMessage(err));
+    } finally {
+      setDirectoryChanging(false);
+    }
+  }, [currentGitCwd, directoryChanging, directoryInput, sessionId]);
+
+  const selectDirectoryHistory = useCallback((directory: string) => {
+    setDirectoryInput(directory);
+    setDirectoryHistoryOpen(false);
+    void handleDirectoryChange(directory);
+  }, [handleDirectoryChange]);
+
   if (!sessionId || !session) {
     return (
       <aside className="git-status-panel">
@@ -514,7 +577,7 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
         <div className="git-status-header">
           <div>
             <h2>Git</h2>
-            <span title={session.cwd}>{session.cwd}</span>
+            <span title={currentGitCwd}>{currentGitCwd}</span>
           </div>
           <button
             className="icon-button"
@@ -527,6 +590,98 @@ export function GitStatusPanel({ session }: GitStatusPanelProps) {
             <RefreshCw aria-hidden="true" />
           </button>
         </div>
+
+        <div className="git-directory-control" ref={directoryControlRef}>
+          <div className="git-directory-field">
+            <input
+              type="text"
+              role="combobox"
+              value={directoryInput}
+              title={directoryInput}
+              aria-label={t("git.directory")}
+              aria-autocomplete="list"
+              aria-expanded={directoryHistoryOpen}
+              aria-controls={`git-directory-history-${sessionId}`}
+              placeholder={t("git.directoryPlaceholder")}
+              disabled={isBusy}
+              onChange={(event) => setDirectoryInput(event.target.value)}
+              onFocus={() => {
+                setHighlightedDirectoryIndex(-1);
+                setDirectoryHistoryOpen(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setDirectoryHistoryOpen(true);
+                  setHighlightedDirectoryIndex((current) => {
+                    const delta = event.key === "ArrowDown" ? 1 : -1;
+                    if (current < 0) return delta > 0 ? 0 : directoryHistory.length - 1;
+                    return (current + delta + directoryHistory.length) % directoryHistory.length;
+                  });
+                } else if (event.key === "Escape") {
+                  setDirectoryHistoryOpen(false);
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  if (directoryHistoryOpen && highlightedDirectoryIndex >= 0 && directoryHistory[highlightedDirectoryIndex]) {
+                    selectDirectoryHistory(directoryHistory[highlightedDirectoryIndex]);
+                  } else {
+                    void handleDirectoryChange();
+                  }
+                }
+              }}
+            />
+            <button
+              className="git-directory-toggle"
+              type="button"
+              title={t("git.directory")}
+              aria-label={t("git.directory")}
+              aria-expanded={directoryHistoryOpen}
+              disabled={isBusy}
+              onClick={() => {
+                setHighlightedDirectoryIndex(-1);
+                setDirectoryHistoryOpen((open) => !open);
+              }}
+            >
+              <ChevronDown aria-hidden="true" />
+            </button>
+            {directoryHistoryOpen && (
+              <div className="git-directory-history" id={`git-directory-history-${sessionId}`} role="listbox">
+                {directoryHistory.map((directory, index) => (
+                  <button
+                    className={`${index === highlightedDirectoryIndex ? "highlighted" : ""} ${directory === currentGitCwd ? "current" : ""}`}
+                    type="button"
+                    role="option"
+                    aria-selected={directory === currentGitCwd}
+                    title={directory}
+                    key={directory}
+                    onMouseEnter={() => setHighlightedDirectoryIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectDirectoryHistory(directory)}
+                  >
+                    {directory}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            title={t("git.changeDirectory")}
+            aria-label={t("git.changeDirectory")}
+            disabled={isBusy || !directoryInput.trim() || directoryInput.trim() === currentGitCwd}
+            onClick={() => void handleDirectoryChange()}
+          >
+            <FolderInput aria-hidden="true" />
+          </button>
+        </div>
+
+        {directoryError && (
+          <div className="git-status-error">
+            <span>{directoryError}</span>
+            <button type="button" onClick={() => setDirectoryError("")}>{t("git.dismiss")}</button>
+          </div>
+        )}
 
         {state.status === "ready" && (
           <div className="git-status-actions">

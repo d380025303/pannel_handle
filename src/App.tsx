@@ -61,6 +61,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
   const [projectSearchMode, setProjectSearchMode] = useState<ProjectSearchMode | null>(null);
+  const [projectSearchRoot, setProjectSearchRoot] = useState(".");
+  const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
@@ -73,6 +75,19 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     terminalTheme: activeTheme.terminal
   });
   const canSearchProject = Boolean(terminalSessions.activeSession && terminalSessions.activeSession.type !== "ssh");
+  const activeSessionId = terminalSessions.activeSession?.id;
+
+  const openProjectSearch = useCallback((mode: ProjectSearchMode, rootPath?: string) => {
+    const activeSession = terminalSessions.activeSession;
+    if (!activeSession || activeSession.type === "ssh") return;
+    const currentPanelPath = filePanelPath?.sessionId === activeSession.id ? filePanelPath.path : null;
+    setProjectSearchRoot(rootPath || currentPanelPath || activeSession.cwd || ".");
+    setProjectSearchMode(mode);
+  }, [filePanelPath, terminalSessions.activeSession]);
+
+  const handleFilePanelPathChange = useCallback((path: string) => {
+    if (activeSessionId) setFilePanelPath({ sessionId: activeSessionId, path });
+  }, [activeSessionId]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -110,20 +125,20 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        setProjectSearchMode("text");
+        openProjectSearch("text");
         return;
       }
 
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "d") {
         event.preventDefault();
-        setProjectSearchMode("files");
+        openProjectSearch("files");
         return;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [projectSearchMode, terminalSessions.activeSession]);
+  }, [openProjectSearch, projectSearchMode, terminalSessions.activeSession]);
 
   useEffect(() => {
     if (!debugMode) return undefined;
@@ -344,6 +359,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   openRequest={fileOpenRequest}
                   onDirtyChange={setRemoteFilesDirty}
                   onPreviewActive={setPreviewActive}
+                  onCurrentPathChange={handleFilePanelPathChange}
+                  onSearchRequest={openProjectSearch}
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel session={terminalSessions.activeSession} />
@@ -418,6 +435,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       {projectSearchMode && terminalSessions.activeSession && canSearchProject && (
         <ProjectSearchModal
           mode={projectSearchMode}
+          initialRoot={projectSearchRoot}
           session={terminalSessions.activeSession}
           onClose={() => setProjectSearchMode(null)}
           onOpenPath={handleOpenSearchResult}

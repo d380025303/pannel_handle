@@ -345,10 +345,26 @@ function createGitStatusService({
     });
   }
 
+  function getWorkingDirectory(session, cwdOverride) {
+    const hasOverride = typeof cwdOverride !== "undefined";
+    const candidate = hasOverride ? cwdOverride : (session.gitCwd || session.cwd);
+    if (hasOverride && (typeof candidate !== "string" || !candidate.trim())) {
+      throw new Error("A valid absolute Git working directory is required.");
+    }
+    if (session.type === "windows") {
+      if (hasOverride && !path.isAbsolute(candidate.trim())) {
+        throw new Error("A valid absolute Git working directory is required.");
+      }
+      return normalizeWindowsPath(candidate);
+    }
+    return normalizeWslPath(candidate);
+  }
+
   function runGitForSession(session, args, options = {}) {
+    const cwd = getWorkingDirectory(session, options.cwd);
     if (session.type === "windows") {
       return runProcess(spawn, "git", args, {
-        cwd: normalizeWindowsPath(session.cwd),
+        cwd,
         actionName: options.actionName,
         allowExitCodes: options.allowExitCodes
       });
@@ -358,7 +374,7 @@ function createGitStatusService({
         "-d",
         validateWslDistro(session.wslDistro),
         "--cd",
-        normalizeWslPath(session.cwd),
+        cwd,
         "--exec",
         "git",
         ...args
@@ -368,19 +384,20 @@ function createGitStatusService({
       });
     }
 
-    const cwd = normalizeWslPath(session.cwd);
     const command = `cd ${shellQuote(cwd)} && git ${args.map(shellQuote).join(" ")}`;
     return runSshCommand(session, command, options);
   }
 
-  async function getStatus(sessionId) {
+  async function getStatus(sessionId, cwdOverride) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session, cwdOverride);
     const output = await runGitForSession(session, ["status", "--porcelain=v1", "-z"], {
-      actionName: "Git status"
+      actionName: "Git status",
+      cwd
     });
     const files = parsePorcelainStatus(output);
     return {
-      cwd: session.cwd,
+      cwd,
       clean: files.length === 0,
       files
     };
@@ -388,6 +405,7 @@ function createGitStatusService({
 
   async function getDiff(sessionId, file) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const repoPath = validateRepoPath(file?.path);
     const oldPath = file?.oldPath ? validateRepoPath(file.oldPath) : undefined;
     const isUntracked = file?.status === "?";
@@ -396,12 +414,13 @@ function createGitStatusService({
       : ["diff", "--no-color", "--find-renames", "HEAD", "--", repoPath];
     const output = await runGitForSession(session, args, {
       actionName: "Git diff",
-      allowExitCodes: isUntracked ? [0, 1] : [0]
+      allowExitCodes: isUntracked ? [0, 1] : [0],
+      cwd
     });
     const parsed = parseUnifiedDiff(output);
 
     return {
-      cwd: session.cwd,
+      cwd,
       path: repoPath,
       oldPath,
       status: file?.status || "M",
@@ -410,24 +429,27 @@ function createGitStatusService({
     };
   }
 
-  async function getBranches(sessionId) {
+  async function getBranches(sessionId, cwdOverride) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session, cwdOverride);
     const output = await runGitForSession(session, [
       "for-each-ref",
       `--format=${BRANCH_FORMAT}`,
       "refs/heads",
       "refs/remotes"
     ], {
-      actionName: "Git branch list"
+      actionName: "Git branch list",
+      cwd
     });
     return {
-      cwd: session.cwd,
+      cwd,
       branches: parseBranchList(output)
     };
   }
 
   async function checkoutBranch(sessionId, branch) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const target = validateBranchEntry(branch);
     const args = target.kind === "remote"
       ? ["checkout", "--track", target.name]
@@ -441,68 +463,74 @@ function createGitStatusService({
     ]);
     return {
       ok: true,
-      cwd: session.cwd,
+      cwd,
       message: output.trim(),
       status,
       branches
     };
   }
 
-  async function getStashes(sessionId) {
+  async function getStashes(sessionId, cwdOverride) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session, cwdOverride);
     const output = await runGitForSession(session, [
       "stash",
       "list",
       `--format=${STASH_FORMAT}`
     ], {
-      actionName: "Git stash list"
+      actionName: "Git stash list",
+      cwd
     });
     return {
-      cwd: session.cwd,
+      cwd,
       stashes: parseStashList(output)
     };
   }
 
   async function stashChanges(sessionId) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const output = await runGitForSession(session, ["stash", "push", "-u"], {
       actionName: "Git stash"
     });
     return {
       ok: true,
-      cwd: session.cwd,
+      cwd,
       message: output.trim()
     };
   }
 
   async function applyStash(sessionId, ref) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const stashRef = validateStashRef(ref);
     const output = await runGitForSession(session, ["stash", "apply", stashRef], {
       actionName: "Git stash apply"
     });
     return {
       ok: true,
-      cwd: session.cwd,
+      cwd,
       message: output.trim()
     };
   }
 
   async function popStash(sessionId, ref) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const stashRef = validateStashRef(ref);
     const output = await runGitForSession(session, ["stash", "pop", stashRef], {
       actionName: "Git stash pop"
     });
     return {
       ok: true,
-      cwd: session.cwd,
+      cwd,
       message: output.trim()
     };
   }
 
   async function revertFile(sessionId, file) {
     const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session);
     const repoPath = validateRepoPath(file?.path);
     const oldPath = file?.oldPath ? validateRepoPath(file.oldPath) : undefined;
     const isUntracked = file?.status === "?";
@@ -515,12 +543,34 @@ function createGitStatusService({
     });
     return {
       ok: true,
-      cwd: session.cwd,
+      cwd,
       message: output.trim()
     };
   }
 
+  async function changeDirectory(sessionId, cwdValue) {
+    const session = getSession(sessionId);
+    const cwd = getWorkingDirectory(session, cwdValue);
+    const [status, branches, stashes] = await Promise.all([
+      getStatus(sessionId, cwd),
+      getBranches(sessionId, cwd),
+      getStashes(sessionId, cwd)
+    ]);
+    if (typeof terminalManager.updateGitDirectory !== "function") {
+      throw new Error("Git working directory persistence is unavailable.");
+    }
+    const updatedSession = terminalManager.updateGitDirectory(sessionId, cwd);
+    return {
+      cwd,
+      history: updatedSession.gitCwdHistory || [cwd],
+      status,
+      branches,
+      stashes
+    };
+  }
+
   return {
+    changeDirectory,
     getStatus,
     getDiff,
     getBranches,

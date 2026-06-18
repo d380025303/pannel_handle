@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
 });
 
 contextBridge.exposeInMainWorld("gitApi", {
+  changeDirectory: (sessionId, cwd) => ipcRenderer.invoke("git:change-directory", { sessionId, cwd }),
   getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId }),
   getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file }),
   getBranches: (sessionId) => ipcRenderer.invoke("git:branches", { sessionId }),
@@ -99,8 +100,9 @@ contextBridge.exposeInMainWorld("gitApi", {
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {
-  searchFiles: (sessionId, query) => ipcRenderer.invoke("project-search:files", { sessionId, query }),
-  searchText: (sessionId, query, requestId) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId }),
+  listDirectories: (sessionId, rootPath) => ipcRenderer.invoke("project-search:list-directories", { sessionId, rootPath }),
+  searchFiles: (sessionId, query, rootPath) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath }),
+  searchText: (sessionId, query, requestId, rootPath) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath }),
   cancelTextSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-text", { sessionId, requestId })
 });
 

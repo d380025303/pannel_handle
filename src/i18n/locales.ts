@@ -124,6 +124,9 @@ export type TranslationKey =
   | "files.noMatches"
   | "files.folder"
   | "files.addToTerminal"
+  | "files.searchProject"
+  | "files.searchFilesHere"
+  | "files.searchTextHere"
   | "files.unsavedMarker"
   | "files.reloadFile"
   | "files.saveFile"
@@ -190,9 +193,20 @@ export type TranslationKey =
   | "projectSearch.noFiles"
   | "projectSearch.noText"
   | "projectSearch.fallbackEngine"
+  | "projectSearch.mode"
+  | "projectSearch.filesMode"
+  | "projectSearch.textMode"
+  | "projectSearch.directory"
+  | "projectSearch.directoryPlaceholder"
+  | "projectSearch.go"
+  | "projectSearch.parentDirectory"
+  | "projectSearch.loadingDirectories"
   | "git.noSession"
   | "git.availableAfterSession"
   | "git.refreshStatus"
+  | "git.directory"
+  | "git.directoryPlaceholder"
+  | "git.changeDirectory"
   | "git.checkoutBranch"
   | "git.remoteBranch"
   | "git.stash"
@@ -354,6 +368,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.noMatches": "当前目录没有匹配的文件。",
     "files.folder": "文件夹",
     "files.addToTerminal": "添加到终端",
+    "files.searchProject": "搜索当前目录",
+    "files.searchFilesHere": "在此搜索文件名",
+    "files.searchTextHere": "在此搜索内容",
     "files.unsavedMarker": "未保存更改",
     "files.reloadFile": "重新加载文件",
     "files.saveFile": "保存文件",
@@ -420,9 +437,20 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.noFiles": "没有匹配的文件。",
     "projectSearch.noText": "没有文本匹配。",
     "projectSearch.fallbackEngine": "兼容搜索（WSL 未安装 ripgrep，速度较慢）",
+    "projectSearch.mode": "搜索模式",
+    "projectSearch.filesMode": "文件名",
+    "projectSearch.textMode": "文件内容",
+    "projectSearch.directory": "搜索目录",
+    "projectSearch.directoryPlaceholder": "输入工作目录内的相对路径",
+    "projectSearch.go": "转到",
+    "projectSearch.parentDirectory": "上级目录",
+    "projectSearch.loadingDirectories": "正在加载目录...",
     "git.noSession": "未选择会话",
     "git.availableAfterSession": "选择会话后可查看 Git 状态。",
     "git.refreshStatus": "刷新 Git 状态",
+    "git.directory": "Git 工作目录",
+    "git.directoryPlaceholder": "输入 Git 仓库绝对路径",
+    "git.changeDirectory": "切换 Git 工作目录",
     "git.checkoutBranch": "切换分支",
     "git.remoteBranch": "（远程）",
     "git.stash": "储藏",
@@ -576,6 +604,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.noMatches": "No matching files in this directory.",
     "files.folder": "Folder",
     "files.addToTerminal": "Add to terminal",
+    "files.searchProject": "Search current directory",
+    "files.searchFilesHere": "Search file names here",
+    "files.searchTextHere": "Search file contents here",
     "files.unsavedMarker": "Unsaved changes",
     "files.reloadFile": "Reload file",
     "files.saveFile": "Save file",
@@ -642,9 +673,20 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.noFiles": "No matching files.",
     "projectSearch.noText": "No text matches.",
     "projectSearch.fallbackEngine": "Compatibility search (ripgrep is not installed in WSL and may be slower)",
+    "projectSearch.mode": "Search mode",
+    "projectSearch.filesMode": "File names",
+    "projectSearch.textMode": "File contents",
+    "projectSearch.directory": "Search directory",
+    "projectSearch.directoryPlaceholder": "Enter a path inside the working directory",
+    "projectSearch.go": "Go",
+    "projectSearch.parentDirectory": "Parent directory",
+    "projectSearch.loadingDirectories": "Loading directories...",
     "git.noSession": "No session selected",
     "git.availableAfterSession": "Git status is available after selecting a session.",
     "git.refreshStatus": "Refresh Git status",
+    "git.directory": "Git working directory",
+    "git.directoryPlaceholder": "Enter an absolute Git repository path",
+    "git.changeDirectory": "Change Git working directory",
     "git.checkoutBranch": "Checkout branch",
     "git.remoteBranch": " (remote)",
     "git.stash": "Stash",

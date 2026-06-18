@@ -1073,6 +1073,123 @@
   white-space: nowrap;
 }
 
+.git-directory-control {
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.git-directory-field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 28px;
+}
+
+.git-directory-field input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+}
+
+.git-directory-field input:focus {
+  position: relative;
+  z-index: 1;
+  border-color: var(--color-accent);
+}
+
+.git-directory-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.git-directory-toggle {
+  display: inline-flex;
+  width: 28px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border-strong);
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  cursor: pointer;
+}
+
+.git-directory-toggle:hover:not(:disabled),
+.git-directory-toggle[aria-expanded="true"] {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+}
+
+.git-directory-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.git-directory-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.git-directory-history {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  opacity: 1;
+  background-color: var(--color-bg-panel);
+  box-shadow: var(--shadow-dialog);
+}
+
+.git-directory-history button {
+  overflow: hidden;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-panel);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.git-directory-history button.highlighted {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+}
+
+.git-directory-history button.current {
+  color: var(--color-info-text);
+}
+
 .git-status-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1958,7 +2075,7 @@
   position: fixed;
   z-index: 1200;
   display: flex;
-  min-width: 160px;
+  min-width: 210px;
   flex-direction: column;
   gap: 2px;
   padding: 4px;
@@ -2236,7 +2353,7 @@
 
 .project-search-dialog {
   display: flex;
-  width: min(820px, calc(100vw - 48px));
+  width: min(880px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 96px));
   min-width: 0;
   min-height: 0;
@@ -2248,9 +2365,134 @@
   box-shadow: var(--shadow-dialog);
 }
 
+.project-search-toolbar,
+.project-search-modes,
+.project-search-root {
+  display: flex;
+  align-items: center;
+}
+
+.project-search-toolbar {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project-search-modes {
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-app);
+}
+
+.project-search-modes button,
+.project-search-close,
+.project-search-root button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-search-modes button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.project-search-modes button.active {
+  color: var(--color-text);
+  background: var(--color-bg-selection);
+}
+
+.project-search-modes svg,
+.project-search-close svg,
+.project-search-root svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.project-search-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-search-modes button:hover,
+.project-search-close:hover,
+.project-search-root button:hover {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+}
+
+.project-search-root {
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-app);
+}
+
+.project-search-root > svg {
+  color: var(--color-text-muted);
+}
+
+.project-search-root input,
+.project-search-root select {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+}
+
+.project-search-root select {
+  width: 190px;
+  flex: 0 1 190px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.project-search-root input:focus,
+.project-search-root select:focus {
+  border-color: var(--color-accent);
+}
+
+.project-search-root button {
+  min-height: 28px;
+  padding: 4px 10px;
+  background: var(--color-bg-control);
+  font-size: 12px;
+}
+
+.project-search-directory-status,
+.project-search-directory-error {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-subtle);
+  font-size: 12px;
+}
+
+.project-search-directory-error {
+  color: var(--color-danger-text);
+}
+
 .project-search-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 12px 14px;

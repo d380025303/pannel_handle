@@ -62,6 +62,16 @@ function createMatchEvent(relativePath, line, query, lineNumber = 1) {
   });
 }
 
+function createDirectoryFsApi(overrides = {}) {
+  return {
+    promises: {
+      stat: vi.fn(async () => ({ size: 0, isDirectory: () => true })),
+      realpath: vi.fn(async (value) => value),
+      ...overrides
+    }
+  };
+}
+
 describe("project-search-service", () => {
   it("searches Windows files recursively and skips default excluded directories", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-"));
@@ -102,11 +112,7 @@ describe("project-search-service", () => {
 
     const service = createProjectSearchService({
       terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\workspace" }),
-      fsApi: {
-        promises: {
-          readdir: vi.fn(async () => entries)
-        }
-      }
+      fsApi: createDirectoryFsApi({ readdir: vi.fn(async () => entries) })
     });
 
     await expect(service.searchFiles("run-1", "CustomerDataController")).resolves.toEqual({
@@ -152,6 +158,62 @@ describe("project-search-service", () => {
     }
   });
 
+  it("searches from a selected Windows subdirectory and lists child directories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-root-"));
+    try {
+      writeFile(path.join(dir, "nested", "src", "app.ts"), "needle here");
+      fs.mkdirSync(path.join(dir, "nested", "node_modules"), { recursive: true });
+      const service = createProjectSearchService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        forceTextFallback: true
+      });
+
+      await expect(service.listDirectories("run-1", ".")).resolves.toEqual({
+        workspaceRoot: dir,
+        path: dir,
+        directories: [{ name: "nested", path: path.join(dir, "nested") }]
+      });
+      await expect(service.searchFiles("run-1", "app", "nested")).resolves.toEqual({
+        root: path.join(dir, "nested"),
+        results: [{
+          path: path.join(dir, "nested", "src", "app.ts"),
+          relativePath: path.join("src", "app.ts"),
+          name: "app.ts"
+        }]
+      });
+      const textResult = await service.searchText("run-1", "needle", "request-subdir", path.join(dir, "nested"));
+      expect(textResult).toEqual(expect.objectContaining({
+        root: path.join(dir, "nested"),
+        engine: "fallback",
+        results: [expect.objectContaining({ relativePath: path.join("src", "app.ts") })]
+      }));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid, non-directory, outside, and symlink-escaped roots", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-boundary-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-search-outside-"));
+    try {
+      writeFile(path.join(dir, "file.txt"), "content");
+      writeFile(path.join(outside, "outside.txt"), "content");
+      fs.symlinkSync(outside, path.join(dir, "linked-outside"), "junction");
+      const service = createProjectSearchService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir })
+      });
+
+      await expect(service.searchFiles("run-1", "x", "missing")).rejects.toThrow("does not exist");
+      await expect(service.searchFiles("run-1", "x", "file.txt")).rejects.toThrow("must be a directory");
+      await expect(service.searchFiles("run-1", "x", "..")).rejects.toThrow("inside the session working directory");
+      await expect(service.searchFiles("run-1", "x", outside)).rejects.toThrow("inside the session working directory");
+      await expect(service.searchFiles("run-1", "x", "linked-outside")).rejects.toThrow("inside the session working directory");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("maps WSL search roots through the distro UNC path and returns Linux paths", async () => {
     const readdir = vi.fn(async () => [
       { name: "src", isDirectory: () => true, isFile: () => false },
@@ -172,11 +234,7 @@ describe("project-search-service", () => {
         cwd: "/home/me/project",
         wslDistro: "Ubuntu-24.04"
       }),
-      fsApi: {
-        promises: {
-          readdir
-        }
-      }
+      fsApi: createDirectoryFsApi({ readdir })
     });
 
     await expect(service.searchFiles("run-1", "main")).resolves.toEqual({
@@ -256,7 +314,8 @@ describe("project-search-service", () => {
     const service = createProjectSearchService({
       terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\workspace" }),
       spawnProcess,
-      resolveRipgrepPath: async () => "C:\\app\\rg.exe"
+      resolveRipgrepPath: async () => "C:\\app\\rg.exe",
+      fsApi: createDirectoryFsApi()
     });
 
     const result = await service.searchText("run-1", "needle", "request-1");
@@ -267,7 +326,7 @@ describe("project-search-service", () => {
 
   it("falls back in WSL when rg is unavailable and enumerates non-ignored Git files", async () => {
     const rgChild = createChildProcess({ stderr: "execvpe(rg) failed: No such file or directory", code: 127 });
-    const gitChild = createChildProcess({ stdout: "src/app.ts\0" });
+    const gitChild = createChildProcess({ stdout: "app.ts\0" });
     const spawnProcess = vi.fn()
       .mockImplementationOnce(() => {
         rgChild.start();
@@ -285,20 +344,22 @@ describe("project-search-service", () => {
         wslDistro: "Ubuntu-24.04"
       }),
       spawnProcess,
-      fsApi: {
-        promises: {
-          stat: vi.fn(async () => ({ size: 20 })),
-          readFile: vi.fn(async () => Buffer.from("needle here", "utf-8"))
-        }
-      }
+      fsApi: createDirectoryFsApi({
+        stat: vi.fn(async () => ({ size: 20, isDirectory: () => true })),
+        readFile: vi.fn(async () => Buffer.from("needle here", "utf-8"))
+      })
     });
 
-    const result = await service.searchText("run-1", "needle", "request-1");
+    const result = await service.searchText("run-1", "needle", "request-1", "/home/me/project/src");
     expect(result.engine).toBe("fallback");
+    expect(result.root).toBe("/home/me/project/src");
     expect(result.results).toEqual([
-      expect.objectContaining({ path: "/home/me/project/src/app.ts", lineNumber: 1 })
+      expect.objectContaining({ path: "/home/me/project/src/app.ts", relativePath: "app.ts", lineNumber: 1 })
     ]);
+    expect(spawnProcess.mock.calls[0][1]).toEqual(expect.arrayContaining(["--cd", "/home/me/project/src"]));
     expect(spawnProcess.mock.calls[1][1]).toEqual(expect.arrayContaining([
+      "--cd",
+      "/home/me/project/src",
       "git",
       "ls-files",
       "--cached",
@@ -313,7 +374,8 @@ describe("project-search-service", () => {
     const service = createProjectSearchService({
       terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\workspace" }),
       spawnProcess: vi.fn(() => child),
-      resolveRipgrepPath: async () => "C:\\app\\rg.exe"
+      resolveRipgrepPath: async () => "C:\\app\\rg.exe",
+      fsApi: createDirectoryFsApi()
     });
     const search = service.searchText("run-1", "needle", "request-1");
     await vi.waitFor(() => expect(child.listenerCount("close")).toBeGreaterThan(0));

@@ -32,6 +32,8 @@ export type TerminalSession = {
   sshConfig?: SshConfig;
   quickCommands?: QuickCommand[];
   tags?: string[];
+  gitCwd?: string;
+  gitCwdHistory?: string[];
 };
 
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
@@ -177,6 +179,14 @@ export type GitOperationResult = {
   branches?: GitBranchListResult;
 };
 
+export type GitDirectoryChangeResult = {
+  cwd: string;
+  history: string[];
+  status: GitStatusResult;
+  branches: GitBranchListResult;
+  stashes: GitStashListResult;
+};
+
 export type ProjectFileSearchResult = {
   path: string;
   relativePath: string;
@@ -312,6 +322,7 @@ export type RemoteSystemApi = {
 };
 
 export type GitApi = {
+  changeDirectory: (sessionId: string, cwd: string) => Promise<GitDirectoryChangeResult>;
   getStatus: (sessionId: string) => Promise<GitStatusResult>;
   getDiff: (sessionId: string, file: GitStatusEntry) => Promise<GitDiffResult>;
   getBranches: (sessionId: string) => Promise<GitBranchListResult>;
@@ -324,8 +335,13 @@ export type GitApi = {
 };
 
 export type ProjectSearchApi = {
-  searchFiles: (sessionId: string, query: string) => Promise<ProjectFileSearchResponse>;
-  searchText: (sessionId: string, query: string, requestId: string) => Promise<ProjectTextSearchResponse>;
+  listDirectories: (sessionId: string, rootPath: string) => Promise<{
+    workspaceRoot: string;
+    path: string;
+    directories: Array<{ name: string; path: string }>;
+  }>;
+  searchFiles: (sessionId: string, query: string, rootPath: string) => Promise<ProjectFileSearchResponse>;
+  searchText: (sessionId: string, query: string, requestId: string, rootPath: string) => Promise<ProjectTextSearchResponse>;
   cancelTextSearch: (sessionId: string, requestId: string) => Promise<boolean>;
 };
 

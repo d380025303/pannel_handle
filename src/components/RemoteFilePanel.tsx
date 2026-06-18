@@ -9,6 +9,8 @@ type RemoteFilePanelProps = {
   openRequest?: { sessionId: string; path: string; requestId: number } | null;
   onDirtyChange?: (dirty: boolean) => void;
   onPreviewActive?: (active: boolean) => void;
+  onCurrentPathChange?: (path: string) => void;
+  onSearchRequest?: (mode: "files" | "text", rootPath: string) => void;
 };
 
 type PreviewState =
@@ -78,7 +80,7 @@ function hasLocalFileDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
-export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive }: RemoteFilePanelProps) {
+export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest }: RemoteFilePanelProps) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
@@ -259,6 +261,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       if (requestRef.current !== requestId) return;
       setCurrentPath(path);
       setPathInput(path);
+      onCurrentPathChange?.(path);
       setEntries(nextEntries);
       if (!preserveSearch) {
         setSearchQuery("");
@@ -273,10 +276,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       }
     }
     return undefined;
-  }, [closeFileContextMenu, confirmDiscard, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, confirmDiscard, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
+      onCurrentPathChange?.(".");
       setCurrentPath(".");
       setPathInput(".");
       setEntries([]);
@@ -318,7 +322,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       previewRequestRef.current += 1;
       releaseActivePreview();
     };
-  }, [closeFileContextMenu, confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, confirmDiscard, loadDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.path === selectedPathRef.current) {
@@ -677,6 +681,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
             <span>{session.title}</span>
         </div>
         <div className="remote-file-actions">
+          {session.type !== "ssh" && (
+            <button className="icon-button" type="button" title={t("files.searchProject")} aria-label={t("files.searchProject")} onClick={() => onSearchRequest?.("files", currentPath)}>
+              <Search aria-hidden="true" />
+            </button>
+          )}
           <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} onClick={() => void loadDirectory(parentPath(currentPath))}>
             <ArrowUp aria-hidden="true" />
           </button>
@@ -794,6 +803,18 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
           style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
+          {contextEntry.type === "directory" && session.type !== "ssh" && (
+            <>
+              <button type="button" role="menuitem" onClick={() => { closeFileContextMenu(); onSearchRequest?.("files", contextEntry.path); }}>
+                <Search aria-hidden="true" />
+                <span>{t("files.searchFilesHere")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => { closeFileContextMenu(); onSearchRequest?.("text", contextEntry.path); }}>
+                <FileText aria-hidden="true" />
+                <span>{t("files.searchTextHere")}</span>
+              </button>
+            </>
+          )}
           <button type="button" role="menuitem" onClick={() => handleAddToTerminal(contextEntry)}>
             <TerminalIcon aria-hidden="true" />
             <span>{t("files.addToTerminal")}</span>

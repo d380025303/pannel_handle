@@ -13,7 +13,12 @@ const {
 
 function createTerminalManager(session) {
   return {
-    getSession: vi.fn(() => session)
+    getSession: vi.fn(() => session),
+    updateGitDirectory: vi.fn((_id, cwd) => {
+      session.gitCwd = cwd;
+      session.gitCwdHistory = [cwd, ...(session.gitCwdHistory || []).filter(item => item !== cwd)].slice(0, 10);
+      return session;
+    })
   };
 }
 
@@ -173,6 +178,78 @@ describe("git-status-service", () => {
     );
   });
 
+  it("validates and persists a changed Windows Git directory atomically", async () => {
+    const session = {
+      id: "run-1",
+      type: "windows",
+      cwd: "C:\\work\\terminal",
+      gitCwdHistory: ["C:\\work\\old"]
+    };
+    const terminalManager = createTerminalManager(session);
+    const spawn = createSpawnSequenceMock([
+      { stdout: " M README.md\0" },
+      { stdout: "refs/heads/main\tmain\t*\tabc1234\tnow\n" },
+      { stdout: "" }
+    ]);
+    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
+
+    await expect(service.changeDirectory("run-1", "C:\\work\\repo")).resolves.toMatchObject({
+      cwd: "C:\\work\\repo",
+      history: ["C:\\work\\repo", "C:\\work\\old"],
+      status: { cwd: "C:\\work\\repo", clean: false },
+      branches: { cwd: "C:\\work\\repo" },
+      stashes: { cwd: "C:\\work\\repo" }
+    });
+    expect(spawn.calls).toHaveLength(3);
+    expect(spawn.calls.every(call => call.options.cwd === "C:\\work\\repo")).toBe(true);
+    expect(terminalManager.updateGitDirectory).toHaveBeenCalledWith("run-1", "C:\\work\\repo");
+    expect(session.cwd).toBe("C:\\work\\terminal");
+  });
+
+  it("does not persist a Git directory when repository validation fails", async () => {
+    const session = { id: "run-1", type: "windows", cwd: "C:\\work\\terminal" };
+    const terminalManager = createTerminalManager(session);
+    const spawn = createSpawnMock({ stderr: "fatal: not a git repository", code: 128 });
+    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
+
+    await expect(service.changeDirectory("run-1", "C:\\work\\missing")).rejects.toThrow("not a git repository");
+    expect(terminalManager.updateGitDirectory).not.toHaveBeenCalled();
+    expect(session.gitCwd).toBeUndefined();
+  });
+
+  it("rejects relative Git directory changes before running commands", async () => {
+    const session = { id: "run-1", type: "windows", cwd: "C:\\work\\terminal" };
+    const terminalManager = createTerminalManager(session);
+    const spawn = createSpawnMock();
+    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
+
+    await expect(service.changeDirectory("run-1", "..\\repo")).rejects.toThrow("absolute Git working directory");
+    expect(spawn).not.toHaveBeenCalled();
+    expect(terminalManager.updateGitDirectory).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected Git directory without changing the session cwd", async () => {
+    const spawn = createSpawnMock({ stdout: "" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "wsl",
+        cwd: "/home/me/terminal",
+        gitCwd: "/home/me/repo",
+        wslDistro: "Ubuntu-24.04"
+      }),
+      sessionStore: {},
+      spawn
+    });
+
+    await expect(service.getStatus("run-1")).resolves.toMatchObject({ cwd: "/home/me/repo" });
+    expect(spawn).toHaveBeenCalledWith(
+      "wsl.exe",
+      expect.arrayContaining(["--cd", "/home/me/repo"]),
+      expect.any(Object)
+    );
+  });
+
   it("runs git status through wsl.exe for WSL sessions", async () => {
     const spawn = createSpawnMock({ stdout: "" });
     const service = createGitStatusService({
@@ -230,6 +307,27 @@ describe("git-status-service", () => {
       expect.any(Function)
     );
     expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("shell-quotes a selected SSH Git directory", async () => {
+    const client = createSshClientMock({ stdout: "" });
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "ssh",
+        cwd: "/srv/terminal",
+        gitCwd: "/srv/app's repo",
+        sshConfig: { host: "example.com", username: "deploy" }
+      }),
+      sessionStore: {},
+      clientFactory: () => client
+    });
+
+    await service.getStatus("run-1");
+    expect(client.exec).toHaveBeenCalledWith(
+      "cd '/srv/app'\\''s repo' && git 'status' '--porcelain=v1' '-z'",
+      expect.any(Function)
+    );
   });
 
   it("runs git diff in a Windows session cwd", async () => {
