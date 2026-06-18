@@ -7,7 +7,7 @@ function inferWorkingDirectory(initialCommand, type) {
   const match = value.match(/^cd(?:\s+\/d)?\s+(?:"([^"]+)"|'([^']+)'|([^&;\r\n]+?))\s*(?:&&|;|$)/i);
   const cwd = (match?.[1] || match?.[2] || match?.[3] || "").trim();
   if (!cwd) return undefined;
-  if (type === "wsl") return cwd.startsWith("/") ? cwd : undefined;
+  if (type === "wsl" || type === "ssh") return cwd.startsWith("/") ? cwd : undefined;
   return /^[a-z]:[\\/]/i.test(cwd) || cwd.startsWith("\\\\") ? cwd : undefined;
 }
 
@@ -71,7 +71,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     const parsedPort = Number(config.port || existingConfig.port || 22);
     const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22;
     const identityFile = String(config.identityFile || existingConfig.identityFile || "").trim() || undefined;
-    const remoteCommand = String(config.remoteCommand || existingConfig.remoteCommand || "").trim() || undefined;
     const extraArgs = Array.isArray(config.extraArgs)
       ? config.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
       : Array.isArray(existingConfig.extraArgs)
@@ -90,7 +89,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       username,
       port,
       identityFile,
-      remoteCommand,
       extraArgs,
       remark,
       encryptedSecret
@@ -134,17 +132,22 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   function normalizeTemplate(template) {
     const type = template.type || (template.shell && template.shell.includes("wsl") ? "wsl" : "windows");
     const sshConfig = type === "ssh" ? normalizeSshConfig(template.sshConfig) : undefined;
-    const inferredCwd = inferWorkingDirectory(template.initialCommand, type);
+    const legacySshRemoteCommand = type === "ssh" ? String(template.sshConfig?.remoteCommand || "").trim() : "";
+    const initialCommand = String(template.initialCommand || "").trim() || legacySshRemoteCommand || undefined;
+    const inferredCwd = inferWorkingDirectory(initialCommand, type);
     const storedCwd = String(template.cwd || "").trim();
-    const cwd = inferredCwd && (!storedCwd || storedCwd === os.homedir())
-      ? inferredCwd
-      : storedCwd || (type === "wsl" ? "~" : os.homedir());
+    const cwd = type === "ssh"
+      ? (storedCwd && storedCwd !== os.homedir() ? storedCwd : "~")
+      : inferredCwd && (!storedCwd || storedCwd === os.homedir())
+        ? inferredCwd
+        : storedCwd || (type === "wsl" ? "~" : os.homedir());
     return serializeTemplate({
       ...template,
       type,
       shell: template.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? "ssh2" : getDefaultShell()),
       cwd,
       createdAt: template.createdAt || Date.now(),
+      initialCommand,
       sshConfig,
       quickCommands: normalizeQuickCommands(template.quickCommands),
       tags: normalizeTags(template.tags)

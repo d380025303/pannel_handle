@@ -56,13 +56,6 @@ contextBridge.exposeInMainWorld("hookConfigApi", {
   install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
 });
 
-contextBridge.exposeInMainWorld("qqBotApi", {
-  getConfig: () => ipcRenderer.invoke("qq-bot:get-config"),
-  setConfig: (partial) => ipcRenderer.invoke("qq-bot:set-config", partial),
-  getStatus: () => ipcRenderer.invoke("qq-bot:get-status"),
-  testSend: () => ipcRenderer.invoke("qq-bot:test-send")
-});
-
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text"),

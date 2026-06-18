@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 const fs = require("node:fs");
-const { QQ_BOT_NOTIFY_STATUSES, VALID_THEME_IDS } = require("./config-store.cjs");
+const { VALID_THEME_IDS } = require("./config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -17,7 +17,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, qqBotNotificationService }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -304,51 +304,6 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
       configStore.updateConfig(updates);
     }
     return configStore.getConfig();
-  });
-
-  ipcMain.handle("qq-bot:get-config", () => configStore.getPublicQqBotConfig());
-
-  ipcMain.handle("qq-bot:set-config", (_event, partial) => {
-    const updates = {};
-    if (partial && typeof partial.enabled === "boolean") {
-      updates.enabled = partial.enabled;
-    }
-    if (partial && typeof partial.appId === "string") {
-      updates.appId = partial.appId;
-    }
-    if (partial && typeof partial.clientSecret === "string") {
-      updates.clientSecret = partial.clientSecret;
-    }
-    if (partial && partial.clearClientSecret === true) {
-      updates.clearClientSecret = true;
-    }
-    if (partial && typeof partial.targetOpenid === "string") {
-      updates.targetOpenid = partial.targetOpenid;
-    }
-    if (partial && Array.isArray(partial.notifyStatuses)) {
-      updates.notifyStatuses = partial.notifyStatuses.filter(status => QQ_BOT_NOTIFY_STATUSES.has(status));
-    }
-    if (partial && typeof partial.queueWhenUnavailable === "boolean") {
-      updates.queueWhenUnavailable = partial.queueWhenUnavailable;
-    }
-
-    const result = configStore.updateQqBotConfig(updates);
-    if (qqBotNotificationService) {
-      qqBotNotificationService.applyConfig();
-    }
-    return result;
-  });
-
-  ipcMain.handle("qq-bot:get-status", () => {
-    return qqBotNotificationService
-      ? qqBotNotificationService.getStatus()
-      : { enabled: false, connected: false, queuedCount: 0, droppedCount: 0, lastError: "" };
-  });
-
-  ipcMain.handle("qq-bot:test-send", () => {
-    return qqBotNotificationService
-      ? qqBotNotificationService.testSend()
-      : { ok: false, error: "QQ bot notification service is not available." };
   });
 
   ipcMain.on("window:minimize", (event) => {

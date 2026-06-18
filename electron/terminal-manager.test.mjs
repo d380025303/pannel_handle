@@ -60,7 +60,7 @@ function createManager(overrides = {}) {
       id: template.id,
       title: template.title,
       shell: template.shell || "powershell.exe",
-      cwd: template.cwd || (template.type === "wsl" ? "~" : "C:\\Users\\tester"),
+      cwd: template.cwd || (template.type === "wsl" || template.type === "ssh" ? "~" : "C:\\Users\\tester"),
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
       type: template.type || "windows",
@@ -279,20 +279,23 @@ describe("terminal-manager", () => {
   });
 
   it("starts WSL sessions in their configured Linux working directory", () => {
-    const { manager, pty } = createManager();
+    const { manager, term, pty } = createManager();
 
     manager.createSession({
       title: "Ubuntu",
       type: "wsl",
       wslDistro: "Ubuntu-24.04",
-      cwd: "/home/me/project"
+      cwd: "/home/me/project",
+      initialCommand: "pnpm dev"
     });
+    term.emitData("ready");
 
     expect(pty.spawn).toHaveBeenCalledWith(
       expect.stringContaining("wsl.exe"),
       ["-d", "Ubuntu-24.04", "--cd", "/home/me/project"],
       expect.objectContaining({ cwd: expect.stringMatching(/Users/i) })
     );
+    expect(term.writes).toEqual(["pnpm dev\r"]);
   });
 
   it("passes panel hook environment into WSL sessions through WSLENV", () => {
@@ -370,6 +373,40 @@ describe("terminal-manager", () => {
         port: 2222
       })
     }));
+  });
+
+  it("writes the SSH working directory before the initial command", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      cwd: "/srv/app's repo",
+      initialCommand: "pnpm dev",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy"
+      }
+    });
+    term.emitData("ready");
+
+    expect(term.writes).toEqual(["cd '/srv/app'\\''s repo' && pnpm dev\r"]);
+  });
+
+  it("writes only the SSH initial command when the working directory is home", () => {
+    const { manager, term } = createManager();
+
+    manager.createSession({
+      type: "ssh",
+      cwd: "~",
+      initialCommand: "pnpm dev",
+      sshConfig: {
+        host: "example.com",
+        username: "deploy"
+      }
+    });
+    term.emitData("ready");
+
+    expect(term.writes).toEqual(["pnpm dev\r"]);
   });
 
   it("reports status changes without allowing callback failures to block broadcasts", () => {

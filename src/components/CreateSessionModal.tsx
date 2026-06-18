@@ -28,7 +28,6 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [sshUsername, setSshUsername] = useState("");
   const [sshPort, setSshPort] = useState("22");
   const [sshIdentityFile, setSshIdentityFile] = useState("");
-  const [sshRemoteCommand, setSshRemoteCommand] = useState("");
   const [sshExtraArgs, setSshExtraArgs] = useState("");
   const [sshSecret, setSshSecret] = useState("");
   const [sshRemark, setSshRemark] = useState("");
@@ -50,14 +49,13 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         selectedShellId,
         title: title.trim() || undefined,
         cwd: cwd.trim() || undefined,
-        initialCommand: isSsh ? undefined : commandInput.trim() || undefined,
+        initialCommand: commandInput.trim() || undefined,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
           username: sshUsername.trim() || undefined,
           port: Number(sshPort) || 22,
           identityFile: sshIdentityFile.trim() || undefined,
-          remoteCommand: sshRemoteCommand.trim() || undefined,
           secret: sshSecret || undefined,
           remark: sshRemark.trim() || undefined
         } : undefined
@@ -177,13 +175,23 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                                   />
               </label>
               <label className="modal-field">
-                <span className="modal-label">远程启动命令</span>
+                <span className="modal-label">工作目录</span>
                 <input
                   className="modal-input"
-                  placeholder="cd /srv/app && bash"
-                  value={sshRemoteCommand}
-                  onChange={(e) => setSshRemoteCommand(e.target.value)}
+                  placeholder="/srv/app"
+                  value={cwd}
+                  onChange={(e) => setCwd(e.target.value)}
                                   />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">初始命令</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder="输入初始命令（可选），如：pnpm dev"
+                  value={commandInput}
+                  onChange={(e) => setCommandInput(e.target.value)}
+                  rows={3}
+                />
               </label>
               <label className="modal-field">
                 <span className="modal-label">额外 SSH 参数</span>

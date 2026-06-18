@@ -97,6 +97,26 @@ function buildSshArgs(sshConfig = {}) {
   return args;
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function getInitialCommand(session, options = {}) {
+  const legacyRemoteCommand = session.type === "ssh" ? String(session.sshConfig?.remoteCommand || "").trim() : "";
+  const command = String(options.initialCommand || session.initialCommand || legacyRemoteCommand || "").trim();
+  if (session.type !== "ssh") {
+    return command;
+  }
+
+  const cwd = String(session.cwd || "").trim();
+  if (!cwd || cwd === "~") {
+    return command;
+  }
+
+  const cdCommand = `cd ${shellQuote(cwd)}`;
+  return command ? `${cdCommand} && ${command}` : cdCommand;
+}
+
 function createTerminalManager({
   sessionStore,
   configStore,
@@ -295,8 +315,7 @@ function createTerminalManager({
       broadcast("sessions:changed", listSessions());
     });
 
-    const sshRemoteCommand = session.type === "ssh" ? String(session.sshConfig?.remoteCommand || "").trim() : "";
-    const initialCommand = options.initialCommand || sshRemoteCommand || session.initialCommand;
+    const initialCommand = getInitialCommand(session, options);
     if (initialCommand) {
       const cmd = String(initialCommand).trim();
       if (cmd) {
@@ -404,7 +423,7 @@ function createTerminalManager({
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
     const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : getDefaultShell());
-    const cwd = options.cwd || (type === "wsl" ? "~" : os.homedir());
+    const cwd = options.cwd || (type === "wsl" || type === "ssh" ? "~" : os.homedir());
     const sshConfig = options.sshConfig;
     if (type === "ssh") {
       validateSsh2Config(sshConfig);

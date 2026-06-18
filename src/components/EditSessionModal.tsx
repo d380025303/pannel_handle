@@ -14,7 +14,7 @@ type EditSessionModalProps = {
 export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: EditSessionModalProps) {
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
-  const [editCommand, setEditCommand] = useState(session.initialCommand || "");
+  const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
     () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || 'write' as const }))
   );
@@ -22,7 +22,6 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [sshUsername, setSshUsername] = useState(session.sshConfig?.username || "");
   const [sshPort, setSshPort] = useState(String(session.sshConfig?.port || 22));
   const [sshIdentityFile, setSshIdentityFile] = useState(session.sshConfig?.identityFile || "");
-  const [sshRemoteCommand, setSshRemoteCommand] = useState(session.sshConfig?.remoteCommand || "");
   const [sshExtraArgs, setSshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
@@ -42,7 +41,6 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         username: sshUsername.trim() || undefined,
         port: Number(sshPort) || 22,
         identityFile: sshIdentityFile.trim() || undefined,
-        remoteCommand: sshRemoteCommand.trim() || undefined,
         extraArgs: [],
         secret: clearSshSecret ? undefined : sshSecret || undefined,
         clearSecret: clearSshSecret,
@@ -164,13 +162,23 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                                   />
               </label>
               <label className="modal-field">
-                <span className="modal-label">远程启动命令</span>
+                <span className="modal-label">工作目录</span>
                 <input
                   className="modal-input"
-                  placeholder="cd /srv/app && bash"
-                  value={sshRemoteCommand}
-                  onChange={(e) => setSshRemoteCommand(e.target.value)}
+                  placeholder="/srv/app"
+                  value={editCwd}
+                  onChange={(e) => setEditCwd(e.target.value)}
                                   />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">初始命令</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder="输入初始命令（可选），如：pnpm dev"
+                  value={editCommand}
+                  onChange={(e) => setEditCommand(e.target.value)}
+                  rows={3}
+                />
               </label>
               <label className="modal-field">
                 <span className="modal-label">额外 SSH 参数</span>

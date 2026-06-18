@@ -31,15 +31,7 @@ describe("config-store", () => {
       autoRestore: true,
       debugMode: false,
       lastActiveSessionIds: [],
-      themeId: "dark-slate",
-      qqBot: {
-        enabled: false,
-        appId: "",
-        clientSecretSet: false,
-        targetOpenid: "",
-        notifyStatuses: ["waiting_for_permission", "completed", "failed", "ended"],
-        queueWhenUnavailable: true
-      }
+      themeId: "dark-slate"
     });
   });
 
@@ -71,46 +63,27 @@ describe("config-store", () => {
     expect(saved.themeId).toBe("dark-slate");
   });
 
-  it("stores QQ bot client secrets encrypted and exposes only a set flag", () => {
+  it("ignores stale QQ bot config fields when loading older config files", () => {
     const configFile = createTempConfigPath();
-    const safeStorage = {
-      isEncryptionAvailable: () => true,
-      encryptString: (value) => Buffer.from(`encrypted:${value}`),
-      decryptString: (buffer) => buffer.toString("utf-8").replace(/^encrypted:/, "")
-    };
-    const store = createConfigStore({ configFile, safeStorage });
+    fs.writeFileSync(configFile, JSON.stringify({
+      autoRestore: false,
+      debugMode: true,
+      themeId: "light",
+      qqBot: {
+        enabled: true,
+        appId: "123",
+        clientSecretEncrypted: "secret"
+      }
+    }), "utf-8");
+    const store = createConfigStore({ configFile });
 
-    const result = store.updateQqBotConfig({
-      enabled: true,
-      appId: "123",
-      clientSecret: "secret",
-      targetOpenid: "openid"
+    store.loadConfig();
+
+    expect(store.getConfig()).toEqual({
+      autoRestore: false,
+      debugMode: true,
+      lastActiveSessionIds: [],
+      themeId: "light"
     });
-
-    expect(result.ok).toBe(true);
-    expect(store.getConfig().qqBot).toEqual(expect.objectContaining({
-      enabled: true,
-      appId: "123",
-      clientSecretSet: true,
-      targetOpenid: "openid"
-    }));
-    expect(store.getQqBotConfig().clientSecret).toBe("secret");
-
-    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-    expect(saved.qqBot.clientSecret).toBeUndefined();
-    expect(saved.qqBot.clientSecretEncrypted).toBe(Buffer.from("encrypted:secret").toString("base64"));
-  });
-
-  it("rejects QQ bot secret updates when safeStorage is unavailable", () => {
-    const store = createConfigStore({
-      configFile: createTempConfigPath(),
-      safeStorage: { isEncryptionAvailable: () => false }
-    });
-
-    const result = store.updateQqBotConfig({ clientSecret: "secret" });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/safeStorage/);
-    expect(store.getConfig().qqBot.clientSecretSet).toBe(false);
   });
 });

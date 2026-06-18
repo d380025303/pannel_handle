@@ -10,7 +10,6 @@ const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createKnownHostStore } = require("./known-host-store.cjs");
 const { createProjectSearchService } = require("./project-search-service.cjs");
-const { createQqBotNotificationService } = require("./qq-bot-notification-service.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./remote-file-service.cjs");
 const { createRemoteHookConfigService } = require("./remote-hook-config-service.cjs");
 const { createRemoteSystemService } = require("./remote-system-service.cjs");
@@ -33,7 +32,6 @@ let sshSessionRuntime = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
-let qqBotNotificationService = null;
 let gitStatusService = null;
 let projectSearchService = null;
 let clipboardImageService = null;
@@ -112,16 +110,10 @@ if (!gotSingleInstanceLock) {
         if (agentNotificationManager) {
           agentNotificationManager.handleStatus(payload);
         }
-        if (qqBotNotificationService) {
-          void qqBotNotificationService.handleStatus(payload);
-        }
       },
       onSessionClosed: (id) => {
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
-        }
-        if (qqBotNotificationService) {
-          qqBotNotificationService.clearSession(id);
         }
         if (remoteFileService) {
           void remoteFileService.disconnect(id);
@@ -137,10 +129,6 @@ if (!gotSingleInstanceLock) {
     agentNotificationManager = createAgentNotificationManager({
       Notification,
       windowManager,
-      terminalManager
-    });
-    qqBotNotificationService = createQqBotNotificationService({
-      configStore,
       terminalManager
     });
     sshSessionRuntime = createSshSessionRuntime({
@@ -207,10 +195,8 @@ if (!gotSingleInstanceLock) {
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,
-      projectSearchService,
-      qqBotNotificationService
+      projectSearchService
     });
-    qqBotNotificationService.start();
     windowManager.createWindow();
 
     app.on("activate", () => {
@@ -245,9 +231,6 @@ app.on("window-all-closed", () => {
   }
   if (agentNotificationManager) {
     agentNotificationManager.shutdown();
-  }
-  if (qqBotNotificationService) {
-    qqBotNotificationService.shutdown();
   }
   if (windowManager) {
     windowManager.closeWindowManager();

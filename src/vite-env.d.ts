@@ -41,7 +41,6 @@ export type AppConfig = {
   debugMode: boolean;
   lastActiveSessionIds: string[];
   themeId: ThemeId;
-  qqBot: QqBotPublicConfig;
 };
 
 export type SessionLibraryFileResult =
@@ -222,8 +221,6 @@ export type HookInspectionResult = {
 
 export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited";
 
-export type QqBotNotifyStatus = "waiting_for_permission" | "completed" | "failed" | "ended";
-
 export type AgentStatusPayload = {
   id: string;
   provider: AgentProvider;
@@ -245,40 +242,6 @@ export type AgentHookDebugPayload = {
   handled: boolean;
   payload: unknown;
 };
-
-export type QqBotPublicConfig = {
-  enabled: boolean;
-  appId: string;
-  clientSecretSet: boolean;
-  targetOpenid: string;
-  notifyStatuses: QqBotNotifyStatus[];
-  queueWhenUnavailable: boolean;
-};
-
-export type QqBotConfigUpdate = Partial<Omit<QqBotPublicConfig, "clientSecretSet">> & {
-  clientSecret?: string;
-  clearClientSecret?: boolean;
-};
-
-export type QqBotStatus = {
-  enabled: boolean;
-  connected: boolean;
-  targetOpenid?: string;
-  hasClientSecret?: boolean;
-  queuedCount: number;
-  droppedCount: number;
-  lastError?: string;
-  lastInboundAt?: number;
-  lastSentAt?: number;
-};
-
-export type QqBotConfigResult =
-  | { ok: true; config: QqBotPublicConfig }
-  | { ok: false; error: string; config: QqBotPublicConfig };
-
-export type QqBotTestResult =
-  | { ok: true; status: QqBotStatus }
-  | { ok: false; error: string; status?: QqBotStatus };
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
@@ -362,13 +325,6 @@ export type HookConfigApi = {
   install: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
 };
 
-export type QqBotApi = {
-  getConfig: () => Promise<QqBotPublicConfig>;
-  setConfig: (partial: QqBotConfigUpdate) => Promise<QqBotConfigResult>;
-  getStatus: () => Promise<QqBotStatus>;
-  testSend: () => Promise<QqBotTestResult>;
-};
-
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -378,7 +334,6 @@ declare global {
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
-    qqBotApi: QqBotApi;
     windowApi: WindowApi;
   }
 }

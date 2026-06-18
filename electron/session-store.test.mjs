@@ -49,6 +49,7 @@ describe("session-store", () => {
     expect(inferWorkingDirectory("cd C:\\mine\\project && claude", "windows")).toBe("C:\\mine\\project");
     expect(inferWorkingDirectory("cd /d \"C:\\mine\\project space\" && codex", "windows")).toBe("C:\\mine\\project space");
     expect(inferWorkingDirectory("cd /home/me/project && claude", "wsl")).toBe("/home/me/project");
+    expect(inferWorkingDirectory("cd /srv/app && claude", "ssh")).toBe("/srv/app");
   });
 
   it("migrates a legacy home cwd from the initial command", () => {
@@ -145,12 +146,13 @@ describe("session-store", () => {
       id: "7",
       type: "ssh",
       title: "Prod",
+      cwd: "/srv/app",
+      initialCommand: "pnpm dev",
       sshConfig: {
         host: "example.com",
         username: "deploy",
         port: 2222,
         identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
-        remoteCommand: "cd /srv/app && bash",
         extraArgs: ["-o", "ServerAliveInterval=30"],
         secret: "plain-secret"
       }
@@ -162,15 +164,17 @@ describe("session-store", () => {
       title: "Prod",
       shell: "ssh2",
       type: "ssh",
+      cwd: "/srv/app",
+      initialCommand: "pnpm dev",
       sshConfig: {
         host: "example.com",
         username: "deploy",
         port: 2222,
         identityFile: "C:\\Users\\tester\\.ssh\\id_ed25519",
-        remoteCommand: "cd /srv/app && bash",
         extraArgs: ["-o", "ServerAliveInterval=30"]
       }
     });
+    expect(persisted[0].sshConfig.remoteCommand).toBeUndefined();
     expect(JSON.stringify(persisted)).not.toContain("plain-secret");
     expect(persisted[0].sshConfig.encryptedSecret).toBe(Buffer.from("encrypted:plain-secret").toString("base64"));
     expect(safeStorage.encryptString).toHaveBeenCalledWith("plain-secret");
@@ -181,6 +185,27 @@ describe("session-store", () => {
     });
     expect(store.getLibrary()[0].sshConfig.encryptedSecret).toBeUndefined();
     expect(store.decryptSecret(persisted[0].sshConfig.encryptedSecret)).toBe("plain-secret");
+  });
+
+  it("migrates legacy SSH remote commands to initial commands and defaults cwd to remote home", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "6",
+      title: "Legacy SSH",
+      type: "ssh",
+      cwd: homedir(),
+      sshConfig: {
+        host: "example.com",
+        remoteCommand: "cd /srv/app && bash"
+      }
+    }]), "utf-8");
+
+    const store = createStore(sessionsFile);
+    const session = store.loadLibrary()[0];
+
+    expect(session.cwd).toBe("~");
+    expect(session.initialCommand).toBe("cd /srv/app && bash");
+    expect(session.sshConfig.remoteCommand).toBeUndefined();
   });
 
   it("keeps existing encrypted SSH secret when editing other SSH fields", () => {
