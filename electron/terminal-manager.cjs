@@ -515,7 +515,7 @@ function createTerminalManager({
       }
     }
     if (typeof initialCommand !== "undefined") {
-      session.initialCommand = initialCommand || undefined;
+      session.initialCommand = initialCommand;
       libraryUpdates.initialCommand = session.initialCommand;
     }
     if (typeof cwd === "string" && cwd.trim()) {

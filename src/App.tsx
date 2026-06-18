@@ -69,6 +69,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId,
+    isVisible: !previewActive,
     terminalTheme: activeTheme.terminal
   });
   const canSearchProject = Boolean(terminalSessions.activeSession && terminalSessions.activeSession.type !== "ssh");
@@ -96,7 +97,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [locale]);
 
   useEffect(() => {
-    let lastShiftAt = 0;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!terminalSessions.activeSession || terminalSessions.activeSession.type === "ssh") {
         return;
@@ -114,15 +114,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         return;
       }
 
-      if (event.key === "Shift" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const now = Date.now();
-        if (now - lastShiftAt <= 450) {
-          event.preventDefault();
-          lastShiftAt = 0;
-          setProjectSearchMode("files");
-        } else {
-          lastShiftAt = now;
-        }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        setProjectSearchMode("files");
+        return;
       }
     };
 
@@ -288,6 +283,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             <TerminalPanel
               terminalHostRef={terminalInstances.terminalHostRef}
               onContextMenu={terminalInstances.handleTerminalContextMenu}
+              onWheel={terminalInstances.handleTerminalWheel}
             />
             {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
               <footer className="terminal-footer">

@@ -131,7 +131,7 @@ export function useTerminalSessions() {
     await window.terminalApi.updateSession(id, {
       title,
       cwd,
-      initialCommand: initialCommand.trim() || undefined,
+      initialCommand: initialCommand.trim(),
       sshConfig,
       quickCommands,
       tags

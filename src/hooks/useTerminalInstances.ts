@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, WheelEvent } from "react";
 import { Terminal, type ITheme } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { useI18n } from "../i18n";
@@ -14,6 +14,7 @@ type TerminalEntry = {
 
 type UseTerminalInstancesOptions = {
   activeId?: string;
+  isVisible: boolean;
   terminalTheme: ITheme;
 };
 
@@ -40,7 +41,24 @@ function createTerminalEntry(terminalTheme: ITheme) {
   return { terminal, fitAddon, inputGuard };
 }
 
-export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalInstancesOptions) {
+function getWheelScrollLines(event: WheelEvent<HTMLDivElement>, rows: number) {
+  const delta = event.deltaY;
+  if (delta === 0) {
+    return 0;
+  }
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return Math.trunc(delta);
+  }
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return Math.sign(delta) * Math.max(1, rows - 1);
+  }
+
+  return Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / 16));
+}
+
+export function useTerminalInstances({ activeId, isVisible, terminalTheme }: UseTerminalInstancesOptions) {
   const { t } = useI18n();
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
@@ -98,6 +116,53 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
       terminalsRef.current.delete(id);
     }
   }, []);
+
+  const syncActiveTerminal = useCallback(() => {
+    if (!activeId || !isVisible) {
+      return;
+    }
+
+    const entry = terminalsRef.current.get(activeId);
+    if (!entry || !entry.terminal.element) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      try {
+        entry.fitAddon.fit();
+        entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+        entry.terminal.focus();
+
+        const dims = entry.fitAddon.proposeDimensions();
+        if (dims && dims.cols > 0 && dims.rows > 0) {
+          window.terminalApi.resize(activeId, dims.cols, dims.rows);
+        }
+      } catch {
+        // xterm can throw while the host is hidden during preview or fast session switches.
+      }
+    });
+  }, [activeId, isVisible]);
+
+  const handleTerminalWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    const entry = activeId ? terminalsRef.current.get(activeId) : undefined;
+    if (!entry) {
+      return;
+    }
+
+    entry.terminal.focus();
+
+    if (event.defaultPrevented || entry.terminal.buffer.active.type !== "normal" || entry.terminal.buffer.active.baseY <= 0) {
+      return;
+    }
+
+    const lines = getWheelScrollLines(event, entry.terminal.rows);
+    if (lines === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    entry.terminal.scrollLines(lines);
+  }, [activeId]);
 
   const pasteIntoTerminal = useCallback(async (sessionId: string, terminal: Terminal) => {
     try {
@@ -269,6 +334,10 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
   }, [activeId, copyTerminalSelection, pasteIntoTerminal, terminalTheme]);
 
   useEffect(() => {
+    syncActiveTerminal();
+  }, [syncActiveTerminal]);
+
+  useEffect(() => {
     terminalsRef.current.forEach((entry) => {
       entry.terminal.options.theme = terminalTheme;
     });
@@ -284,6 +353,7 @@ export function useTerminalInstances({ activeId, terminalTheme }: UseTerminalIns
   return {
     terminalHostRef,
     handleTerminalContextMenu,
+    handleTerminalWheel,
     disposeTerminal,
     focusActiveTerminal
   };
