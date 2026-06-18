@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Upload, Video, X } from "lucide-react";
+import type { MouseEvent } from "react";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Terminal as TerminalIcon, Upload, Video, X } from "lucide-react";
 import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -20,6 +21,12 @@ type SaveState =
   | { status: "saving" }
   | { status: "conflict"; message: string }
   | { status: "error"; message: string };
+
+type FileContextMenuState = {
+  entry: RemoteFileEntry;
+  x: number;
+  y: number;
+} | null;
 
 type TextMatch = {
   start: number;
@@ -80,6 +87,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
   const saveRequestRef = useRef(0);
@@ -96,6 +104,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     [entries, selectedPath]
   );
   const canOpenInExplorer = session?.type === "windows" || session?.type === "wsl";
+  const contextEntry = fileContextMenu?.entry;
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredEntries = useMemo(
     () => normalizedSearchQuery
@@ -156,6 +165,50 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     !dirtyRef.current || window.confirm("Discard unsaved file changes?")
   ), []);
 
+  const closeFileContextMenu = useCallback(() => {
+    setFileContextMenu(null);
+  }, []);
+
+  const handleFileContextMenu = useCallback((event: MouseEvent<HTMLElement>, entry: RemoteFileEntry) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedPath(entry.path);
+
+    const menuWidth = 176;
+    const menuHeight = entry.type === "directory" ? 46 : 86;
+    setFileContextMenu({
+      entry,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!fileContextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".remote-file-context-menu")) {
+        return;
+      }
+      setFileContextMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFileContextMenu(null);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [fileContextMenu]);
+
   const releaseActivePreview = useCallback(() => {
     const previewId = activePreviewIdRef.current;
     if (previewId) {
@@ -183,6 +236,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
     requestRef.current = requestId;
     previewRequestRef.current += 1;
     releaseActivePreview();
+    closeFileContextMenu();
     setSelectedPath(null);
     setPreview({ status: "idle" });
     resetEditor();
@@ -207,7 +261,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       }
     }
     return undefined;
-  }, [confirmDiscard, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, confirmDiscard, releaseActivePreview, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -215,6 +269,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       setPathInput(".");
       setEntries([]);
       setSelectedPath(null);
+      closeFileContextMenu();
       setPreview({ status: "idle" });
       setSearchQuery("");
       resetEditor();
@@ -249,7 +304,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
       previewRequestRef.current += 1;
       releaseActivePreview();
     };
-  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.path === selectedPath) {
@@ -354,9 +409,16 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
   }, [currentPath, sessionId]);
 
   const handleDownload = useCallback(async (entry: RemoteFileEntry) => {
+    closeFileContextMenu();
     if (!sessionId || entry.type === "directory") return;
     await window.remoteFileApi.downloadFile(sessionId, entry.path, entry.name);
-  }, [sessionId]);
+  }, [closeFileContextMenu, sessionId]);
+
+  const handleAddToTerminal = useCallback((entry: RemoteFileEntry) => {
+    closeFileContextMenu();
+    if (!sessionId) return;
+    window.terminalApi.write(sessionId, entry.path);
+  }, [closeFileContextMenu, sessionId]);
 
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
@@ -574,7 +636,7 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
         </div>
       )}
 
-      <div className="remote-file-list" aria-busy={loading}>
+      <div className="remote-file-list" aria-busy={loading} onScroll={closeFileContextMenu}>
         {loading ? (
           <div className="remote-file-empty">Loading files...</div>
         ) : entries.length === 0 && !error ? (
@@ -587,7 +649,11 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
               className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""}`}
               key={entry.path}
               type="button"
-              onClick={() => void handleOpenEntry(entry)}
+              onClick={() => {
+                closeFileContextMenu();
+                void handleOpenEntry(entry);
+              }}
+              onContextMenu={(event) => handleFileContextMenu(event, entry)}
             >
               <span className={`remote-file-icon ${entry.type}`}>
                 {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
@@ -595,31 +661,30 @@ export function RemoteFilePanel({ session, openRequest, onDirtyChange, onPreview
               <span className="remote-file-name">{entry.name}</span>
               <span className="remote-file-meta">{entry.type === "directory" ? "Folder" : formatSize(entry.size)}</span>
               <span className="remote-file-meta">{formatModifiedAt(entry.modifiedAt)}</span>
-              {entry.type !== "directory" && (
-                <span
-                  className="remote-file-download"
-                  title="Download"
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDownload(entry);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void handleDownload(entry);
-                    }
-                  }}
-                >
-                  <Download aria-hidden="true" />
-                </span>
-              )}
             </button>
           ))
         )}
       </div>
+
+      {fileContextMenu && contextEntry && (
+        <div
+          className="remote-file-context-menu"
+          role="menu"
+          style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button type="button" role="menuitem" onClick={() => handleAddToTerminal(contextEntry)}>
+            <TerminalIcon aria-hidden="true" />
+            <span>添加到终端</span>
+          </button>
+          {contextEntry.type !== "directory" && (
+            <button type="button" role="menuitem" onClick={() => void handleDownload(contextEntry)}>
+              <Download aria-hidden="true" />
+              <span>下载</span>
+            </button>
+          )}
+        </div>
+      )}
     </aside>
 
     {preview.status !== "idle" && (

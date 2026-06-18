@@ -1749,7 +1749,7 @@
 
 .remote-file-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 68px 74px 24px;
+  grid-template-columns: 18px minmax(0, 1fr) 68px 74px;
   align-items: center;
   gap: 7px;
   min-height: 34px;
@@ -1784,7 +1784,7 @@
 }
 
 .remote-file-icon svg,
-.remote-file-download svg,
+.remote-file-context-menu svg,
 .remote-preview-header svg {
   width: 15px;
   height: 15px;
@@ -1807,19 +1807,47 @@
   white-space: nowrap;
 }
 
-.remote-file-download {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-xs);
-  color: var(--color-text-muted);
+.remote-file-context-menu {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  min-width: 160px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-dialog);
 }
 
-.remote-file-download:hover {
+.remote-file-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.remote-file-context-menu button:hover,
+.remote-file-context-menu button:focus-visible {
   color: var(--color-text);
   background: var(--color-bg-control-hover);
+  outline: none;
+}
+
+.remote-file-context-menu span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remote-preview-overlay {
