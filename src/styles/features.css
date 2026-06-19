@@ -2410,10 +2410,47 @@
   cursor: pointer;
 }
 
-.remote-preview-editor {
+.remote-preview-editor-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
   width: 100%;
+  overflow: hidden;
+  background: var(--color-bg-code);
+}
+
+.remote-preview-highlight-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.remote-preview-highlight-content {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 10px;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  tab-size: 8;
+}
+
+.remote-preview-highlight-content mark {
+  border-radius: 2px;
+  color: transparent;
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.remote-preview-editor {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 10px;
   resize: none;
@@ -2421,7 +2458,7 @@
   outline: none;
   overflow: auto;
   color: var(--color-text-secondary);
-  background: var(--color-bg-code);
+  background: transparent;
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 11px;
   line-height: 1.45;

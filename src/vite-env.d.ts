@@ -340,6 +340,7 @@ export type RemoteFileApi = {
   downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
   startDownloadDrag: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
   openInExplorer: (sessionId: string, remotePath: string) => Promise<void>;
+  deleteEntry: (sessionId: string, remotePath: string) => Promise<void>;
 };
 
 export type RemoteSystemApi = {

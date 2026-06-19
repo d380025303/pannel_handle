@@ -210,6 +210,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
               selectEntry(selectedResult);
               return;
             }
+            if (session && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+              event.preventDefault();
+              window.terminalApi.write(session.id, "\x1b[Z");
+              return;
+            }
             if (mention && event.key === "Escape") {
               event.preventDefault();
               setMention(null);

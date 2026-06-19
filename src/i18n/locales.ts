@@ -52,6 +52,7 @@ export type TranslationKey =
   | "common.saving"
   | "common.unsavedChanges"
   | "confirm.discardUnsavedFileChanges"
+  | "confirm.deleteEntry"
   | "window.minimize"
   | "window.maximize"
   | "window.restore"
@@ -162,6 +163,7 @@ export type TranslationKey =
   | "files.nextMatch"
   | "files.clearPreviewSearch"
   | "files.editContent"
+  | "files.deleteEntry"
   | "files.tooLarge"
   | "files.binary"
   | "system.loading"
@@ -317,6 +319,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.saving": "保存中...",
     "common.unsavedChanges": "未保存更改",
     "confirm.discardUnsavedFileChanges": "放弃未保存的文件更改？",
+    "confirm.deleteEntry": "确定要删除 \"{name}\" 吗？此操作无法撤销。",
     "window.minimize": "最小化",
     "window.maximize": "最大化",
     "window.restore": "还原",
@@ -427,6 +430,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.nextMatch": "下一个匹配",
     "files.clearPreviewSearch": "清除预览搜索",
     "files.editContent": "编辑文件内容",
+    "files.deleteEntry": "删除",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
     "system.loading": "正在读取服务器状态...",
@@ -574,6 +578,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.saving": "Saving...",
     "common.unsavedChanges": "Unsaved changes",
     "confirm.discardUnsavedFileChanges": "Discard unsaved file changes?",
+    "confirm.deleteEntry": "Are you sure you want to delete \"{name}\"? This cannot be undone.",
     "window.minimize": "Minimize",
     "window.maximize": "Maximize",
     "window.restore": "Restore",
@@ -684,6 +689,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.nextMatch": "Next match",
     "files.clearPreviewSearch": "Clear preview search",
     "files.editContent": "Edit file content",
+    "files.deleteEntry": "Delete",
     "files.tooLarge": "File is {size}. Download it to view locally.",
     "files.binary": "Binary file. Download it to view locally.",
     "system.loading": "Reading server status...",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, MouseEvent } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Terminal as TerminalIcon, Upload, Video, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vite-env";
 
@@ -140,8 +140,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const previewRequestRef = useRef(0);
   const saveRequestRef = useRef(0);
   const previewContentRef = useRef<HTMLTextAreaElement>(null);
+  const previewHighlightRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
-  const matchNavigationRef = useRef(false);
   const handledOpenRequestRef = useRef(0);
   const openRequestAttemptRef = useRef(0);
   const activePreviewIdRef = useRef<string | null>(null);
@@ -172,6 +172,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   }, [isDirty, onDirtyChange]);
 
   const isPreviewActive = preview.status !== "idle";
+  const hasTextPreview = preview.status === "ready" && preview.preview.kind === "text";
   useEffect(() => {
     onPreviewActive?.(isPreviewActive);
   }, [isPreviewActive, onPreviewActive]);
@@ -191,25 +192,46 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     return matches;
   }, [editorContent, previewSearchQuery]);
 
-  useEffect(() => {
-    setActivePreviewMatch(0);
-  }, [previewSearchQuery]);
+  const activeMatch = previewMatches[activePreviewMatch] ?? null;
+
+  const syncPreviewHighlight = useCallback(() => {
+    const textarea = previewContentRef.current;
+    const highlight = previewHighlightRef.current;
+    if (!textarea || !highlight) {
+      return;
+    }
+    highlight.style.width = `${textarea.clientWidth}px`;
+    highlight.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;
+  }, []);
 
   useEffect(() => {
     if (!previewMatches.length) {
+      setActivePreviewMatch(0);
       return;
     }
-    const match = previewMatches[activePreviewMatch];
+    setActivePreviewMatch((current) => Math.min(current, previewMatches.length - 1));
+  }, [previewMatches.length]);
+
+  useEffect(() => {
     const textarea = previewContentRef.current;
-    if (!match || !textarea) {
+    if (!activeMatch || !textarea) {
+      syncPreviewHighlight();
       return;
     }
-    textarea.setSelectionRange(match.start, match.end);
-    if (matchNavigationRef.current) {
-      textarea.focus();
-      scrollTextareaMatchIntoView(textarea, match.start, match.end);
+    scrollTextareaMatchIntoView(textarea, activeMatch.start, activeMatch.end);
+    syncPreviewHighlight();
+  }, [activeMatch, syncPreviewHighlight]);
+
+  useEffect(() => {
+    const textarea = previewContentRef.current;
+    if (!textarea) {
+      return;
     }
-  }, [activePreviewMatch, previewSearchQuery]);
+    syncPreviewHighlight();
+    const observer = new ResizeObserver(syncPreviewHighlight);
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [hasTextPreview, syncPreviewHighlight]);
 
   const confirmDiscard = useCallback(() => (
     !dirtyRef.current || window.confirm(t("confirm.discardUnsavedFileChanges"))
@@ -225,7 +247,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setSelectedPath(entry.path);
 
     const menuWidth = 176;
-    const menuHeight = entry.type === "directory" ? 46 : 86;
+    const menuHeight = entry.type === "directory" ? 80 : 130;
     setFileContextMenu({
       entry,
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
@@ -559,6 +581,25 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     window.terminalApi.write(sessionId, entry.path);
   }, [closeFileContextMenu, sessionId]);
 
+  const handleDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
+    closeFileContextMenu();
+    if (!sessionId) return;
+    if (!window.confirm(t("confirm.deleteEntry", { name: entry.name }))) return;
+    try {
+      await window.remoteFileApi.deleteEntry(sessionId, entry.path);
+      if (entry.path === selectedPathRef.current) {
+        releaseActivePreview();
+        setPreview({ status: "idle" });
+        resetEditor();
+        setSelectedPath(null);
+        selectedPathRef.current = null;
+      }
+      void loadDirectory(currentPath, true, true);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }, [closeFileContextMenu, currentPath, loadDirectory, releaseActivePreview, resetEditor, sessionId, t]);
+
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
     setError(null);
@@ -685,7 +726,6 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     if (!previewMatches.length) {
       return;
     }
-    matchNavigationRef.current = true;
     setActivePreviewMatch((current) => (
       (current + direction + previewMatches.length) % previewMatches.length
     ));
@@ -863,6 +903,10 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
             <TerminalIcon aria-hidden="true" />
             <span>{t("files.addToTerminal")}</span>
           </button>
+          <button type="button" role="menuitem" onClick={() => void handleDeleteEntry(contextEntry)}>
+            <Trash2 aria-hidden="true" />
+            <span>{t("files.deleteEntry")}</span>
+          </button>
           {contextEntry.type !== "directory" && (
             <button type="button" role="menuitem" onClick={() => void handleDownload(contextEntry)}>
               <Download aria-hidden="true" />
@@ -944,9 +988,9 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                     aria-label={t("files.searchPreview")}
                     placeholder={t("files.searchPreview")}
                     value={previewSearchQuery}
-                    onChange={(event) => setPreviewSearchQuery(event.target.value)}
-                    onFocus={() => {
-                      matchNavigationRef.current = false;
+                    onChange={(event) => {
+                      setPreviewSearchQuery(event.target.value);
+                      setActivePreviewMatch(0);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -968,34 +1012,39 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                     <X aria-hidden="true" />
                   </button>
                 </div>
-                <textarea
-                  ref={previewContentRef}
-                  className="remote-preview-editor"
-                  aria-label={t("files.editContent")}
-                  spellCheck={false}
-                  value={editorContent}
-                  onPointerDown={() => {
-                    matchNavigationRef.current = false;
-                  }}
-                  onChange={(event) => {
-                    matchNavigationRef.current = false;
-                    setEditorContent(event.target.value);
-                    if (saveState.status === "error") {
-                      setSaveState({ status: "idle" });
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    if (matchNavigationRef.current && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-                      event.preventDefault();
-                      movePreviewMatch(event.shiftKey ? -1 : 1);
-                      return;
-                    }
-                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-                      event.preventDefault();
-                      void handleSavePreview();
-                    }
-                  }}
-                />
+                <div className="remote-preview-editor-shell">
+                  <div className="remote-preview-highlight-viewport" aria-hidden="true">
+                    <div ref={previewHighlightRef} className="remote-preview-highlight-content">
+                      {activeMatch ? (
+                        <>
+                          {editorContent.slice(0, activeMatch.start)}
+                          <mark>{editorContent.slice(activeMatch.start, activeMatch.end)}</mark>
+                          {editorContent.slice(activeMatch.end)}
+                        </>
+                      ) : editorContent}
+                    </div>
+                  </div>
+                  <textarea
+                    ref={previewContentRef}
+                    className="remote-preview-editor"
+                    aria-label={t("files.editContent")}
+                    spellCheck={false}
+                    value={editorContent}
+                    onScroll={syncPreviewHighlight}
+                    onChange={(event) => {
+                      setEditorContent(event.target.value);
+                      if (saveState.status === "error") {
+                        setSaveState({ status: "idle" });
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+                        event.preventDefault();
+                        void handleSavePreview();
+                      }
+                    }}
+                  />
+                </div>
                 <div className="remote-preview-status">
                   <span>{formatSize(new TextEncoder().encode(editorContent).length)}</span>
                   <span>{saveState.status === "saving" ? t("common.saving") : isDirty ? t("common.unsavedChanges") : t("common.saved")}</span>

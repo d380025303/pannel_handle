@@ -250,6 +250,10 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, dingT
     return remoteFileService.openInExplorer(sessionId, remotePath);
   });
 
+  ipcMain.handle("remote-files:delete", (_event, { sessionId, remotePath }) => {
+    return remoteFileService.deleteEntry(sessionId, remotePath);
+  });
+
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
   });

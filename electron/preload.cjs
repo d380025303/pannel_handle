@@ -86,7 +86,8 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("remote-files:upload-files", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
   downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName }),
   startDownloadDrag: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:start-download-drag", { sessionId, remotePath, fileName }),
-  openInExplorer: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:open-in-explorer", { sessionId, remotePath })
+  openInExplorer: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:open-in-explorer", { sessionId, remotePath }),
+  deleteEntry: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:delete", { sessionId, remotePath })
 });
 
 contextBridge.exposeInMainWorld("remoteSystemApi", {

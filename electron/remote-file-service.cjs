@@ -605,6 +605,22 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     }
   }
 
+  async function deleteEntry(sessionId, remotePath) {
+    const session = getSession(sessionId);
+    if (session.type !== "ssh") {
+      const hostPath = toLocalHostPath(session, remotePath);
+      await fsApi.promises.rm(hostPath, { recursive: true, force: true });
+      return;
+    }
+    const normalizedPath = normalizeRemotePath(remotePath);
+    const client = await getClient(sessionId);
+    try {
+      await client.rmdir(normalizedPath, true);
+    } catch {
+      await client.delete(normalizedPath);
+    }
+  }
+
   async function disconnect(sessionId) {
     const client = clients.get(sessionId);
     clients.delete(sessionId);
@@ -641,6 +657,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     uploadFiles,
     downloadFile,
     openInExplorer,
+    deleteEntry,
     disconnect,
     shutdown
   };
