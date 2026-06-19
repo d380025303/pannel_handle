@@ -224,6 +224,9 @@
 .modal-body {
   padding: 16px 20px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .modal-label {
@@ -255,7 +258,6 @@
 }
 
 .modal-textarea {
-  margin-top: 8px;
   resize: vertical;
   min-height: 80px;
 }
@@ -603,7 +605,31 @@
   background: var(--color-bg-app);
 }
 
-.ding-talk-settings h4,
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.collapsible-header h4 {
+  margin: 0;
+}
+
+.ding-talk-toggle {
+  margin-left: auto;
+}
+
+.collapsible-chevron {
+  font-size: 12px;
+  transition: transform 0.15s;
+}
+
+.collapsible-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
 .ding-talk-settings p {
   margin: 0;
 }

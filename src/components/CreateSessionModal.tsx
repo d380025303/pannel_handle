@@ -30,7 +30,6 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [sshUsername, setSshUsername] = useState("");
   const [sshPort, setSshPort] = useState("22");
   const [sshIdentityFile, setSshIdentityFile] = useState("");
-  const [sshExtraArgs, setSshExtraArgs] = useState("");
   const [sshSecret, setSshSecret] = useState("");
   const [sshRemark, setSshRemark] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -116,17 +115,6 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
               SSH
             </button>
           </div>
-          <label className="modal-field">
-            <span className="modal-label">{t("session.tags")}</span>
-            <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
-          </label>
-          <input
-            className="modal-input"
-            placeholder={t("session.namePlaceholder")}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
           {isSsh ? (
             <div className="ssh-form">
               <div className="modal-grid two">
@@ -181,6 +169,22 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 />
               </label>
               <label className="modal-field">
+                <span className="modal-label">{t("session.remark")}</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder={t("session.remarkPlaceholder")}
+                  value={sshRemark}
+                  onChange={(e) => setSshRemark(e.target.value)}
+                  rows={2}
+                />
+              </label>
+              <input
+                className="modal-input"
+                placeholder={t("session.namePlaceholder")}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <label className="modal-field">
                 <span className="modal-label">{t("session.cwd")}</span>
                 <input
                   className="modal-input"
@@ -199,48 +203,41 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   rows={3}
                 />
               </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.sshArgs")}</span>
-                <input
-                  className="modal-input"
-                  placeholder="-o ServerAliveInterval=30"
-                  value={sshExtraArgs}
-                  disabled
-                  onChange={(e) => setSshExtraArgs(e.target.value)}
-                />
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.remark")}</span>
-                <textarea
-                  className="modal-input modal-textarea"
-                  placeholder={t("session.remarkPlaceholder")}
-                  value={sshRemark}
-                  onChange={(e) => setSshRemark(e.target.value)}
-                  rows={2}
-                />
-              </label>
             </div>
           ) : (
             <>
+              <input
+                autoFocus
+                className="modal-input"
+                placeholder={t("session.namePlaceholder")}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
               <label className="modal-field">
                 <span className="modal-label">{t("session.cwd")}</span>
                 <input
-                  autoFocus
                   className="modal-input"
                   placeholder={selectedShellId.startsWith("wsl:") ? "/home/user/project" : "C:\\projects\\myapp"}
                   value={cwd}
                   onChange={(e) => setCwd(e.target.value)}
                 />
               </label>
-              <textarea
-                className="modal-input modal-textarea"
-                placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
-                value={commandInput}
-                onChange={(e) => setCommandInput(e.target.value)}
-                rows={3}
-              />
+              <label className="modal-field">
+                <span className="modal-label">{t("session.initialCommand")}</span>
+                <textarea
+                  className="modal-input modal-textarea"
+                  placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
+                  value={commandInput}
+                  onChange={(e) => setCommandInput(e.target.value)}
+                  rows={3}
+                />
+              </label>
             </>
           )}
+          <label className="modal-field">
+            <span className="modal-label">{t("session.tags")}</span>
+            <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
+          </label>
         </div>
         <div className="modal-footer">
           <button className="modal-button" type="button" onClick={onCancel}>

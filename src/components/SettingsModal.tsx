@@ -36,6 +36,7 @@ export function SettingsModal({
   const [webhook, setWebhook] = useState("");
   const [secret, setSecret] = useState("");
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
+  const [dingTalkOpen, setDingTalkOpen] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const themeOptions = useMemo(() => themes.map((theme) => ({
     value: theme.id,
@@ -175,56 +176,73 @@ export function SettingsModal({
             </div>
           </section>
           <section className="settings-section ding-talk-settings">
-            <h4>{t("settings.dingTalkTitle")}</h4>
-            <p className="settings-help">{t("settings.dingTalkDescription")}</p>
-            <label className="auto-restore-label">
-              <input
-                type="checkbox"
-                className="auto-restore-checkbox"
-                checked={dingTalkEnabled}
-                disabled={dingTalkBusy}
-                onChange={(event) => setDingTalkEnabled(event.target.checked)}
-              />
-              <span className="auto-restore-track" />
-              <span className="auto-restore-text">{t("settings.dingTalkEnabled")}</span>
-            </label>
-            <label className="settings-field">
-              <span className="modal-label">{t("settings.dingTalkWebhook")}</span>
-              <input
-                className="modal-input"
-                type="password"
-                value={webhook}
-                disabled={dingTalkBusy}
-                autoComplete="off"
-                placeholder={hasWebhook ? t("settings.dingTalkConfigured") : "https://oapi.dingtalk.com/robot/send?access_token=..."}
-                onChange={(event) => setWebhook(event.target.value)}
-              />
-            </label>
-            <label className="settings-field">
-              <span className="modal-label">{t("settings.dingTalkSecret")}</span>
-              <input
-                className="modal-input"
-                type="password"
-                value={secret}
-                disabled={dingTalkBusy}
-                autoComplete="off"
-                placeholder={hasSecret ? t("settings.dingTalkConfigured") : t("settings.dingTalkSecretOptional")}
-                onChange={(event) => setSecret(event.target.value)}
-              />
-            </label>
-            <div className="ding-talk-actions">
-              <button className="modal-button primary" type="button" disabled={dingTalkBusy} onClick={saveDingTalkConfig}>
-                {t("common.save")}
-              </button>
-              <button className="modal-button" type="button" disabled={dingTalkBusy || !hasWebhook} onClick={testDingTalk}>
-                {t("settings.dingTalkTest")}
-              </button>
-              <button className="modal-button danger" type="button" disabled={dingTalkBusy || (!hasWebhook && !hasSecret)} onClick={clearDingTalkCredentials}>
-                {t("settings.dingTalkClear")}
-              </button>
+            <div
+              className="collapsible-header"
+              role="button"
+              tabIndex={0}
+              aria-expanded={dingTalkOpen}
+              onClick={() => setDingTalkOpen((v) => !v)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDingTalkOpen((v) => !v); } }}
+            >
+              <span className={`collapsible-chevron${dingTalkOpen ? "" : " collapsed"}`}>▾</span>
+              <h4>{t("settings.dingTalkTitle")}</h4>
+              <label
+                className="auto-restore-label ding-talk-toggle"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  className="auto-restore-checkbox"
+                  checked={dingTalkEnabled}
+                  disabled={dingTalkBusy}
+                  onChange={(event) => setDingTalkEnabled(event.target.checked)}
+                />
+                <span className="auto-restore-track" />
+                <span className="auto-restore-text">{t("settings.dingTalkEnabled")}</span>
+              </label>
             </div>
-            {dingTalkResult && (
-              <p className={`ding-talk-result ${dingTalkResult.kind}`} role="status">{dingTalkResult.message}</p>
+            {dingTalkOpen && (
+              <>
+                <p className="settings-help">{t("settings.dingTalkDescription")}</p>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.dingTalkWebhook")}</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    value={webhook}
+                    disabled={dingTalkBusy}
+                    autoComplete="off"
+                    placeholder={hasWebhook ? t("settings.dingTalkConfigured") : "https://oapi.dingtalk.com/robot/send?access_token=..."}
+                    onChange={(event) => setWebhook(event.target.value)}
+                  />
+                </label>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.dingTalkSecret")}</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    value={secret}
+                    disabled={dingTalkBusy}
+                    autoComplete="off"
+                    placeholder={hasSecret ? t("settings.dingTalkConfigured") : t("settings.dingTalkSecretOptional")}
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                </label>
+                <div className="ding-talk-actions">
+                  <button className="modal-button primary" type="button" disabled={dingTalkBusy} onClick={saveDingTalkConfig}>
+                    {t("common.save")}
+                  </button>
+                  <button className="modal-button" type="button" disabled={dingTalkBusy || !hasWebhook} onClick={testDingTalk}>
+                    {t("settings.dingTalkTest")}
+                  </button>
+                  <button className="modal-button danger" type="button" disabled={dingTalkBusy || (!hasWebhook && !hasSecret)} onClick={clearDingTalkCredentials}>
+                    {t("settings.dingTalkClear")}
+                  </button>
+                </div>
+                {dingTalkResult && (
+                  <p className={`ding-talk-result ${dingTalkResult.kind}`} role="status">{dingTalkResult.message}</p>
+                )}
+              </>
             )}
           </section>
         </div>

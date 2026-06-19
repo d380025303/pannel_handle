@@ -95,11 +95,6 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
-          <label className="modal-field">
-            <span className="modal-label">{t("session.tags")}</span>
-            <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
-          </label>
-
           {isSsh ? (
             <div className="ssh-form">
               <div className="modal-grid two">
@@ -188,6 +183,10 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 />
               </label>
               <label className="modal-field">
+                <span className="modal-label">{t("session.tags")}</span>
+                <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
+              </label>
+              <label className="modal-field">
                 <span className="modal-label">{t("session.sshArgs")}</span>
                 <input
                   className="modal-input"
@@ -228,6 +227,10 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   onChange={(e) => setEditCommand(e.target.value)}
                   rows={3}
                 />
+              </label>
+              <label className="modal-field">
+                <span className="modal-label">{t("session.tags")}</span>
+                <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
               </label>
             </>
           )}
