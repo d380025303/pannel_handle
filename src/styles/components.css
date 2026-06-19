@@ -602,3 +602,36 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-app);
 }
+
+.ding-talk-settings h4,
+.ding-talk-settings p {
+  margin: 0;
+}
+
+.settings-help {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ding-talk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ding-talk-result {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
+.ding-talk-result.success {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.ding-talk-result.error {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}

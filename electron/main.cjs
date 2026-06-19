@@ -5,6 +5,8 @@ const { createAgentNotificationManager } = require("./agent-notification-manager
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createClipboardImageService } = require("./clipboard-image-service.cjs");
 const { createConfigStore } = require("./config-store.cjs");
+const { createDingTalkConfigStore } = require("./ding-talk-config-store.cjs");
+const { createDingTalkNotificationManager } = require("./ding-talk-notification-manager.cjs");
 const { createGitStatusService } = require("./git-status-service.cjs");
 const { createHookConfigManager } = require("./hook-config-manager.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
@@ -22,6 +24,7 @@ const { createWindowManager } = require("./window-manager.cjs");
 let windowManager = null;
 let sessionStore = null;
 let configStore = null;
+let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
 let agentHookServer = null;
@@ -32,6 +35,7 @@ let sshSessionRuntime = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
+let dingTalkNotificationManager = null;
 let gitStatusService = null;
 let projectSearchService = null;
 let clipboardImageService = null;
@@ -94,11 +98,16 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "config.json"),
       safeStorage
     });
+    dingTalkConfigStore = createDingTalkConfigStore({
+      configFile: path.join(app.getPath("userData"), "dingtalk.json"),
+      safeStorage
+    });
     knownHostStore = createKnownHostStore({
       knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json")
     });
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
+    dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     terminalManager = createTerminalManager({
       sessionStore,
@@ -110,10 +119,16 @@ if (!gotSingleInstanceLock) {
         if (agentNotificationManager) {
           agentNotificationManager.handleStatus(payload);
         }
+        if (dingTalkNotificationManager) {
+          dingTalkNotificationManager.handleStatus(payload);
+        }
       },
       onSessionClosed: (id) => {
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
+        }
+        if (dingTalkNotificationManager) {
+          dingTalkNotificationManager.clearSession(id);
         }
         if (remoteFileService) {
           void remoteFileService.disconnect(id);
@@ -129,6 +144,10 @@ if (!gotSingleInstanceLock) {
     agentNotificationManager = createAgentNotificationManager({
       Notification,
       windowManager,
+      terminalManager
+    });
+    dingTalkNotificationManager = createDingTalkNotificationManager({
+      configStore: dingTalkConfigStore,
       terminalManager
     });
     sshSessionRuntime = createSshSessionRuntime({
@@ -187,6 +206,8 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       sessionStore,
       configStore,
+      dingTalkConfigStore,
+      dingTalkNotificationManager,
       windowManager,
       clipboard,
       clipboardImageService,

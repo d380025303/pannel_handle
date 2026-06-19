@@ -13,6 +13,18 @@ export type TranslationKey =
   | "settings.theme"
   | "settings.language"
   | "settings.close"
+  | "settings.dingTalkTitle"
+  | "settings.dingTalkDescription"
+  | "settings.dingTalkEnabled"
+  | "settings.dingTalkWebhook"
+  | "settings.dingTalkSecret"
+  | "settings.dingTalkSecretOptional"
+  | "settings.dingTalkConfigured"
+  | "settings.dingTalkTest"
+  | "settings.dingTalkClear"
+  | "settings.dingTalkSaved"
+  | "settings.dingTalkCleared"
+  | "settings.dingTalkTestSuccess"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -266,6 +278,18 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
+    "settings.dingTalkTitle": "钉钉机器人通知",
+    "settings.dingTalkDescription": "仅推送等待授权、等待输入和执行失败状态。消息固定包含 Pannel Handle 关键词。",
+    "settings.dingTalkEnabled": "启用钉钉通知",
+    "settings.dingTalkWebhook": "机器人 Webhook",
+    "settings.dingTalkSecret": "加签密钥",
+    "settings.dingTalkSecretOptional": "可选，仅加签机器人需要",
+    "settings.dingTalkConfigured": "已安全保存；留空表示保持不变",
+    "settings.dingTalkTest": "发送测试消息",
+    "settings.dingTalkClear": "清除凭据",
+    "settings.dingTalkSaved": "钉钉配置已保存。",
+    "settings.dingTalkCleared": "钉钉机器人凭据已清除。",
+    "settings.dingTalkTestSuccess": "测试消息发送成功。",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -511,6 +535,18 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",
+    "settings.dingTalkTitle": "DingTalk Robot Notifications",
+    "settings.dingTalkDescription": "Only permission, input, and failure states are sent. Messages always include the Pannel Handle keyword.",
+    "settings.dingTalkEnabled": "Enable DingTalk notifications",
+    "settings.dingTalkWebhook": "Robot webhook",
+    "settings.dingTalkSecret": "Signing secret",
+    "settings.dingTalkSecretOptional": "Optional; required only when signing is enabled",
+    "settings.dingTalkConfigured": "Stored securely; leave blank to keep unchanged",
+    "settings.dingTalkTest": "Send test message",
+    "settings.dingTalkClear": "Clear credentials",
+    "settings.dingTalkSaved": "DingTalk configuration saved.",
+    "settings.dingTalkCleared": "DingTalk robot credentials cleared.",
+    "settings.dingTalkTestSuccess": "Test message sent successfully.",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",

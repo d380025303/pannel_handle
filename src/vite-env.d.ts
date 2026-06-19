@@ -47,6 +47,22 @@ export type AppConfig = {
   locale: Locale;
 };
 
+export type DingTalkConfig = {
+  enabled: boolean;
+  hasWebhook: boolean;
+  hasSecret: boolean;
+};
+
+export type DingTalkConfigInput = {
+  enabled?: boolean;
+  webhook?: string;
+  secret?: string;
+};
+
+export type DingTalkTestResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export type SessionLibraryFileResult =
   | { canceled: true }
   | { canceled: false; ok: true; filePath: string; exportedCount: number }
@@ -361,6 +377,13 @@ export type HookConfigApi = {
   install: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
 };
 
+export type DingTalkApi = {
+  getConfig: () => Promise<DingTalkConfig>;
+  setConfig: (input: DingTalkConfigInput) => Promise<DingTalkConfig>;
+  clearCredentials: () => Promise<DingTalkConfig>;
+  test: () => Promise<DingTalkTestResult>;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -370,6 +393,7 @@ declare global {
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
+    dingTalkApi: DingTalkApi;
     windowApi: WindowApi;
   }
 }

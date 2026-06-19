@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
+function registerIpcHandlers({ terminalManager, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -365,6 +365,18 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, windo
     }
     return configStore.getConfig();
   });
+
+  ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());
+
+  ipcMain.handle("dingtalk:set-config", (_event, input) => {
+    return dingTalkNotificationManager.updateConfig(input);
+  });
+
+  ipcMain.handle("dingtalk:clear-credentials", () => {
+    return dingTalkNotificationManager.clearCredentials();
+  });
+
+  ipcMain.handle("dingtalk:test", () => dingTalkNotificationManager.testConnection());
 
   ipcMain.on("window:minimize", (event) => {
     const window = windowManager.getWindowFromEvent(event);

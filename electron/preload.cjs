@@ -62,6 +62,13 @@ contextBridge.exposeInMainWorld("hookConfigApi", {
   install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
 });
 
+contextBridge.exposeInMainWorld("dingTalkApi", {
+  getConfig: () => ipcRenderer.invoke("dingtalk:get-config"),
+  setConfig: (input) => ipcRenderer.invoke("dingtalk:set-config", input),
+  clearCredentials: () => ipcRenderer.invoke("dingtalk:clear-credentials"),
+  test: () => ipcRenderer.invoke("dingtalk:test")
+});
+
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text"),
