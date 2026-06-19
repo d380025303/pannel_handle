@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, MouseEvent } from "react";
-import { ArrowDown, ArrowUp, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, RefreshCw, Save, Search, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
+import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
+import { ArrowDown, ArrowUp, ChevronRight, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, RefreshCw, Save, Search, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../i18n";
+import { flattenLoadedTree, isPathInside, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../utils/remoteFileTree";
 import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../vite-env";
 
 type RemoteFilePanelProps = {
@@ -121,7 +122,9 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
-  const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
+  const [treeRoot, setTreeRoot] = useState<RemoteFileEntry | null>(null);
+  const [directories, setDirectories] = useState<DirectoryTreeState>({});
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
   const [searchQuery, setSearchQuery] = useState("");
@@ -146,21 +149,24 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const openRequestAttemptRef = useRef(0);
   const activePreviewIdRef = useRef<string | null>(null);
   const selectedPathRef = useRef<string | null>(null);
+  const treeRootRef = useRef<RemoteFileEntry | null>(null);
+  const directoriesRef = useRef<DirectoryTreeState>({});
+  const directoryRequestRef = useRef(new Map<string, number>());
+  const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const sessionId = session?.id;
 
-  const selectedEntry = useMemo(
-    () => entries.find((entry) => entry.path === selectedPath),
-    [entries, selectedPath]
-  );
+  const selectedEntry = useMemo(() => {
+    if (treeRoot?.path === selectedPath) return treeRoot;
+    return Object.values(directories).flatMap((directory) => directory.entries)
+      .find((entry) => entry.path === selectedPath);
+  }, [directories, selectedPath, treeRoot]);
   const canOpenInExplorer = session?.type === "windows" || session?.type === "wsl";
   const contextEntry = fileContextMenu?.entry;
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const filteredEntries = useMemo(
-    () => normalizedSearchQuery
-      ? entries.filter((entry) => entry.name.toLowerCase().includes(normalizedSearchQuery))
-      : entries,
-    [entries, normalizedSearchQuery]
+  const visibleTreeNodes = useMemo(
+    () => flattenLoadedTree(treeRoot, directories, expandedPaths, normalizedSearchQuery),
+    [directories, expandedPaths, normalizedSearchQuery, treeRoot]
   );
   const isDirty = preview.status === "ready"
     && preview.preview.kind === "text"
@@ -297,13 +303,56 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setPreviewSearchQuery("");
   }, []);
 
+  const updateDirectories = useCallback((updater: (current: DirectoryTreeState) => DirectoryTreeState) => {
+    const next = updater(directoriesRef.current);
+    directoriesRef.current = next;
+    setDirectories(next);
+  }, []);
+
+  const loadTreeDirectory = useCallback(async (path: string) => {
+    if (!sessionId) return undefined;
+    const requestId = (directoryRequestRef.current.get(path) ?? 0) + 1;
+    directoryRequestRef.current.set(path, requestId);
+    updateDirectories((current) => ({
+      ...current,
+      [path]: { status: "loading", entries: current[path]?.entries ?? [] }
+    }));
+    try {
+      const nextEntries = await window.remoteFileApi.list(sessionId, path);
+      if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+      updateDirectories((current) => ({
+        ...current,
+        [path]: { status: "ready", entries: nextEntries }
+      }));
+      return nextEntries;
+    } catch (err) {
+      if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+      updateDirectories((current) => ({
+        ...current,
+        [path]: { status: "error", entries: current[path]?.entries ?? [], error: getErrorMessage(err) }
+      }));
+      throw err;
+    }
+  }, [sessionId, updateDirectories]);
+
+  const setRootDirectory = useCallback(async (path: string) => {
+    const root: RemoteFileEntry = {
+      name: baseName(path) || path,
+      path,
+      type: "directory",
+      size: 0,
+      modifiedAt: 0
+    };
+    treeRootRef.current = root;
+    directoriesRef.current = {};
+    setTreeRoot(root);
+    setDirectories({});
+    setExpandedPaths(new Set([path]));
+    return loadTreeDirectory(path);
+  }, [loadTreeDirectory]);
+
   const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
-    if (!sessionId) {
-      return undefined;
-    }
-    if (!skipConfirm && !confirmDiscard()) {
-      return undefined;
-    }
+    if (!sessionId || (!skipConfirm && !confirmDiscard())) return undefined;
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     previewRequestRef.current += 1;
@@ -316,33 +365,54 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setLoading(true);
     setError(null);
     try {
-      const nextEntries = await window.remoteFileApi.list(sessionId, path);
-      if (requestRef.current !== requestId) return;
-      setCurrentPath(path);
-      setPathInput(path);
-      onCurrentPathChange?.(path);
-      setEntries(nextEntries);
-      if (!preserveSearch) {
-        setSearchQuery("");
+      const root = treeRootRef.current;
+      let targetEntry: RemoteFileEntry | null = null;
+      let targetEntries: RemoteFileEntry[] | undefined;
+      if (root && isPathInside(path, root.path)) {
+        let current = root;
+        const expanded = new Set<string>();
+        while (!sameTreePath(current.path, path)) {
+          expanded.add(current.path);
+          const children = directoriesRef.current[current.path]?.entries ?? await loadTreeDirectory(current.path);
+          const next = children?.find((entry) => entry.type === "directory" && isPathInside(path, entry.path));
+          if (!next) throw new Error(`Directory not found: ${path}`);
+          current = next;
+        }
+        targetEntry = current;
+        expanded.add(current.path);
+        targetEntries = await loadTreeDirectory(current.path);
+        setExpandedPaths((existing) => new Set([...existing, ...expanded]));
+      } else {
+        targetEntries = await setRootDirectory(path);
+        targetEntry = treeRootRef.current;
       }
-      return nextEntries;
+      if (requestRef.current !== requestId || !targetEntry) return undefined;
+      setCurrentPath(targetEntry.path);
+      setPathInput(targetEntry.path);
+      onCurrentPathChange?.(targetEntry.path);
+      setSelectedPath(targetEntry.path);
+      selectedPathRef.current = targetEntry.path;
+      if (!preserveSearch) setSearchQuery("");
+      return targetEntries;
     } catch (err) {
-      if (requestRef.current !== requestId) return;
-      setError(getErrorMessage(err));
+      if (requestRef.current === requestId) setError(getErrorMessage(err));
     } finally {
-      if (requestRef.current === requestId) {
-        setLoading(false);
-      }
+      if (requestRef.current === requestId) setLoading(false);
     }
     return undefined;
-  }, [closeFileContextMenu, confirmDiscard, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, confirmDiscard, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId, setRootDirectory]);
 
   useEffect(() => {
     if (!sessionId) {
       onCurrentPathChange?.(".");
       setCurrentPath(".");
       setPathInput(".");
-      setEntries([]);
+      treeRootRef.current = null;
+      directoriesRef.current = {};
+      directoryRequestRef.current.clear();
+      setTreeRoot(null);
+      setDirectories({});
+      setExpandedPaths(new Set());
       selectedPathRef.current = null;
       setSelectedPath(null);
       closeFileContextMenu();
@@ -379,12 +449,13 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
+      directoryRequestRef.current.forEach((value, path) => directoryRequestRef.current.set(path, value + 1));
       releaseActivePreview();
     };
-  }, [closeFileContextMenu, confirmDiscard, loadDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
+  }, [closeFileContextMenu, loadDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
-    if (!force && entry.path === selectedPathRef.current) {
+    if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {
       return;
     }
     if (!confirmDiscard()) {
@@ -395,7 +466,23 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     resetEditor();
     releaseActivePreview();
     if (entry.type === "directory") {
-      await loadDirectory(entry.path, false, true);
+      setCurrentPath(entry.path);
+      setPathInput(entry.path);
+      onCurrentPathChange?.(entry.path);
+      const isExpanded = expandedPaths.has(entry.path);
+      setExpandedPaths((current) => {
+        const next = new Set(current);
+        if (isExpanded) next.delete(entry.path);
+        else next.add(entry.path);
+        return next;
+      });
+      if (!isExpanded && !directoriesRef.current[entry.path]) {
+        try {
+          await loadTreeDirectory(entry.path);
+        } catch (err) {
+          setError(getErrorMessage(err));
+        }
+      }
       return;
     }
 
@@ -432,7 +519,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         message: getErrorMessage(err)
       });
     }
-  }, [confirmDiscard, loadDirectory, releaseActivePreview, resetEditor, sessionId]);
+  }, [confirmDiscard, expandedPaths, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
 
   useEffect(() => {
     if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
@@ -483,9 +570,31 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     };
   }, [confirmDiscard, handleOpenEntry, loadDirectory, onOpenRequestHandled, openRequest, sessionId]);
 
+  const findCachedParentPath = useCallback((entryPath: string) => (
+    Object.entries(directoriesRef.current).find(([, directory]) => (
+      directory.entries.some((entry) => entry.path === entryPath)
+    ))?.[0] ?? parentPath(entryPath)
+  ), []);
+
+  const refreshDirectory = useCallback(async (path: string, collapseDescendants = false) => {
+    if (collapseDescendants) {
+      updateDirectories((current) => {
+        const branchless = removeTreeBranch(current, path);
+        return current[path] ? { ...branchless, [path]: current[path] } : branchless;
+      });
+      setExpandedPaths((current) => new Set([...current].filter((candidate) => candidate === path || !isPathInside(candidate, path))));
+    }
+    try {
+      return await loadTreeDirectory(path);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      return undefined;
+    }
+  }, [loadTreeDirectory, updateDirectories]);
+
   const handleRefresh = useCallback(() => {
-    void loadDirectory(currentPath, true);
-  }, [currentPath, loadDirectory]);
+    void refreshDirectory(currentPath, true);
+  }, [currentPath, refreshDirectory]);
 
   const handlePathSubmit = useCallback(() => {
     void loadDirectory(pathInput.trim() || ".");
@@ -495,10 +604,9 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     if (!sessionId) return;
     const result = await window.remoteFileApi.uploadFile(sessionId, currentPath);
     if (!result.canceled) {
-      const nextEntries = await window.remoteFileApi.list(sessionId, currentPath);
-      setEntries(nextEntries);
+      await refreshDirectory(currentPath);
     }
-  }, [currentPath, sessionId]);
+  }, [currentPath, refreshDirectory, sessionId]);
 
   const uploadDroppedFiles = useCallback(async (files: FileList, targetDir: string) => {
     if (!sessionId) return;
@@ -512,15 +620,14 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     try {
       const result = await window.remoteFileApi.uploadDroppedFiles(sessionId, targetDir, files);
       if (!result.canceled) {
-        const nextEntries = await window.remoteFileApi.list(sessionId, currentPath);
-        setEntries(nextEntries);
+        await refreshDirectory(targetDir);
       }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setUploadingCount(0);
     }
-  }, [closeFileContextMenu, currentPath, sessionId, t]);
+  }, [closeFileContextMenu, refreshDirectory, sessionId, t]);
 
   const handleLocalFileDragOver = useCallback((event: DragEvent<HTMLElement>, targetDir = currentPath) => {
     if (!hasLocalFileDrag(event)) {
@@ -587,6 +694,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     if (!window.confirm(t("confirm.deleteEntry", { name: entry.name }))) return;
     try {
       await window.remoteFileApi.deleteEntry(sessionId, entry.path);
+      const parentDirectory = findCachedParentPath(entry.path);
       if (entry.path === selectedPathRef.current) {
         releaseActivePreview();
         setPreview({ status: "idle" });
@@ -594,11 +702,20 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         setSelectedPath(null);
         selectedPathRef.current = null;
       }
-      void loadDirectory(currentPath, true, true);
+      if (sameTreePath(currentPath, entry.path) || isPathInside(currentPath, entry.path)) {
+        setCurrentPath(parentDirectory);
+        setPathInput(parentDirectory);
+        onCurrentPathChange?.(parentDirectory);
+        setSelectedPath(parentDirectory);
+        selectedPathRef.current = parentDirectory;
+      }
+      updateDirectories((current) => removeTreeBranch(current, entry.path));
+      setExpandedPaths((current) => new Set([...current].filter((candidate) => !isPathInside(candidate, entry.path))));
+      await refreshDirectory(parentDirectory);
     } catch (err) {
       setError(getErrorMessage(err));
     }
-  }, [closeFileContextMenu, currentPath, loadDirectory, releaseActivePreview, resetEditor, sessionId, t]);
+  }, [closeFileContextMenu, currentPath, findCachedParentPath, onCurrentPathChange, refreshDirectory, releaseActivePreview, resetEditor, sessionId, t, updateDirectories]);
 
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
@@ -704,12 +821,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       setOriginalContent(editorContent);
       setSaveState({ status: "idle" });
       if (sessionId === preview.sessionId) {
-        window.remoteFileApi.list(sessionId, currentPath)
-          .then((nextEntries) => {
-            if (saveRequestRef.current === requestId) {
-              setEntries(nextEntries);
-            }
-          })
+        refreshDirectory(findCachedParentPath(preview.path))
           .catch((err) => {
             if (saveRequestRef.current === requestId) {
               setError(getErrorMessage(err));
@@ -720,7 +832,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       if (saveRequestRef.current !== requestId) return;
       setSaveState({ status: "error", message: getErrorMessage(err) });
     }
-  }, [currentPath, editorContent, isDirty, preview, saveState.status, sessionId, t]);
+  }, [editorContent, findCachedParentPath, isDirty, preview, refreshDirectory, saveState.status, sessionId, t]);
 
   const movePreviewMatch = useCallback((direction: 1 | -1) => {
     if (!previewMatches.length) {
@@ -736,6 +848,28 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     : preview.status === "ready" && preview.preview.kind === "video"
       ? <Video aria-hidden="true" />
       : <FileText aria-hidden="true" />;
+
+  const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, node: VisibleTreeNode, index: number) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const nextIndex = Math.max(0, Math.min(visibleTreeNodes.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      treeRowRefs.current.get(visibleTreeNodes[nextIndex]?.entry.path)?.focus();
+      return;
+    }
+    if (event.key === "ArrowRight" && node.entry.type === "directory" && !expandedPaths.has(node.entry.path)) {
+      event.preventDefault();
+      void handleOpenEntry(node.entry);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (node.entry.type === "directory" && expandedPaths.has(node.entry.path)) {
+        void handleOpenEntry(node.entry);
+      } else if (node.parentPath) {
+        treeRowRefs.current.get(node.parentPath)?.focus();
+      }
+    }
+  };
 
   if (!sessionId || !session) {
     return (
@@ -833,50 +967,75 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         </div>
       )}
 
-      <div className="remote-file-list" aria-busy={loading} onScroll={closeFileContextMenu}>
+      <div className="remote-file-list" role="tree" aria-busy={loading} onScroll={closeFileContextMenu}>
         {loading ? (
           <div className="remote-file-empty">{t("files.loading")}</div>
-        ) : entries.length === 0 && !error ? (
+        ) : !treeRoot && !error ? (
           <div className="remote-file-empty">{t("files.emptyDirectory")}</div>
-        ) : filteredEntries.length === 0 ? (
+        ) : visibleTreeNodes.length === 0 ? (
           <div className="remote-file-empty">{t("files.noMatches")}</div>
         ) : (
-          filteredEntries.map((entry) => (
-            <button
-              className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""} ${dropTargetPath === entry.path ? "drop-target" : ""} ${downloadDragPath === entry.path ? "drag-preparing" : ""}`}
-              key={entry.path}
-              type="button"
-              draggable={entry.type !== "directory"}
-              onClick={() => {
-                closeFileContextMenu();
-                void handleOpenEntry(entry);
-              }}
-              onContextMenu={(event) => handleFileContextMenu(event, entry)}
-              onDragStart={(event) => handleRemoteFileDragStart(event, entry)}
-              onDragOver={(event) => {
-                if (entry.type === "directory") {
-                  handleLocalFileDragOver(event, entry.path);
-                }
-              }}
-              onDragLeave={(event) => {
-                if (entry.type === "directory") {
-                  handleLocalFileDragLeave(event, entry.path);
-                }
-              }}
-              onDrop={(event) => {
-                if (entry.type === "directory") {
-                  handleLocalFileDrop(event, entry.path);
-                }
-              }}
-            >
-              <span className={`remote-file-icon ${entry.type}`}>
-                {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
-              </span>
-              <span className="remote-file-name">{entry.name}</span>
-              <span className="remote-file-meta">{entry.type === "directory" ? t("files.folder") : formatSize(entry.size)}</span>
-              <span className="remote-file-meta">{formatModifiedAt(entry.modifiedAt)}</span>
-            </button>
-          ))
+          visibleTreeNodes.map((node, index) => {
+            const { entry, depth } = node;
+            const directoryState = entry.type === "directory" ? directories[entry.path] : undefined;
+            const expanded = entry.type === "directory" && expandedPaths.has(entry.path);
+            const showEmpty = expanded && directoryState?.status === "ready" && directoryState.entries.length === 0;
+            const showError = expanded && directoryState?.status === "error";
+            return (
+              <div className="remote-file-tree-item" key={entry.path}>
+                <button
+                  ref={(element) => {
+                    if (element) treeRowRefs.current.set(entry.path, element);
+                    else treeRowRefs.current.delete(entry.path);
+                  }}
+                  className={`remote-file-row ${selectedPath === entry.path ? "selected" : ""} ${dropTargetPath === entry.path ? "drop-target" : ""} ${downloadDragPath === entry.path ? "drag-preparing" : ""}`}
+                  style={{ "--remote-file-depth": depth } as CSSProperties}
+                  role="treeitem"
+                  aria-level={depth + 1}
+                  aria-expanded={entry.type === "directory" ? expanded : undefined}
+                  type="button"
+                  draggable={entry.type !== "directory"}
+                  onClick={() => {
+                    closeFileContextMenu();
+                    void handleOpenEntry(entry);
+                  }}
+                  onKeyDown={(event) => handleTreeKeyDown(event, node, index)}
+                  onContextMenu={depth === 0 ? undefined : (event) => handleFileContextMenu(event, entry)}
+                  onDragStart={(event) => handleRemoteFileDragStart(event, entry)}
+                  onDragOver={(event) => {
+                    if (entry.type === "directory") handleLocalFileDragOver(event, entry.path);
+                  }}
+                  onDragLeave={(event) => {
+                    if (entry.type === "directory") handleLocalFileDragLeave(event, entry.path);
+                  }}
+                  onDrop={(event) => {
+                    if (entry.type === "directory") handleLocalFileDrop(event, entry.path);
+                  }}
+                >
+                  <span className={`remote-file-expander ${expanded ? "expanded" : ""}`}>
+                    {entry.type === "directory" && (
+                      directoryState?.status === "loading"
+                        ? <LoaderCircle className="remote-file-spinner" aria-hidden="true" />
+                        : <ChevronRight aria-hidden="true" />
+                    )}
+                  </span>
+                  <span className={`remote-file-icon ${entry.type}`}>
+                    {entry.type === "directory" ? (expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />) : <File aria-hidden="true" />}
+                  </span>
+                  <span className="remote-file-name" title={entry.path}>{entry.name}</span>
+                  <span className="remote-file-meta">{entry.type === "directory" ? t("files.folder") : formatSize(entry.size)}</span>
+                  <span className="remote-file-meta">{formatModifiedAt(entry.modifiedAt)}</span>
+                </button>
+                {showEmpty && <div className="remote-file-tree-message" style={{ "--remote-file-depth": depth + 1 } as CSSProperties}>{t("files.emptyDirectory")}</div>}
+                {showError && (
+                  <div className="remote-file-tree-message error" style={{ "--remote-file-depth": depth + 1 } as CSSProperties}>
+                    <span>{directoryState.error}</span>
+                    <button type="button" onClick={() => void refreshDirectory(entry.path)}>{t("common.retry")}</button>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

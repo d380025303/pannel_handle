@@ -2137,18 +2137,72 @@
 
 .remote-file-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 68px 74px;
+  grid-template-columns: 14px 18px minmax(0, 1fr) 68px 74px;
   align-items: center;
   gap: 7px;
   min-height: 34px;
   width: 100%;
-  padding: 5px 6px;
+  padding: 5px 6px 5px calc(6px + var(--remote-file-depth, 0) * 16px);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: transparent;
   cursor: pointer;
   text-align: left;
+}
+
+.remote-file-tree-item {
+  display: contents;
+}
+
+.remote-file-expander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-subtle);
+}
+
+.remote-file-expander svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 120ms ease;
+}
+
+.remote-file-expander.expanded > svg:not(.remote-file-spinner) {
+  transform: rotate(90deg);
+}
+
+.remote-file-spinner {
+  animation: remote-file-spin 800ms linear infinite;
+}
+
+@keyframes remote-file-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.remote-file-tree-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 6px 4px calc(38px + var(--remote-file-depth, 0) * 16px);
+  color: var(--color-text-subtle);
+  font-size: 11px;
+}
+
+.remote-file-tree-message.error {
+  color: var(--color-danger-text);
+}
+
+.remote-file-tree-message button {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .remote-file-row:hover {
