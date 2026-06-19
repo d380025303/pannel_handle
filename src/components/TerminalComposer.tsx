@@ -194,6 +194,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
           onClick={(event) => setMention(getMentionAtCaret(value, event.currentTarget.selectionStart))}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
+            if (event.key === "Enter" && (event.ctrlKey || event.altKey || event.metaKey) && !event.shiftKey) {
+              event.preventDefault();
+              insertText("\n");
+              return;
+            }
             if (mention && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
               event.preventDefault();
               const direction = event.key === "ArrowDown" ? 1 : -1;
