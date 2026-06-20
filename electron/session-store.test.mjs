@@ -109,6 +109,20 @@ describe("session-store", () => {
     expect(store.createTemplateId()).toBe("4");
   });
 
+  it("preserves explicit Agent providers without inferring legacy CLI commands", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", title: "Legacy", initialCommand: "claude" },
+      { id: "2", title: "Agent", agentProvider: "codex", initialCommand: "pnpm install" },
+      { id: "3", title: "Invalid", agentProvider: "unknown" }
+    ]), "utf-8");
+
+    const sessions = createStore(sessionsFile).loadLibrary();
+    expect(sessions[0].agentProvider).toBeUndefined();
+    expect(sessions[1]).toMatchObject({ agentProvider: "codex", initialCommand: "pnpm install" });
+    expect(sessions[2].agentProvider).toBeUndefined();
+  });
+
   it("adds, updates, removes, and persists library sessions", () => {
     vi.spyOn(Date, "now").mockReturnValue(12345);
     const sessionsFile = createTempSessionsFile();
@@ -145,6 +159,17 @@ describe("session-store", () => {
 
     expect(store.getLibrary()).toEqual([]);
     expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))).toEqual([]);
+  });
+
+  it("clears a persisted Agent provider when updated with null", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({ id: "1", title: "Agent", agentProvider: "claude" });
+
+    store.updateLibrary("1", { agentProvider: null });
+
+    expect(store.getTemplate("1").agentProvider).toBeUndefined();
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].agentProvider).toBeUndefined();
   });
 
   it("returns an empty library for missing or invalid session files", () => {

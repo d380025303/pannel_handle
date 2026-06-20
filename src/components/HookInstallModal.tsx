@@ -13,7 +13,7 @@ type HookInstallModalProps = {
 };
 
 const localProviders: HookProvider[] = ["claude", "codex", "opencode", "qoder"];
-const sshProviders: HookProvider[] = ["claude", "codex", "qoder"];
+const sshProviders: HookProvider[] = ["claude", "codex", "opencode", "qoder"];
 
 const providerNames: Record<HookProvider, string> = {
   claude: "Claude Code",

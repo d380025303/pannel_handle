@@ -9,7 +9,7 @@ const {
 } = require("./hook-config-manager.cjs");
 const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
-const SSH_PROVIDERS = ["claude", "codex", "qoder"];
+const SSH_PROVIDERS = ["claude", "codex", "opencode", "qoder"];
 
 function normalizeRemotePath(value) {
   const remotePath = String(value || "").trim().replace(/\\/g, "/");
@@ -40,9 +40,9 @@ function buildRemoteHookCommand(provider, hookUrl, sessionId) {
 function getProviderPaths(projectPath, provider) {
   const definition = PROVIDER_CONFIG[provider];
   return {
-    configPath: posix.join(projectPath, ...definition.configPath),
-    scriptPath: posix.join(projectPath, ...definition.wslScriptPath),
-    assetPath: path.join(__dirname, "hook-assets", definition.wslAsset)
+    configPath: definition.configPath ? posix.join(projectPath, ...definition.configPath) : undefined,
+    scriptPath: posix.join(projectPath, ...(definition.scriptPath || definition.wslScriptPath)),
+    assetPath: path.join(__dirname, "hook-assets", definition.asset || definition.wslAsset)
   };
 }
 
@@ -142,6 +142,14 @@ function createRemoteHookConfigService({
     const paths = getProviderPaths(projectPath, provider);
     const expectedScript = fs.readFileSync(paths.assetPath, "utf-8");
     const script = await readRemoteText(sftp, paths.scriptPath);
+    if (!paths.configPath) {
+      return {
+        status: script.exists && script.content === expectedScript ? "installed" : script.exists ? "needs_repair" : "not_installed",
+        scriptPath: paths.scriptPath,
+        managedHookCount: script.exists ? 1 : 0,
+        expectedHookCount: 1
+      };
+    }
     const configFile = await readRemoteText(sftp, paths.configPath);
     const config = parseRemoteJson(paths.configPath, configFile.content);
     const expectedConfig = buildConfig(config, provider, "ssh", buildRemoteHookCommand(provider, hookUrl, sessionId));
@@ -209,10 +217,12 @@ function createRemoteHookConfigService({
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, provider);
         const expectedScript = fs.readFileSync(paths.assetPath, "utf-8");
-        const configFile = await readRemoteText(sftp, paths.configPath);
-        const config = parseRemoteJson(paths.configPath, configFile.content);
-        const nextConfig = buildConfig(config, provider, "ssh", buildRemoteHookCommand(provider, hookUrl, sessionId));
-        await writeRemoteText(sftp, paths.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, snapshots);
+        if (paths.configPath) {
+          const configFile = await readRemoteText(sftp, paths.configPath);
+          const config = parseRemoteJson(paths.configPath, configFile.content);
+          const nextConfig = buildConfig(config, provider, "ssh", buildRemoteHookCommand(provider, hookUrl, sessionId));
+          await writeRemoteText(sftp, paths.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, snapshots);
+        }
         await writeRemoteText(sftp, paths.scriptPath, expectedScript, snapshots);
       }
 

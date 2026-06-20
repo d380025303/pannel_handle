@@ -2,6 +2,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
 const { createAgentNotificationManager } = require("./agent-notification-manager.cjs");
+const { createAgentSessionLauncher } = require("./agent-session-launcher.cjs");
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 const { createClipboardImageService } = require("./clipboard-image-service.cjs");
 const { createConfigStore } = require("./config-store.cjs");
@@ -35,6 +36,7 @@ let sshSessionRuntime = null;
 let remoteHookConfigService = null;
 let hookConfigManager = null;
 let agentNotificationManager = null;
+let agentSessionLauncher = null;
 let dingTalkNotificationManager = null;
 let gitStatusService = null;
 let projectSearchService = null;
@@ -83,7 +85,7 @@ if (!gotSingleInstanceLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (process.platform === "win32") {
       app.setAppUserModelId("local.pannel-handle");
     }
@@ -189,6 +191,13 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       sshHookTunnelService
     });
+    agentSessionLauncher = createAgentSessionLauncher({
+      terminalManager,
+      hookConfigManager,
+      remoteHookConfigService,
+      sshSessionRuntime,
+      sshHookTunnelService
+    });
     gitStatusService = createGitStatusService({
       terminalManager,
       sessionStore,
@@ -201,9 +210,10 @@ if (!gotSingleInstanceLock) {
     });
 
     sessionStore.loadLibrary();
-    agentHookServer.start();
+    await agentHookServer.start();
     registerIpcHandlers({
       terminalManager,
+      agentSessionLauncher,
       sessionStore,
       configStore,
       dingTalkConfigStore,

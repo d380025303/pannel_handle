@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentProvider, AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { generateId } from "../utils/id";
 
 type CreateSessionOptions = {
@@ -7,6 +7,7 @@ type CreateSessionOptions = {
   title?: string;
   cwd?: string;
   initialCommand?: string;
+  agentProvider?: AgentProvider;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -19,6 +20,7 @@ export function useTerminalSessions() {
   const [pickerManual, setPickerManual] = useState(false);
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
+  const [startupError, setStartupError] = useState<string | null>(null);
   const hasAutoRestored = useRef(false);
 
   const activeSession = useMemo(
@@ -68,6 +70,10 @@ export function useTerminalSessions() {
             const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
             const newest = matches[matches.length - 1];
             if (newest) setActiveId(newest.id);
+          }).catch((err) => {
+            if (isDisposed) return;
+            setStartupError(err?.message || String(err));
+            setPendingSessions(saved);
           });
           return;
         }
@@ -107,7 +113,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, sshConfig, tags }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, sshConfig, tags }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -117,6 +123,7 @@ export function useTerminalSessions() {
       ...(title ? { title } : {}),
       ...(cwd ? { cwd } : {}),
       ...(initialCommand ? { initialCommand } : {}),
+      ...(agentProvider ? { agentProvider } : {}),
       tags
     });
     setLibrarySessions(await window.terminalApi.loadSavedSessions());
@@ -127,11 +134,12 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
     await window.terminalApi.updateSession(id, {
       title,
       cwd,
       initialCommand: initialCommand.trim(),
+      agentProvider: agentProvider ?? null,
       sshConfig,
       quickCommands,
       tags
@@ -145,7 +153,7 @@ export function useTerminalSessions() {
     if (!id || !session) return;
     const newCmd: QuickCommand = { id: generateId(), command, mode };
     const updated = [...(session.quickCommands ?? []), newCmd];
-    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', updated, session.sshConfig, session.tags);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
   const removeQuickCommandFromActiveSession = useCallback(async (commandId: string) => {
@@ -153,7 +161,7 @@ export function useTerminalSessions() {
     const session = activeSession;
     if (!id || !session) return;
     const updated = (session.quickCommands ?? []).filter((qc) => qc.id !== commandId);
-    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', updated, session.sshConfig, session.tags);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
   const openPicker = useCallback(async () => {
@@ -177,12 +185,18 @@ export function useTerminalSessions() {
   }, []);
 
   const launchSessions = useCallback(async (toLaunch: TerminalSession[]) => {
-    const targetTemplateId = toLaunch[0]?.id;
-    const updatedSessions = await window.terminalApi.launchSessions(toLaunch);
-    if (targetTemplateId) {
-      const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
-      const newest = matches[matches.length - 1];
-      if (newest) setActiveId(newest.id);
+    setStartupError(null);
+    try {
+      const targetTemplateId = toLaunch[0]?.id;
+      const updatedSessions = await window.terminalApi.launchSessions(toLaunch);
+      if (targetTemplateId) {
+        const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
+        const newest = matches[matches.length - 1];
+        if (newest) setActiveId(newest.id);
+      }
+    } catch (err: any) {
+      setStartupError(err?.message || String(err));
+      throw err;
     }
   }, []);
 
@@ -226,6 +240,8 @@ export function useTerminalSessions() {
     activeSession,
     agentStatusesBySessionId,
     activeAgentStatus,
+    startupError,
+    clearStartupError: () => setStartupError(null),
     quickCommandsForActiveSession,
     tagSuggestions,
     pendingSessions,

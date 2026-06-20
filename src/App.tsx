@@ -22,7 +22,7 @@ import { useWindowState } from "./hooks/useWindowState";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/CreateSessionModal";
-import type { AgentHookDebugPayload, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, AgentProvider, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 
@@ -210,8 +210,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, quickCommands, sshConfig, tags);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, quickCommands, sshConfig, tags);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -283,6 +283,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} onOpenSettings={() => setShowSettingsModal(true)} />
+        {terminalSessions.startupError && (
+          <div className="startup-error-banner" role="alert">
+            <span>{terminalSessions.startupError}</span>
+            <button type="button" onClick={terminalSessions.clearStartupError} aria-label={t("common.close")}>×</button>
+          </div>
+        )}
 
         <main className="app-shell" style={{ gridTemplateColumns: appShellColumns }}>
           <SessionSidebar

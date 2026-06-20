@@ -661,3 +661,30 @@
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
+.agent-provider-field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.agent-provider-list {
+  margin-top: 8px;
+}
+
+.startup-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  color: var(--danger-text, #fecaca);
+  background: var(--danger-bg, #450a0a);
+  border-bottom: 1px solid var(--danger-border, #7f1d1d);
+}
+
+.startup-error-banner button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}

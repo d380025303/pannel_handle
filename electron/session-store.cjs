@@ -1,5 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
+
+const AGENT_PROVIDERS = new Set(["claude", "codex", "opencode", "qoder"]);
 const { sanitizeSshConfig } = require("./ssh-config-utils.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {
@@ -110,6 +112,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       cwd: template.cwd,
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
+      agentProvider: AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

@@ -7,8 +7,8 @@ type SessionPickerModalProps = {
   pendingSessions: TerminalSession[];
   runningSessions: TerminalSession[];
   pickerManual: boolean;
-  onLaunch: (sessions: TerminalSession[]) => void;
-  onStartFresh: () => void;
+  onLaunch: (sessions: TerminalSession[]) => Promise<void>;
+  onStartFresh: () => Promise<void>;
   onDelete: (id: string) => void;
   onReorder: (sessions: TerminalSession[]) => void;
   onImport: () => Promise<SessionLibraryImportResult>;
@@ -43,6 +43,8 @@ export function SessionPickerModal({
   const [libraryStatus, setLibraryStatus] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
 
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
@@ -172,6 +174,19 @@ export function SessionPickerModal({
     }
   };
 
+  const handleLaunch = async (sessions: TerminalSession[]) => {
+    if (sessions.length === 0 || isLaunching) return;
+    setIsLaunching(true);
+    setLaunchError(null);
+    try {
+      await onLaunch(sessions);
+    } catch (err: any) {
+      setLaunchError(err?.message || t("picker.launchFailed"));
+    } finally {
+      setIsLaunching(false);
+    }
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal-dialog session-picker-dialog">
@@ -194,6 +209,7 @@ export function SessionPickerModal({
               {libraryStatus.text}
             </div>
           )}
+          {launchError && <div className="picker-library-status error">{launchError}</div>}
           {pendingSessions.length === 0 ? (
             <div className="picker-empty"><p>{t("picker.empty")}</p></div>
           ) : (
@@ -261,7 +277,7 @@ export function SessionPickerModal({
                         }}
                         onClick={() => {
                           setConfirmDeleteId(null);
-                          onLaunch([session]);
+                          void handleLaunch([session]);
                         }}
                       >
                         <span className={`picker-drag-handle${isFiltering ? " disabled" : ""}`} onClick={(event) => event.stopPropagation()}>
@@ -336,10 +352,10 @@ export function SessionPickerModal({
           )}
         </div>
         <div className="modal-footer">
-          {!pickerManual && <button className="modal-button" type="button" onClick={onStartFresh}>{t("picker.startFresh")}</button>}
-          <button className="modal-button" type="button" onClick={onCancel}>{pickerManual ? t("common.close") : t("common.cancel")}</button>
-          <button className="modal-button primary" type="button" onClick={() => onLaunch(toLaunch)} disabled={toLaunch.length === 0}>
-            {t("picker.launchSelected", { count: toLaunch.length })}
+          {!pickerManual && <button className="modal-button" type="button" disabled={isLaunching} onClick={() => void onStartFresh()}>{t("picker.startFresh")}</button>}
+          <button className="modal-button" type="button" disabled={isLaunching} onClick={onCancel}>{pickerManual ? t("common.close") : t("common.cancel")}</button>
+          <button className="modal-button primary" type="button" onClick={() => void handleLaunch(toLaunch)} disabled={isLaunching || toLaunch.length === 0}>
+            {isLaunching ? t("picker.launching") : t("picker.launchSelected", { count: toLaunch.length })}
           </button>
         </div>
       </div>

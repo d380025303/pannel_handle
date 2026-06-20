@@ -43,4 +43,4 @@
 
 ## 注意
 
-当 Claude 使用 plan mode 时，计划内容需要为中文。
+当使用 plan mode 时，计划内容需要为中文。

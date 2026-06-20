@@ -63,6 +63,7 @@ function createManager(overrides = {}) {
       cwd: template.cwd || (template.type === "wsl" || template.type === "ssh" ? "~" : "C:\\Users\\tester"),
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
+      agentProvider: template.agentProvider,
       type: template.type || "windows",
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -199,6 +200,39 @@ describe("terminal-manager", () => {
     expect(() => manager.resize(session.id, 90, 24)).not.toThrow();
     expect(manager.closeSession(session.id)).toEqual([]);
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("persists Agent changes and explicitly clears the saved provider", () => {
+    const { manager, sessionStore } = createManager();
+    const session = manager.createSession({ title: "Agent", agentProvider: "claude" });
+
+    manager.updateSession(session.id, { agentProvider: "codex" });
+    expect(manager.getSession(session.id).agentProvider).toBe("codex");
+    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: "codex" });
+
+    manager.updateSession(session.id, { agentProvider: null });
+    expect(manager.getSession(session.id).agentProvider).toBeUndefined();
+    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: null });
+  });
+
+  it("uses a generated runtime command without replacing the saved Agent pre-command", () => {
+    const { manager, term, sessionStore } = createManager();
+
+    const session = manager.createSession({
+      title: "Claude",
+      cwd: "C:\\work",
+      initialCommand: "pnpm install",
+      agentProvider: "claude",
+      runtimeInitialCommand: "& { pnpm install }; if ($?) { claude }"
+    });
+    term.emitData("ready");
+
+    expect(session).toMatchObject({ initialCommand: "pnpm install", agentProvider: "claude" });
+    expect(term.writes).toEqual(["& { pnpm install }; if ($?) { claude }\r"]);
+    expect(sessionStore.addToLibrary).toHaveBeenCalledWith(expect.objectContaining({
+      initialCommand: "pnpm install",
+      agentProvider: "claude"
+    }));
   });
 
   it("shares and persists the ten most recent Git directories per template", () => {

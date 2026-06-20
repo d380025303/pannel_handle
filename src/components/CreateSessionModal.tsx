@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../i18n";
-import type { SshConfig } from "../vite-env";
+import type { AgentProvider, SshConfig } from "../vite-env";
+import { AgentProviderSelect } from "./AgentProviderSelect";
 import { TagInput } from "./TagInput";
 
 export type CreateSessionRequest = {
@@ -9,6 +10,7 @@ export type CreateSessionRequest = {
   title?: string;
   cwd?: string;
   initialCommand?: string;
+  agentProvider?: AgentProvider;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -25,6 +27,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [title, setTitle] = useState("");
   const [cwd, setCwd] = useState("");
   const [commandInput, setCommandInput] = useState("");
+  const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>();
   const [selectedShellId, setSelectedShellId] = useState("powershell");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
@@ -37,7 +40,10 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [submitting, setSubmitting] = useState(false);
 
   const isSsh = selectedShellId === "ssh";
-  const canCreate = useMemo(() => !isSsh || sshHost.trim().length > 0, [isSsh, sshHost]);
+  const canCreate = useMemo(
+    () => (!isSsh || sshHost.trim().length > 0) && (!agentProvider || cwd.trim().length > 0),
+    [agentProvider, cwd, isSsh, sshHost]
+  );
 
   const handleCreate = async () => {
     if (!canCreate) {
@@ -51,6 +57,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         title: title.trim() || undefined,
         cwd: cwd.trim() || undefined,
         initialCommand: commandInput.trim() || undefined,
+        agentProvider,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
@@ -115,6 +122,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
               SSH
             </button>
           </div>
+          <AgentProviderSelect value={agentProvider} onChange={setAgentProvider} />
+          {agentProvider && !cwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}
           {isSsh ? (
             <div className="ssh-form">
               <div className="modal-grid two">
@@ -194,7 +203,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">{t("session.initialCommand")}</span>
+                  <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
                   placeholder={t("session.initialCommandPlaceholder", { example: "pnpm dev" })}
@@ -223,7 +232,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">{t("session.initialCommand")}</span>
+                <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
                   placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}

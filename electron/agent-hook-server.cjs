@@ -10,6 +10,7 @@ function createAgentHookServer({ terminalManager }) {
   };
   let hookServer = null;
   let claudeHookUrl = "";
+  let startPromise = null;
 
   function normalizeCwd(value) {
     if (typeof value !== "string" || value.length === 0) {
@@ -361,9 +362,7 @@ function createAgentHookServer({ terminalManager }) {
   }
 
   function start() {
-    if (hookServer) {
-      return;
-    }
+    if (startPromise) return startPromise;
 
     hookServer = http.createServer((req, res) => {
       if (req.method === "POST" && req.url === "/claude-hook") {
@@ -387,16 +386,24 @@ function createAgentHookServer({ terminalManager }) {
       res.end("not found");
     });
 
-    hookServer.listen(0, "127.0.0.1", () => {
-      const address = hookServer.address();
-      if (address && typeof address === "object") {
-        claudeHookUrl = `http://127.0.0.1:${address.port}/claude-hook`;
-      }
+    startPromise = new Promise((resolve, reject) => {
+      const handleStartupError = (err) => {
+        startPromise = null;
+        hookServer = null;
+        reject(err);
+      };
+      hookServer.once("error", handleStartupError);
+      hookServer.listen(0, "127.0.0.1", () => {
+        hookServer.off("error", handleStartupError);
+        hookServer.on("error", (err) => console.error("Agent hook server error:", err));
+        const address = hookServer.address();
+        if (address && typeof address === "object") {
+          claudeHookUrl = `http://127.0.0.1:${address.port}/claude-hook`;
+        }
+        resolve();
+      });
     });
-
-    hookServer.on("error", (err) => {
-      console.error("Failed to run agent hook server:", err);
-    });
+    return startPromise;
   }
 
   function stop() {
@@ -404,6 +411,7 @@ function createAgentHookServer({ terminalManager }) {
       hookServer.close();
       hookServer = null;
       claudeHookUrl = "";
+      startPromise = null;
     }
   }
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { useI18n } from "../i18n";
-import type { QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentProvider, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import { AgentProviderSelect } from "./AgentProviderSelect";
 import { TagInput } from "./TagInput";
 import { SearchableSelect } from "./SearchableSelect";
 import { generateId } from "../utils/id";
@@ -9,7 +10,7 @@ import { generateId } from "../utils/id";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => void;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -18,6 +19,9 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
+  const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>(session.agentProvider);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
     () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || "write" as const }))
   );
@@ -32,12 +36,20 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
 
-  const handleSave = () => {
-    onSave(
+  const handleSave = async () => {
+    if (agentProvider && !editCwd.trim()) {
+      setError(t("session.agentCwdRequired"));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSave(
       session.id,
       editTitle,
       editCwd,
       editCommand,
+      agentProvider,
       quickCommands,
       isSsh ? {
         host: sshHost.trim(),
@@ -50,7 +62,11 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         remark: sshRemark.trim() || undefined
       } : undefined,
       tags
-    );
+      );
+    } catch (err: any) {
+      setError(err?.message || t("session.updateFailed"));
+      setSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -85,6 +101,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
           <h3>{t("session.editTitle")}</h3>
         </div>
         <div className="modal-body">
+          {error && <div className="modal-error">{error}</div>}
           <label className="modal-field">
             <span className="modal-label">{t("session.name")}</span>
             <input
@@ -95,6 +112,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
+          <AgentProviderSelect value={agentProvider} onChange={setAgentProvider} />
           {isSsh ? (
             <div className="ssh-form">
               <div className="modal-grid two">
@@ -173,7 +191,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">{t("session.initialCommand")}</span>
+                  <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
                   placeholder={t("session.initialCommandPlaceholder", { example: "pnpm dev" })}
@@ -219,7 +237,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 />
               </label>
               <label className="modal-field">
-                <span className="modal-label">{t("session.initialCommand")}</span>
+                <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
                   placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
@@ -282,8 +300,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
           <button className="modal-button" type="button" onClick={onCancel}>
             {t("common.cancel")}
           </button>
-          <button className="modal-button primary" type="button" onClick={handleSave} disabled={isSsh && sshHost.trim().length === 0}>
-            {t("common.save")}
+          <button className="modal-button primary" type="button" onClick={handleSave} disabled={submitting || (isSsh && sshHost.trim().length === 0) || Boolean(agentProvider && !editCwd.trim())}>
+            {submitting ? t("session.saving") : t("common.save")}
           </button>
         </div>
       </div>

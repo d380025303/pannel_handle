@@ -86,6 +86,12 @@ export type TranslationKey =
   | "session.cwd"
   | "session.initialCommand"
   | "session.initialCommandPlaceholder"
+  | "session.agentCli"
+  | "session.normalTerminal"
+  | "session.agentCwdRequired"
+  | "session.preLaunchCommand"
+  | "session.saving"
+  | "session.updateFailed"
   | "session.sshArgs"
   | "session.remark"
   | "session.remarkPlaceholder"
@@ -192,6 +198,8 @@ export type TranslationKey =
   | "picker.confirmDelete"
   | "picker.startFresh"
   | "picker.launchSelected"
+  | "picker.launching"
+  | "picker.launchFailed"
   | "hooks.title"
   | "hooks.localProjectDirectory"
   | "hooks.remoteProjectDirectory"
@@ -353,6 +361,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.cwd": "工作目录",
     "session.initialCommand": "初始命令",
     "session.initialCommandPlaceholder": "输入初始命令（可选），如：{example}",
+    "session.agentCli": "Agent CLI",
+    "session.normalTerminal": "普通终端",
+    "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
+    "session.preLaunchCommand": "CLI 启动前命令",
+    "session.saving": "保存中...",
+    "session.updateFailed": "保存会话失败",
     "session.sshArgs": "额外 SSH 参数",
     "session.remark": "备注",
     "session.remarkPlaceholder": "备注信息（可选）",
@@ -459,6 +473,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.confirmDelete": "再次点击确认删除",
     "picker.startFresh": "重新开始",
     "picker.launchSelected": "启动所选 ({count})",
+    "picker.launching": "启动中...",
+    "picker.launchFailed": "启动会话失败",
     "hooks.title": "安装项目 Hook",
     "hooks.localProjectDirectory": "项目目录",
     "hooks.remoteProjectDirectory": "远程项目目录",
@@ -612,6 +628,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.cwd": "Working directory",
     "session.initialCommand": "Initial command",
     "session.initialCommandPlaceholder": "Enter an optional initial command, for example: {example}",
+    "session.agentCli": "Agent CLI",
+    "session.normalTerminal": "Terminal",
+    "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
+    "session.preLaunchCommand": "Command before CLI startup",
+    "session.saving": "Saving...",
+    "session.updateFailed": "Failed to save session",
     "session.sshArgs": "Extra SSH arguments",
     "session.remark": "Remark",
     "session.remarkPlaceholder": "Optional remark",
@@ -718,6 +740,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.confirmDelete": "Click again to confirm delete",
     "picker.startFresh": "Start fresh",
     "picker.launchSelected": "Launch selected ({count})",
+    "picker.launching": "Launching...",
+    "picker.launchFailed": "Failed to launch session",
     "hooks.title": "Install Project Hooks",
     "hooks.localProjectDirectory": "Project directory",
     "hooks.remoteProjectDirectory": "Remote project directory",

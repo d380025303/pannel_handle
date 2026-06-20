@@ -152,6 +152,21 @@ describe("remote-hook-config-service", () => {
     expect(qoderConfig.hooks.Stop[0].hooks[0].command).toContain(".qoder/pannel-handle-hook.sh");
   });
 
+  it("installs the OpenCode notification plugin without creating a config file", async () => {
+    const sftp = createMemorySftp();
+    const service = createService(sftp);
+
+    const result = await service.install(
+      { type: "ssh", sessionId: "run-1", path: "/srv/app" },
+      ["opencode"]
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.opencode.status).toBe("installed");
+    expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-notification.js")).toContain("PANNEL_HANDLE_HOOK_URL");
+    expect(sftp.read("/srv/app/opencode.json")).toBeUndefined();
+  });
+
   it("rolls back earlier remote writes when a later write fails", async () => {
     const sftp = createMemorySftp({
       "/srv/app/.claude/settings.local.json": "{}"

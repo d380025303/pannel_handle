@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -115,7 +115,7 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, dingT
   });
 
   ipcMain.handle("sessions:launch-selected", (_event, sessionsToLaunch) => {
-    return terminalManager.launchSessions(sessionsToLaunch);
+    return agentSessionLauncher.launchSessions(sessionsToLaunch);
   });
 
   ipcMain.handle("sessions:delete-saved", (_event, id) => {
@@ -132,14 +132,14 @@ function registerIpcHandlers({ terminalManager, sessionStore, configStore, dingT
 
   ipcMain.handle("wsl:list-distros", () => terminalManager.listWslDistros());
 
-  ipcMain.handle("sessions:create", (_event, options) => terminalManager.createSession(options));
+  ipcMain.handle("sessions:create", (_event, options) => agentSessionLauncher.createSession(options));
 
   ipcMain.handle("sessions:rename", (_event, { id, title }) => {
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", (_event, { id, title, cwd, initialCommand, sshConfig, quickCommands, tags }) => {
-    return terminalManager.updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags });
+  ipcMain.handle("sessions:update", (_event, { id, title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags }) => {
+    return terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {

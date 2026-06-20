@@ -102,6 +102,9 @@ function shellQuote(value) {
 }
 
 function getInitialCommand(session, options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, "runtimeInitialCommand")) {
+    return String(options.runtimeInitialCommand || "").trim();
+  }
   const legacyRemoteCommand = session.type === "ssh" ? String(session.sshConfig?.remoteCommand || "").trim() : "";
   const command = String(options.initialCommand || session.initialCommand || legacyRemoteCommand || "").trim();
   if (session.type !== "ssh") {
@@ -179,6 +182,7 @@ function createTerminalManager({
       cwd: session.cwd,
       createdAt: session.createdAt,
       initialCommand: session.initialCommand,
+      agentProvider: session.agentProvider,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -445,6 +449,7 @@ function createTerminalManager({
       sshConfig,
       createdAt: Date.now(),
       initialCommand: options.initialCommand,
+      agentProvider: options.agentProvider,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -469,6 +474,13 @@ function createTerminalManager({
     return allSessions;
   }
 
+  function launchSession(sessionData, options = {}) {
+    const session = startSessionFromTemplate(sessionData, options);
+    broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
+    return session;
+  }
+
   function deleteSavedSession(id) {
     sessionStore.removeFromLibrary(id);
     return listSessions();
@@ -491,10 +503,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, initialCommand, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -519,6 +531,10 @@ function createTerminalManager({
     if (typeof initialCommand !== "undefined") {
       session.initialCommand = initialCommand;
       libraryUpdates.initialCommand = session.initialCommand;
+    }
+    if (typeof agentProvider !== "undefined") {
+      session.agentProvider = agentProvider || undefined;
+      libraryUpdates.agentProvider = agentProvider || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();
@@ -680,6 +696,7 @@ function createTerminalManager({
 
   return {
     createSession,
+    launchSession,
     launchSessions,
     deleteSavedSession,
     reorderSavedSessions,
