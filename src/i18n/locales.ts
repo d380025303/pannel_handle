@@ -212,6 +212,8 @@ export type TranslationKey =
   | "hooks.codexTrustNote"
   | "hooks.installing"
   | "hooks.installOrRepair"
+  | "hooks.install"
+  | "hooks.repair"
   | "projectSearch.filesTitle"
   | "projectSearch.textTitle"
   | "projectSearch.filesPlaceholder"
@@ -487,6 +489,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "hooks.codexTrustNote": "Codex 首次使用项目 Hook 时，仍需在 Codex 的 /hooks 中确认信任。",
     "hooks.installing": "安装中...",
     "hooks.installOrRepair": "安装或修复",
+    "hooks.install": "安装",
+    "hooks.repair": "修复",
     "projectSearch.filesTitle": "搜索文件",
     "projectSearch.textTitle": "搜索文本",
     "projectSearch.filesPlaceholder": "输入文件名或路径...",
@@ -754,6 +758,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "hooks.codexTrustNote": "When Codex uses project hooks for the first time, you still need to trust them in Codex /hooks.",
     "hooks.installing": "Installing...",
     "hooks.installOrRepair": "Install or repair",
+    "hooks.install": "Install",
+    "hooks.repair": "Repair",
     "projectSearch.filesTitle": "Search Files",
     "projectSearch.textTitle": "Search Text",
     "projectSearch.filesPlaceholder": "Type a file name or path...",

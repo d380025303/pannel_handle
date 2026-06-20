@@ -34,9 +34,8 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
   const { t } = useI18n();
   const [projectPath, setProjectPath] = useState(getInitialProjectPath(session));
   const availableProviders = session.type === "ssh" ? sshProviders : localProviders;
-  const [selectedProviders, setSelectedProviders] = useState<HookProvider[]>(availableProviders);
   const [result, setResult] = useState<HookInspectionResult | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  const [installingProvider, setInstallingProvider] = useState<HookProvider | null>(null);
 
   const statusLabels = {
     not_installed: t("hooks.notInstalled"),
@@ -61,7 +60,6 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
 
   useEffect(() => {
     setProjectPath(getInitialProjectPath(session));
-    setSelectedProviders(session.type === "ssh" ? sshProviders : localProviders);
     setResult(null);
   }, [session]);
 
@@ -82,11 +80,11 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isBusy) onCancel();
+      if (event.key === "Escape" && !installingProvider) onCancel();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isBusy, onCancel]);
+  }, [installingProvider, onCancel]);
 
   useEffect(() => {
     setResult(null);
@@ -97,24 +95,18 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
     return () => window.clearTimeout(timer);
   }, [availableProviders, session.type, target]);
 
-  const toggleProvider = (provider: HookProvider) => {
-    setSelectedProviders((current) => current.includes(provider)
-      ? current.filter(item => item !== provider)
-      : [...current, provider]);
-  };
-
   const chooseWindowsDirectory = async () => {
     const selection = await window.hookConfigApi.selectProjectDirectory(projectPath || session.cwd);
     if (!selection.canceled) setProjectPath(selection.path);
   };
 
-  const install = async () => {
-    if (!target || selectedProviders.length === 0) return;
-    setIsBusy(true);
+  const install = async (provider: HookProvider) => {
+    if (!target) return;
+    setInstallingProvider(provider);
     try {
-      setResult(await window.hookConfigApi.install(target, selectedProviders));
+      setResult(await window.hookConfigApi.install(target, [provider]));
     } finally {
-      setIsBusy(false);
+      setInstallingProvider(null);
     }
   };
 
@@ -159,18 +151,26 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
           <div className="hook-provider-list">
             {availableProviders.map((provider) => {
               const inspection = result?.providers[provider];
+              const showAction = inspection && (inspection.status === "not_installed" || inspection.status === "needs_repair");
+              const isThisInstalling = installingProvider === provider;
+
               return (
-                <label className="hook-provider-row" key={provider}>
-                  <input
-                    type="checkbox"
-                    checked={selectedProviders.includes(provider)}
-                    onChange={() => toggleProvider(provider)}
-                  />
+                <div className="hook-provider-row" key={provider}>
                   <span className="hook-provider-name">{providerNames[provider]}</span>
                   <span className={`hook-install-status ${inspection?.status || "unknown"}`}>
                     {inspection ? statusLabels[inspection.status] : t("hooks.pendingCheck")}
                   </span>
-                </label>
+                  {showAction && (
+                    <button
+                      className="modal-button primary"
+                      type="button"
+                      disabled={installingProvider !== null}
+                      onClick={() => install(provider)}
+                    >
+                      {isThisInstalling ? t("hooks.installing") : inspection.status === "needs_repair" ? t("hooks.repair") : t("hooks.install")}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -181,15 +181,7 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
           )}
         </div>
         <div className="modal-footer">
-          <button className="modal-button" type="button" disabled={isBusy} onClick={onCancel}>{t("common.close")}</button>
-          <button
-            className="modal-button primary"
-            type="button"
-            disabled={isBusy || !target || selectedProviders.length === 0}
-            onClick={install}
-          >
-            {isBusy ? t("hooks.installing") : t("hooks.installOrRepair")}
-          </button>
+          <button className="modal-button" type="button" disabled={installingProvider !== null} onClick={onCancel}>{t("common.close")}</button>
         </div>
       </div>
     </div>

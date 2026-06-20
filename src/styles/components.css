@@ -359,7 +359,7 @@
 
 .hook-provider-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-height: 42px;
@@ -369,11 +369,9 @@
   background: var(--color-bg-app);
 }
 
-.hook-provider-row input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--color-success);
+.hook-provider-row .modal-button {
+  padding: 3px 10px;
+  font-size: 12px;
 }
 
 .hook-provider-name {
