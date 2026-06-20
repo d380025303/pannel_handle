@@ -1,51 +1,46 @@
-# CLAUDE.md
+# 仓库指南
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## 项目结构与模块组织
 
-## 常用命令
+本项目是一个 Windows 桌面终端会话管理器，基于 Electron、Vite、React 和 TypeScript。
 
-| 命令 | 用途 |
-|------|------|
-| `pnpm dev` | 仅启动 Vite 开发服务器（127.0.0.1:5173） |
-| `pnpm start` | 同时启动 Vite + Electron，完整开发流程 |
-| `pnpm build` | `tsc` 类型检查 + `vite build` → `dist/` |
-| `pnpm dist:portable` | 修补 rcedit + 构建 + `electron-builder` → `release/Pannel Handle.exe` 绿色单文件 |
-| `pnpm test` | `vitest run`，测试文件在 `electron/*.test.mjs` |
+- `src/` 是渲染进程应用。`src/App.tsx` 负责组合页面状态、弹窗和主布局；`src/components/` 放置会话栏、终端面板、远程文件面板等 UI；`src/hooks/` 放置终端实例、会话数据、窗口状态和侧栏拖拽等逻辑。
+- `src/styles.css` 是全局样式入口，通过 `src/styles/` 下的 `tokens.css`、`base.css`、`layout.css`、`components.css`、`features.css`、`responsive.css` 等文件分层组织样式。
+- `electron/` 是桌面端外壳。`electron/main.cjs` 负责应用生命周期和模块装配；窗口、会话存储、终端管理、配置、IPC、远程文件和 Agent Hook 分别拆分到同目录下的专门模块。
+- `electron/preload.cjs` 向渲染进程暴露安全 API；新增渲染进程能力时，同步更新 `src/vite-env.d.ts` 类型。
+- `docs/` 存放 Claude/Codex Hook 等使用文档，`scripts/` 存放构建前补丁脚本，`build/` 存放应用图标等打包资产。
+- `dist/` 和 `release/` 是构建产物目录，不要手动编辑。
 
-未配置代码检查工具（ESLint/Prettier 等）。
+## 构建、测试与开发命令
 
-## 架构
+请统一使用 `pnpm`，仓库已包含 `pnpm-lock.yaml`。
 
-一个 Windows 桌面终端会话管理器，基于 Electron。启动真实的 shell 进程（默认 PowerShell），在 React 界面中以标签页形式展示 xterm.js 终端。
+- `pnpm install`：安装依赖。
+- `pnpm dev`：只启动 Vite 渲染进程开发服务器，地址为 `127.0.0.1:5173`。
+- `pnpm electron`：启动 Electron 应用入口。
+- `pnpm start`：完整开发模式，先启动 Vite，再等待服务可用后启动 Electron。
+- `pnpm test`：运行 Vitest 单元测试。
+- `pnpm build`：执行 `tsc` 类型检查，并将生产构建输出到 `dist/`。
+- `pnpm dist:portable`：构建 Windows portable 安装包。
 
-**Electron 三层架构：**
+## 代码风格与命名约定
 
-1. **主进程** (`electron/`, CommonJS) — 后端，模块化拆分为多个文件：
-   - `main.cjs` — 入口，创建并组装各子系统
-   - `terminal-manager.cjs` — 在内存 `Map<string, session>` 中管理所有 PTY 会话（基于 `node-pty`），各会话保留最近 1000 条数据块的环形缓冲区用于切换标签页时的回放
-   - `session-store.cjs` — 会话库持久化（保存的会话配置）
-   - `config-store.cjs` — 应用配置持久化（JSON 文件）
-   - `ipc-handlers.cjs` — 注册所有 `ipcMain.handle` / `ipcMain.on` 处理器（会话增删改查、终端读写/调整大小、剪贴板、远程文件、窗口控制、WSL 发行版列表等）
-   - `window-manager.cjs` — BrowserWindow 创建与广播
-   - `remote-file-service.cjs` — 通过 SSH/SFTP 浏览/读写远程文件
-   - `agent-hook-server.cjs` — Agent hook HTTP 服务器
+渲染进程使用 TypeScript、React 函数组件和 Hooks。保持现有双引号导入风格；JSON 使用 2 空格缩进，TypeScript 格式与现有文件一致。React 组件和导出类型使用 `PascalCase`，函数、局部变量和 IPC 辅助方法使用 `camelCase`。Electron 主进程和预加载脚本使用 CommonJS（`.cjs`），除非明确迁移，否则不要改为 ESM。
 
-2. **预加载脚本** (`electron/preload.cjs`) — 通过 `contextBridge` 暴露四套 API：
-   - `window.terminalApi` — 会话管理、终端读写、WSL、配置（invoke/send/on 模式）
-   - `window.clipboardApi` — 剪贴板读写
-   - `window.remoteFileApi` — 远程文件浏览与传输
-   - `window.windowApi` — 窗口控制（最小化/最大化/关闭）
+## 测试指南
 
-3. **渲染进程** (`src/`, TypeScript + React 19 + Vite) — `main.tsx` 挂载 `App` 组件。`App.tsx` 负责布局外壳，组合以下组件：
-   - `TitleBar` — 自定义标题栏
-   - `SessionSidebar` — 侧边栏会话列表
-   - `TerminalPanel` — xterm.js 终端面板（Terminal 实例缓存在 `useTerminalInstances` hook 的 `Map<string, TerminalEntry>` ref 中，切换标签页时通过 DOM 移除/重新挂载，使用 `ResizeObserver` + `FitAddon.fit()` + IPC `resize()` 保持 PTY 尺寸同步）
-   - `QuickCommandBar` — 快捷命令栏
-   - `RemoteFilePanel` — SSH 远程文件面板
-   - `DebugSidebar` — Agent hook 调试面板
-   - 模态窗口：`CreateSessionModal`、`EditSessionModal`、`SessionPickerModal`、`SettingsModal`
-   - 自定义 hooks：`useTerminalSessions`、`useTerminalInstances`、`useSidebarResize`、`useWindowState`
+提交前至少运行 `pnpm build`。涉及 Electron 主进程模块的改动，还应运行 `pnpm test`，必要时对改动过的 `electron/*.cjs` 执行 `node --check`。涉及 UI 或 IPC 的改动，还应运行 `pnpm start`，手动验证会话创建、切换、缩放、重命名、关闭、终端输入、SSH/WSL 相关路径和 Hook 状态显示。
 
-**共享类型** 定义在 `src/vite-env.d.ts` — `TerminalSession`、`TerminalApi`、`SshConfig`、`AppConfig`、`QuickCommand`、`RemoteFileEntry`、`AgentProvider`、`AgentRunStatus` 及相关 payload 类型，以及全局 `Window` 接口增强（添加 `terminalApi`、`clipboardApi`、`remoteFileApi`、`windowApi`）。
+测试文件目前就近放置在 `electron/*.test.mjs`，使用 Vitest。新增测试时优先覆盖可独立注入依赖的后端模块，避免引入重量级端到端测试，除非变更确实需要。
 
-**开发与生产环境区别：** 开发时 Electron 加载 `http://127.0.0.1:5173`；打包后加载 `dist/index.html`。Vite 配置使用 `base: "./"` 以支持 Electron file:// 协议加载资源。
+## 提交与 Pull Request 规范
+
+提交信息建议使用简短祈使句，例如 `Add terminal resize handling` 或 `Fix session close cleanup`。提交前检查 `git status --short`，只暂存本次任务相关文件，避免把无关工作树改动混入提交。Pull Request 应说明用户可见变化、列出验证命令、标注 Electron/PTY/SSH/Hook 相关风险；涉及界面的改动应附截图或简短录屏。
+
+## 安全与配置提示
+
+保持 Electron 窗口中的 `contextIsolation: true` 和 `nodeIntegration: false`。新增渲染进程能力时，应通过 `electron/preload.cjs` 暴露受控 API，并在 `src/vite-env.d.ts` 中补充类型；不要把原始 Node 或 Electron API 直接暴露给 React。涉及本地凭据、SSH known hosts 或安全存储的改动，要保持数据文件位于 Electron `userData` 路径下，并避免把机器本地配置写入仓库。
+
+## 注意
+
+当使用 plan mode 时，计划内容需要为中文。

@@ -364,6 +364,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (partial && typeof partial.locale === "string" && VALID_LOCALES.has(partial.locale)) {
       updates.locale = partial.locale;
     }
+    if (partial && typeof partial.rightToolsWidth === "number"
+      && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
+      updates.rightToolsWidth = partial.rightToolsWidth;
+    }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);
     }

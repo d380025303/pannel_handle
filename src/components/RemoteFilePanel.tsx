@@ -733,6 +733,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     }
     previewRequestRef.current += 1;
     releaseActivePreview();
+    selectedPathRef.current = null;
     setSelectedPath(null);
     setPreview({ status: "idle" });
     resetEditor();

@@ -46,6 +46,7 @@ export type AppConfig = {
   lastActiveSessionIds: string[];
   themeId: ThemeId;
   locale: Locale;
+  rightToolsWidth: number;
 };
 
 export type DingTalkConfig = {

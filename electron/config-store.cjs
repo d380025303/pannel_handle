@@ -19,7 +19,8 @@ function createConfigStore({ configFile }) {
     debugMode: false,
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
-    locale: DEFAULT_LOCALE
+    locale: DEFAULT_LOCALE,
+    rightToolsWidth: 380
   };
 
   function serializeConfig() {
@@ -28,7 +29,8 @@ function createConfigStore({ configFile }) {
       debugMode: config.debugMode,
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
-      locale: config.locale
+      locale: config.locale,
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -44,7 +46,10 @@ function createConfigStore({ configFile }) {
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
             : [],
           themeId: normalizeThemeId(parsed.themeId),
-          locale: normalizeLocale(parsed.locale)
+          locale: normalizeLocale(parsed.locale),
+          rightToolsWidth: typeof parsed.rightToolsWidth === "number"
+            && parsed.rightToolsWidth >= 280 && parsed.rightToolsWidth <= 600
+            ? parsed.rightToolsWidth : 380
         };
       }
     } catch (err) {
@@ -70,7 +75,8 @@ function createConfigStore({ configFile }) {
       debugMode: config.debugMode,
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
-      locale: config.locale
+      locale: config.locale,
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -90,6 +96,10 @@ function createConfigStore({ configFile }) {
       }
       if (typeof partial.locale === "string") {
         config.locale = normalizeLocale(partial.locale);
+      }
+      if (typeof partial.rightToolsWidth === "number"
+        && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
+        config.rightToolsWidth = partial.rightToolsWidth;
       }
     }
     saveConfig();

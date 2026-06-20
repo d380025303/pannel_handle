@@ -32,7 +32,8 @@ describe("config-store", () => {
       debugMode: false,
       lastActiveSessionIds: [],
       themeId: "dark-slate",
-      locale: "zh-CN"
+      locale: "zh-CN",
+      rightToolsWidth: 380
     });
   });
 
@@ -79,6 +80,32 @@ describe("config-store", () => {
     expect(saved.locale).toBe("zh-CN");
   });
 
+  it("loads and persists rightToolsWidth", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ rightToolsWidth: 520 }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+    expect(store.getConfig().rightToolsWidth).toBe(520);
+
+    store.updateConfig({ rightToolsWidth: 320 });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.rightToolsWidth).toBe(320);
+  });
+
+  it("falls back to default rightToolsWidth when an out-of-range value is loaded", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ rightToolsWidth: 999 }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+    expect(store.getConfig().rightToolsWidth).toBe(380);
+
+    store.updateConfig({ rightToolsWidth: 100 });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.rightToolsWidth).toBe(380);
+  });
+
   it("ignores stale QQ bot config fields when loading older config files", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({
@@ -100,7 +127,8 @@ describe("config-store", () => {
       debugMode: true,
       lastActiveSessionIds: [],
       themeId: "light",
-      locale: "zh-CN"
+      locale: "zh-CN",
+      rightToolsWidth: 380
     });
   });
 });

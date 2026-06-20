@@ -15,6 +15,7 @@ import { RemoteFilePanel } from "./components/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/RemoteSystemStatus";
 import { TitleBar } from "./components/TitleBar";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
+import { useRightToolsResize } from "./hooks/useRightToolsResize";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
@@ -58,6 +59,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<"files" | "git" | "debug">("files");
+  const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
@@ -68,6 +70,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const fileOpenRequestIdRef = useRef(0);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
+  const { rightToolsWidth: liveRightToolsWidth, handleSplitterMouseDown: handleRightSplitterMouseDown } = useRightToolsResize(
+    rightToolsWidth,
+    (w) => {
+      setRightToolsWidth(w);
+      window.terminalApi.setConfig({ rightToolsWidth: w });
+    }
+  );
   const terminalSessions = useTerminalSessions();
   const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
   const activeTheme = getAppTheme(themeId);
@@ -98,6 +107,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setDebugMode(config.debugMode);
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
+        setRightToolsWidth(config.rightToolsWidth);
       }
     });
     return () => {
@@ -274,9 +284,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       ? "debug"
     : "files";
   const appShellColumns = debugMode
-    ? `${sidebarWidth}px 1px minmax(0, 1fr) clamp(320px, 28vw, 460px)`
+    ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
     : showRightTools
-      ? `${sidebarWidth}px 1px minmax(0, 1fr) clamp(320px, 28vw, 460px)`
+      ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
     : `${sidebarWidth}px 1px minmax(0, 1fr)`;
 
   return (
@@ -329,7 +339,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           </div>
 
           {showRightTools && (
-            <aside className="right-tools">
+            <>
+              <div className="splitter" onMouseDown={handleRightSplitterMouseDown} />
+              <aside className="right-tools">
               {(showFilesPanel || debugMode) && (
                 <div className="right-tool-tabs" role="tablist" aria-label="Right sidebar tools">
                   {showFilesPanel && (
@@ -387,6 +399,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 />
               )}
             </aside>
+            </>
           )}
         </main>
       </div>
