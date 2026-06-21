@@ -3,10 +3,175 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { File, Folder, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentProvider, ListenerAgent, ListenerAgentRun, ListenerAgentState, ListenerAgentTrigger, ListenerTriggerEvent, TerminalSession } from "../../vite-env";
+import type { AgentProvider, ListenerAgent, ListenerAgentRun, ListenerAgentState, ListenerAgentTrigger, ListenerTriggerEvent, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 
 type Props = { session: TerminalSession };
+
+type Mention = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+type TriggerPromptTextareaProps = {
+  session: TerminalSession;
+  value: string;
+  onChange: (value: string) => void;
+  labels: {
+    prompt: string;
+    searchWorkspace: string;
+    noMatches: string;
+    searchFailed: string;
+  };
+};
+
+function getMentionAtCaret(value: string, caret: number): Mention | null {
+  const prefix = value.slice(0, caret);
+  const match = prefix.match(/(?:^|\s)@([^\s@]*)$/);
+  if (!match) return null;
+  const token = match[0];
+  const atOffset = token.lastIndexOf("@");
+  return {
+    start: prefix.length - token.length + atOffset,
+    end: caret,
+    query: match[1]
+  };
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "Unknown error");
+}
+
+function TriggerPromptTextarea({ session, value, onChange, labels }: TriggerPromptTextareaProps) {
+  const [mention, setMention] = useState<Mention | null>(null);
+  const [results, setResults] = useState<WorkspaceEntrySearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [error, setError] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const searchRequestRef = useRef(0);
+  const query = mention?.query ?? "";
+
+  useEffect(() => {
+    if (!mention) {
+      searchRequestRef.current += 1;
+      setSearching(false);
+      return undefined;
+    }
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
+    setSearching(true);
+    setError("");
+    setResults([]);
+    setSelectedIndex(0);
+    const timer = window.setTimeout(() => {
+      window.projectSearchApi.searchWorkspaceEntries(session.id, query)
+        .then((response) => {
+          if (searchRequestRef.current !== requestId) return;
+          setResults(response.results);
+          setSelectedIndex(0);
+        })
+        .catch((searchError) => {
+          if (searchRequestRef.current !== requestId) return;
+          setResults([]);
+          setError(`${labels.searchFailed}: ${getErrorMessage(searchError)}`);
+        })
+        .finally(() => {
+          if (searchRequestRef.current === requestId) setSearching(false);
+        });
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [labels.searchFailed, mention, query, session.id]);
+
+  const closeMentions = () => {
+    setMention(null);
+    setResults([]);
+    setError("");
+  };
+
+  const selectEntry = (entry: WorkspaceEntrySearchResult) => {
+    if (!mention) return;
+    const separator = session.type === "windows" ? "\\" : "/";
+    const suffix = entry.type === "directory" ? separator : "";
+    const inserted = `@${entry.relativePath}${suffix} `;
+    const nextValue = `${value.slice(0, mention.start)}${inserted}${value.slice(mention.end)}`;
+    const nextCaret = mention.start + inserted.length;
+    onChange(nextValue);
+    closeMentions();
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const selectedResult = results[selectedIndex];
+
+  return (
+    <div className="listener-prompt-composer">
+      <textarea
+        ref={textareaRef}
+        className="modal-input modal-textarea"
+        rows={5}
+        value={value}
+        aria-label={labels.prompt}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setMention(getMentionAtCaret(event.target.value, event.target.selectionStart));
+        }}
+        onClick={(event) => setMention(getMentionAtCaret(value, event.currentTarget.selectionStart))}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (mention && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            const direction = event.key === "ArrowDown" ? 1 : -1;
+            setSelectedIndex((current) => results.length ? (current + direction + results.length) % results.length : 0);
+            return;
+          }
+          if (mention && (event.key === "Enter" || event.key === "Tab") && selectedResult) {
+            event.preventDefault();
+            selectEntry(selectedResult);
+            return;
+          }
+          if (mention && event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMentions();
+          }
+        }}
+      />
+      {mention && (
+        <div className="listener-prompt-mentions" role="listbox" aria-label={labels.searchWorkspace}>
+          <div className="listener-prompt-mentions-heading">
+            <span>{labels.searchWorkspace}</span>
+            {searching && <LoaderCircle className="spin" aria-hidden="true" />}
+          </div>
+          {error ? (
+            <div className="listener-prompt-mention-status error">{error}</div>
+          ) : !searching && results.length === 0 ? (
+            <div className="listener-prompt-mention-status">{labels.noMatches}</div>
+          ) : results.map((entry, index) => (
+            <button
+              className={index === selectedIndex ? "selected" : ""}
+              type="button"
+              role="option"
+              aria-selected={index === selectedIndex}
+              key={`${entry.type}:${entry.path}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSelectedIndex(index)}
+              onClick={() => selectEntry(entry)}
+            >
+              {entry.type === "directory" ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}
+              <span className="listener-prompt-entry-name">{entry.name}</span>
+              <span className="listener-prompt-entry-path">{entry.relativePath}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function MarkdownBlock({ content, className }: { content: string; className?: string }) {
   if (!content || content === "-") {
@@ -46,7 +211,8 @@ export function ListenerAgentPanel({ session }: Props) {
     interval: "固定间隔", cron: "Cron", manual: "手动触发", prompt: "提示词", include: "包含 Glob（每行一个）", exclude: "排除 Glob（每行一个）",
     minutes: "间隔分钟数", cronExpr: "5 段 Cron", details: "查看结果", stdout: "标准输出", stderr: "错误输出",
     failed: "操作失败", markRead: "已读", selectCli: "-- 选择 CLI 配置 --",
-    noCliTemplate: "提示：请先在会话库中为模板设置 Agent CLI。"
+    noCliTemplate: "提示：请先在会话库中为模板设置 Agent CLI。", searchWorkspace: "工作区文件与文件夹",
+    noMatches: "没有匹配项", searchFailed: "搜索工作区失败"
   } : {
     title: "Listener Agents", dormant: "Runs while the matching session is open", add: "Add agent", empty: "No listener agents configured.",
     active: "Active", inactive: "Inactive", edit: "Edit", remove: "Delete", run: "Run now", cancel: "Cancel",
@@ -56,7 +222,8 @@ export function ListenerAgentPanel({ session }: Props) {
     interval: "Interval", cron: "Cron", manual: "Manual", prompt: "Prompt", include: "Include globs (one per line)", exclude: "Exclude globs (one per line)",
     minutes: "Interval minutes", cronExpr: "5-field cron", details: "View result", stdout: "stdout", stderr: "stderr",
     failed: "Operation failed", markRead: "Mark read", selectCli: "-- Select CLI config --",
-    noCliTemplate: "Tip: Set Agent CLI for a template in the session library first."
+    noCliTemplate: "Tip: Set Agent CLI for a template in the session library first.", searchWorkspace: "Workspace files and folders",
+    noMatches: "No matches", searchFailed: "Workspace search failed"
   }, [zh]);
   const templateId = session.templateId || session.id;
   const [state, setState] = useState<ListenerAgentState | null>(null);
@@ -225,7 +392,7 @@ export function ListenerAgentPanel({ session }: Props) {
             {trigger.type === "file" && <><label className="modal-field"><span className="modal-label">{text.include}</span><textarea className="modal-input modal-textarea listener-agent-pattern-input" rows={2} value={(trigger.include || []).join("\n")} onChange={e => updateTrigger(index, { include: e.target.value.split("\n") })} /></label><label className="modal-field"><span className="modal-label">{text.exclude}</span><textarea className="modal-input modal-textarea listener-agent-pattern-input" rows={3} value={(trigger.exclude || []).join("\n")} onChange={e => updateTrigger(index, { exclude: e.target.value.split("\n") })} /></label><div className="listener-event-checks">{(["add", "change", "unlink"] as ListenerTriggerEvent[]).map(event => <label className="modal-checkbox-field" key={event}><input type="checkbox" checked={(trigger.events || []).includes(event)} onChange={e => updateTrigger(index, { events: e.target.checked ? [...(trigger.events || []), event] : (trigger.events || []).filter(item => item !== event) })} /><span>{event}</span></label>)}</div></>}
             {trigger.type === "interval" && <label className="modal-field"><span className="modal-label">{text.minutes}</span><input className="modal-input" type="number" min="1" value={trigger.intervalMinutes || 30} onChange={e => updateTrigger(index, { intervalMinutes: Number(e.target.value) })} /></label>}
             {trigger.type === "cron" && <label className="modal-field"><span className="modal-label">{text.cronExpr}</span><input className="modal-input" value={trigger.cron || "0 * * * *"} onChange={e => updateTrigger(index, { cron: e.target.value })} /></label>}
-            <label className="modal-field"><span className="modal-label">{text.prompt}</span><textarea className="modal-input modal-textarea" rows={5} value={trigger.prompt} onChange={e => updateTrigger(index, { prompt: e.target.value })} /></label>
+            <div className="modal-field"><span className="modal-label">{text.prompt}</span><TriggerPromptTextarea session={session} value={trigger.prompt} onChange={prompt => updateTrigger(index, { prompt })} labels={{ prompt: text.prompt, searchWorkspace: text.searchWorkspace, noMatches: text.noMatches, searchFailed: text.searchFailed }} /></div>
           </fieldset>)}
         </div>
         <div className="modal-footer">

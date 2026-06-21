@@ -3168,6 +3168,55 @@
 .listener-event-checks { display: flex; gap: 12px; flex-wrap: wrap; }
 .listener-trigger-editor { position: relative; margin: 0; padding: 12px; }
 .listener-trigger-remove { position: absolute; right: 7px; top: 7px; }
+.listener-prompt-composer { position: relative; }
+.listener-prompt-mentions {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 4;
+  max-height: min(280px, 42vh);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-dialog);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-dialog);
+}
+.listener-prompt-mentions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  padding: 4px 8px 7px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.listener-prompt-mentions-heading svg { width: 14px; height: 14px; }
+.listener-prompt-mentions > button {
+  display: grid;
+  grid-template-columns: 20px minmax(100px, 0.65fr) minmax(120px, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.listener-prompt-mentions > button:hover,
+.listener-prompt-mentions > button.selected { background: var(--color-bg-selection); }
+.listener-prompt-mentions > button > svg { width: 15px; height: 15px; color: var(--color-text-muted); }
+.listener-prompt-entry-name,
+.listener-prompt-entry-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listener-prompt-entry-name { font-size: 12px; }
+.listener-prompt-entry-path { color: var(--color-text-muted); font-size: 11px; }
+.listener-prompt-mention-status { padding: 18px 10px; color: var(--color-text-muted); font-size: 12px; text-align: center; }
+.listener-prompt-mention-status.error { color: var(--color-danger-text); white-space: pre-wrap; }
+.listener-prompt-mentions .spin { animation: terminal-composer-spin 0.8s linear infinite; }
 .listener-run-row { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; text-align: left; margin-top: 7px; }
 .listener-run-row time { grid-column: 1 / -1; color: var(--color-text-muted); font-size: 11px; }
 .listener-run-row .failed { color: var(--color-danger-text); }
