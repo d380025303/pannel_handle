@@ -3,7 +3,7 @@ const { randomUUID } = require("node:crypto");
 const { CronExpressionParser } = require("cron-parser");
 
 const PROVIDERS = new Set(["claude", "codex", "opencode", "qoder"]);
-const TRIGGER_TYPES = new Set(["file", "interval", "cron"]);
+const TRIGGER_TYPES = new Set(["file", "interval", "cron", "manual"]);
 const EVENTS = new Set(["add", "change", "unlink"]);
 const PROMPT_VARIABLES = new Set(["cwd", "agent.name", "trigger.type", "trigger.time", "changedFiles", "schedule"]);
 const DEFAULT_EXCLUDES = ["**/.git/**", "**/node_modules/**", "**/dist/**", "**/release/**"];
@@ -41,6 +41,9 @@ function normalizeTrigger(trigger = {}) {
       events: stringList(trigger.events, ["add", "change", "unlink"]).filter(event => EVENTS.has(event)),
       debounceMs: 1000
     };
+  }
+  if (type === "manual") {
+    return normalized;
   }
   if (type === "interval") {
     const intervalMinutes = Number(trigger.intervalMinutes);
@@ -83,7 +86,9 @@ function renderPrompt({ prompt, cwd, agent, trigger, changedFiles = [], now = ne
   const safeChangedFiles = changedFiles.slice(0, 200).map(file => String(file).slice(0, 500));
   const schedule = trigger.type === "cron"
     ? trigger.cron
-    : trigger.type === "interval" ? `每 ${trigger.intervalMinutes} 分钟` : "文件变化";
+    : trigger.type === "interval" ? `每 ${trigger.intervalMinutes} 分钟`
+    : trigger.type === "manual" ? "手动触发"
+    : "文件变化";
   const values = {
     cwd,
     "agent.name": agent.name,

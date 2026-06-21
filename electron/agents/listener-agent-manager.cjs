@@ -268,7 +268,7 @@ function createListenerAgentManager({ terminalManager, sessionStore, historyStor
         if (!agent.enabled) continue;
         for (const trigger of agent.triggers.filter(item => item.enabled)) {
           if (trigger.type === "file") await startFileWatch(runtime, agent, trigger, agentRuntime);
-          else startSchedule(runtime, agent, trigger);
+          else if (trigger.type !== "manual") startSchedule(runtime, agent, trigger);
         }
       }
     } catch (err) {

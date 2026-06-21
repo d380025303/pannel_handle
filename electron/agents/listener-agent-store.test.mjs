@@ -21,6 +21,16 @@ describe("listener Agent store", () => {
     expect(() => normalizeTrigger({ type: "file", prompt: "{{secret}}" })).toThrow(/secret/);
   });
 
+  it("normalizes manual trigger with no extra fields", () => {
+    const trigger = normalizeTrigger({ type: "manual", name: "Manual", prompt: "Run {{cwd}}" });
+    expect(trigger.type).toBe("manual");
+    expect(trigger.prompt).toBe("Run {{cwd}}");
+    expect(trigger).not.toHaveProperty("include");
+    expect(trigger).not.toHaveProperty("intervalMinutes");
+    expect(trigger).not.toHaveProperty("cron");
+    expect(trigger).not.toHaveProperty("debounceMs");
+  });
+
   it("validates interval and five-field cron triggers", () => {
     expect(normalizeTrigger({ type: "interval", prompt: "ok", intervalMinutes: 5 }).intervalMinutes).toBe(5);
     expect(normalizeTrigger({ type: "cron", prompt: "ok", cron: "0 * * * *" }).cron).toBe("0 * * * *");

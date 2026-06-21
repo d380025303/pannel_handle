@@ -44,7 +44,7 @@ export type ListenerTriggerEvent = "add" | "change" | "unlink";
 export type ListenerAgentTrigger = {
   id: string;
   name: string;
-  type: "file" | "interval" | "cron";
+  type: "file" | "interval" | "cron" | "manual";
   enabled: boolean;
   prompt: string;
   include?: string[];

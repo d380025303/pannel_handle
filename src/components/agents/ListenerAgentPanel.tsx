@@ -43,7 +43,7 @@ export function ListenerAgentPanel({ session }: Props) {
     history: "运行历史", clear: "清空历史", noHistory: "暂无运行记录", save: "保存", close: "关闭", name: "名称",
     cli: "CLI", permission: "权限", read: "只读", write: "可写", timeout: "超时（分钟）", enabled: "启用",
     own: "忽略自身运行造成的文件变化", triggers: "触发器", addTrigger: "添加触发器", type: "类型", file: "文件变化",
-    interval: "固定间隔", cron: "Cron", prompt: "提示词", include: "包含 Glob（每行一个）", exclude: "排除 Glob（每行一个）",
+    interval: "固定间隔", cron: "Cron", manual: "手动触发", prompt: "提示词", include: "包含 Glob（每行一个）", exclude: "排除 Glob（每行一个）",
     minutes: "间隔分钟数", cronExpr: "5 段 Cron", details: "查看结果", stdout: "标准输出", stderr: "错误输出",
     failed: "操作失败", markRead: "已读", selectCli: "-- 选择 CLI 配置 --",
     noCliTemplate: "提示：请先在会话库中为模板设置 Agent CLI。"
@@ -53,7 +53,7 @@ export function ListenerAgentPanel({ session }: Props) {
     history: "Run history", clear: "Clear history", noHistory: "No runs yet", save: "Save", close: "Close", name: "Name",
     cli: "CLI", permission: "Permission", read: "Read only", write: "Workspace write", timeout: "Timeout (minutes)", enabled: "Enabled",
     own: "Ignore file changes caused by this agent", triggers: "Triggers", addTrigger: "Add trigger", type: "Type", file: "File changes",
-    interval: "Interval", cron: "Cron", prompt: "Prompt", include: "Include globs (one per line)", exclude: "Exclude globs (one per line)",
+    interval: "Interval", cron: "Cron", manual: "Manual", prompt: "Prompt", include: "Include globs (one per line)", exclude: "Exclude globs (one per line)",
     minutes: "Interval minutes", cronExpr: "5-field cron", details: "View result", stdout: "stdout", stderr: "stderr",
     failed: "Operation failed", markRead: "Mark read", selectCli: "-- Select CLI config --",
     noCliTemplate: "Tip: Set Agent CLI for a template in the session library first."
@@ -219,8 +219,8 @@ export function ListenerAgentPanel({ session }: Props) {
               <label className="modal-field"><span className="modal-label">{text.name}</span><input className="modal-input" value={trigger.name} onChange={e => updateTrigger(index, { name: e.target.value })} /></label>
               <label className="modal-field"><span className="modal-label">{text.type}</span><select className="modal-input" value={trigger.type} onChange={e => {
                 const type = e.target.value as ListenerAgentTrigger["type"];
-                updateTrigger(index, type === "file" ? { type, include: ["**/*"], exclude: ["**/.git/**", "**/node_modules/**"], events: ["add", "change", "unlink"] } : type === "interval" ? { type, intervalMinutes: 30 } : { type, cron: "0 * * * *" });
-              }}><option value="file">{text.file}</option><option value="interval">{text.interval}</option><option value="cron">{text.cron}</option></select></label>
+                updateTrigger(index, type === "file" ? { type, include: ["**/*"], exclude: ["**/.git/**", "**/node_modules/**"], events: ["add", "change", "unlink"] } : type === "interval" ? { type, intervalMinutes: 30 } : type === "cron" ? { type, cron: "0 * * * *" } : { type });
+              }}><option value="file">{text.file}</option><option value="interval">{text.interval}</option><option value="cron">{text.cron}</option><option value="manual">{text.manual}</option></select></label>
             </div>
             {trigger.type === "file" && <><label className="modal-field"><span className="modal-label">{text.include}</span><textarea className="modal-input modal-textarea listener-agent-pattern-input" rows={2} value={(trigger.include || []).join("\n")} onChange={e => updateTrigger(index, { include: e.target.value.split("\n") })} /></label><label className="modal-field"><span className="modal-label">{text.exclude}</span><textarea className="modal-input modal-textarea listener-agent-pattern-input" rows={3} value={(trigger.exclude || []).join("\n")} onChange={e => updateTrigger(index, { exclude: e.target.value.split("\n") })} /></label><div className="listener-event-checks">{(["add", "change", "unlink"] as ListenerTriggerEvent[]).map(event => <label className="modal-checkbox-field" key={event}><input type="checkbox" checked={(trigger.events || []).includes(event)} onChange={e => updateTrigger(index, { events: e.target.checked ? [...(trigger.events || []), event] : (trigger.events || []).filter(item => item !== event) })} /><span>{event}</span></label>)}</div></>}
             {trigger.type === "interval" && <label className="modal-field"><span className="modal-label">{text.minutes}</span><input className="modal-input" type="number" min="1" value={trigger.intervalMinutes || 30} onChange={e => updateTrigger(index, { intervalMinutes: Number(e.target.value) })} /></label>}
