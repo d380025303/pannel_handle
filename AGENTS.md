@@ -6,7 +6,7 @@
 
 - `src/` 是渲染进程应用。`src/App.tsx` 负责组合页面状态、弹窗和主布局；`src/components/` 放置会话栏、终端面板、远程文件面板等 UI；`src/hooks/` 放置终端实例、会话数据、窗口状态和侧栏拖拽等逻辑。
 - `src/styles.css` 是全局样式入口，通过 `src/styles/` 下的 `tokens.css`、`base.css`、`layout.css`、`components.css`、`features.css`、`responsive.css` 等文件分层组织样式。
-- `electron/` 是桌面端外壳。`electron/main.cjs` 负责应用生命周期和模块装配；窗口、会话存储、终端管理、配置、IPC、远程文件和 Agent Hook 分别拆分到同目录下的专门模块。
+- `electron/` 是桌面端外壳。`electron/main.cjs` 负责应用生命周期和模块装配，`electron/preload.cjs` 负责安全桥接；主进程模块按领域拆分到 `agents/`、`core/`、`hooks/`、`notifications/`、`services/`、`ssh/`、`stores/` 和 `terminal/` 子目录。
 - `electron/preload.cjs` 向渲染进程暴露安全 API；新增渲染进程能力时，同步更新 `src/vite-env.d.ts` 类型。
 - `docs/` 存放 Claude/Codex Hook 等使用文档，`scripts/` 存放构建前补丁脚本，`build/` 存放应用图标等打包资产。
 - `dist/` 和 `release/` 是构建产物目录，不要手动编辑。
@@ -29,13 +29,13 @@
 
 ## 测试指南
 
-提交前至少运行 `pnpm build`。涉及 Electron 主进程模块的改动，还应运行 `pnpm test`，必要时对改动过的 `electron/*.cjs` 执行 `node --check`。涉及 UI 或 IPC 的改动，还应运行 `pnpm start`，手动验证会话创建、切换、缩放、重命名、关闭、终端输入、SSH/WSL 相关路径和 Hook 状态显示。
+提交前至少运行 `pnpm build`。涉及 Electron 主进程模块的改动，还应运行 `pnpm test`，必要时对改动过的 `electron/**/*.cjs` 执行 `node --check`。涉及 UI 或 IPC 的改动，还应运行 `pnpm start`，手动验证会话创建、切换、缩放、重命名、关闭、终端输入、SSH/WSL 相关路径和 Hook 状态显示。
 
-测试文件目前就近放置在 `electron/*.test.mjs`，使用 Vitest。新增测试时优先覆盖可独立注入依赖的后端模块，避免引入重量级端到端测试，除非变更确实需要。
+测试文件目前就近放置在 `electron/**/*.test.mjs`，使用 Vitest。新增测试时优先覆盖可独立注入依赖的后端模块，避免引入重量级端到端测试，除非变更确实需要。
 
 ## 提交与 Pull Request 规范
 
-提交信息建议使用简短祈使句，例如 `Add terminal resize handling` 或 `Fix session close cleanup`。提交前检查 `git status --short`，只暂存本次任务相关文件，避免把无关工作树改动混入提交。Pull Request 应说明用户可见变化、列出验证命令、标注 Electron/PTY/SSH/Hook 相关风险；涉及界面的改动应附截图或简短录屏。commit名称需要使用中文说明。
+提交信息建议使用简短祈使句。提交前检查 `git status --short`，只暂存本次任务相关文件，避免把无关工作树改动混入提交。Pull Request 应说明用户可见变化、列出验证命令、标注 Electron/PTY/SSH/Hook 相关风险；涉及界面的改动应附截图或简短录屏。commit名称需要使用中文说明。
 
 ## 安全与配置提示
 

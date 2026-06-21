@@ -35,7 +35,7 @@
 
 ## 提交与 Pull Request 规范
 
-提交信息建议使用简短祈使句，例如 `Add terminal resize handling` 或 `Fix session close cleanup`。提交前检查 `git status --short`，只暂存本次任务相关文件，避免把无关工作树改动混入提交。Pull Request 应说明用户可见变化、列出验证命令、标注 Electron/PTY/SSH/Hook 相关风险；涉及界面的改动应附截图或简短录屏。
+提交信息建议使用简短祈使句。提交前检查 `git status --short`，只暂存本次任务相关文件，避免把无关工作树改动混入提交。Pull Request 应说明用户可见变化、列出验证命令、标注 Electron/PTY/SSH/Hook 相关风险；涉及界面的改动应附截图或简短录屏。commit名称需要使用中文说明。
 
 ## 安全与配置提示
 
