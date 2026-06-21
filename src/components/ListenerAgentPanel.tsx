@@ -45,7 +45,7 @@ export function ListenerAgentPanel({ session }: Props) {
     own: "忽略自身运行造成的文件变化", triggers: "触发器", addTrigger: "添加触发器", type: "类型", file: "文件变化",
     interval: "固定间隔", cron: "Cron", prompt: "提示词", include: "包含 Glob（每行一个）", exclude: "排除 Glob（每行一个）",
     minutes: "间隔分钟数", cronExpr: "5 段 Cron", details: "查看结果", stdout: "标准输出", stderr: "错误输出",
-    failed: "操作失败", selectCli: "-- 选择 CLI 配置 --",
+    failed: "操作失败", markRead: "已读", selectCli: "-- 选择 CLI 配置 --",
     noCliTemplate: "提示：请先在会话库中为模板设置 Agent CLI。"
   } : {
     title: "Listener Agents", dormant: "Runs while the matching session is open", add: "Add agent", empty: "No listener agents configured.",
@@ -55,7 +55,7 @@ export function ListenerAgentPanel({ session }: Props) {
     own: "Ignore file changes caused by this agent", triggers: "Triggers", addTrigger: "Add trigger", type: "Type", file: "File changes",
     interval: "Interval", cron: "Cron", prompt: "Prompt", include: "Include globs (one per line)", exclude: "Exclude globs (one per line)",
     minutes: "Interval minutes", cronExpr: "5-field cron", details: "View result", stdout: "stdout", stderr: "stderr",
-    failed: "Operation failed", selectCli: "-- Select CLI config --",
+    failed: "Operation failed", markRead: "Mark read", selectCli: "-- Select CLI config --",
     noCliTemplate: "Tip: Set Agent CLI for a template in the session library first."
   }, [zh]);
   const templateId = session.templateId || session.id;
@@ -67,11 +67,13 @@ export function ListenerAgentPanel({ session }: Props) {
   const [liveOutput, setLiveOutput] = useState<Record<string, string>>( {} );
   const [error, setError] = useState("");
   const [latestStdout, setLatestStdout] = useState<Record<string, string>>({});
+  const [latestRunId, setLatestRunId] = useState<Record<string, string>>({});
+  const [readRunId, setReadRunId] = useState<Record<string, string>>({});
   const [cliTemplates, setCliTemplates] = useState<TerminalSession[]>([]);
   const prevRunningRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
-    setState(null); setHistoryAgentId(null); setSelectedRun(null); setLiveOutput({}); setLatestStdout({});
+    setState(null); setHistoryAgentId(null); setSelectedRun(null); setLiveOutput({}); setLatestStdout({}); setLatestRunId({}); setReadRunId({});
     prevRunningRef.current = {};
     window.listenerAgentApi.getState(templateId).then(setState).catch(err => setError(String(err)));
     const removeChanged = window.listenerAgentApi.onChanged(next => { if (next.templateId === templateId) setState(next); });
@@ -110,6 +112,7 @@ export function ListenerAgentPanel({ session }: Props) {
           if (runs.length > 0) {
             const stdout = runs[0].stdout;
             setLatestStdout(prev => ({ ...prev, [agentId]: stdout.length > 5000 ? stdout.slice(-5000) : stdout }));
+            setLatestRunId(prev => ({ ...prev, [agentId]: runs[0].id }));
           }
         })
         .catch(() => {});
@@ -171,7 +174,12 @@ export function ListenerAgentPanel({ session }: Props) {
         </div>
         {agent.running
               ? (liveOutput[agent.id] && <MarkdownBlock className="listener-live-output" content={liveOutput[agent.id]} />)
-              : (latestStdout[agent.id] && <MarkdownBlock className="listener-live-output" content={latestStdout[agent.id]} />)}
+              : (latestStdout[agent.id] && latestRunId[agent.id] !== readRunId[agent.id] && (
+                <div className="listener-output-with-actions">
+                  <button type="button" className="listener-mark-read-btn" onClick={() => setReadRunId(prev => ({ ...prev, [agent.id]: latestRunId[agent.id] }))}>{text.markRead}</button>
+                  <MarkdownBlock className="listener-live-output" content={latestStdout[agent.id]} />
+                </div>
+              ))}
       </article>)}</div>}
 
     {editing && createPortal(<div className="modal-overlay" onMouseDown={() => setEditing(null)}>

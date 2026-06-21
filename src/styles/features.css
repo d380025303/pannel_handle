@@ -3321,6 +3321,29 @@
   vertical-align: middle;
 }
 
+.listener-output-with-actions {
+  position: relative;
+}
+.listener-mark-read-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-control);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.listener-mark-read-btn:hover {
+  opacity: 1;
+  background: var(--color-bg-control-hover);
+}
+
 @media (max-width: 760px) {
   .listener-agent-settings-grid,
   .listener-trigger-editor .modal-grid.two { grid-template-columns: 1fr; }
