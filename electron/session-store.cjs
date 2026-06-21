@@ -3,6 +3,7 @@ const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "opencode", "qoder"]);
 const { sanitizeSshConfig } = require("./ssh-config-utils.cjs");
+const { normalizeListenerAgents } = require("./listener-agent-store.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {
   const value = String(initialCommand || "").trim();
@@ -121,7 +122,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       gitCwd: typeof template.gitCwd === "string" && template.gitCwd.trim() ? template.gitCwd.trim() : undefined,
       gitCwdHistory: Array.isArray(template.gitCwdHistory)
         ? template.gitCwdHistory.filter(item => typeof item === "string" && item.trim()).map(item => item.trim()).slice(0, 10)
-        : []
+        : [],
+      listenerAgents: normalizeListenerAgents(template.listenerAgents)
     };
   }
 
@@ -159,7 +161,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       quickCommands: normalizeQuickCommands(template.quickCommands),
       tags: normalizeTags(template.tags),
       gitCwd: typeof template.gitCwd === "string" && template.gitCwd.trim() ? template.gitCwd.trim() : undefined,
-      gitCwdHistory: Array.isArray(template.gitCwdHistory) ? template.gitCwdHistory : []
+      gitCwdHistory: Array.isArray(template.gitCwdHistory) ? template.gitCwdHistory : [],
+      listenerAgents: normalizeListenerAgents(template.listenerAgents)
     });
   }
 

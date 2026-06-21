@@ -166,12 +166,56 @@ function createSshSessionRuntime({
     });
   }
 
+  async function execStreaming(sessionId, command, options = {}) {
+    const client = await connectClient(sessionId, {
+      actionName: options.actionName,
+      timeoutMs: options.connectTimeoutMs,
+      onHostVerification: options.onHostVerification
+    });
+    let stream;
+    let canceled = false;
+    let settle;
+    const promise = new Promise((resolve, reject) => {
+      let settled = false;
+      settle = (err, result) => {
+        if (settled) return;
+        settled = true;
+        try { client.end(); } catch { /* best effort */ }
+        if (err) reject(err); else resolve(result);
+      };
+      client.exec(command, (err, remoteStream) => {
+        if (err) {
+          settle(err);
+          return;
+        }
+        stream = remoteStream;
+        remoteStream.on("data", data => options.onStdout?.(String(data)));
+        remoteStream.stderr?.on("data", data => options.onStderr?.(String(data)));
+        remoteStream.once("error", error => settle(error));
+        remoteStream.once("close", (code, signal) => {
+          settle(undefined, { exitCode: Number.isInteger(code) ? code : canceled ? -1 : 0, signal });
+        });
+        if (options.stdin) remoteStream.end(options.stdin); else remoteStream.end();
+      });
+    });
+    return {
+      promise,
+      cancel() {
+        canceled = true;
+        try { stream?.signal("TERM"); } catch { /* best effort */ }
+        try { stream?.close(); } catch { /* best effort */ }
+        settle(undefined, { exitCode: -1, signal: "TERM" });
+      }
+    };
+  }
+
   return {
     attachKeyboardInteractive,
     buildConnectionConfig,
     connectClient,
     createSftpClient,
     exec,
+    execStreaming,
     getRunningSshSession,
     getSecret
   };

@@ -189,7 +189,8 @@ function createTerminalManager({
       quickCommands: session.quickCommands || [],
       tags: session.tags || [],
       gitCwd: session.gitCwd,
-      gitCwdHistory: session.gitCwdHistory || []
+      gitCwdHistory: session.gitCwdHistory || [],
+      listenerAgents: session.listenerAgents || []
     };
   }
 
@@ -451,7 +452,8 @@ function createTerminalManager({
       initialCommand: options.initialCommand,
       agentProvider: options.agentProvider,
       quickCommands: options.quickCommands || [],
-      tags: options.tags || []
+      tags: options.tags || [],
+      listenerAgents: options.listenerAgents || []
     };
 
     const session = startSessionFromTemplate(template, options);

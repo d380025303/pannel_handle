@@ -110,6 +110,29 @@ describe("ssh-session-runtime", () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
+  it("streams SSH output and supports cancellation", async () => {
+    const client = createClient();
+    let stream;
+    client.exec = vi.fn((_command, callback) => {
+      stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      stream.end = vi.fn();
+      stream.signal = vi.fn();
+      stream.close = vi.fn();
+      callback(undefined, stream);
+    });
+    const runtime = createRuntime({ id: "run-1", type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
+    const stdout = vi.fn();
+    const handle = await runtime.execStreaming("run-1", "qoder --print", { stdin: "review", onStdout: stdout });
+    stream.emit("data", Buffer.from("partial"));
+    expect(stdout).toHaveBeenCalledWith("partial");
+    expect(stream.end).toHaveBeenCalledWith("review");
+    handle.cancel();
+    await expect(handle.promise).resolves.toMatchObject({ exitCode: -1, signal: "TERM" });
+    expect(stream.signal).toHaveBeenCalledWith("TERM");
+    expect(client.end).toHaveBeenCalled();
+  });
+
   it("rejects missing and non-SSH sessions", async () => {
     const missingRuntime = createSshSessionRuntime({
       terminalManager: { getSession: () => undefined },

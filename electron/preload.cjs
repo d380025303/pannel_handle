@@ -62,6 +62,26 @@ contextBridge.exposeInMainWorld("hookConfigApi", {
   install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
 });
 
+contextBridge.exposeInMainWorld("listenerAgentApi", {
+  getState: (templateId) => ipcRenderer.invoke("listener-agents:get-state", templateId),
+  save: (templateId, agent) => ipcRenderer.invoke("listener-agents:save", { templateId, agent }),
+  delete: (templateId, agentId) => ipcRenderer.invoke("listener-agents:delete", { templateId, agentId }),
+  run: (templateId, agentId, triggerId) => ipcRenderer.invoke("listener-agents:run", { templateId, agentId, triggerId }),
+  cancel: (templateId, agentId) => ipcRenderer.invoke("listener-agents:cancel", { templateId, agentId }),
+  history: (templateId, agentId) => ipcRenderer.invoke("listener-agents:history", { templateId, agentId }),
+  clearHistory: (templateId, agentId) => ipcRenderer.invoke("listener-agents:clear-history", { templateId, agentId }),
+  onChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("listener-agents:changed", listener);
+    return () => ipcRenderer.removeListener("listener-agents:changed", listener);
+  },
+  onOutput: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("listener-agents:output", listener);
+    return () => ipcRenderer.removeListener("listener-agents:output", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("dingTalkApi", {
   getConfig: () => ipcRenderer.invoke("dingtalk:get-config"),
   setConfig: (input) => ipcRenderer.invoke("dingtalk:set-config", input),

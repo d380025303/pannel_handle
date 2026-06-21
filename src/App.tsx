@@ -4,6 +4,7 @@ import { CreateSessionModal } from "./components/CreateSessionModal";
 import { DebugSidebar } from "./components/DebugSidebar";
 import { EditSessionModal } from "./components/EditSessionModal";
 import { GitStatusPanel } from "./components/GitStatusPanel";
+import { ListenerAgentPanel } from "./components/ListenerAgentPanel";
 import { HookInstallModal } from "./components/HookInstallModal";
 import { SessionPickerModal } from "./components/SessionPickerModal";
 import { SessionSidebar } from "./components/SessionSidebar";
@@ -58,7 +59,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
-  const [rightTool, setRightTool] = useState<"files" | "git" | "debug">("files");
+  const [rightTool, setRightTool] = useState<"files" | "git" | "agents" | "debug">("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
@@ -213,7 +214,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     await terminalSessions.startFresh();
   }, [remoteFilesDirty, terminalSessions, t]);
 
-  const handleRightToolChange = useCallback((tool: "files" | "git" | "debug") => {
+  const handleRightToolChange = useCallback((tool: "files" | "git" | "agents" | "debug") => {
     if (tool !== "files" && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
@@ -364,6 +365,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       >
                         {t("tabs.git")}
                       </button>
+                      <button
+                        className={activeRightTool === "agents" ? "active" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeRightTool === "agents"}
+                        onClick={() => handleRightToolChange("agents")}
+                      >
+                        {locale === "zh-CN" ? "Agent" : "Agents"}
+                      </button>
                     </>
                   )}
                   {debugMode && (
@@ -391,6 +401,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel session={terminalSessions.activeSession} />
+              ) : activeRightTool === "agents" && showFilesPanel ? (
+                <ListenerAgentPanel session={terminalSessions.activeSession!} />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}

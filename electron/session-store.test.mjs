@@ -123,6 +123,20 @@ describe("session-store", () => {
     expect(sessions[2].agentProvider).toBeUndefined();
   });
 
+  it("persists normalized listener Agents with session templates", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({
+      id: "1", title: "Watched", cwd: "C:\\work",
+      listenerAgents: [{ name: "Review", provider: "codex", triggers: [{ name: "Files", type: "file", prompt: "Review {{changedFiles}}" }] }]
+    });
+
+    const saved = store.getTemplate("1").listenerAgents[0];
+    expect(saved).toMatchObject({ name: "Review", provider: "codex", permission: "read-only", timeoutMinutes: 30 });
+    expect(saved.triggers[0]).toMatchObject({ type: "file", include: ["**/*"] });
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].listenerAgents).toHaveLength(1);
+  });
+
   it("adds, updates, removes, and persists library sessions", () => {
     vi.spyOn(Date, "now").mockReturnValue(12345);
     const sessionsFile = createTempSessionsFile();

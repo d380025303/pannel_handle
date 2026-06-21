@@ -35,6 +35,61 @@ export type TerminalSession = {
   tags?: string[];
   gitCwd?: string;
   gitCwdHistory?: string[];
+  listenerAgents?: ListenerAgent[];
+};
+
+export type ListenerAgentPermission = "read-only" | "write";
+export type ListenerTriggerEvent = "add" | "change" | "unlink";
+
+export type ListenerAgentTrigger = {
+  id: string;
+  name: string;
+  type: "file" | "interval" | "cron";
+  enabled: boolean;
+  prompt: string;
+  include?: string[];
+  exclude?: string[];
+  events?: ListenerTriggerEvent[];
+  debounceMs?: number;
+  intervalMinutes?: number;
+  cron?: string;
+};
+
+export type ListenerAgent = {
+  id: string;
+  name: string;
+  provider: AgentProvider;
+  cliTemplateId?: string;
+  enabled: boolean;
+  permission: ListenerAgentPermission;
+  timeoutMinutes: number;
+  ignoreOwnChanges: boolean;
+  triggers: ListenerAgentTrigger[];
+  running?: boolean;
+  pending?: boolean;
+};
+
+export type ListenerAgentState = {
+  templateId: string;
+  active: boolean;
+  hostSessionId?: string;
+  agents: ListenerAgent[];
+};
+
+export type ListenerAgentRun = {
+  id: string;
+  triggerId: string;
+  triggerName: string;
+  triggerType: ListenerAgentTrigger["type"];
+  changedFiles: string[];
+  status: "completed" | "failed" | "canceled";
+  startedAt: number;
+  finishedAt: number;
+  durationMs: number;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  truncated?: boolean;
 };
 
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
@@ -380,6 +435,18 @@ export type HookConfigApi = {
   install: (target: HookInstallTarget, providers: HookProvider[]) => Promise<HookInspectionResult>;
 };
 
+export type ListenerAgentApi = {
+  getState: (templateId: string) => Promise<ListenerAgentState>;
+  save: (templateId: string, agent: ListenerAgent) => Promise<ListenerAgentState>;
+  delete: (templateId: string, agentId: string) => Promise<ListenerAgentState>;
+  run: (templateId: string, agentId: string, triggerId: string) => Promise<ListenerAgentState>;
+  cancel: (templateId: string, agentId: string) => Promise<ListenerAgentState>;
+  history: (templateId: string, agentId: string) => Promise<ListenerAgentRun[]>;
+  clearHistory: (templateId: string, agentId: string) => Promise<ListenerAgentRun[]>;
+  onChanged: (callback: (state: ListenerAgentState) => void) => () => void;
+  onOutput: (callback: (payload: { templateId: string; agentId: string; runId: string; stream: "stdout" | "stderr"; chunk: string }) => void) => () => void;
+};
+
 export type DingTalkApi = {
   getConfig: () => Promise<DingTalkConfig>;
   setConfig: (input: DingTalkConfigInput) => Promise<DingTalkConfig>;
@@ -396,6 +463,7 @@ declare global {
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
+    listenerAgentApi: ListenerAgentApi;
     dingTalkApi: DingTalkApi;
     windowApi: WindowApi;
   }
