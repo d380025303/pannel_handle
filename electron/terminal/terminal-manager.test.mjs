@@ -48,6 +48,16 @@ function createMockTerm() {
   };
 }
 
+function createConfigStoreMock() {
+  let lastActiveSessionIds = [];
+  return {
+    getConfig: vi.fn(() => ({ lastActiveSessionIds: [...lastActiveSessionIds] })),
+    updateConfig: vi.fn((updates) => {
+      lastActiveSessionIds = [...updates.lastActiveSessionIds];
+    })
+  };
+}
+
 function createManager(overrides = {}) {
   const term = createMockTerm();
   const pty = { spawn: vi.fn(() => term) };
@@ -334,6 +344,29 @@ describe("terminal-manager", () => {
       session.tags?.join(",") === "work,urgent"
     ))).toBe(true);
     expect(broadcast).toHaveBeenCalledWith("sessions:changed", manager.listSessions());
+  });
+
+  it("persists the reordered runtime session order for restart restoration", () => {
+    const configStore = createConfigStoreMock();
+    const { manager } = createManager({ configStore });
+
+    manager.launchSessions([
+      { id: "template-a", title: "A" },
+      { id: "template-a", title: "A" },
+      { id: "template-b", title: "B" }
+    ]);
+    const [first, second, third] = manager.listSessions();
+
+    manager.reorderRunningSessions([third.id, second.id, first.id]);
+
+    expect(manager.listSessions().map((session) => session.id)).toEqual([
+      third.id,
+      second.id,
+      first.id
+    ]);
+    expect(configStore.updateConfig).toHaveBeenLastCalledWith({
+      lastActiveSessionIds: ["template-b", "template-a", "template-a"]
+    });
   });
 
   it("starts WSL sessions in their configured Linux working directory", () => {

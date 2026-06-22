@@ -44,6 +44,8 @@ export function SettingsModal({
   const [completionModel, setCompletionModel] = useState("");
   const [completionApiKey, setCompletionApiKey] = useState("");
   const [hasCompletionApiKey, setHasCompletionApiKey] = useState(false);
+  const [completionThinkingEnabled, setCompletionThinkingEnabled] = useState(false);
+  const [completionThinkingLevel, setCompletionThinkingLevel] = useState<"high" | "max">("high");
   const [completionBusy, setCompletionBusy] = useState(false);
   const [completionResult, setCompletionResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const themeOptions = useMemo(() => themes.map((theme) => ({
@@ -88,6 +90,8 @@ export function SettingsModal({
       setCompletionBaseUrl(config.baseUrl);
       setCompletionModel(config.model);
       setHasCompletionApiKey(config.hasApiKey);
+      setCompletionThinkingEnabled(config.thinkingEnabled ?? false);
+      setCompletionThinkingLevel(config.thinkingLevel ?? "high");
     }).catch((err) => {
       if (!disposed) setCompletionResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
     });
@@ -102,6 +106,8 @@ export function SettingsModal({
         enabled: completionEnabled,
         baseUrl: completionBaseUrl,
         model: completionModel,
+        thinkingEnabled: completionThinkingEnabled,
+        thinkingLevel: completionThinkingLevel,
         ...(completionApiKey.trim() ? { apiKey: completionApiKey.trim() } : {})
       });
       setCompletionEnabled(config.enabled);
@@ -139,6 +145,8 @@ export function SettingsModal({
         enabled: completionEnabled,
         baseUrl: completionBaseUrl,
         model: completionModel,
+        thinkingEnabled: completionThinkingEnabled,
+        thinkingLevel: completionThinkingLevel,
         ...(completionApiKey.trim() ? { apiKey: completionApiKey.trim() } : {})
       });
       const result = await window.completionApi.test();
@@ -291,6 +299,31 @@ export function SettingsModal({
                   <span className="modal-label">{t("settings.completionModel")}</span>
                   <input className="modal-input" value={completionModel} disabled={completionBusy} placeholder="gpt-4.1-mini" onChange={(event) => setCompletionModel(event.target.value)} />
                 </label>
+                <label className="auto-restore-label" style={{ marginTop: "4px" }}>
+                  <input
+                    type="checkbox"
+                    className="auto-restore-checkbox"
+                    checked={completionThinkingEnabled}
+                    disabled={completionBusy}
+                    onChange={(event) => setCompletionThinkingEnabled(event.target.checked)}
+                  />
+                  <span className="auto-restore-track" />
+                  <span className="auto-restore-text">{t("settings.completionThinkingEnabled")}</span>
+                </label>
+                {completionThinkingEnabled && (
+                  <label className="settings-field">
+                    <span className="modal-label">{t("settings.completionThinkingLevel")}</span>
+                    <select
+                      className="modal-input"
+                      value={completionThinkingLevel}
+                      disabled={completionBusy}
+                      onChange={(event) => setCompletionThinkingLevel(event.target.value as "high" | "max")}
+                    >
+                      <option value="high">{t("settings.completionThinkingLevelHigh")}</option>
+                      <option value="max">{t("settings.completionThinkingLevelMax")}</option>
+                    </select>
+                  </label>
+                )}
                 <label className="settings-field">
                   <span className="modal-label">{t("settings.completionApiKey")}</span>
                   <input

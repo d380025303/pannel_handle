@@ -7,11 +7,15 @@ function normalizeText(value) {
 }
 
 function createCompletionConfigStore({ configFile, safeStorage, logger = console }) {
+  const THINKING_LEVELS = new Set(["high", "max"]);
+
   let config = {
     enabled: false,
     baseUrl: DEFAULT_BASE_URL,
     model: "",
-    encryptedApiKey: ""
+    encryptedApiKey: "",
+    thinkingEnabled: false,
+    thinkingLevel: "high"
   };
 
   function encrypt(value) {
@@ -47,7 +51,9 @@ function createCompletionConfigStore({ configFile, safeStorage, logger = console
           enabled: parsed.enabled === true,
           baseUrl: normalizeText(parsed.baseUrl) || DEFAULT_BASE_URL,
           model: normalizeText(parsed.model),
-          encryptedApiKey: typeof parsed.encryptedApiKey === "string" ? parsed.encryptedApiKey : ""
+          encryptedApiKey: typeof parsed.encryptedApiKey === "string" ? parsed.encryptedApiKey : "",
+          thinkingEnabled: parsed.thinkingEnabled === true,
+          thinkingLevel: THINKING_LEVELS.has(parsed.thinkingLevel) ? parsed.thinkingLevel : "high"
         };
       }
     } catch (err) {
@@ -60,7 +66,9 @@ function createCompletionConfigStore({ configFile, safeStorage, logger = console
       enabled: config.enabled,
       baseUrl: config.baseUrl,
       model: config.model,
-      hasApiKey: Boolean(config.encryptedApiKey)
+      hasApiKey: Boolean(config.encryptedApiKey),
+      thinkingEnabled: config.thinkingEnabled,
+      thinkingLevel: config.thinkingLevel
     };
   }
 
@@ -80,6 +88,8 @@ function createCompletionConfigStore({ configFile, safeStorage, logger = console
     if (typeof input.apiKey === "string" && input.apiKey.trim()) {
       next.encryptedApiKey = encrypt(input.apiKey.trim());
     }
+    if (typeof input.thinkingEnabled === "boolean") next.thinkingEnabled = input.thinkingEnabled;
+    if (THINKING_LEVELS.has(input.thinkingLevel)) next.thinkingLevel = input.thinkingLevel;
     config = next;
     saveConfig();
     return getConfig();

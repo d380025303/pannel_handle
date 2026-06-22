@@ -125,6 +125,8 @@ export type CompletionConfig = {
   baseUrl: string;
   model: string;
   hasApiKey: boolean;
+  thinkingEnabled: boolean;
+  thinkingLevel: "high" | "max";
 };
 
 export type CompletionConfigInput = {
@@ -132,6 +134,8 @@ export type CompletionConfigInput = {
   baseUrl?: string;
   model?: string;
   apiKey?: string;
+  thinkingEnabled?: boolean;
+  thinkingLevel?: "high" | "max";
 };
 
 export type CompletionRequest = {

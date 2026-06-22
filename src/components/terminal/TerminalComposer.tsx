@@ -3,6 +3,7 @@ import { ArrowUp, File, Folder, ImagePlus, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { applyCompletion, isCurrentCompletion, type CompletionCandidate } from "./composerCompletion";
+import { submitTerminalInput } from "./terminalComposerInput";
 
 type TerminalComposerProps = {
   session?: TerminalSession;
@@ -175,7 +176,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
 
   const submit = () => {
     if (!session || !value.trim()) return;
-    window.terminalApi.write(session.id, `${value}\r`);
+    submitTerminalInput(session.id, value, window.terminalApi.write);
     setDrafts((current) => ({ ...current, [session.id]: "" }));
     setMention(null);
     setResults([]);

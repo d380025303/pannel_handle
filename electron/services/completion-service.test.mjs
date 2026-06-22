@@ -38,7 +38,7 @@ describe("completion-service", () => {
     expect(body.messages[1].content).toContain('"textAfterCursor":" tail"');
     expect(options.body).not.toContain("recentTerminalOutput");
     expect(options.body).not.toContain("error\\noutput");
-    expect(body.messages[0].content).toContain("terminal-composer");
+    expect(body.messages[0].content).toContain("补全用户正在编辑的输入");
     expect(body.messages[0].content).toContain("仅返回待插入文本");
   });
 

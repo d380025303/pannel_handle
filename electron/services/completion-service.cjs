@@ -46,7 +46,14 @@ function createCompletionService({
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     };
-    const body = JSON.stringify({ model: config.model, messages, temperature: 0.2, max_tokens: 256 });
+    const bodyPayload = { model: config.model, messages, temperature: 0.2, max_tokens: 256 };
+    if (config.thinkingEnabled) {
+      bodyPayload.thinking = { type: "enabled" };
+      bodyPayload.reasoning_effort = config.thinkingLevel || "high";
+    } else {
+      bodyPayload.thinking = { type: "disabled" };
+    }
+    const body = JSON.stringify(bodyPayload);
     const debugStartedAt = Date.now();
     const debugRequestId = debugSessionId && isDebugEnabled()
       ? `${debugStartedAt}-${++nextDebugRequestId}`

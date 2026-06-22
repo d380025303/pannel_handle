@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import { ArrowDown, ArrowUp, ChevronRight, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, RefreshCw, Save, Search, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import { flattenLoadedTree, isPathInside, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
+import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
 type RemoteFilePanelProps = {
@@ -52,16 +52,6 @@ function formatModifiedAt(timestamp: number) {
     hour: "2-digit",
     minute: "2-digit"
   });
-}
-
-function parentPath(remotePath: string) {
-  const normalized = remotePath.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!normalized || normalized === "/" || normalized === ".") {
-    return normalized || ".";
-  }
-  const index = normalized.lastIndexOf("/");
-  if (index <= 0) return "/";
-  return normalized.slice(0, index);
 }
 
 function baseName(remotePath: string) {
@@ -122,6 +112,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
+  const [navigationRoot, setNavigationRoot] = useState<string | null>(null);
   const [treeRoot, setTreeRoot] = useState<RemoteFileEntry | null>(null);
   const [directories, setDirectories] = useState<DirectoryTreeState>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -150,6 +141,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const activePreviewIdRef = useRef<string | null>(null);
   const selectedPathRef = useRef<string | null>(null);
   const treeRootRef = useRef<RemoteFileEntry | null>(null);
+  const navigationRootRef = useRef<string | null>(null);
   const directoriesRef = useRef<DirectoryTreeState>({});
   const directoryRequestRef = useRef(new Map<string, number>());
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -352,7 +344,15 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   }, [loadTreeDirectory]);
 
   const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
-    if (!sessionId || (!skipConfirm && !confirmDiscard())) return undefined;
+    if (!sessionId) return undefined;
+    const rootBoundary = navigationRootRef.current;
+    if (!rootBoundary) return undefined;
+    const targetPath = path === "." ? rootBoundary : path;
+    if (!isPathInside(targetPath, rootBoundary)) {
+      setError(t("files.outsideWorkingDirectory"));
+      return undefined;
+    }
+    if (!skipConfirm && !confirmDiscard()) return undefined;
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     previewRequestRef.current += 1;
@@ -368,14 +368,14 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       const root = treeRootRef.current;
       let targetEntry: RemoteFileEntry | null = null;
       let targetEntries: RemoteFileEntry[] | undefined;
-      if (root && isPathInside(path, root.path)) {
+      if (root && isPathInside(targetPath, root.path)) {
         let current = root;
         const expanded = new Set<string>();
-        while (!sameTreePath(current.path, path)) {
+        while (!sameTreePath(current.path, targetPath)) {
           expanded.add(current.path);
           const children = directoriesRef.current[current.path]?.entries ?? await loadTreeDirectory(current.path);
-          const next = children?.find((entry) => entry.type === "directory" && isPathInside(path, entry.path));
-          if (!next) throw new Error(`Directory not found: ${path}`);
+          const next = children?.find((entry) => entry.type === "directory" && isPathInside(targetPath, entry.path));
+          if (!next) throw new Error(`Directory not found: ${targetPath}`);
           current = next;
         }
         targetEntry = current;
@@ -383,7 +383,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         targetEntries = await loadTreeDirectory(current.path);
         setExpandedPaths((existing) => new Set([...existing, ...expanded]));
       } else {
-        targetEntries = await setRootDirectory(path);
+        targetEntries = await setRootDirectory(targetPath);
         targetEntry = treeRootRef.current;
       }
       if (requestRef.current !== requestId || !targetEntry) return undefined;
@@ -400,10 +400,12 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       if (requestRef.current === requestId) setLoading(false);
     }
     return undefined;
-  }, [closeFileContextMenu, confirmDiscard, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId, setRootDirectory]);
+  }, [closeFileContextMenu, confirmDiscard, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId, setRootDirectory, t]);
 
   useEffect(() => {
     if (!sessionId) {
+      navigationRootRef.current = null;
+      setNavigationRoot(null);
       onCurrentPathChange?.(".");
       setCurrentPath(".");
       setPathInput(".");
@@ -425,6 +427,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       previewRequestRef.current += 1;
       return;
     }
+    navigationRootRef.current = null;
+    setNavigationRoot(null);
 
     let disposed = false;
     const initialRequestId = requestRef.current;
@@ -435,7 +439,10 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     window.remoteFileApi.getHome(sessionId)
       .then((home) => {
         if (!disposed && requestRef.current === initialRequestId) {
-          void loadDirectory(home || ".", false, true);
+          const rootPath = home || ".";
+          navigationRootRef.current = rootPath;
+          setNavigationRoot(rootPath);
+          void loadDirectory(rootPath, false, true);
         }
       })
       .catch((err) => {
@@ -540,7 +547,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         onOpenRequestHandled?.(requestId);
         return;
       }
-      const targetDirectory = parentPath(openRequest.path);
+      const targetDirectory = parentTreePath(openRequest.path);
       const nextEntries = await loadDirectory(targetDirectory, true, true);
       if (openRequestAttemptRef.current !== attemptId || !nextEntries) {
         return;
@@ -568,12 +575,12 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         handledOpenRequestRef.current = 0;
       }
     };
-  }, [confirmDiscard, handleOpenEntry, loadDirectory, onOpenRequestHandled, openRequest, sessionId]);
+  }, [confirmDiscard, handleOpenEntry, loadDirectory, navigationRoot, onOpenRequestHandled, openRequest, sessionId]);
 
   const findCachedParentPath = useCallback((entryPath: string) => (
     Object.entries(directoriesRef.current).find(([, directory]) => (
       directory.entries.some((entry) => entry.path === entryPath)
-    ))?.[0] ?? parentPath(entryPath)
+    ))?.[0] ?? parentTreePath(entryPath)
   ), []);
 
   const refreshDirectory = useCallback(async (path: string, collapseDescendants = false) => {
@@ -905,7 +912,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
               <Search aria-hidden="true" />
             </button>
           )}
-          <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} onClick={() => void loadDirectory(parentPath(currentPath))}>
+          <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} disabled={!navigationRoot || sameTreePath(currentPath, navigationRoot)} onClick={() => void loadDirectory(parentTreePath(currentPath))}>
             <ArrowUp aria-hidden="true" />
           </button>
           {canOpenInExplorer && (

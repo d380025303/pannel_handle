@@ -17,6 +17,17 @@ export function normalizeTreePath(value: string) {
   return normalized || "/";
 }
 
+export function parentTreePath(value: string) {
+  const normalized = normalizeTreePath(value);
+  if (normalized === "/" || normalized === "." || /^[a-zA-Z]:$/.test(normalized)) {
+    return normalized;
+  }
+  const separatorIndex = normalized.lastIndexOf("/");
+  if (separatorIndex <= 0) return "/";
+  const parent = normalized.slice(0, separatorIndex);
+  return /^[a-zA-Z]:$/.test(parent) ? `${parent}/` : parent;
+}
+
 function isWindowsTreePath(value: string) {
   return /^[a-zA-Z]:[\\/]/.test(value) || value.includes("\\");
 }

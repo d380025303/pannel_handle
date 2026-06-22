@@ -38,6 +38,10 @@ export type TranslationKey =
   | "settings.completionSaved"
   | "settings.completionCleared"
   | "settings.completionTestSuccess"
+  | "settings.completionThinkingEnabled"
+  | "settings.completionThinkingLevel"
+  | "settings.completionThinkingLevelHigh"
+  | "settings.completionThinkingLevelMax"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -175,6 +179,7 @@ export type TranslationKey =
   | "files.parentDirectory"
   | "files.openInExplorer"
   | "files.directoryPath"
+  | "files.outsideWorkingDirectory"
   | "files.searchPlaceholder"
   | "files.clearSearch"
   | "files.onlyLocalFiles"
@@ -345,6 +350,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.completionSaved": "智能补全配置已保存。",
     "settings.completionCleared": "智能补全 API Key 已清除。",
     "settings.completionTestSuccess": "模型连接测试成功。",
+    "settings.completionThinkingEnabled": "启用深度思考",
+    "settings.completionThinkingLevel": "思考强度",
+    "settings.completionThinkingLevelHigh": "高（平衡速度与深度）",
+    "settings.completionThinkingLevelMax": "最大（深入推理，适合复杂问题）",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -482,6 +491,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.parentDirectory": "上级目录",
     "files.openInExplorer": "在资源管理器中打开",
     "files.directoryPath": "目录路径",
+    "files.outsideWorkingDirectory": "只能访问当前会话工作目录及其子目录。",
     "files.searchPlaceholder": "搜索当前目录...",
     "files.clearSearch": "清除搜索",
     "files.onlyLocalFiles": "只能上传本地文件。",
@@ -644,6 +654,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.completionSaved": "AI completion settings saved.",
     "settings.completionCleared": "AI completion API Key cleared.",
     "settings.completionTestSuccess": "Model connection test succeeded.",
+    "settings.completionThinkingEnabled": "Enable thinking mode",
+    "settings.completionThinkingLevel": "Thinking intensity",
+    "settings.completionThinkingLevelHigh": "High (balanced speed & depth)",
+    "settings.completionThinkingLevelMax": "Maximum (deepest reasoning)",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -781,6 +795,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.parentDirectory": "Parent directory",
     "files.openInExplorer": "Open in Explorer",
     "files.directoryPath": "Directory path",
+    "files.outsideWorkingDirectory": "Only the current session working directory and its subdirectories can be accessed.",
     "files.searchPlaceholder": "Search current directory...",
     "files.clearSearch": "Clear search",
     "files.onlyLocalFiles": "Only local files can be uploaded.",

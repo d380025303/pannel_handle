@@ -137,7 +137,7 @@ function createTerminalManager({
 
   function syncLastActiveIds() {
     if (!configStore) return;
-    const templateIds = Array.from(sessions.values())
+    const templateIds = listSessions()
       .map(s => s.templateId)
       .filter(Boolean);
     const current = configStore.getConfig().lastActiveSessionIds || [];

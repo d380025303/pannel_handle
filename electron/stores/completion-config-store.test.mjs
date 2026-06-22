@@ -31,13 +31,13 @@ describe("completion-config-store", () => {
   it("defaults to disabled without credentials", () => {
     const { store } = createHarness();
     store.loadConfig();
-    expect(store.getConfig()).toEqual({ enabled: false, baseUrl: "https://api.openai.com/v1", model: "", hasApiKey: false });
+    expect(store.getConfig()).toEqual({ enabled: false, baseUrl: "https://api.openai.com/v1", model: "", hasApiKey: false, thinkingEnabled: false, thinkingLevel: "high" });
   });
 
   it("encrypts the API key and never exposes it from getConfig", () => {
     const { store, configFile } = createHarness();
     expect(store.updateConfig({ enabled: true, baseUrl: "http://localhost:11434/v1", model: "local", apiKey: "secret" }))
-      .toEqual({ enabled: true, baseUrl: "http://localhost:11434/v1", model: "local", hasApiKey: true });
+      .toEqual({ enabled: true, baseUrl: "http://localhost:11434/v1", model: "local", hasApiKey: true, thinkingEnabled: false, thinkingLevel: "high" });
     expect(fs.readFileSync(configFile, "utf-8")).not.toContain('"secret"');
     expect(store.getCredentials()).toEqual({ apiKey: "secret" });
   });
