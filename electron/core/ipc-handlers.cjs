@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -407,6 +407,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("completion:complete", (_event, input) => completionService.complete(input));
+
+  ipcMain.handle("completion:record-submission", (_event, input) => completionService.recordSubmission(input));
+
+  ipcMain.handle("completion:record-feedback", (_event, input) => completionService.recordFeedback(input));
+
+  ipcMain.handle("completion:get-metrics", () => completionMetricsStore.getMetrics());
+
+  ipcMain.handle("completion:clear-metrics", () => completionMetricsStore.clear());
 
   ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());
 

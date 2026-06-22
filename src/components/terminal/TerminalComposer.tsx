@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, File, Folder, ImagePlus, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
-import { applyCompletion, isCurrentCompletion, type CompletionCandidate } from "./composerCompletion";
+import { applyCompletion, editDistance, getCompletionTrigger, isCurrentCompletion, type CompletionCandidate } from "./composerCompletion";
 import { submitTerminalInput } from "./terminalComposerInput";
 
 type TerminalComposerProps = {
@@ -57,6 +57,10 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const completionRequestRef = useRef(0);
+  const completionRef = useRef<CompletionCandidate | null>(null);
+  const feedbackRef = useRef<Map<string, Set<string>>>(new Map());
+  const acceptedBySessionRef = useRef<Map<string, { candidateId: string; baseline: string }>>(new Map());
+  const completionCooldownRef = useRef<Map<string, number>>(new Map());
   const searchRequestRef = useRef(0);
   const value = session ? drafts[session.id] ?? "" : "";
 
@@ -64,6 +68,36 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   const currentMentionQuery = mention?.query ?? "";
   const canSend = Boolean(session && value.trim());
   const activeCompletion = isCurrentCompletion(completion, value, cursor) ? completion : null;
+
+  const reportFeedback = (candidateId: string, event: "shown" | "accepted" | "dismissed" | "submitted_after_accept", details: { editDistance?: number; finalLength?: number } = {}) => {
+    if (!candidateId) return;
+    const events = feedbackRef.current.get(candidateId) ?? new Set<string>();
+    if (events.has(event)) return;
+    events.add(event);
+    feedbackRef.current.set(candidateId, events);
+    void window.completionApi.recordFeedback({ candidateId, event, ...details }).catch(() => {});
+    if (event === "dismissed" || event === "submitted_after_accept") feedbackRef.current.delete(candidateId);
+  };
+
+  const dismissCurrentCompletion = (addCooldown = false) => {
+    const current = completionRef.current;
+    if (!current) return;
+    const accepted = acceptedBySessionRef.current.get(session?.id ?? "")?.candidateId === current.candidateId;
+    if (!accepted) reportFeedback(current.candidateId, "dismissed");
+    if (addCooldown) {
+      completionCooldownRef.current.set(`${current.mode}:${current.draft}:${current.cursor}`, Date.now() + 10000);
+    }
+    completionRef.current = null;
+    setCompletion(null);
+  };
+
+  const showCompletion = (candidate: CompletionCandidate) => {
+    const current = completionRef.current;
+    if (current?.candidateId && current.candidateId !== candidate.candidateId) reportFeedback(current.candidateId, "dismissed");
+    completionRef.current = candidate;
+    setCompletion(candidate);
+    reportFeedback(candidate.candidateId, "shown");
+  };
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -74,12 +108,14 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   }, [activeCompletion, value]);
 
   useEffect(() => {
+    dismissCurrentCompletion();
     setMention(null);
     setResults([]);
     setSelectedIndex(0);
     setImageStatus("idle");
     setStatusMessage("");
     setCursor(0);
+    completionRef.current = null;
     setCompletion(null);
     setCompletionLoading(false);
     setCompletionError("");
@@ -89,29 +125,57 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   useEffect(() => {
     const requestId = completionRequestRef.current + 1;
     completionRequestRef.current = requestId;
+    const previous = completionRef.current;
+    if (previous) dismissCurrentCompletion();
     setCompletion(null);
+    completionRef.current = null;
     setCompletionLoading(false);
     setCompletionError("");
     if (!session || !value.trim() || isComposing || mention) return undefined;
+    const mode = session.agentProvider ? "agent" : "shell";
+    const trigger = getCompletionTrigger(mode, value);
+    if (!trigger) return undefined;
+    const cooldownKey = `${mode}:${value}:${cursor}`;
+    if ((completionCooldownRef.current.get(cooldownKey) ?? 0) > Date.now()) return undefined;
 
     const snapshot = { sessionId: session.id, draft: value, cursor };
-    const timer = window.setTimeout(async () => {
+    let timer: number | undefined;
+    let disposed = false;
+    const requestModel = async () => {
       try {
-        const config = await window.completionApi.getConfig();
-        if (completionRequestRef.current !== requestId || !config.enabled || !config.hasApiKey || !config.model) return;
         setCompletionLoading(true);
         const result = await window.completionApi.complete(snapshot);
         if (completionRequestRef.current !== requestId) return;
-        if (result.completion) setCompletion({ completion: result.completion, draft: value, cursor });
+        if (result.completion) showCompletion({ ...result, draft: value, cursor });
       } catch (error) {
         if (completionRequestRef.current === requestId) {
+          completionCooldownRef.current.set(cooldownKey, Date.now() + 10000);
           setCompletionError(t("composer.completionFailed", { message: getErrorMessage(error) }));
         }
       } finally {
         if (completionRequestRef.current === requestId) setCompletionLoading(false);
       }
-    }, 500);
-    return () => window.clearTimeout(timer);
+    };
+    void window.completionApi.getConfig().then(async (config) => {
+      if (disposed || completionRequestRef.current !== requestId || !config.enabled) return;
+      if (trigger.checkLocalHistory) {
+        const localResult = await window.completionApi.complete({ ...snapshot, localOnly: true });
+        if (disposed || completionRequestRef.current !== requestId) return;
+        if (localResult.completion) {
+          showCompletion({ ...localResult, draft: value, cursor });
+          return;
+        }
+      }
+      timer = window.setTimeout(() => void requestModel(), trigger.modelDelayMs);
+    }).catch((error) => {
+      if (!disposed && completionRequestRef.current === requestId) {
+        setCompletionError(t("composer.completionFailed", { message: getErrorMessage(error) }));
+      }
+    });
+    return () => {
+      disposed = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
   }, [cursor, isComposing, mention, session, t, value]);
 
   useEffect(() => {
@@ -143,6 +207,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
 
   const updateDraft = (nextValue: string, caret?: number) => {
     if (!session) return;
+    if (nextValue !== value || caret !== cursor) dismissCurrentCompletion();
     setDrafts((current) => ({ ...current, [session.id]: nextValue }));
     const nextCaret = caret ?? textareaRef.current?.selectionStart ?? nextValue.length;
     setCursor(nextCaret);
@@ -151,6 +216,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
 
   const insertText = (text: string, range?: { start: number; end: number }) => {
     if (!session) return;
+    dismissCurrentCompletion();
     const textarea = textareaRef.current;
     const start = range?.start ?? textarea?.selectionStart ?? value.length;
     const end = range?.end ?? textarea?.selectionEnd ?? start;
@@ -176,6 +242,16 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
 
   const submit = () => {
     if (!session || !value.trim()) return;
+    dismissCurrentCompletion();
+    const accepted = acceptedBySessionRef.current.get(session.id);
+    if (accepted) {
+      reportFeedback(accepted.candidateId, "submitted_after_accept", {
+        editDistance: editDistance(accepted.baseline, value),
+        finalLength: value.length
+      });
+      acceptedBySessionRef.current.delete(session.id);
+    }
+    void window.completionApi.recordSubmission({ sessionId: session.id, value }).catch(() => {});
     submitTerminalInput(session.id, value, window.terminalApi.write);
     setDrafts((current) => ({ ...current, [session.id]: "" }));
     setMention(null);
@@ -187,8 +263,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   const acceptCompletion = () => {
     if (!session || !activeCompletion) return;
     const next = applyCompletion(value, cursor, activeCompletion.completion);
+    reportFeedback(activeCompletion.candidateId, "accepted");
+    acceptedBySessionRef.current.set(session.id, { candidateId: activeCompletion.candidateId, baseline: next.value });
     setDrafts((current) => ({ ...current, [session.id]: next.value }));
     setCursor(next.cursor);
+    completionRef.current = null;
     setCompletion(null);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -313,7 +392,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
             }
             if (activeCompletion && event.key === "Escape") {
               event.preventDefault();
-              setCompletion(null);
+              dismissCurrentCompletion(true);
               return;
             }
             if (event.key === "Enter" && !event.shiftKey) {

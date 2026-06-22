@@ -95,6 +95,10 @@ contextBridge.exposeInMainWorld("completionApi", {
   clearCredentials: () => ipcRenderer.invoke("completion:clear-credentials"),
   test: () => ipcRenderer.invoke("completion:test"),
   complete: (input) => ipcRenderer.invoke("completion:complete", input),
+  recordSubmission: (input) => ipcRenderer.invoke("completion:record-submission", input),
+  recordFeedback: (input) => ipcRenderer.invoke("completion:record-feedback", input),
+  getMetrics: () => ipcRenderer.invoke("completion:get-metrics"),
+  clearMetrics: () => ipcRenderer.invoke("completion:clear-metrics"),
   onDebugEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("completion:debug", listener);

@@ -22,6 +22,7 @@ const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cj
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
 const { createCompletionConfigStore } = require("./stores/completion-config-store.cjs");
+const { createCompletionMetricsStore } = require("./stores/completion-metrics-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
@@ -31,6 +32,7 @@ let windowManager = null;
 let sessionStore = null;
 let configStore = null;
 let completionConfigStore = null;
+let completionMetricsStore = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -113,6 +115,9 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "completion.json"),
       safeStorage
     });
+    completionMetricsStore = createCompletionMetricsStore({
+      metricsFile: path.join(app.getPath("userData"), "completion-metrics.json")
+    });
     dingTalkConfigStore = createDingTalkConfigStore({
       configFile: path.join(app.getPath("userData"), "dingtalk.json"),
       safeStorage
@@ -123,6 +128,7 @@ if (!gotSingleInstanceLock) {
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     completionConfigStore.loadConfig();
+    completionMetricsStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     terminalManager = createTerminalManager({
@@ -132,6 +138,9 @@ if (!gotSingleInstanceLock) {
       getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
       knownHostStore,
       onAgentStatusChanged: (payload) => {
+        if (completionService) {
+          completionService.recordAgentStatus(payload);
+        }
         if (agentNotificationManager) {
           agentNotificationManager.handleStatus(payload);
         }
@@ -140,6 +149,9 @@ if (!gotSingleInstanceLock) {
         }
       },
       onSessionClosed: (id) => {
+        if (completionService) {
+          completionService.clearSession(id);
+        }
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
         }
@@ -231,6 +243,8 @@ if (!gotSingleInstanceLock) {
     });
     completionService = createCompletionService({
       configStore: completionConfigStore,
+      terminalManager,
+      metricsStore: completionMetricsStore,
       isDebugEnabled: () => configStore.getConfig().debugMode,
       broadcastDebug: (payload) => windowManager.broadcast("completion:debug", payload)
     });
@@ -252,6 +266,7 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       configStore,
       completionConfigStore,
+      completionMetricsStore,
       completionService,
       dingTalkConfigStore,
       dingTalkNotificationManager,

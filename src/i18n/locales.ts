@@ -173,6 +173,12 @@ export type TranslationKey =
   | "completionDebug.result"
   | "completionDebug.emptyResult"
   | "completionDebug.error"
+  | "completionDebug.metricsTitle"
+  | "completionDebug.metricsShown"
+  | "completionDebug.metricsAccepted"
+  | "completionDebug.metricsZeroEdit"
+  | "completionDebug.metricsErrors"
+  | "completionDebug.clearMetrics"
   | "files.title"
   | "files.noSession"
   | "files.availableAfterSession"
@@ -485,6 +491,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "completionDebug.result": "提取结果",
     "completionDebug.emptyResult": "（空字符串）",
     "completionDebug.error": "错误",
+    "completionDebug.metricsTitle": "本地效果指标",
+    "completionDebug.metricsShown": "展示 {count}",
+    "completionDebug.metricsAccepted": "接受率 {rate}",
+    "completionDebug.metricsZeroEdit": "零修改提交 {rate}",
+    "completionDebug.metricsErrors": "错误 {count}",
+    "completionDebug.clearMetrics": "清除补全效果指标",
     "files.title": "文件",
     "files.noSession": "未选择会话",
     "files.availableAfterSession": "选择会话后可浏览文件。",
@@ -789,6 +801,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "completionDebug.result": "Extracted result",
     "completionDebug.emptyResult": "(empty string)",
     "completionDebug.error": "Error",
+    "completionDebug.metricsTitle": "Local effectiveness metrics",
+    "completionDebug.metricsShown": "Shown {count}",
+    "completionDebug.metricsAccepted": "Acceptance {rate}",
+    "completionDebug.metricsZeroEdit": "Zero-edit submits {rate}",
+    "completionDebug.metricsErrors": "Errors {count}",
+    "completionDebug.clearMetrics": "Clear completion metrics",
     "files.title": "Files",
     "files.noSession": "No session selected",
     "files.availableAfterSession": "Files are available after selecting a session.",
