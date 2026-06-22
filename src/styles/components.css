@@ -196,6 +196,8 @@
 }
 
 .modal-dialog {
+  display: flex;
+  flex-direction: column;
   width: 580px;
   max-width: 92vw;
   max-height: 88vh;
@@ -222,6 +224,7 @@
 }
 
 .modal-body {
+  max-height: 65vh;
   padding: 16px 20px;
   overflow-y: auto;
   display: flex;
