@@ -38,6 +38,14 @@ export function SettingsModal({
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
   const [dingTalkOpen, setDingTalkOpen] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [completionEnabled, setCompletionEnabled] = useState(false);
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [completionBaseUrl, setCompletionBaseUrl] = useState("https://api.openai.com/v1");
+  const [completionModel, setCompletionModel] = useState("");
+  const [completionApiKey, setCompletionApiKey] = useState("");
+  const [hasCompletionApiKey, setHasCompletionApiKey] = useState(false);
+  const [completionBusy, setCompletionBusy] = useState(false);
+  const [completionResult, setCompletionResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const themeOptions = useMemo(() => themes.map((theme) => ({
     value: theme.id,
     label: t(theme.labelKey)
@@ -71,6 +79,80 @@ export function SettingsModal({
       disposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    window.completionApi.getConfig().then((config) => {
+      if (disposed) return;
+      setCompletionEnabled(config.enabled);
+      setCompletionBaseUrl(config.baseUrl);
+      setCompletionModel(config.model);
+      setHasCompletionApiKey(config.hasApiKey);
+    }).catch((err) => {
+      if (!disposed) setCompletionResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  const saveCompletionConfig = async () => {
+    setCompletionBusy(true);
+    setCompletionResult(null);
+    try {
+      const config = await window.completionApi.setConfig({
+        enabled: completionEnabled,
+        baseUrl: completionBaseUrl,
+        model: completionModel,
+        ...(completionApiKey.trim() ? { apiKey: completionApiKey.trim() } : {})
+      });
+      setCompletionEnabled(config.enabled);
+      setHasCompletionApiKey(config.hasApiKey);
+      setCompletionApiKey("");
+      setCompletionResult({ kind: "success", message: t("settings.completionSaved") });
+    } catch (err) {
+      setCompletionResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setCompletionBusy(false);
+    }
+  };
+
+  const clearCompletionCredentials = async () => {
+    setCompletionBusy(true);
+    setCompletionResult(null);
+    try {
+      const config = await window.completionApi.clearCredentials();
+      setCompletionEnabled(config.enabled);
+      setHasCompletionApiKey(config.hasApiKey);
+      setCompletionApiKey("");
+      setCompletionResult({ kind: "success", message: t("settings.completionCleared") });
+    } catch (err) {
+      setCompletionResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setCompletionBusy(false);
+    }
+  };
+
+  const testCompletion = async () => {
+    setCompletionBusy(true);
+    setCompletionResult(null);
+    try {
+      await window.completionApi.setConfig({
+        enabled: completionEnabled,
+        baseUrl: completionBaseUrl,
+        model: completionModel,
+        ...(completionApiKey.trim() ? { apiKey: completionApiKey.trim() } : {})
+      });
+      const result = await window.completionApi.test();
+      setHasCompletionApiKey(true);
+      setCompletionApiKey("");
+      setCompletionResult(result.ok
+        ? { kind: "success", message: t("settings.completionTestSuccess") }
+        : { kind: "error", message: result.error });
+    } catch (err) {
+      setCompletionResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setCompletionBusy(false);
+    }
+  };
 
   const saveDingTalkConfig = async () => {
     setDingTalkBusy(true);
@@ -174,6 +256,61 @@ export function SettingsModal({
                 onChange={(nextLocale) => onLocaleChange(nextLocale as Locale)}
               />
             </div>
+          </section>
+          <section className="settings-section ding-talk-settings">
+            <div
+              className="collapsible-header"
+              role="button"
+              tabIndex={0}
+              aria-expanded={completionOpen}
+              onClick={() => setCompletionOpen((value) => !value)}
+              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCompletionOpen((value) => !value); } }}
+            >
+              <span className={`collapsible-chevron${completionOpen ? "" : " collapsed"}`}>›</span>
+              <h4>{t("settings.completionTitle")}</h4>
+              <label className="auto-restore-label ding-talk-toggle" onClick={(event) => event.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  className="auto-restore-checkbox"
+                  checked={completionEnabled}
+                  disabled={completionBusy}
+                  onChange={(event) => setCompletionEnabled(event.target.checked)}
+                />
+                <span className="auto-restore-track" />
+                <span className="auto-restore-text">{t("settings.completionEnabled")}</span>
+              </label>
+            </div>
+            {completionOpen && (
+              <>
+                <p className="settings-help">{t("settings.completionDescription")}</p>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.completionBaseUrl")}</span>
+                  <input className="modal-input" value={completionBaseUrl} disabled={completionBusy} onChange={(event) => setCompletionBaseUrl(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.completionModel")}</span>
+                  <input className="modal-input" value={completionModel} disabled={completionBusy} placeholder="gpt-4.1-mini" onChange={(event) => setCompletionModel(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.completionApiKey")}</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    autoComplete="off"
+                    value={completionApiKey}
+                    disabled={completionBusy}
+                    placeholder={hasCompletionApiKey ? t("settings.completionConfigured") : t("settings.completionApiKeyPlaceholder")}
+                    onChange={(event) => setCompletionApiKey(event.target.value)}
+                  />
+                </label>
+                <div className="ding-talk-actions">
+                  <button className="modal-button primary" type="button" disabled={completionBusy} onClick={saveCompletionConfig}>{t("common.save")}</button>
+                  <button className="modal-button" type="button" disabled={completionBusy || (!hasCompletionApiKey && !completionApiKey.trim())} onClick={testCompletion}>{t("settings.completionTest")}</button>
+                  <button className="modal-button danger" type="button" disabled={completionBusy || !hasCompletionApiKey} onClick={clearCompletionCredentials}>{t("settings.completionClear")}</button>
+                </div>
+                {completionResult && <p className={`ding-talk-result ${completionResult.kind}`} role="status">{completionResult.message}</p>}
+              </>
+            )}
           </section>
           <section className="settings-section ding-talk-settings">
             <div

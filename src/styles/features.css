@@ -799,6 +799,46 @@
   font: 13px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+.terminal-composer-input {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-composer-mirror {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 0;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  font: 13px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.terminal-composer-ghost {
+  color: var(--color-text-subtle);
+}
+
+.terminal-composer textarea {
+  position: relative;
+  z-index: 1;
+}
+
+.terminal-composer textarea.has-completion {
+  color: transparent;
+  caret-color: var(--color-text);
+}
+
+.terminal-composer textarea.has-completion::selection {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
 .terminal-composer textarea::placeholder {
   color: var(--color-text-subtle);
 }
@@ -3088,6 +3128,59 @@
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.completion-debug-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+}
+
+.completion-debug-status.pending {
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+}
+
+.completion-debug-status.success {
+  color: var(--color-ok-text);
+  background: var(--color-ok-bg);
+}
+
+.completion-debug-status.error {
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+}
+
+.completion-debug-details {
+  display: grid;
+  gap: 10px;
+}
+
+.completion-debug-details section {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.completion-debug-details h3 {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.completion-debug-endpoint {
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 10px;
+}
+
+.completion-debug-details .completion-debug-error {
+  color: var(--color-danger-text);
 }
 .listener-agent-panel {
   position: relative;

@@ -15,11 +15,13 @@ const { createDingTalkNotificationManager } = require("./notifications/ding-talk
 const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
 const { createGitStatusService } = require("./services/git-status-service.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
+const { createCompletionService } = require("./services/completion-service.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-file-service.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
+const { createCompletionConfigStore } = require("./stores/completion-config-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
@@ -28,6 +30,7 @@ const { createTerminalManager, getDefaultShell, getWslShell } = require("./termi
 let windowManager = null;
 let sessionStore = null;
 let configStore = null;
+let completionConfigStore = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -46,6 +49,7 @@ let projectSearchService = null;
 let clipboardImageService = null;
 let listenerAgentStore = null;
 let listenerAgentManager = null;
+let completionService = null;
 
 protocol.registerSchemesAsPrivileged([{
   scheme: MEDIA_PROTOCOL,
@@ -105,6 +109,10 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "config.json"),
       safeStorage
     });
+    completionConfigStore = createCompletionConfigStore({
+      configFile: path.join(app.getPath("userData"), "completion.json"),
+      safeStorage
+    });
     dingTalkConfigStore = createDingTalkConfigStore({
       configFile: path.join(app.getPath("userData"), "dingtalk.json"),
       safeStorage
@@ -114,6 +122,7 @@ if (!gotSingleInstanceLock) {
     });
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
+    completionConfigStore.loadConfig();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     terminalManager = createTerminalManager({
@@ -220,6 +229,11 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       remoteFileService
     });
+    completionService = createCompletionService({
+      configStore: completionConfigStore,
+      isDebugEnabled: () => configStore.getConfig().debugMode,
+      broadcastDebug: (payload) => windowManager.broadcast("completion:debug", payload)
+    });
 
     listenerAgentManager = createListenerAgentManager({
       terminalManager,
@@ -237,6 +251,8 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher,
       sessionStore,
       configStore,
+      completionConfigStore,
+      completionService,
       dingTalkConfigStore,
       dingTalkNotificationManager,
       windowManager,

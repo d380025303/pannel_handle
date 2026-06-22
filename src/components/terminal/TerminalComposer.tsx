@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, File, Folder, ImagePlus, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
+import { applyCompletion, isCurrentCompletion, type CompletionCandidate } from "./composerCompletion";
 
 type TerminalComposerProps = {
   session?: TerminalSession;
@@ -46,20 +47,30 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [imageStatus, setImageStatus] = useState<"idle" | "uploading" | "error">("idle");
   const [statusMessage, setStatusMessage] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [completion, setCompletion] = useState<CompletionCandidate | null>(null);
+  const [completionLoading, setCompletionLoading] = useState(false);
+  const [completionError, setCompletionError] = useState("");
+  const [isComposing, setIsComposing] = useState(false);
+  const [scrollPosition, setScrollPosition] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  const completionRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const value = session ? drafts[session.id] ?? "" : "";
 
   const mentionVisible = Boolean(session && mention);
   const currentMentionQuery = mention?.query ?? "";
   const canSend = Boolean(session && value.trim());
+  const activeCompletion = isCurrentCompletion(completion, value, cursor) ? completion : null;
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
-  }, [value]);
+    const contentHeight = Math.max(textarea.scrollHeight, mirrorRef.current?.scrollHeight || 0);
+    textarea.style.height = `${Math.min(contentHeight, 144)}px`;
+  }, [activeCompletion, value]);
 
   useEffect(() => {
     setMention(null);
@@ -67,7 +78,40 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     setSelectedIndex(0);
     setImageStatus("idle");
     setStatusMessage("");
+    setCursor(0);
+    setCompletion(null);
+    setCompletionLoading(false);
+    setCompletionError("");
+    completionRequestRef.current += 1;
   }, [session?.id]);
+
+  useEffect(() => {
+    const requestId = completionRequestRef.current + 1;
+    completionRequestRef.current = requestId;
+    setCompletion(null);
+    setCompletionLoading(false);
+    setCompletionError("");
+    if (!session || !value.trim() || isComposing || mention) return undefined;
+
+    const snapshot = { sessionId: session.id, draft: value, cursor };
+    const timer = window.setTimeout(async () => {
+      try {
+        const config = await window.completionApi.getConfig();
+        if (completionRequestRef.current !== requestId || !config.enabled || !config.hasApiKey || !config.model) return;
+        setCompletionLoading(true);
+        const result = await window.completionApi.complete(snapshot);
+        if (completionRequestRef.current !== requestId) return;
+        if (result.completion) setCompletion({ completion: result.completion, draft: value, cursor });
+      } catch (error) {
+        if (completionRequestRef.current === requestId) {
+          setCompletionError(t("composer.completionFailed", { message: getErrorMessage(error) }));
+        }
+      } finally {
+        if (completionRequestRef.current === requestId) setCompletionLoading(false);
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [cursor, isComposing, mention, session, t, value]);
 
   useEffect(() => {
     if (!session || !mention) return undefined;
@@ -100,6 +144,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     if (!session) return;
     setDrafts((current) => ({ ...current, [session.id]: nextValue }));
     const nextCaret = caret ?? textareaRef.current?.selectionStart ?? nextValue.length;
+    setCursor(nextCaret);
     setMention(getMentionAtCaret(nextValue, nextCaret));
   };
 
@@ -111,6 +156,8 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     const nextValue = `${value.slice(0, start)}${text}${value.slice(end)}`;
     const nextCaret = start + text.length;
     setDrafts((current) => ({ ...current, [session.id]: nextValue }));
+    setCursor(nextCaret);
+    setCompletion(null);
     setMention(null);
     setResults([]);
     requestAnimationFrame(() => {
@@ -132,6 +179,20 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     setDrafts((current) => ({ ...current, [session.id]: "" }));
     setMention(null);
     setResults([]);
+    setCursor(0);
+    setCompletion(null);
+  };
+
+  const acceptCompletion = () => {
+    if (!session || !activeCompletion) return;
+    const next = applyCompletion(value, cursor, activeCompletion.completion);
+    setDrafts((current) => ({ ...current, [session.id]: next.value }));
+    setCursor(next.cursor);
+    setCompletion(null);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(next.cursor, next.cursor);
+    });
   };
 
   const pasteClipboardImage = async () => {
@@ -182,16 +243,40 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
           ))}
         </div>
       )}
-      <div className={`terminal-composer ${imageStatus === "error" ? "has-error" : ""}`}>
-        <textarea
+      <div className={`terminal-composer ${imageStatus === "error" || completionError ? "has-error" : ""}`}>
+        <div className="terminal-composer-input">
+          {activeCompletion && (
+            <div
+              ref={mirrorRef}
+              className="terminal-composer-mirror"
+              aria-hidden="true"
+              style={{ transform: `translate(${-scrollPosition.left}px, ${-scrollPosition.top}px)` }}
+            >
+              <span>{value.slice(0, cursor)}</span>
+              <span className="terminal-composer-ghost">{activeCompletion.completion}</span>
+              <span>{value.slice(cursor) || "\u200b"}</span>
+            </div>
+          )}
+          <textarea
           ref={textareaRef}
           rows={1}
           value={value}
           disabled={!session}
           aria-label={t("composer.inputLabel")}
           placeholder={session ? t("composer.placeholder") : t("app.noActiveSession")}
+          className={activeCompletion ? "has-completion" : ""}
           onChange={(event) => updateDraft(event.target.value, event.target.selectionStart)}
-          onClick={(event) => setMention(getMentionAtCaret(value, event.currentTarget.selectionStart))}
+          onClick={(event) => {
+            setCursor(event.currentTarget.selectionStart);
+            setMention(getMentionAtCaret(value, event.currentTarget.selectionStart));
+          }}
+          onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={(event) => {
+            setIsComposing(false);
+            updateDraft(event.currentTarget.value, event.currentTarget.selectionStart);
+          }}
+          onScroll={(event) => setScrollPosition({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter" && (event.ctrlKey || event.altKey || event.metaKey) && !event.shiftKey) {
@@ -210,6 +295,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
               selectEntry(selectedResult);
               return;
             }
+            if (activeCompletion && event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+              event.preventDefault();
+              acceptCompletion();
+              return;
+            }
             if (session && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
               event.preventDefault();
               window.terminalApi.write(session.id, "\x1b[Z");
@@ -218,6 +308,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
             if (mention && event.key === "Escape") {
               event.preventDefault();
               setMention(null);
+              return;
+            }
+            if (activeCompletion && event.key === "Escape") {
+              event.preventDefault();
+              setCompletion(null);
               return;
             }
             if (event.key === "Enter" && !event.shiftKey) {
@@ -231,7 +326,8 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
             event.preventDefault();
             void pasteClipboardImage();
           }}
-        />
+          />
+        </div>
         <div className="terminal-composer-actions">
           <button
             className="terminal-composer-image"
@@ -255,7 +351,11 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
           </button>
         </div>
       </div>
-      {statusMessage && <div className={`terminal-composer-status ${imageStatus}`}>{statusMessage}</div>}
+      {(statusMessage || completionLoading || completionError) && (
+        <div className={`terminal-composer-status ${imageStatus === "error" || completionError ? "error" : ""}`} role="status">
+          {statusMessage || completionError || (completionLoading ? t("composer.suggesting") : "")}
+        </div>
+      )}
     </div>
   );
 }

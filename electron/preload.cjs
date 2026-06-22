@@ -89,6 +89,19 @@ contextBridge.exposeInMainWorld("dingTalkApi", {
   test: () => ipcRenderer.invoke("dingtalk:test")
 });
 
+contextBridge.exposeInMainWorld("completionApi", {
+  getConfig: () => ipcRenderer.invoke("completion:get-config"),
+  setConfig: (input) => ipcRenderer.invoke("completion:set-config", input),
+  clearCredentials: () => ipcRenderer.invoke("completion:clear-credentials"),
+  test: () => ipcRenderer.invoke("completion:test"),
+  complete: (input) => ipcRenderer.invoke("completion:complete", input),
+  onDebugEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("completion:debug", listener);
+    return () => ipcRenderer.removeListener("completion:debug", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text"),

@@ -120,6 +120,53 @@ export type DingTalkTestResult =
   | { ok: true }
   | { ok: false; error: string };
 
+export type CompletionConfig = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+};
+
+export type CompletionConfigInput = {
+  enabled?: boolean;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+};
+
+export type CompletionRequest = {
+  sessionId: string;
+  draft: string;
+  cursor: number;
+};
+
+export type CompletionResult = { completion: string };
+
+export type CompletionDebugRequest = {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string;
+};
+
+export type CompletionDebugPayload = {
+  requestId: string;
+  phase: "request" | "response" | "error";
+  timestamp: number;
+  sessionId: string;
+  request?: CompletionDebugRequest;
+  durationMs?: number;
+  status?: "success" | "error";
+  httpStatus?: number;
+  responseBody?: string;
+  completion?: string;
+  error?: string;
+};
+
+export type CompletionTestResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export type SessionLibraryFileResult =
   | { canceled: true }
   | { canceled: false; ok: true; filePath: string; exportedCount: number }
@@ -454,6 +501,15 @@ export type DingTalkApi = {
   test: () => Promise<DingTalkTestResult>;
 };
 
+export type CompletionApi = {
+  getConfig: () => Promise<CompletionConfig>;
+  setConfig: (input: CompletionConfigInput) => Promise<CompletionConfig>;
+  clearCredentials: () => Promise<CompletionConfig>;
+  test: () => Promise<CompletionTestResult>;
+  complete: (input: CompletionRequest) => Promise<CompletionResult>;
+  onDebugEvent: (callback: (payload: CompletionDebugPayload) => void) => () => void;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -465,6 +521,7 @@ declare global {
     hookConfigApi: HookConfigApi;
     listenerAgentApi: ListenerAgentApi;
     dingTalkApi: DingTalkApi;
+    completionApi: CompletionApi;
     windowApi: WindowApi;
   }
 }

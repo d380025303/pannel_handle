@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -391,6 +391,22 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     }
     return configStore.getConfig();
   });
+
+  ipcMain.handle("completion:get-config", () => completionConfigStore.getConfig());
+
+  ipcMain.handle("completion:set-config", (_event, input) => completionConfigStore.updateConfig(input));
+
+  ipcMain.handle("completion:clear-credentials", () => completionConfigStore.clearCredentials());
+
+  ipcMain.handle("completion:test", async () => {
+    try {
+      return await completionService.testConnection();
+    } catch (err) {
+      return { ok: false, error: getErrorMessage(err) };
+    }
+  });
+
+  ipcMain.handle("completion:complete", (_event, input) => completionService.complete(input));
 
   ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());
 
