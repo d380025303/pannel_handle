@@ -450,6 +450,7 @@ export type TerminalApi = {
   importSavedSessions: () => Promise<SessionLibraryImportResult>;
   launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
+  duplicateSession: (id: string) => Promise<TerminalSession>;
   reorderSavedSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;

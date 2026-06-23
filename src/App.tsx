@@ -264,6 +264,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     terminalSessions.setPickerManual(false);
   }, [terminalSessions]);
 
+  const handleEditFromPicker = useCallback((session: TerminalSession) => {
+    handleClosePicker();
+    setEditDialogSession(session);
+  }, [handleClosePicker]);
+
   const handleToggleDebugMode = useCallback(async () => {
     const config = await window.terminalApi.getConfig();
     const next = !config.debugMode;
@@ -481,6 +486,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onLaunch={handleLaunchSessions}
           onStartFresh={handleStartFresh}
           onDelete={terminalSessions.deleteFromLibrary}
+          onDuplicate={terminalSessions.duplicateFromLibrary}
+          onEdit={handleEditFromPicker}
           onReorder={terminalSessions.reorderLibrary}
           onImport={terminalSessions.importLibrary}
           onExport={terminalSessions.exportLibrary}

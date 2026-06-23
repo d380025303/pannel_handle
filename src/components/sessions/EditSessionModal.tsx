@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, QuickCommand, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
@@ -33,6 +33,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
   const [sshRemark, setSshRemark] = useState(session.sshConfig?.remark || "");
+  const [showAdvancedSsh, setShowAdvancedSsh] = useState(false);
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
 
@@ -50,13 +51,12 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       editCwd,
       editCommand,
       agentProvider,
-      quickCommands,
+      quickCommands.filter((qc) => qc.command.trim().length > 0),
       isSsh ? {
         host: sshHost.trim(),
         username: sshUsername.trim() || undefined,
         port: Number(sshPort) || 22,
         identityFile: sshIdentityFile.trim() || undefined,
-        extraArgs: [],
         secret: clearSshSecret ? undefined : sshSecret || undefined,
         clearSecret: clearSshSecret,
         remark: sshRemark.trim() || undefined
@@ -172,15 +172,47 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   <span>{t("session.clearSavedPassword")}</span>
                 </label>
               )}
-              <label className="modal-field">
-                <span className="modal-label">{t("session.identityFile")}</span>
-                <input
-                  className="modal-input"
-                  placeholder="C:\\Users\\me\\.ssh\\id_rsa"
-                  value={sshIdentityFile}
-                  onChange={(e) => setSshIdentityFile(e.target.value)}
-                />
-              </label>
+              <button
+                type="button"
+                className="ssh-advanced-toggle"
+                onClick={() => setShowAdvancedSsh((v) => !v)}
+              >
+                {showAdvancedSsh ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span>{t("session.advancedSsh")}</span>
+              </button>
+              {showAdvancedSsh && (
+                <>
+                  <label className="modal-field">
+                    <span className="modal-label">{t("session.identityFile")}</span>
+                    <input
+                      className="modal-input"
+                      placeholder="C:\\Users\\me\\.ssh\\id_rsa"
+                      value={sshIdentityFile}
+                      onChange={(e) => setSshIdentityFile(e.target.value)}
+                    />
+                  </label>
+                  <label className="modal-field">
+                    <span className="modal-label">{t("session.sshArgs")}</span>
+                    <input
+                      className="modal-input"
+                      placeholder="-o ServerAliveInterval=30"
+                      value={sshExtraArgs}
+                      disabled
+                      onChange={(e) => setSshExtraArgs(e.target.value)}
+                    />
+                  </label>
+                  <label className="modal-field">
+                    <span className="modal-label">{t("session.remark")}</span>
+                    <textarea
+                      className="modal-input modal-textarea"
+                      placeholder={t("session.remarkPlaceholder")}
+                      value={sshRemark}
+                      onChange={(e) => setSshRemark(e.target.value)}
+                      rows={2}
+                    />
+                  </label>
+                </>
+              )}
               <label className="modal-field">
                 <span className="modal-label">{t("session.cwd")}</span>
                 <input
@@ -203,26 +235,6 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               <label className="modal-field">
                 <span className="modal-label">{t("session.tags")}</span>
                 <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.sshArgs")}</span>
-                <input
-                  className="modal-input"
-                  placeholder="-o ServerAliveInterval=30"
-                  value={sshExtraArgs}
-                  disabled
-                  onChange={(e) => setSshExtraArgs(e.target.value)}
-                />
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.remark")}</span>
-                <textarea
-                  className="modal-input modal-textarea"
-                  placeholder={t("session.remarkPlaceholder")}
-                  value={sshRemark}
-                  onChange={(e) => setSshRemark(e.target.value)}
-                  rows={2}
-                />
               </label>
             </div>
           ) : (
@@ -252,7 +264,9 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               </label>
             </>
           )}
-          <label className="modal-label quick-command-heading">
+        </div>
+        <div className="quick-command-section">
+          <label className="quick-command-heading">
             {t("quickCommand.heading")}
           </label>
           <div className="quick-command-edit-list">

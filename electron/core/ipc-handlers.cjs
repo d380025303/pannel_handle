@@ -125,6 +125,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.deleteSavedSession(id);
   });
 
+  ipcMain.handle("sessions:duplicate", (_event, id) => {
+    return terminalManager.duplicateSavedSession(id);
+  });
+
   ipcMain.handle("sessions:reorder", (_event, orderedIds) => {
     return terminalManager.reorderSavedSessions(orderedIds);
   });

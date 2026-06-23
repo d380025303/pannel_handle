@@ -114,7 +114,7 @@ describe("agent-session-launcher", () => {
     mocks.sshSessionRuntime.exec.mockRejectedValue(new Error("not found"));
 
     await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qoder", sshConfig: { host: "example.com" } }))
-      .rejects.toThrow("not found");
+      .rejects.toThrow("未在远程 SSH 环境中找到命令：qoderclicn");
     expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
     expect(mocks.terminalManager.deleteSavedSession).toHaveBeenCalledWith("1");
   });

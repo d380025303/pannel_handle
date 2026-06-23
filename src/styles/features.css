@@ -336,6 +336,24 @@
   margin-top: 12px;
 }
 
+.ssh-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.ssh-advanced-toggle:hover {
+  color: var(--color-text);
+}
+
 .shell-list {
   display: flex;
   flex-wrap: wrap;
@@ -543,6 +561,55 @@
 }
 
 .picker-delete-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+
+.picker-duplicate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: var(--color-text-subtle);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.picker-duplicate-btn:hover {
+  color: var(--color-text-strong);
+  background: var(--color-bg-control-hover);
+}
+
+.picker-duplicate-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+
+.picker-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.picker-edit-btn:hover {
+  color: var(--color-text-strong);
+  background: var(--color-bg-control-hover);
+}
+
+.picker-edit-btn svg {
   width: 13px;
   height: 13px;
   stroke-width: 2.2;
@@ -1091,7 +1158,17 @@
   color: var(--color-text-muted);
 }
 
+.quick-command-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  padding: 12px 20px 16px;
+}
+
 .quick-command-heading {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .quick-command-edit-list {

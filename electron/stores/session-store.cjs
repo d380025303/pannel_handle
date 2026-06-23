@@ -214,6 +214,22 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     saveLibrary();
   }
 
+  function duplicateInLibrary(id) {
+    const source = librarySessions.find(s => s.id === id);
+    if (!source) {
+      throw new Error(`Session template not found: ${id}`);
+    }
+    const duplicated = {
+      ...serializeTemplate(source),
+      id: createTemplateId(),
+      title: `${source.title} - 副本`,
+      createdAt: Date.now()
+    };
+    librarySessions.push(duplicated);
+    saveLibrary();
+    return sanitizeTemplate(duplicated);
+  }
+
   function updateLibrary(id, updates) {
     const idx = librarySessions.findIndex(s => s.id === id);
     if (idx >= 0) {
@@ -305,6 +321,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     saveLibrary,
     addToLibrary,
     removeFromLibrary,
+    duplicateInLibrary,
     updateLibrary,
     getLibrary,
     exportLibrary,

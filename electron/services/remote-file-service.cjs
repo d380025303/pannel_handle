@@ -359,6 +359,10 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (session.type !== "ssh") {
       return getLocalHome(session);
     }
+    const configuredCwd = String(session.cwd || "").trim();
+    if (configuredCwd && configuredCwd !== "~" && configuredCwd.startsWith("/")) {
+      return normalizeRemotePath(configuredCwd);
+    }
     const client = await getClient(sessionId);
     return normalizeRemotePath(await client.cwd());
   }

@@ -37,6 +37,15 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
       stream = nextStream;
       stream.on("data", emitData);
       stream.stderr?.on("data", emitData);
+      stream.on("error", (err) => {
+        exitCode = 1;
+        emitData(`\r\nSSH stream error: ${err.message}\r\n`);
+        client.end();
+        emitExit(1);
+      });
+      stream.stderr?.on("error", (err) => {
+        emitData(`\r\nSSH stderr stream error: ${err.message}\r\n`);
+      });
       stream.on("exit", (code) => {
         if (Number.isInteger(code)) {
           exitCode = code;
@@ -62,8 +71,12 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
 
   client.on("ready", openShell);
   client.on("error", (err) => {
-    exitCode = 1;
-    emitData(`\r\nSSH connection error: ${err.message}\r\n`);
+    if (!closed) {
+      exitCode = 1;
+      emitData(`\r\nSSH connection error: ${err.message}\r\n`);
+      client.end();
+      emitExit(1);
+    }
   });
   client.on("close", () => {
     emitExit(exitCode);

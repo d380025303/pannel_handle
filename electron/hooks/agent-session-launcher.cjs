@@ -68,9 +68,13 @@ function createAgentSessionLauncher({
 
   async function assertSshCommand(sessionId, session) {
     const command = getAgentCommand(session.agentProvider);
-    await sshSessionRuntime.exec(sessionId, `command -v ${shellQuote(command)} >/dev/null 2>&1`, {
-      actionName: `检测远程命令 ${command}`
-    });
+    try {
+      await sshSessionRuntime.exec(sessionId, `bash -lic ${shellQuote(`command -v ${command} >/dev/null 2>&1`)}`, {
+        actionName: `检测远程命令 ${command}`
+      });
+    } catch {
+      throw new Error(`未在远程 SSH 环境中找到命令：${command}`);
+    }
   }
 
   async function ensureLocalHook(session) {

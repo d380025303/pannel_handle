@@ -210,6 +210,12 @@ export function useTerminalSessions() {
     setPendingSessions((prev) => prev ? prev.filter((session) => session.id !== id) : null);
   }, []);
 
+  const duplicateFromLibrary = useCallback(async (id: string) => {
+    const duplicated = await window.terminalApi.duplicateSession(id);
+    setLibrarySessions((prev) => [...prev, duplicated]);
+    setPendingSessions((prev) => prev ? [...prev, duplicated] : null);
+  }, []);
+
   const reorderLibrary = useCallback(async (orderedSessions: TerminalSession[]) => {
     setPendingSessions(orderedSessions);
     setLibrarySessions(orderedSessions);
@@ -257,6 +263,7 @@ export function useTerminalSessions() {
     launchSessions,
     startFresh,
     deleteFromLibrary,
+    duplicateFromLibrary,
     reorderLibrary,
     reorderRunningSessions,
     autoRestore,

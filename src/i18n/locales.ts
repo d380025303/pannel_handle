@@ -99,6 +99,7 @@ export type TranslationKey =
   | "session.passwordCreatePlaceholder"
   | "session.passwordEditPlaceholder"
   | "session.clearSavedPassword"
+  | "session.advancedSsh"
   | "session.identityFile"
   | "session.cwd"
   | "session.initialCommand"
@@ -236,6 +237,8 @@ export type TranslationKey =
   | "picker.noMatches"
   | "picker.runningCount"
   | "picker.deleteFromLibrary"
+  | "picker.duplicateSession"
+  | "picker.editSession"
   | "picker.confirmDelete"
   | "picker.startFresh"
   | "picker.launchSelected"
@@ -417,6 +420,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.passwordCreatePlaceholder": "加密保存，用于自动登录",
     "session.passwordEditPlaceholder": "已保存密码，留空保持不变",
     "session.clearSavedPassword": "清除已保存密码",
+    "session.advancedSsh": "高级选项",
     "session.identityFile": "密钥路径",
     "session.cwd": "工作目录",
     "session.initialCommand": "初始命令",
@@ -554,6 +558,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.noMatches": "没有匹配的会话",
     "picker.runningCount": "运行中 {count}",
     "picker.deleteFromLibrary": "从库中删除",
+    "picker.duplicateSession": "复制会话",
+    "picker.editSession": "编辑会话",
     "picker.confirmDelete": "再次点击确认删除",
     "picker.startFresh": "重新开始",
     "picker.launchSelected": "启动所选 ({count})",
@@ -727,6 +733,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.passwordCreatePlaceholder": "Encrypted and saved for automatic login",
     "session.passwordEditPlaceholder": "Saved password exists; leave blank to keep it",
     "session.clearSavedPassword": "Clear saved password",
+    "session.advancedSsh": "Advanced Settings",
     "session.identityFile": "Identity file",
     "session.cwd": "Working directory",
     "session.initialCommand": "Initial command",
@@ -864,6 +871,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.noMatches": "No matching sessions",
     "picker.runningCount": "Running {count}",
     "picker.deleteFromLibrary": "Delete from library",
+    "picker.duplicateSession": "Duplicate session",
+    "picker.editSession": "Edit session",
     "picker.confirmDelete": "Click again to confirm delete",
     "picker.startFresh": "Start fresh",
     "picker.launchSelected": "Launch selected ({count})",

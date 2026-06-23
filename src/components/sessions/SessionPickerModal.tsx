@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, GripVertical, Search, Trash2, Upload, X } from "lucide-react";
+import { Copy, Download, GripVertical, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../../vite-env";
 
@@ -10,6 +10,8 @@ type SessionPickerModalProps = {
   onLaunch: (sessions: TerminalSession[]) => Promise<void>;
   onStartFresh: () => Promise<void>;
   onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onEdit: (session: TerminalSession) => void;
   onReorder: (sessions: TerminalSession[]) => void;
   onImport: () => Promise<SessionLibraryImportResult>;
   onExport: () => Promise<SessionLibraryFileResult>;
@@ -29,6 +31,8 @@ export function SessionPickerModal({
   onLaunch,
   onStartFresh,
   onDelete,
+  onDuplicate,
+  onEdit,
   onReorder,
   onImport,
   onExport,
@@ -321,6 +325,28 @@ export function SessionPickerModal({
                               ))}
                             </span>
                           )}
+                        </span>
+                        <span
+                          className="picker-edit-btn"
+                          title={t("picker.editSession")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            onEdit(session);
+                          }}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </span>
+                        <span
+                          className="picker-duplicate-btn"
+                          title={t("picker.duplicateSession")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            onDuplicate(session.id);
+                          }}
+                        >
+                          <Copy aria-hidden="true" />
                         </span>
                         <span
                           className={`picker-delete-btn${confirmDeleteId === session.id ? " confirm" : ""}`}

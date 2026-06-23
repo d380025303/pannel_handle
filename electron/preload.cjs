@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   importSavedSessions: () => ipcRenderer.invoke("sessions:import-library"),
   launchSessions: (sessions) => ipcRenderer.invoke("sessions:launch-selected", sessions),
   deleteSavedSession: (id) => ipcRenderer.invoke("sessions:delete-saved", id),
+  duplicateSession: (id) => ipcRenderer.invoke("sessions:duplicate", id),
   reorderSavedSessions: (orderedIds) => ipcRenderer.invoke("sessions:reorder", orderedIds),
   reorderRunningSessions: (orderedIds) => ipcRenderer.invoke("sessions:reorder-running", orderedIds),
   onSessionsChanged: (callback) => {

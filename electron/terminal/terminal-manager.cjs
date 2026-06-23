@@ -488,6 +488,10 @@ function createTerminalManager({
     return listSessions();
   }
 
+  function duplicateSavedSession(id) {
+    return sessionStore.duplicateInLibrary(id);
+  }
+
   function reorderSavedSessions(orderedIds) {
     sessionStore.reorderLibrary(orderedIds);
     return listSessions();
@@ -701,6 +705,7 @@ function createTerminalManager({
     launchSession,
     launchSessions,
     deleteSavedSession,
+    duplicateSavedSession,
     reorderSavedSessions,
     reorderRunningSessions,
     renameSession,
