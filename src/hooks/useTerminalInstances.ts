@@ -58,6 +58,20 @@ function getWheelScrollLines(event: WheelEvent<HTMLDivElement>, rows: number) {
   return Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / 16));
 }
 
+function shouldAutoFocusTerminal(terminalHost: HTMLDivElement | null) {
+  const activeElement = document.activeElement;
+  if (!activeElement || activeElement === document.body || activeElement === document.documentElement) {
+    return true;
+  }
+  return Boolean(terminalHost && activeElement instanceof Node && terminalHost.contains(activeElement));
+}
+
+function autoFocusTerminal(entry: TerminalEntry, terminalHost: HTMLDivElement | null) {
+  if (shouldAutoFocusTerminal(terminalHost)) {
+    entry.terminal.focus();
+  }
+}
+
 export function useTerminalInstances({ activeId, isVisible, terminalTheme }: UseTerminalInstancesOptions) {
   const { t } = useI18n();
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
@@ -131,7 +145,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
       try {
         entry.fitAddon.fit();
         entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
-        entry.terminal.focus();
+        autoFocusTerminal(entry, terminalHostRef.current);
 
         const dims = entry.fitAddon.proposeDimensions();
         if (dims && dims.cols > 0 && dims.rows > 0) {
@@ -319,7 +333,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     };
 
     fit();
-    entry.terminal.focus();
+    autoFocusTerminal(entry, terminalHost);
     const resizeObserver = new ResizeObserver(fit);
     resizeObserver.observe(terminalHost);
 

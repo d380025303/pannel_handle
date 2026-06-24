@@ -13,6 +13,7 @@ type RemoteFilePanelProps = {
   onPreviewActive?: (active: boolean) => void;
   onCurrentPathChange?: (path: string) => void;
   onSearchRequest?: (mode: "files" | "text", rootPath: string) => void;
+  onFocusTerminal?: () => void;
 };
 
 type PreviewState =
@@ -108,7 +109,7 @@ function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: numbe
   mirror.remove();
 }
 
-export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest }: RemoteFilePanelProps) {
+export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest, onFocusTerminal }: RemoteFilePanelProps) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
@@ -708,7 +709,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     closeFileContextMenu();
     if (!sessionId) return;
     window.terminalApi.write(sessionId, entry.path);
-  }, [closeFileContextMenu, sessionId]);
+    onFocusTerminal?.();
+  }, [closeFileContextMenu, onFocusTerminal, sessionId]);
 
   const handleDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
     closeFileContextMenu();

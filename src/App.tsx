@@ -429,6 +429,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onPreviewActive={setPreviewActive}
                   onCurrentPathChange={handleFilePanelPathChange}
                   onSearchRequest={openProjectSearch}
+                  onFocusTerminal={terminalInstances.focusActiveTerminal}
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel session={terminalSessions.activeSession} />
