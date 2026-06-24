@@ -1,0 +1,33 @@
+name: 发布自动编译
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install
+
+      - name: 编译 portable exe
+        run: pnpm dist:portable
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
