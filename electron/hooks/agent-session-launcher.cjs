@@ -6,6 +6,8 @@ const AGENT_COMMANDS = Object.freeze({
   opencode: "opencode",
   qoder: "qoderclicn"
 });
+const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
+const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "qoder"]);
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -34,6 +36,16 @@ function buildAgentStartCommand(session, runtime = {}) {
     return `& { ${preCommand} }; if ($?) { ${agentCommand} }`;
   }
   return `${preCommand} && ${agentCommand}`;
+}
+
+function buildSshHookWarningCommand(provider, error) {
+  const message = String(error?.message || error || "unknown error").trim() || "unknown error";
+  return `printf '%s\\n' ${shellQuote(`[Pannel Handle] Remote ${provider} notification Hook is unavailable: ${message}. Starting without status notifications.`)} >&2`;
+}
+
+function buildSshCommandCheckWarningCommand(provider, error) {
+  const message = String(error?.message || error || "unknown error").trim() || "unknown error";
+  return `printf '%s\\n' ${shellQuote(`[Pannel Handle] Remote ${provider} command check failed: ${message}. Starting anyway.`)} >&2`;
 }
 
 function createAgentSessionLauncher({
@@ -105,6 +117,47 @@ function createAgentSessionLauncher({
       : undefined;
   }
 
+  async function prepareSshHook(sessionId, session) {
+    try {
+      return { tunnel: await ensureSshHook(sessionId, session), warningCommand: "" };
+    } catch (err) {
+      if (!OPTIONAL_SSH_HOOK_PROVIDERS.has(session.agentProvider)) {
+        throw err;
+      }
+      if (typeof terminalManager.broadcastAgentHookDebug === "function") {
+        terminalManager.broadcastAgentHookDebug({
+          provider: session.agentProvider,
+          eventName: "SshHookSetupFailed",
+          matchedSessionId: sessionId,
+          handled: false,
+          payload: { message: err?.message || String(err) }
+        });
+      }
+      return { tunnel: undefined, warningCommand: buildSshHookWarningCommand(session.agentProvider, err) };
+    }
+  }
+
+  async function prepareSshCommand(sessionId, session) {
+    try {
+      await assertSshCommand(sessionId, session);
+      return "";
+    } catch (err) {
+      if (!OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS.has(session.agentProvider)) {
+        throw err;
+      }
+      if (typeof terminalManager.broadcastAgentHookDebug === "function") {
+        terminalManager.broadcastAgentHookDebug({
+          provider: session.agentProvider,
+          eventName: "SshCommandCheckFailed",
+          matchedSessionId: sessionId,
+          handled: false,
+          payload: { message: err?.message || String(err) }
+        });
+      }
+      return buildSshCommandCheckWarningCommand(session.agentProvider, err);
+    }
+  }
+
   async function prepareLocal(session) {
     validateAgentSession(session);
     assertLocalCommand(session);
@@ -115,13 +168,15 @@ function createAgentSessionLauncher({
   async function finishSsh(session) {
     try {
       validateAgentSession(session);
-      await assertSshCommand(session.id, session);
-      const tunnel = await ensureSshHook(session.id, session);
+      const commandWarning = await prepareSshCommand(session.id, session);
+      const { tunnel, warningCommand } = await prepareSshHook(session.id, session);
       const command = buildAgentStartCommand(session, {
         hookUrl: tunnel?.hookUrl,
         sessionId: session.id
       });
-      terminalManager.write(session.id, `cd ${shellQuote(session.cwd)} && ${command}\r`);
+      const launchCommand = `cd ${shellQuote(session.cwd)} && ${command}`;
+      const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
+      terminalManager.write(session.id, `${prefixCommands.length ? `${prefixCommands.join("; ")}; ` : ""}${launchCommand}\r`);
       return session;
     } catch (err) {
       terminalManager.closeSession(session.id);

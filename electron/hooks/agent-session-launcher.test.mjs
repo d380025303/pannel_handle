@@ -31,7 +31,8 @@ function createMocks(overrides = {}) {
     listSessions: vi.fn(() => sessions),
     write: vi.fn(),
     closeSession: vi.fn(),
-    deleteSavedSession: vi.fn()
+    deleteSavedSession: vi.fn(),
+    broadcastAgentHookDebug: vi.fn()
   };
   const hookConfigManager = {
     inspect: vi.fn((_target, [provider]) => installed(provider)),
@@ -107,6 +108,57 @@ describe("agent-session-launcher", () => {
     expect(mocks.sshSessionRuntime.exec).toHaveBeenCalled();
     expect(mocks.remoteHookConfigService.install).toHaveBeenCalled();
     expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && PANNEL_HANDLE_HOOK_URL="));
+  });
+
+  it("continues launching Codex over SSH when optional remote hook setup fails", async () => {
+    const mocks = createMocks();
+    mocks.remoteHookConfigService.inspect.mockResolvedValue({
+      ok: false,
+      error: "Connection lost before handshake",
+      providers: {}
+    });
+
+    await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex", sshConfig: { host: "example.com" } });
+
+    expect(mocks.remoteHookConfigService.install).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.deleteSavedSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex",
+      eventName: "SshHookSetupFailed",
+      matchedSessionId: "run-1",
+      handled: false
+    }));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith(
+      "run-1",
+      expect.stringContaining("Remote codex notification Hook is unavailable:")
+    );
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith(
+      "run-1",
+      expect.stringContaining("Connection lost before handshake")
+    );
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex\r"));
+  });
+
+  it("continues launching Codex over SSH when the auxiliary command check fails", async () => {
+    const mocks = createMocks();
+    mocks.sshSessionRuntime.exec.mockRejectedValue(new Error("command check closed before it was ready"));
+
+    await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex", sshConfig: { host: "example.com" } });
+
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.deleteSavedSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex",
+      eventName: "SshCommandCheckFailed",
+      matchedSessionId: "run-1",
+      handled: false
+    }));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith(
+      "run-1",
+      expect.stringContaining("Remote codex command check failed:")
+    );
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex\r"));
   });
 
   it("cleans up a failed new SSH session and its saved template", async () => {

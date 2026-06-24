@@ -144,6 +144,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const navigationRootRef = useRef<string | null>(null);
   const directoriesRef = useRef<DirectoryTreeState>({});
   const directoryRequestRef = useRef(new Map<string, number>());
+  const directoryRequestSequenceRef = useRef(0);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const sessionId = session?.id;
@@ -301,9 +302,39 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setDirectories(next);
   }, []);
 
+  const resetPanelState = useCallback((path = ".") => {
+    requestRef.current += 1;
+    previewRequestRef.current += 1;
+    directoryRequestSequenceRef.current += 1;
+    directoryRequestRef.current.clear();
+    treeRowRefs.current.clear();
+    navigationRootRef.current = null;
+    treeRootRef.current = null;
+    directoriesRef.current = {};
+    selectedPathRef.current = null;
+    setNavigationRoot(null);
+    setCurrentPath(path);
+    setPathInput(path);
+    onCurrentPathChange?.(path);
+    setTreeRoot(null);
+    setDirectories({});
+    setExpandedPaths(new Set());
+    setSelectedPath(null);
+    setPreview({ status: "idle" });
+    setSearchQuery("");
+    setDropTargetPath(null);
+    setUploadingCount(0);
+    setDownloadDragPath(null);
+    closeFileContextMenu();
+    resetEditor();
+    releaseActivePreview();
+    setError(null);
+  }, [closeFileContextMenu, onCurrentPathChange, releaseActivePreview, resetEditor]);
+
   const loadTreeDirectory = useCallback(async (path: string) => {
     if (!sessionId) return undefined;
-    const requestId = (directoryRequestRef.current.get(path) ?? 0) + 1;
+    const requestId = directoryRequestSequenceRef.current + 1;
+    directoryRequestSequenceRef.current = requestId;
     directoryRequestRef.current.set(path, requestId);
     updateDirectories((current) => ({
       ...current,
@@ -335,6 +366,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       size: 0,
       modifiedAt: 0
     };
+    directoryRequestSequenceRef.current += 1;
+    directoryRequestRef.current.clear();
     treeRootRef.current = root;
     directoriesRef.current = {};
     setTreeRoot(root);
@@ -404,44 +437,25 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
 
   useEffect(() => {
     if (!sessionId) {
-      navigationRootRef.current = null;
-      setNavigationRoot(null);
-      onCurrentPathChange?.(".");
-      setCurrentPath(".");
-      setPathInput(".");
-      treeRootRef.current = null;
-      directoriesRef.current = {};
-      directoryRequestRef.current.clear();
-      setTreeRoot(null);
-      setDirectories({});
-      setExpandedPaths(new Set());
-      selectedPathRef.current = null;
-      setSelectedPath(null);
-      closeFileContextMenu();
-      setPreview({ status: "idle" });
-      setSearchQuery("");
-      resetEditor();
-      releaseActivePreview();
-      setError(null);
+      resetPanelState(".");
       setLoading(false);
-      previewRequestRef.current += 1;
       return;
     }
-    navigationRootRef.current = null;
-    setNavigationRoot(null);
+    resetPanelState(".");
 
     let disposed = false;
     const initialRequestId = requestRef.current;
-    setSearchQuery("");
     setPreviewSearchQuery("");
     setLoading(true);
-    setError(null);
     window.remoteFileApi.getHome(sessionId)
       .then((home) => {
         if (!disposed && requestRef.current === initialRequestId) {
           const rootPath = home || ".";
           navigationRootRef.current = rootPath;
           setNavigationRoot(rootPath);
+          setCurrentPath(rootPath);
+          setPathInput(rootPath);
+          onCurrentPathChange?.(rootPath);
           void loadDirectory(rootPath, false, true);
         }
       })
@@ -456,10 +470,11 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
-      directoryRequestRef.current.forEach((value, path) => directoryRequestRef.current.set(path, value + 1));
+      directoryRequestSequenceRef.current += 1;
+      directoryRequestRef.current.clear();
       releaseActivePreview();
     };
-  }, [closeFileContextMenu, loadDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
+  }, [loadDirectory, onCurrentPathChange, releaseActivePreview, resetPanelState, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {
