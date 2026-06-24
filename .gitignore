@@ -6,4 +6,5 @@ release
 release
 .vite
 *.log
+.codex
 
