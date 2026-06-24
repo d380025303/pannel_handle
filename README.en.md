@@ -23,7 +23,7 @@
 
 **Pannel Handle** is a Windows desktop application for managing all your terminal sessions in one place. It combines a multi-tab terminal emulator with deep **AI agent status monitoring** (Claude Code / Codex / OpenCode). Manage local shells, SSH remote sessions, and track your AI assistant's real-time status — all in a single unified interface.
 
-![screenshot](https://via.placeholder.com/960x540/101318/e7edf4?text=Pannel+Handle+Screenshot)
+![screenshot](build/screenshot.png)
 
 ---
 

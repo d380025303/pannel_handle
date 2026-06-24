@@ -23,7 +23,7 @@
 
 **Pannel Handle** 是一款 Windows 桌面终端管理工具。它不仅提供多标签终端体验，还深度集成了 **AI Agent 状态监听**（Claude Code / Codex / OpenCode），让你在同一个界面中管理本地终端、SSH 远程会话，并实时追踪 AI 助手的工作状态。
 
-![screenshot](https://via.placeholder.com/960x540/101318/e7edf4?text=Pannel+Handle+Screenshot)
+![screenshot](build/screenshot.png)
 
 ---
 
