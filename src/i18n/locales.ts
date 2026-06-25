@@ -190,6 +190,7 @@ export type TranslationKey =
   | "files.searchPlaceholder"
   | "files.clearSearch"
   | "files.onlyLocalFiles"
+  | "files.cannotResolveLocalPaths"
   | "files.uploading"
   | "files.preparingDownload"
   | "files.loading"
@@ -511,6 +512,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.searchPlaceholder": "搜索当前目录...",
     "files.clearSearch": "清除搜索",
     "files.onlyLocalFiles": "只能上传本地文件。",
+    "files.cannotResolveLocalPaths": "无法识别拖放的文件来源，仅支持从文件资源管理器拖入本地文件。",
     "files.uploading": "正在上传 {count} 个文件...",
     "files.preparingDownload": "正在准备下载...",
     "files.loading": "正在加载文件...",
@@ -824,6 +826,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.searchPlaceholder": "Search current directory...",
     "files.clearSearch": "Clear search",
     "files.onlyLocalFiles": "Only local files can be uploaded.",
+    "files.cannotResolveLocalPaths": "Cannot recognize the dropped items. Only files dragged from the file explorer are supported.",
     "files.uploading": "Uploading {count} files...",
     "files.preparingDownload": "Preparing download...",
     "files.loading": "Loading files...",

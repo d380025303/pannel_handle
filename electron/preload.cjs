@@ -2,7 +2,13 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 function getDroppedFilePaths(files) {
   return Array.from(files || [])
-    .map((file) => webUtils.getPathForFile(file))
+    .map((file) => {
+      if (typeof file === "string") {
+        return file.trim();
+      }
+      const filePath = webUtils.getPathForFile(file);
+      return filePath || file.path || "";
+    })
     .filter(Boolean);
 }
 

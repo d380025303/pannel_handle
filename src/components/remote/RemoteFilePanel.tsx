@@ -631,7 +631,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     }
   }, [currentPath, refreshDirectory, sessionId]);
 
-  const uploadDroppedFiles = useCallback(async (files: FileList, targetDir: string) => {
+  const uploadDroppedFiles = useCallback(async (files: FileList | File[], targetDir: string) => {
     if (!sessionId) return;
     if (files.length === 0) {
       setError(t("files.onlyLocalFiles"));
@@ -669,7 +669,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     event.preventDefault();
     event.stopPropagation();
     setDropTargetPath(null);
-    void uploadDroppedFiles(event.dataTransfer.files, targetDir);
+    void uploadDroppedFiles(Array.from(event.dataTransfer.files), targetDir);
   }, [currentPath, uploadDroppedFiles]);
 
   const handleLocalFileDragLeave = useCallback((event: DragEvent<HTMLElement>, targetDir = currentPath) => {

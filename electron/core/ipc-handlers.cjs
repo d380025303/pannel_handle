@@ -28,7 +28,7 @@ function sanitizeLocalPaths(localPaths) {
     .map((filePath) => filePath.trim())
     .filter(Boolean);
   if (paths.length === 0) {
-    throw new Error("No local files were provided.");
+    throw new Error("No valid local file paths found. Only local files can be uploaded.");
   }
   return paths;
 }
