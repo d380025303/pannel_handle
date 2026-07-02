@@ -95,7 +95,7 @@ pnpm install
 pnpm start        # 开发模式启动
 
 # 或分别启动
-pnpm dev          # Vite 开发服务器 (127.0.0.1:5173)
+pnpm dev          # Vite 开发服务器 (127.0.0.1:6173)
 pnpm electron     # 启动 Electron
 ```
 

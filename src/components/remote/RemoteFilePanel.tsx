@@ -1102,8 +1102,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     </aside>
 
     {preview.status !== "idle" && (
-      <div className="remote-preview-overlay" onClick={handleClosePreview}>
-        <div className="remote-preview-dialog" onClick={(e) => e.stopPropagation()}>
+      <div className="remote-preview-overlay">
+        <div className="remote-preview-dialog">
           <div className="remote-file-preview">
           <div className="remote-preview-header">
             <span>

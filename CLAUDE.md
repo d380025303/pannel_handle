@@ -16,7 +16,7 @@
 请统一使用 `pnpm`，仓库已包含 `pnpm-lock.yaml`。
 
 - `pnpm install`：安装依赖。
-- `pnpm dev`：只启动 Vite 渲染进程开发服务器，地址为 `127.0.0.1:5173`。
+- `pnpm dev`：只启动 Vite 渲染进程开发服务器，地址为 `127.0.0.1:6173`。
 - `pnpm electron`：启动 Electron 应用入口。
 - `pnpm start`：完整开发模式，先启动 Vite，再等待服务可用后启动 Electron。
 - `pnpm test`：运行 Vitest 单元测试。

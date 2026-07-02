@@ -55,7 +55,7 @@ function createWindowManager() {
     });
 
     if (!app.isPackaged) {
-      mainWindow.loadURL("http://127.0.0.1:5173");
+      mainWindow.loadURL("http://127.0.0.1:6173");
     } else {
       mainWindow.loadFile(path.join(__dirname, "..", "..", "dist", "index.html"));
     }

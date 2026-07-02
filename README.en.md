@@ -95,7 +95,7 @@ pnpm install
 pnpm start        # Launch in development mode
 
 # Or start separately
-pnpm dev          # Vite dev server at 127.0.0.1:5173
+pnpm dev          # Vite dev server at 127.0.0.1:6173
 pnpm electron     # Launch Electron
 ```
 
