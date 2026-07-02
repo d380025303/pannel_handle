@@ -504,6 +504,24 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
           await loadTreeDirectory(entry.path);
         } catch (err) {
           setError(getErrorMessage(err));
+          return;
+        }
+      }
+
+      if (!isExpanded) {
+        let chainPath = entry.path;
+        for (let i = 0; i < 10; i++) {
+          const state = directoriesRef.current[chainPath];
+          if (!state || state.status !== "ready") break;
+          if (state.entries.length !== 1 || state.entries[0].type !== "directory") break;
+          const child = state.entries[0];
+          setExpandedPaths((current) => new Set([...current, child.path]));
+          try {
+            await loadTreeDirectory(child.path);
+          } catch {
+            break;
+          }
+          chainPath = child.path;
         }
       }
       return;
@@ -1047,7 +1065,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                   <span className={`remote-file-icon ${entry.type}`}>
                     {entry.type === "directory" ? (expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />) : <File aria-hidden="true" />}
                   </span>
-                  <span className="remote-file-name" title={entry.path}>{entry.name}</span>
+                  <span className="remote-file-name" title={entry.path}>{node.chainPrefix ? `${node.chainPrefix} / ${entry.name}` : entry.name}</span>
                   <span className="remote-file-meta">{entry.type === "directory" ? t("files.folder") : formatSize(entry.size)}</span>
                   <span className="remote-file-meta">{formatModifiedAt(entry.modifiedAt)}</span>
                 </button>

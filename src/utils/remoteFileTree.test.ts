@@ -57,3 +57,97 @@ describe("remote file tree", () => {
     expect(next["/home"]).toBeDefined();
   });
 });
+
+describe("single-subfolder chain collapsing", () => {
+  it("collapses a single-subfolder directory into one row", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a"]));
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].entry.path).toBe("/a/b");
+    expect(nodes[0].chainPrefix).toBe("a");
+    expect(nodes[0].depth).toBe(0);
+  });
+
+  it("collapses a multi-level chain", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const c = directory("c", "/a/b/c");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+      "/a/b": { status: "ready", entries: [c] },
+      "/a/b/c": { status: "ready", entries: [file("readme.md", "/a/b/c/readme.md")] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a", "/a/b", "/a/b/c"]));
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0].entry.path).toBe("/a/b/c");
+    expect(nodes[0].chainPrefix).toBe("a / b");
+    expect(nodes[1].entry.name).toBe("readme.md");
+  });
+
+  it("does not collapse a directory with files", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b, file("readme.md", "/a/readme.md")] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a"]));
+    expect(nodes).toHaveLength(3);
+    expect(nodes[0].chainPrefix).toBeNull();
+    expect(nodes[1].chainPrefix).toBeNull();
+    expect(nodes[2].chainPrefix).toBeNull();
+  });
+
+  it("does not collapse a directory with multiple subdirectories", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const c = directory("c", "/a/c");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b, c] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a"]));
+    expect(nodes).toHaveLength(3);
+    expect(nodes[0].chainPrefix).toBeNull();
+  });
+
+  it("collapses a loaded parent even when child is not yet loaded", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set());
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].entry.path).toBe("/a/b");
+    expect(nodes[0].chainPrefix).toBe("a");
+  });
+
+  it("collapses chain in search mode", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const c = directory("c", "/a/b/c");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+      "/a/b": { status: "ready", entries: [c] },
+      "/a/b/c": { status: "ready", entries: [file("target.ts", "/a/b/c/target.ts")] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a", "/a/b", "/a/b/c"]), "target");
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0].entry.path).toBe("/a/b/c");
+    expect(nodes[0].chainPrefix).toBe("a / b");
+  });
+
+  it("does not collapse an empty directory", () => {
+    const rootEntry = directory("a", "/a");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [] },
+    };
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a"]));
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].entry.path).toBe("/a");
+    expect(nodes[0].chainPrefix).toBeNull();
+  });
+});

@@ -10,6 +10,7 @@ export type VisibleTreeNode = {
   entry: RemoteFileEntry;
   depth: number;
   parentPath: string | null;
+  chainPrefix: string | null;
 };
 
 export function normalizeTreePath(value: string) {
@@ -57,24 +58,31 @@ export function flattenLoadedTree(
   if (!root) return [];
   const query = searchQuery.trim().toLowerCase();
 
-  const visit = (entry: RemoteFileEntry, depth: number, parentPath: string | null): VisibleTreeNode[] => {
+  const visit = (entry: RemoteFileEntry, depth: number, parentPath: string | null, chainPrefix: string | null = null): VisibleTreeNode[] => {
     const directory = entry.type === "directory" ? directories[entry.path] : undefined;
-    const childNodes = directory?.entries.flatMap((child) => visit(child, depth + 1, entry.path)) ?? [];
+
+    if (directory?.status === "ready" && directory.entries.length === 1 && directory.entries[0].type === "directory") {
+      const child = directory.entries[0];
+      const combined = chainPrefix ? `${chainPrefix} / ${entry.name}` : entry.name;
+      return visit(child, depth, parentPath, combined);
+    }
+
+    const childNodes = directory?.entries.flatMap((child) => visit(child, depth + 1, entry.path, null)) ?? [];
 
     if (query) {
       if (entry.name.toLowerCase().includes(query) || childNodes.length > 0) {
-        return [{ entry, depth, parentPath }, ...childNodes];
+        return [{ entry, depth, parentPath, chainPrefix }, ...childNodes];
       }
       return [];
     }
 
     return [
-      { entry, depth, parentPath },
+      { entry, depth, parentPath, chainPrefix },
       ...(directory && expandedPaths.has(entry.path) ? childNodes : [])
     ];
   };
 
-  return visit(root, 0, null);
+  return visit(root, 0, null, null);
 }
 
 export function removeTreeBranch(directories: DirectoryTreeState, path: string) {
