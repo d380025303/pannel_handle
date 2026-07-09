@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
@@ -14,7 +15,7 @@ import { CompletionDebugSidebar } from "./components/terminal/CompletionDebugSid
 import { mergeCompletionDebugEvent, type CompletionDebugEntry } from "./components/terminal/completionDebug";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
-import { RemoteFilePanel } from "./components/remote/RemoteFilePanel";
+import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { TitleBar } from "./components/app/TitleBar";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
@@ -30,6 +31,7 @@ import type { AgentHookDebugPayload, AgentProvider, Locale, QuickCommand, SshCon
 
 type ProjectSearchMode = "files" | "text";
 type RightTool = "files" | "git" | "agents" | "debug" | "completionDebug";
+type WorkspaceTab = "terminal" | "preview";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -67,12 +69,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [completionDebugEntries, setCompletionDebugEntries] = useState<CompletionDebugEntry[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
-  const [previewActive, setPreviewActive] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
+  const [previewTabs, setPreviewTabs] = useState<RemotePreviewTabSummary[]>([]);
+  const [activePreviewTabId, setActivePreviewTabId] = useState<string | null>(null);
+  const [closePreviewRequest, setClosePreviewRequest] = useState<{ tabId: string; requestId: number } | null>(null);
+  const [previewHost, setPreviewHost] = useState<HTMLDivElement | null>(null);
   const [projectSearchMode, setProjectSearchMode] = useState<ProjectSearchMode | null>(null);
   const [projectSearchRoot, setProjectSearchRoot] = useState(".");
   const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const fileOpenRequestIdRef = useRef(0);
+  const closePreviewRequestIdRef = useRef(0);
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const { rightToolsWidth: liveRightToolsWidth, handleSplitterMouseDown: handleRightSplitterMouseDown } = useRightToolsResize(
@@ -87,7 +94,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId,
-    isVisible: !previewActive,
+    isVisible: workspaceTab === "terminal",
     terminalTheme: activeTheme.terminal
   });
   const canSearchProject = Boolean(terminalSessions.activeSession && terminalSessions.activeSession.type !== "ssh");
@@ -259,6 +266,31 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setFileOpenRequest((current) => current?.requestId === requestId ? null : current);
   }, []);
 
+  const handlePreviewTabsChange = useCallback((tabs: RemotePreviewTabSummary[]) => {
+    setPreviewTabs(tabs);
+    setActivePreviewTabId((current) => {
+      if (current && tabs.some((tab) => tab.id === current)) {
+        return current;
+      }
+      return tabs.at(-1)?.id ?? null;
+    });
+    setWorkspaceTab((current) => tabs.length === 0 && current === "preview" ? "terminal" : current);
+  }, []);
+
+  const handleActivePreviewTabChange = useCallback((tabId: string | null) => {
+    setActivePreviewTabId(tabId);
+    setWorkspaceTab(tabId ? "preview" : "terminal");
+  }, []);
+
+  const handleClosePreviewTab = useCallback((tabId: string) => {
+    closePreviewRequestIdRef.current += 1;
+    setClosePreviewRequest({ tabId, requestId: closePreviewRequestIdRef.current });
+  }, []);
+
+  const handleClosePreviewRequestHandled = useCallback((requestId: number) => {
+    setClosePreviewRequest((current) => current?.requestId === requestId ? null : current);
+  }, []);
+
   const handleClosePicker = useCallback(() => {
     terminalSessions.setPendingSessions(null);
     terminalSessions.setPickerManual(false);
@@ -338,25 +370,88 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
           <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
-          <div className="terminal-area" style={{ display: previewActive ? "none" : undefined }}>
-            <TerminalPanel
-              terminalHostRef={terminalInstances.terminalHostRef}
-              onContextMenu={terminalInstances.handleTerminalContextMenu}
-              onWheel={terminalInstances.handleTerminalWheel}
-            />
-            <TerminalComposer session={terminalSessions.activeSession} />
-            {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
-              <footer className="terminal-footer">
-                <QuickCommandBar
-                  quickCommands={terminalSessions.quickCommandsForActiveSession}
-                  activeSessionId={terminalSessions.activeId}
-                  onFocusTerminal={terminalInstances.focusActiveTerminal}
-                  onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
-                  onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
+          <div className="workspace-area">
+            <div className="workspace-tabs" role="tablist" aria-label={t("tabs.workspace")}>
+              <button
+                className={`workspace-tab ${workspaceTab === "terminal" ? "active" : ""}`}
+                type="button"
+                role="tab"
+                aria-selected={workspaceTab === "terminal"}
+                onClick={() => setWorkspaceTab("terminal")}
+              >
+                <TerminalIcon aria-hidden="true" />
+                <span>{t("tabs.terminal")}</span>
+              </button>
+              {previewTabs.map((tab) => (
+                <div
+                  className={`workspace-tab file-tab ${workspaceTab === "preview" && activePreviewTabId === tab.id ? "active" : ""}`}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={workspaceTab === "preview" && activePreviewTabId === tab.id}
+                  title={tab.path}
+                  key={tab.id}
+                  onClick={() => handleActivePreviewTabChange(tab.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleActivePreviewTabChange(tab.id);
+                    }
+                  }}
+                >
+                  <FileText aria-hidden="true" />
+                  <span>{tab.fileName}</span>
+                  {tab.dirty && <strong className="workspace-tab-dirty" title={t("files.unsavedMarker")}>*</strong>}
+                  <button
+                    className="workspace-tab-close"
+                    type="button"
+                    title={t("files.closePreview")}
+                    aria-label={t("files.closePreview")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleClosePreviewTab(tab.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleClosePreviewTab(tab.id);
+                      }
+                    }}
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="workspace-content">
+              <div className="terminal-area" style={{ display: workspaceTab === "terminal" ? undefined : "none" }}>
+                <TerminalPanel
+                  sessions={terminalSessions.sessions}
+                  activeId={terminalSessions.activeId}
+                  hostRefs={terminalInstances.terminalHostRefs}
+                  onContextMenu={terminalInstances.handleTerminalContextMenu}
+                  onWheel={terminalInstances.handleTerminalWheel}
                 />
-                <RemoteSystemStatus state={remoteSystemMetrics} />
-              </footer>
-            )}
+                <TerminalComposer session={terminalSessions.activeSession} />
+                {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
+                  <footer className="terminal-footer">
+                    <QuickCommandBar
+                      quickCommands={terminalSessions.quickCommandsForActiveSession}
+                      activeSessionId={terminalSessions.activeId}
+                      onFocusTerminal={terminalInstances.focusActiveTerminal}
+                      onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
+                      onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
+                    />
+                    <RemoteSystemStatus state={remoteSystemMetrics} />
+                  </footer>
+                )}
+              </div>
+              <div
+                className="workspace-preview"
+                ref={setPreviewHost}
+                style={{ display: workspaceTab === "preview" ? undefined : "none" }}
+              />
+            </div>
           </div>
 
           {showRightTools && (
@@ -424,9 +519,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 <RemoteFilePanel
                   session={terminalSessions.activeSession}
                   openRequest={fileOpenRequest}
+                  closePreviewRequest={closePreviewRequest}
+                  previewHost={previewHost}
+                  activePreviewTabId={activePreviewTabId}
                   onOpenRequestHandled={handleFileOpenRequestHandled}
+                  onClosePreviewRequestHandled={handleClosePreviewRequestHandled}
                   onDirtyChange={setRemoteFilesDirty}
-                  onPreviewActive={setPreviewActive}
+                  onPreviewTabsChange={handlePreviewTabsChange}
+                  onActivePreviewTabChange={handleActivePreviewTabChange}
                   onCurrentPathChange={handleFilePanelPathChange}
                   onSearchRequest={openProjectSearch}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}

@@ -311,10 +311,18 @@
 }
 
 .terminal-host {
+  position: absolute;
+  inset: 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   padding: 12px;
+}
+
+.terminal-hosts-container {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
 }
 
 .terminal-host .xterm {
@@ -1279,6 +1287,93 @@
   border-color: var(--color-accent);
   color: var(--color-text);
   background: var(--color-bg-selection);
+}
+
+.workspace-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.workspace-tab:hover,
+.workspace-tab.active {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  background: var(--color-bg-selection);
+}
+
+.workspace-tab > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke-width: 2;
+}
+
+.workspace-tab > span:not(.workspace-tab-close) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-tab.file-tab {
+  padding-right: 4px;
+}
+
+.workspace-tab-dirty {
+  flex-shrink: 0;
+  color: var(--color-accent);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.workspace-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-subtle);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-tab-close:hover,
+.workspace-tab-close:focus-visible {
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+  outline: none;
+}
+
+.workspace-tab-close svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
 }
 
 .remote-file-panel {
@@ -2498,9 +2593,16 @@
 .remote-file-preview {
   display: flex;
   flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   background: var(--color-bg-code);
+}
+
+.workspace-preview > .remote-file-preview {
+  border-left: 0;
 }
 
 .remote-preview-header {

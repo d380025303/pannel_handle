@@ -9,7 +9,6 @@ type TerminalEntry = {
   terminal: Terminal;
   fitAddon: FitAddon;
   inputGuard: ReturnType<typeof createImeInputGuard>;
-  mountedSessionId?: string;
 };
 
 type UseTerminalInstancesOptions = {
@@ -74,7 +73,7 @@ function autoFocusTerminal(entry: TerminalEntry, terminalHost: HTMLDivElement | 
 
 export function useTerminalInstances({ activeId, isVisible, terminalTheme }: UseTerminalInstancesOptions) {
   const { t } = useI18n();
-  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalHostRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
 
   const copyTerminalSelection = useCallback(async (terminal: Terminal) => {
@@ -145,7 +144,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
       try {
         entry.fitAddon.fit();
         entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
-        autoFocusTerminal(entry, terminalHostRef.current);
+        autoFocusTerminal(entry, terminalHostRefs.current.get(activeId) ?? null);
 
         const dims = entry.fitAddon.proposeDimensions();
         if (dims && dims.cols > 0 && dims.rows > 0) {
@@ -218,11 +217,15 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
   }, [t]);
 
   useEffect(() => {
-    if (!activeId || !terminalHostRef.current) {
+    if (!activeId) {
       return;
     }
 
-    const terminalHost = terminalHostRef.current;
+    const terminalHost = terminalHostRefs.current.get(activeId);
+    if (!terminalHost) {
+      return;
+    }
+
     let entry = terminalsRef.current.get(activeId);
 
     if (!entry) {
@@ -292,12 +295,8 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     }
 
     if (!entry.terminal.element) {
-      terminalHost.replaceChildren();
       entry.terminal.open(terminalHost);
-    } else if (entry.terminal.element.parentElement !== terminalHost) {
-      terminalHost.replaceChildren(entry.terminal.element);
     }
-    entry.mountedSessionId = activeId;
 
     const textarea = entry.terminal.textarea;
 
@@ -365,7 +364,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
   }, []);
 
   return {
-    terminalHostRef,
+    terminalHostRefs,
     handleTerminalContextMenu,
     handleTerminalWheel,
     disposeTerminal,

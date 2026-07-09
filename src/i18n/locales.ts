@@ -150,6 +150,8 @@ export type TranslationKey =
   | "composer.completionFailed"
   | "tabs.files"
   | "tabs.git"
+  | "tabs.terminal"
+  | "tabs.workspace"
   | "tabs.debug"
   | "tabs.completionDebug"
   | "debug.eventsCount"
@@ -477,6 +479,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.completionFailed": "智能补全失败：{message}",
     "tabs.files": "文件",
     "tabs.git": "Git",
+    "tabs.terminal": "终端",
+    "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
     "tabs.completionDebug": "补全 Debug",
     "debug.eventsCount": "{count} 个 hook 事件",
@@ -796,6 +800,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.completionFailed": "AI completion failed: {message}",
     "tabs.files": "Files",
     "tabs.git": "Git",
+    "tabs.terminal": "Terminal",
+    "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
     "tabs.completionDebug": "Completion Debug",
     "debug.eventsCount": "{count} hook events",

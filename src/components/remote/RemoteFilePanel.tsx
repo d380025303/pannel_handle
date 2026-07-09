@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import { ArrowDown, ArrowUp, ChevronRight, Download, Eye, File, FileText, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, RefreshCw, Save, Search, SquarePen, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../../i18n";
@@ -9,12 +10,27 @@ import type { RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, Te
 type RemoteFilePanelProps = {
   session?: TerminalSession;
   openRequest?: { sessionId: string; path: string; requestId: number } | null;
+  closePreviewRequest?: { tabId: string; requestId: number } | null;
+  previewHost?: HTMLElement | null;
+  activePreviewTabId?: string | null;
   onOpenRequestHandled?: (requestId: number) => void;
+  onClosePreviewRequestHandled?: (requestId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onPreviewActive?: (active: boolean) => void;
+  onPreviewTabsChange?: (tabs: RemotePreviewTabSummary[]) => void;
+  onActivePreviewTabChange?: (tabId: string | null) => void;
   onCurrentPathChange?: (path: string) => void;
   onSearchRequest?: (mode: "files" | "text", rootPath: string) => void;
   onFocusTerminal?: () => void;
+};
+
+export type RemotePreviewTabSummary = {
+  id: string;
+  sessionId: string;
+  path: string;
+  fileName: string;
+  dirty: boolean;
+  status: "loading" | "ready" | "error";
 };
 
 type PreviewState =
@@ -51,6 +67,23 @@ type DownloadTransferState = {
   error?: string;
 };
 
+type PreviewTabState = {
+  id: string;
+  sessionId: string;
+  path: string;
+  fileName: string;
+  entry: RemoteFileEntry | null;
+  state: Exclude<PreviewState, { status: "idle" }>;
+  originalContent: string;
+  editorContent: string;
+  saveState: SaveState;
+  viewMode: "edit" | "preview";
+  previewSearchQuery: string;
+  activePreviewMatch: number;
+  previewRequestId: number;
+  saveRequestId: number;
+};
+
 function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -79,6 +112,31 @@ function getErrorMessage(error: unknown) {
 
 function getPreviewId(preview: RemoteFilePreview) {
   return preview.kind === "image" || preview.kind === "video" ? preview.previewId : null;
+}
+
+function getPreviewTabId(sessionId: string, remotePath: string) {
+  return `${sessionId}:${remotePath}`;
+}
+
+function getPreviewIdFromTab(tab: PreviewTabState) {
+  return tab.state.status === "ready" ? getPreviewId(tab.state.preview) : null;
+}
+
+function isPreviewTabDirty(tab: PreviewTabState) {
+  return tab.state.status === "ready"
+    && tab.state.preview.kind === "text"
+    && tab.editorContent !== tab.originalContent;
+}
+
+function getPreviewTabSummaries(tabs: PreviewTabState[]): RemotePreviewTabSummary[] {
+  return tabs.map((tab) => ({
+    id: tab.id,
+    sessionId: tab.sessionId,
+    path: tab.path,
+    fileName: tab.fileName,
+    dirty: isPreviewTabDirty(tab),
+    status: tab.state.status
+  }));
 }
 
 function hasLocalFileDrag(event: DragEvent<HTMLElement>) {
@@ -125,7 +183,22 @@ function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: numbe
   mirror.remove();
 }
 
-export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, onDirtyChange, onPreviewActive, onCurrentPathChange, onSearchRequest, onFocusTerminal }: RemoteFilePanelProps) {
+export function RemoteFilePanel({
+  session,
+  openRequest,
+  closePreviewRequest,
+  previewHost,
+  activePreviewTabId,
+  onOpenRequestHandled,
+  onClosePreviewRequestHandled,
+  onDirtyChange,
+  onPreviewActive,
+  onPreviewTabsChange,
+  onActivePreviewTabChange,
+  onCurrentPathChange,
+  onSearchRequest,
+  onFocusTerminal
+}: RemoteFilePanelProps) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
@@ -134,14 +207,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const [directories, setDirectories] = useState<DirectoryTreeState>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+  const [previewTabs, setPreviewTabs] = useState<PreviewTabState[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [previewSearchQuery, setPreviewSearchQuery] = useState("");
-  const [activePreviewMatch, setActivePreviewMatch] = useState(0);
-  const [originalContent, setOriginalContent] = useState("");
-  const [editorContent, setEditorContent] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
-  const [viewMode, setViewMode] = useState<"edit" | "preview">("edit");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -156,8 +223,10 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const previewHighlightRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
   const handledOpenRequestRef = useRef(0);
+  const handledClosePreviewRequestRef = useRef(0);
   const openRequestAttemptRef = useRef(0);
-  const activePreviewIdRef = useRef<string | null>(null);
+  const previewTabsRef = useRef<PreviewTabState[]>([]);
+  const activePreviewTabIdRef = useRef<string | null>(null);
   const selectedPathRef = useRef<string | null>(null);
   const treeRootRef = useRef<RemoteFileEntry | null>(null);
   const navigationRootRef = useRef<string | null>(null);
@@ -169,6 +238,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
 
   const sessionId = session?.id;
   downloadTransferRef.current = downloadTransfer;
+  previewTabsRef.current = previewTabs;
+  activePreviewTabIdRef.current = activePreviewTabId ?? null;
 
   useEffect(() => window.remoteFileApi.onDownloadProgress((progress: RemoteFileDownloadProgress) => {
     if (downloadTransferRef.current?.transferId !== progress.transferId) return;
@@ -208,20 +279,37 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     () => flattenLoadedTree(treeRoot, directories, expandedPaths, normalizedSearchQuery),
     [directories, expandedPaths, normalizedSearchQuery, treeRoot]
   );
-  const isDirty = preview.status === "ready"
-    && preview.preview.kind === "text"
-    && editorContent !== originalContent;
-  dirtyRef.current = isDirty;
+  const activePreviewTab = useMemo(() => (
+    activePreviewTabId
+      ? previewTabs.find((tab) => tab.id === activePreviewTabId) ?? null
+      : null
+  ), [activePreviewTabId, previewTabs]);
+  const activePreview = activePreviewTab?.state ?? { status: "idle" as const };
+  const editorContent = activePreviewTab?.editorContent ?? "";
+  const originalContent = activePreviewTab?.originalContent ?? "";
+  const saveState = activePreviewTab?.saveState ?? { status: "idle" as const };
+  const viewMode = activePreviewTab?.viewMode ?? "edit";
+  const previewSearchQuery = activePreviewTab?.previewSearchQuery ?? "";
+  const activePreviewMatch = activePreviewTab?.activePreviewMatch ?? 0;
+  const isDirty = activePreviewTab ? isPreviewTabDirty(activePreviewTab) : false;
+  const anyPreviewDirty = previewTabs.some(isPreviewTabDirty);
+  dirtyRef.current = anyPreviewDirty;
   useEffect(() => {
-    onDirtyChange?.(isDirty);
+    onDirtyChange?.(anyPreviewDirty);
     return () => onDirtyChange?.(false);
-  }, [isDirty, onDirtyChange]);
+  }, [anyPreviewDirty, onDirtyChange]);
 
-  const isPreviewActive = preview.status !== "idle";
-  const hasTextPreview = preview.status === "ready" && preview.preview.kind === "text";
+  const isPreviewActive = Boolean(activePreviewTab);
+  const hasTextPreview = activePreview.status === "ready" && activePreview.preview.kind === "text";
   useEffect(() => {
-    onPreviewActive?.(isPreviewActive);
-  }, [isPreviewActive, onPreviewActive]);
+    onPreviewActive?.(previewTabs.length > 0);
+    onPreviewTabsChange?.(getPreviewTabSummaries(previewTabs));
+  }, [onPreviewActive, onPreviewTabsChange, previewTabs]);
+
+  useEffect(() => () => {
+    onPreviewActive?.(false);
+    onPreviewTabsChange?.([]);
+  }, [onPreviewActive, onPreviewTabsChange]);
 
   const previewMatches = useMemo<TextMatch[]>(() => {
     if (!previewSearchQuery || !editorContent) {
@@ -240,6 +328,10 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
 
   const activeMatch = previewMatches[activePreviewMatch] ?? null;
 
+  const updatePreviewTab = useCallback((tabId: string, updater: (tab: PreviewTabState) => PreviewTabState) => {
+    setPreviewTabs((current) => current.map((tab) => tab.id === tabId ? updater(tab) : tab));
+  }, []);
+
   const syncPreviewHighlight = useCallback(() => {
     const textarea = previewContentRef.current;
     const highlight = previewHighlightRef.current;
@@ -251,12 +343,15 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   }, []);
 
   useEffect(() => {
+    if (!activePreviewTab) return;
     if (!previewMatches.length) {
-      setActivePreviewMatch(0);
+      updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, activePreviewMatch: 0 }));
       return;
     }
-    setActivePreviewMatch((current) => Math.min(current, previewMatches.length - 1));
-  }, [previewMatches.length]);
+    if (activePreviewMatch >= previewMatches.length) {
+      updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, activePreviewMatch: previewMatches.length - 1 }));
+    }
+  }, [activePreviewMatch, activePreviewTab, previewMatches.length, updatePreviewTab]);
 
   useEffect(() => {
     const textarea = previewContentRef.current;
@@ -282,6 +377,17 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const confirmDiscard = useCallback(() => (
     !dirtyRef.current || window.confirm(t("confirm.discardUnsavedFileChanges"))
   ), [t]);
+
+  const confirmDiscardTab = useCallback((tab: PreviewTabState) => (
+    !isPreviewTabDirty(tab) || window.confirm(t("confirm.discardUnsavedFileChanges"))
+  ), [t]);
+
+  const releasePreviewForTab = useCallback((tab: PreviewTabState) => {
+    const previewId = getPreviewIdFromTab(tab);
+    if (previewId) {
+      void window.remoteFileApi.releasePreview(previewId);
+    }
+  }, []);
 
   const closeFileContextMenu = useCallback(() => {
     setFileContextMenu(null);
@@ -327,22 +433,11 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     };
   }, [fileContextMenu]);
 
-  const releaseActivePreview = useCallback(() => {
-    const previewId = activePreviewIdRef.current;
-    if (previewId) {
-      void window.remoteFileApi.releasePreview(previewId);
-      activePreviewIdRef.current = null;
-    }
-  }, []);
-
-  const resetEditor = useCallback(() => {
-    saveRequestRef.current += 1;
-    setOriginalContent("");
-    setEditorContent("");
-    setSaveState({ status: "idle" });
-    setPreviewSearchQuery("");
-    setViewMode("edit");
-  }, []);
+  const releaseAllPreviews = useCallback(() => {
+    previewTabsRef.current.forEach(releasePreviewForTab);
+    setPreviewTabs([]);
+    onActivePreviewTabChange?.(null);
+  }, [onActivePreviewTabChange, releasePreviewForTab]);
 
   const updateDirectories = useCallback((updater: (current: DirectoryTreeState) => DirectoryTreeState) => {
     const next = updater(directoriesRef.current);
@@ -368,16 +463,14 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setDirectories({});
     setExpandedPaths(new Set());
     setSelectedPath(null);
-    setPreview({ status: "idle" });
     setSearchQuery("");
     setDropTargetPath(null);
     setUploadingCount(0);
     setDownloadDragPath(null);
     closeFileContextMenu();
-    resetEditor();
-    releaseActivePreview();
+    releaseAllPreviews();
     setError(null);
-  }, [closeFileContextMenu, onCurrentPathChange, releaseActivePreview, resetEditor]);
+  }, [closeFileContextMenu, onCurrentPathChange, releaseAllPreviews]);
 
   const loadTreeDirectory = useCallback(async (path: string) => {
     if (!sessionId) return undefined;
@@ -433,16 +526,11 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       setError(t("files.outsideWorkingDirectory"));
       return undefined;
     }
-    if (!skipConfirm && !confirmDiscard()) return undefined;
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
-    previewRequestRef.current += 1;
-    releaseActivePreview();
     closeFileContextMenu();
     selectedPathRef.current = null;
     setSelectedPath(null);
-    setPreview({ status: "idle" });
-    resetEditor();
     setLoading(true);
     setError(null);
     try {
@@ -481,7 +569,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       if (requestRef.current === requestId) setLoading(false);
     }
     return undefined;
-  }, [closeFileContextMenu, confirmDiscard, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId, setRootDirectory, t]);
+  }, [closeFileContextMenu, loadTreeDirectory, onCurrentPathChange, sessionId, setRootDirectory, t]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -493,7 +581,6 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
 
     let disposed = false;
     const initialRequestId = requestRef.current;
-    setPreviewSearchQuery("");
     setLoading(true);
     window.remoteFileApi.getHome(sessionId)
       .then((home) => {
@@ -520,21 +607,16 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       previewRequestRef.current += 1;
       directoryRequestSequenceRef.current += 1;
       directoryRequestRef.current.clear();
-      releaseActivePreview();
+      releaseAllPreviews();
     };
-  }, [loadDirectory, onCurrentPathChange, releaseActivePreview, resetPanelState, sessionId]);
+  }, [loadDirectory, onCurrentPathChange, releaseAllPreviews, resetPanelState, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {
       return;
     }
-    if (!confirmDiscard()) {
-      return;
-    }
     selectedPathRef.current = entry.path;
     setSelectedPath(entry.path);
-    resetEditor();
-    releaseActivePreview();
     if (entry.type === "directory") {
       setCurrentPath(entry.path);
       setPathInput(entry.path);
@@ -575,40 +657,68 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     }
 
     if (!sessionId) return;
+    const tabId = getPreviewTabId(sessionId, entry.path);
+    const existingTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+    if (existingTab) {
+      onActivePreviewTabChange?.(tabId);
+      return;
+    }
     const requestId = previewRequestRef.current + 1;
     previewRequestRef.current = requestId;
-    setPreview({ status: "loading", path: entry.path });
+    const loadingTab: PreviewTabState = {
+      id: tabId,
+      sessionId,
+      path: entry.path,
+      fileName: entry.name,
+      entry,
+      state: { status: "loading", path: entry.path },
+      originalContent: "",
+      editorContent: "",
+      saveState: { status: "idle" },
+      viewMode: isMarkdownFile(entry.name) ? "preview" : "edit",
+      previewSearchQuery: "",
+      activePreviewMatch: 0,
+      previewRequestId: requestId,
+      saveRequestId: 0
+    };
+    setPreviewTabs((current) => [...current, loadingTab]);
+    onActivePreviewTabChange?.(tabId);
     try {
       const nextPreview = await window.remoteFileApi.previewFile(sessionId, entry.path);
-      if (previewRequestRef.current !== requestId) {
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.previewRequestId !== requestId) {
         const stalePreviewId = getPreviewId(nextPreview);
         if (stalePreviewId) {
           void window.remoteFileApi.releasePreview(stalePreviewId);
         }
         return;
       }
-      activePreviewIdRef.current = getPreviewId(nextPreview);
-      setPreview({
-        status: "ready",
-        sessionId,
-        path: entry.path,
-        fileName: entry.name,
-        preview: nextPreview
-      });
-      if (nextPreview.kind === "text") {
-        setOriginalContent(nextPreview.content);
-        setEditorContent(nextPreview.content);
-        setViewMode(isMarkdownFile(entry.name) ? "preview" : "edit");
-      }
+      updatePreviewTab(tabId, (tab) => ({
+        ...tab,
+        state: {
+          status: "ready",
+          sessionId,
+          path: entry.path,
+          fileName: entry.name,
+          preview: nextPreview
+        },
+        originalContent: nextPreview.kind === "text" ? nextPreview.content : "",
+        editorContent: nextPreview.kind === "text" ? nextPreview.content : "",
+        viewMode: isMarkdownFile(entry.name) ? "preview" : "edit"
+      }));
     } catch (err) {
-      if (previewRequestRef.current !== requestId) return;
-      setPreview({
-        status: "error",
-        path: entry.path,
-        message: getErrorMessage(err)
-      });
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.previewRequestId !== requestId) return;
+      updatePreviewTab(tabId, (tab) => ({
+        ...tab,
+        state: {
+          status: "error",
+          path: entry.path,
+          message: getErrorMessage(err)
+        }
+      }));
     }
-  }, [confirmDiscard, expandedPaths, loadTreeDirectory, onCurrentPathChange, releaseActivePreview, resetEditor, sessionId]);
+  }, [expandedPaths, loadTreeDirectory, onActivePreviewTabChange, onCurrentPathChange, sessionId, updatePreviewTab]);
 
   useEffect(() => {
     if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
@@ -624,11 +734,6 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     let completed = false;
 
     const openPath = async () => {
-      if (!confirmDiscard()) {
-        completed = true;
-        onOpenRequestHandled?.(requestId);
-        return;
-      }
       const targetDirectory = parentTreePath(openRequest.path);
       const nextEntries = await loadDirectory(targetDirectory, true, true);
       if (openRequestAttemptRef.current !== attemptId || !nextEntries) {
@@ -657,7 +762,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         handledOpenRequestRef.current = 0;
       }
     };
-  }, [confirmDiscard, handleOpenEntry, loadDirectory, navigationRoot, onOpenRequestHandled, openRequest, sessionId]);
+  }, [handleOpenEntry, loadDirectory, navigationRoot, onOpenRequestHandled, openRequest, sessionId]);
 
   const findCachedParentPath = useCallback((entryPath: string) => (
     Object.entries(directoriesRef.current).find(([, directory]) => (
@@ -818,10 +923,16 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     try {
       await window.remoteFileApi.deleteEntry(sessionId, entry.path);
       const parentDirectory = findCachedParentPath(entry.path);
+      const removedTabs = previewTabsRef.current.filter((tab) => tab.path === entry.path || isPathInside(tab.path, entry.path));
+      if (removedTabs.length > 0) {
+        removedTabs.forEach(releasePreviewForTab);
+        const nextTabs = previewTabsRef.current.filter((tab) => !removedTabs.includes(tab));
+        setPreviewTabs(nextTabs);
+        if (removedTabs.some((tab) => tab.id === activePreviewTabIdRef.current)) {
+          onActivePreviewTabChange?.(nextTabs.at(-1)?.id ?? null);
+        }
+      }
       if (entry.path === selectedPathRef.current) {
-        releaseActivePreview();
-        setPreview({ status: "idle" });
-        resetEditor();
         setSelectedPath(null);
         selectedPathRef.current = null;
       }
@@ -838,7 +949,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     } catch (err) {
       setError(getErrorMessage(err));
     }
-  }, [closeFileContextMenu, currentPath, findCachedParentPath, onCurrentPathChange, refreshDirectory, releaseActivePreview, resetEditor, sessionId, t, updateDirectories]);
+  }, [closeFileContextMenu, currentPath, findCachedParentPath, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, sessionId, t, updateDirectories]);
 
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
@@ -850,17 +961,38 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     }
   }, [currentPath, sessionId]);
 
-  const handleClosePreview = useCallback(() => {
-    if (!confirmDiscard()) {
+  const closePreviewTab = useCallback((tabId: string) => {
+    const tab = previewTabsRef.current.find((item) => item.id === tabId);
+    if (!tab || !confirmDiscardTab(tab)) {
       return;
     }
-    previewRequestRef.current += 1;
-    releaseActivePreview();
-    selectedPathRef.current = null;
-    setSelectedPath(null);
-    setPreview({ status: "idle" });
-    resetEditor();
-  }, [confirmDiscard, releaseActivePreview, resetEditor]);
+    const tabIndex = previewTabsRef.current.findIndex((item) => item.id === tabId);
+    const nextTabs = previewTabsRef.current.filter((item) => item.id !== tabId);
+    releasePreviewForTab(tab);
+    setPreviewTabs(nextTabs);
+    if (activePreviewTabIdRef.current === tabId) {
+      const nextActive = nextTabs[tabIndex] ?? nextTabs[tabIndex - 1] ?? null;
+      onActivePreviewTabChange?.(nextActive?.id ?? null);
+    }
+    if (selectedPathRef.current === tab.path) {
+      selectedPathRef.current = null;
+      setSelectedPath(null);
+    }
+  }, [confirmDiscardTab, onActivePreviewTabChange, releasePreviewForTab]);
+
+  const handleClosePreview = useCallback(() => {
+    const tabId = activePreviewTabIdRef.current;
+    if (tabId) closePreviewTab(tabId);
+  }, [closePreviewTab]);
+
+  useEffect(() => {
+    if (!closePreviewRequest || handledClosePreviewRequestRef.current === closePreviewRequest.requestId) {
+      return;
+    }
+    handledClosePreviewRequestRef.current = closePreviewRequest.requestId;
+    closePreviewTab(closePreviewRequest.tabId);
+    onClosePreviewRequestHandled?.(closePreviewRequest.requestId);
+  }, [closePreviewRequest, closePreviewTab, onClosePreviewRequestHandled]);
 
   useEffect(() => {
     if (!isPreviewActive) return;
@@ -874,42 +1006,43 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   }, [isPreviewActive, handleClosePreview]);
 
   const handleReloadPreview = useCallback(async () => {
-    if (preview.status !== "ready" || !confirmDiscard()) {
+    if (!activePreviewTab || activePreview.status !== "ready" || !confirmDiscardTab(activePreviewTab)) {
       return;
     }
     const requestId = previewRequestRef.current + 1;
     previewRequestRef.current = requestId;
-    setSaveState({ status: "idle" });
+    const tabId = activePreviewTab.id;
+    updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "idle" }, previewRequestId: requestId }));
     try {
-      releaseActivePreview();
-      const nextPreview = await window.remoteFileApi.previewFile(preview.sessionId, preview.path);
-      if (previewRequestRef.current !== requestId) {
+      releasePreviewForTab(activePreviewTab);
+      const nextPreview = await window.remoteFileApi.previewFile(activePreview.sessionId, activePreview.path);
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.previewRequestId !== requestId) {
         const stalePreviewId = getPreviewId(nextPreview);
         if (stalePreviewId) {
           void window.remoteFileApi.releasePreview(stalePreviewId);
         }
         return;
       }
-      activePreviewIdRef.current = getPreviewId(nextPreview);
-      setPreview({ ...preview, preview: nextPreview });
-      if (nextPreview.kind === "text") {
-        setOriginalContent(nextPreview.content);
-        setEditorContent(nextPreview.content);
-        setViewMode(isMarkdownFile(preview.fileName) ? "preview" : "edit");
-      } else {
-        setOriginalContent("");
-        setEditorContent("");
-      }
+      updatePreviewTab(tabId, (tab) => ({
+        ...tab,
+        state: { ...activePreview, preview: nextPreview },
+        originalContent: nextPreview.kind === "text" ? nextPreview.content : "",
+        editorContent: nextPreview.kind === "text" ? nextPreview.content : "",
+        viewMode: isMarkdownFile(activePreview.fileName) ? "preview" : "edit"
+      }));
     } catch (err) {
-      if (previewRequestRef.current !== requestId) return;
-      setSaveState({ status: "error", message: getErrorMessage(err) });
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.previewRequestId !== requestId) return;
+      updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "error", message: getErrorMessage(err) } }));
     }
-  }, [confirmDiscard, preview, releaseActivePreview]);
+  }, [activePreview, activePreviewTab, confirmDiscardTab, releasePreviewForTab, updatePreviewTab]);
 
   const handleSavePreview = useCallback(async () => {
     if (
-      preview.status !== "ready"
-      || preview.preview.kind !== "text"
+      !activePreviewTab
+      || activePreview.status !== "ready"
+      || activePreview.preview.kind !== "text"
       || !isDirty
       || saveState.status === "saving"
       || saveState.status === "conflict"
@@ -918,59 +1051,64 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     }
     const requestId = saveRequestRef.current + 1;
     saveRequestRef.current = requestId;
-    setSaveState({ status: "saving" });
+    const tabId = activePreviewTab.id;
+    updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "saving" }, saveRequestId: requestId }));
     try {
       const result = await window.remoteFileApi.writeText(
-        preview.sessionId,
-        preview.path,
+        activePreview.sessionId,
+        activePreview.path,
         editorContent,
-        preview.preview.version
+        activePreview.preview.version
       );
-      if (saveRequestRef.current !== requestId) return;
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.saveRequestId !== requestId) return;
       if (result.status === "conflict") {
-        setSaveState({
-          status: "conflict",
-          message: t("files.conflict")
-        });
+        updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "conflict", message: t("files.conflict") } }));
         return;
       }
-      setPreview({
-        ...preview,
-        preview: {
-          kind: "text",
-          content: editorContent,
-          size: result.size,
-          version: result.version
-        }
-      });
-      setOriginalContent(editorContent);
-      setSaveState({ status: "idle" });
-      if (sessionId === preview.sessionId) {
-        refreshDirectory(findCachedParentPath(preview.path))
+      updatePreviewTab(tabId, (tab) => ({
+        ...tab,
+        state: {
+          ...activePreview,
+          preview: {
+            kind: "text",
+            content: editorContent,
+            size: result.size,
+            version: result.version
+          }
+        },
+        originalContent: editorContent,
+        saveState: { status: "idle" }
+      }));
+      if (sessionId === activePreview.sessionId) {
+        refreshDirectory(findCachedParentPath(activePreview.path))
           .catch((err) => {
-            if (saveRequestRef.current === requestId) {
+            const latestTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+            if (latestTab?.saveRequestId === requestId) {
               setError(getErrorMessage(err));
             }
           });
       }
     } catch (err) {
-      if (saveRequestRef.current !== requestId) return;
-      setSaveState({ status: "error", message: getErrorMessage(err) });
+      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      if (!currentTab || currentTab.saveRequestId !== requestId) return;
+      updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "error", message: getErrorMessage(err) } }));
     }
-  }, [editorContent, findCachedParentPath, isDirty, preview, refreshDirectory, saveState.status, sessionId, t]);
+  }, [activePreview, activePreviewTab, editorContent, findCachedParentPath, isDirty, refreshDirectory, saveState.status, sessionId, t, updatePreviewTab]);
 
   const movePreviewMatch = useCallback((direction: 1 | -1) => {
-    if (!previewMatches.length) {
+    if (!activePreviewTab || !previewMatches.length) {
       return;
     }
-    setActivePreviewMatch((current) => (
-      (current + direction + previewMatches.length) % previewMatches.length
-    ));
-  }, [previewMatches.length]);
+    updatePreviewTab(activePreviewTab.id, (tab) => ({
+      ...tab,
+      activePreviewMatch: (tab.activePreviewMatch + direction + previewMatches.length) % previewMatches.length
+    }));
+  }, [activePreviewTab, previewMatches.length, updatePreviewTab]);
 
-  const previewIcon = preview.status === "ready" && preview.preview.kind === "image"
+  const previewIcon = activePreview.status === "ready" && activePreview.preview.kind === "image"
     ? <ImageIcon aria-hidden="true" />
-    : preview.status === "ready" && preview.preview.kind === "video"
+    : activePreview.status === "ready" && activePreview.preview.kind === "video"
       ? <Video aria-hidden="true" />
       : <FileText aria-hidden="true" />;
 
@@ -1243,26 +1381,27 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       )}
     </aside>
 
-    {preview.status !== "idle" && (
-      <div className="remote-preview-overlay">
-        <div className="remote-preview-dialog">
-          <div className="remote-file-preview">
+    {previewHost && activePreviewTab && createPortal(
+      <div className="remote-file-preview">
           <div className="remote-preview-header">
             <span>
               {previewIcon}
-              {selectedEntry?.name || preview.path}
+              {activePreviewTab.fileName || activePreviewTab.path}
               {isDirty && <strong className="remote-preview-dirty" title={t("files.unsavedMarker")}>*</strong>}
             </span>
             <div className="remote-preview-actions">
-              {preview.status === "ready" && preview.preview.kind === "text" && (
+              {activePreview.status === "ready" && activePreview.preview.kind === "text" && (
                 <>
-                  {isMarkdownFile(preview.fileName) && (
+                  {isMarkdownFile(activePreview.fileName) && (
                     <button
                       className="icon-button"
                       type="button"
                       title={viewMode === "preview" ? t("files.editMode") : t("files.previewMode")}
                       aria-label={viewMode === "preview" ? t("files.editMode") : t("files.previewMode")}
-                      onClick={() => setViewMode((m) => m === "preview" ? "edit" : "preview")}
+                      onClick={() => updatePreviewTab(activePreviewTab.id, (tab) => ({
+                        ...tab,
+                        viewMode: tab.viewMode === "preview" ? "edit" : "preview"
+                      }))}
                     >
                       {viewMode === "preview" ? <SquarePen aria-hidden="true" /> : <Eye aria-hidden="true" />}
                     </button>
@@ -1293,8 +1432,8 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                   )}
                 </>
               )}
-              {preview.status === "ready" && selectedEntry && selectedEntry.type !== "directory" && (
-                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} disabled={downloadTransfer !== null} onClick={() => void handleDownload(selectedEntry)}>
+              {activePreview.status === "ready" && activePreviewTab.entry && activePreviewTab.entry.type !== "directory" && (
+                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} disabled={downloadTransfer !== null} onClick={() => void handleDownload(activePreviewTab.entry!)}>
                   <Download aria-hidden="true" />
                 </button>
               )}
@@ -1303,17 +1442,17 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
               </button>
             </div>
           </div>
-          {preview.status === "loading" && (
+          {activePreview.status === "loading" && (
             <div className="remote-file-empty">{t("files.loadingPreview")}</div>
           )}
-          {preview.status === "error" && (
+          {activePreview.status === "error" && (
             <div className="remote-file-error">
-              <span>{preview.message}</span>
+              <span>{activePreview.message}</span>
             </div>
           )}
-          {preview.status === "ready" && (
-            preview.preview.kind === "text" ? (
-              viewMode === "preview" && isMarkdownFile(preview.fileName) ? (
+          {activePreview.status === "ready" && (
+            activePreview.preview.kind === "text" ? (
+              viewMode === "preview" && isMarkdownFile(activePreview.fileName) ? (
                 <div className="remote-preview-markdown">
                   <MarkdownBlock className="remote-preview-markdown-content" content={editorContent} />
                 </div>
@@ -1335,8 +1474,11 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                       placeholder={t("files.searchPreview")}
                       value={previewSearchQuery}
                       onChange={(event) => {
-                        setPreviewSearchQuery(event.target.value);
-                        setActivePreviewMatch(0);
+                        updatePreviewTab(activePreviewTab.id, (tab) => ({
+                          ...tab,
+                          previewSearchQuery: event.target.value,
+                          activePreviewMatch: 0
+                        }));
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -1354,7 +1496,13 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                     <button type="button" title={t("files.nextMatch")} aria-label={t("files.nextMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
                       <ArrowDown aria-hidden="true" />
                     </button>
-                    <button type="button" title={t("files.clearPreviewSearch")} aria-label={t("files.clearPreviewSearch")} disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
+                    <button
+                      type="button"
+                      title={t("files.clearPreviewSearch")}
+                      aria-label={t("files.clearPreviewSearch")}
+                      disabled={!previewSearchQuery}
+                      onClick={() => updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, previewSearchQuery: "", activePreviewMatch: 0 }))}
+                    >
                       <X aria-hidden="true" />
                     </button>
                   </div>
@@ -1378,10 +1526,12 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                       value={editorContent}
                       onScroll={syncPreviewHighlight}
                       onChange={(event) => {
-                        setEditorContent(event.target.value);
-                        if (saveState.status === "error") {
-                          setSaveState({ status: "idle" });
-                        }
+                        const nextContent = event.target.value;
+                        updatePreviewTab(activePreviewTab.id, (tab) => ({
+                          ...tab,
+                          editorContent: nextContent,
+                          saveState: tab.saveState.status === "error" ? { status: "idle" } : tab.saveState
+                        }));
                       }}
                       onKeyDown={(event) => {
                         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -1397,25 +1547,24 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
                   </div>
                 </>
               )
-            ) : preview.preview.kind === "too_large" ? (
+            ) : activePreview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
-                {t("files.tooLarge", { size: formatSize(preview.preview.size) })}
+                {t("files.tooLarge", { size: formatSize(activePreview.preview.size) })}
               </div>
-            ) : preview.preview.kind === "image" ? (
+            ) : activePreview.preview.kind === "image" ? (
               <div className="remote-preview-media">
-                <img src={preview.preview.url} alt={preview.fileName} />
+                <img src={activePreview.preview.url} alt={activePreview.fileName} />
               </div>
-            ) : preview.preview.kind === "video" ? (
+            ) : activePreview.preview.kind === "video" ? (
               <div className="remote-preview-media">
-                <video src={preview.preview.url} controls preload="metadata" />
+                <video src={activePreview.preview.url} controls preload="metadata" />
               </div>
             ) : (
               <div className="remote-file-empty">{t("files.binary")}</div>
             )
           )}
-          </div>
-        </div>
-      </div>
+      </div>,
+      previewHost
     )}
     </>
   );
