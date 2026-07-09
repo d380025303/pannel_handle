@@ -208,11 +208,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     if (id === terminalSessions.activeId) {
       return;
     }
-    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
-      return;
-    }
     terminalSessions.setActiveId(id);
-  }, [remoteFilesDirty, terminalSessions, t]);
+  }, [terminalSessions]);
 
   useEffect(() => {
     return window.terminalApi.onSessionSelectRequested(({ id }) => {

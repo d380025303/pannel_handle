@@ -226,6 +226,7 @@ export function RemoteFilePanel({
   const handledClosePreviewRequestRef = useRef(0);
   const openRequestAttemptRef = useRef(0);
   const previewTabsRef = useRef<PreviewTabState[]>([]);
+  const previewTabsBySessionRef = useRef(new Map<string, { tabs: PreviewTabState[]; activeTabId: string | null }>());
   const activePreviewTabIdRef = useRef<string | null>(null);
   const selectedPathRef = useRef<string | null>(null);
   const treeRootRef = useRef<RemoteFileEntry | null>(null);
@@ -310,6 +311,24 @@ export function RemoteFilePanel({
     onPreviewActive?.(false);
     onPreviewTabsChange?.([]);
   }, [onPreviewActive, onPreviewTabsChange]);
+
+  useEffect(() => () => {
+    const releasedPreviewIds = new Set<string>();
+    const releaseUniquePreview = (tab: PreviewTabState) => {
+      const previewId = getPreviewIdFromTab(tab);
+      if (!previewId || releasedPreviewIds.has(previewId)) {
+        return;
+      }
+      releasedPreviewIds.add(previewId);
+      void window.remoteFileApi.releasePreview(previewId);
+    };
+
+    previewTabsRef.current.forEach(releaseUniquePreview);
+    previewTabsBySessionRef.current.forEach(({ tabs }) => {
+      tabs.forEach(releaseUniquePreview);
+    });
+    previewTabsBySessionRef.current.clear();
+  }, []);
 
   const previewMatches = useMemo<TextMatch[]>(() => {
     if (!previewSearchQuery || !editorContent) {
@@ -433,12 +452,6 @@ export function RemoteFilePanel({
     };
   }, [fileContextMenu]);
 
-  const releaseAllPreviews = useCallback(() => {
-    previewTabsRef.current.forEach(releasePreviewForTab);
-    setPreviewTabs([]);
-    onActivePreviewTabChange?.(null);
-  }, [onActivePreviewTabChange, releasePreviewForTab]);
-
   const updateDirectories = useCallback((updater: (current: DirectoryTreeState) => DirectoryTreeState) => {
     const next = updater(directoriesRef.current);
     directoriesRef.current = next;
@@ -468,9 +481,8 @@ export function RemoteFilePanel({
     setUploadingCount(0);
     setDownloadDragPath(null);
     closeFileContextMenu();
-    releaseAllPreviews();
     setError(null);
-  }, [closeFileContextMenu, onCurrentPathChange, releaseAllPreviews]);
+  }, [closeFileContextMenu, onCurrentPathChange]);
 
   const loadTreeDirectory = useCallback(async (path: string) => {
     if (!sessionId) return undefined;
@@ -574,10 +586,19 @@ export function RemoteFilePanel({
   useEffect(() => {
     if (!sessionId) {
       resetPanelState(".");
+      setPreviewTabs([]);
+      onActivePreviewTabChange?.(null);
       setLoading(false);
       return;
     }
     resetPanelState(".");
+    const cachedPreviewState = previewTabsBySessionRef.current.get(sessionId);
+    const restoredTabs = cachedPreviewState?.tabs ?? [];
+    const restoredActiveTabId = cachedPreviewState?.activeTabId && restoredTabs.some((tab) => tab.id === cachedPreviewState.activeTabId)
+      ? cachedPreviewState.activeTabId
+      : restoredTabs.at(-1)?.id ?? null;
+    setPreviewTabs(restoredTabs);
+    onActivePreviewTabChange?.(restoredActiveTabId);
 
     let disposed = false;
     const initialRequestId = requestRef.current;
@@ -602,14 +623,17 @@ export function RemoteFilePanel({
       });
 
     return () => {
+      previewTabsBySessionRef.current.set(sessionId, {
+        tabs: previewTabsRef.current,
+        activeTabId: activePreviewTabIdRef.current
+      });
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
       directoryRequestSequenceRef.current += 1;
       directoryRequestRef.current.clear();
-      releaseAllPreviews();
     };
-  }, [loadDirectory, onCurrentPathChange, releaseAllPreviews, resetPanelState, sessionId]);
+  }, [loadDirectory, onActivePreviewTabChange, onCurrentPathChange, resetPanelState, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {
