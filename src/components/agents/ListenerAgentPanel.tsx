@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import { File, Folder, LoaderCircle } from "lucide-react";
+import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, ListenerAgent, ListenerAgentRun, ListenerAgentState, ListenerAgentTrigger, ListenerTriggerEvent, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 
@@ -169,19 +167,6 @@ function TriggerPromptTextarea({ session, value, onChange, labels }: TriggerProm
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function MarkdownBlock({ content, className }: { content: string; className?: string }) {
-  if (!content || content === "-") {
-    return <div className={className}>{content || "-"}</div>;
-  }
-  return (
-    <div className={className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-        {content}
-      </ReactMarkdown>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
-import { ArrowDown, ArrowUp, ChevronRight, Download, File, FileText, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, RefreshCw, Save, Search, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Download, Eye, File, FileText, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, RefreshCw, Save, Search, SquarePen, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
-import type { RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
+import type { RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
 type RemoteFilePanelProps = {
   session?: TerminalSession;
@@ -39,6 +40,17 @@ type TextMatch = {
   end: number;
 };
 
+type DownloadTransferState = {
+  transferId: string;
+  mode: "save" | "drag";
+  entry: RemoteFileEntry;
+  status: "selecting" | "running" | "completed" | "canceled" | "failed";
+  transferredBytes: number;
+  totalBytes: number;
+  percent: number | null;
+  error?: string;
+};
+
 function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -71,6 +83,10 @@ function getPreviewId(preview: RemoteFilePreview) {
 
 function hasLocalFileDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function isMarkdownFile(fileName: string): boolean {
+  return /\.(md|markdown|mdown|mdwn|mkd|mkdn)$/i.test(fileName);
 }
 
 function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: number, end: number) {
@@ -125,11 +141,13 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const [originalContent, setOriginalContent] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
+  const [viewMode, setViewMode] = useState<"edit" | "preview">("edit");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [downloadDragPath, setDownloadDragPath] = useState<string | null>(null);
+  const [downloadTransfer, setDownloadTransfer] = useState<DownloadTransferState | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
@@ -147,8 +165,36 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
   const directoryRequestRef = useRef(new Map<string, number>());
   const directoryRequestSequenceRef = useRef(0);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const downloadTransferRef = useRef<DownloadTransferState | null>(null);
 
   const sessionId = session?.id;
+  downloadTransferRef.current = downloadTransfer;
+
+  useEffect(() => window.remoteFileApi.onDownloadProgress((progress: RemoteFileDownloadProgress) => {
+    if (downloadTransferRef.current?.transferId !== progress.transferId) return;
+    setDownloadTransfer((current) => current?.transferId === progress.transferId ? {
+      ...current,
+      status: progress.status,
+      transferredBytes: progress.transferredBytes ?? current.transferredBytes,
+      totalBytes: progress.totalBytes ?? current.totalBytes,
+      percent: progress.percent ?? current.percent,
+      error: progress.error
+    } : current);
+  }), []);
+
+  useEffect(() => {
+    const transfer = downloadTransfer;
+    if (!transfer || !["completed", "canceled"].includes(transfer.status)) return;
+    const timer = window.setTimeout(() => {
+      setDownloadTransfer((current) => current?.transferId === transfer.transferId ? null : current);
+    }, transfer.status === "completed" ? 1200 : 1800);
+    return () => window.clearTimeout(timer);
+  }, [downloadTransfer]);
+
+  useEffect(() => () => {
+    const transferId = downloadTransferRef.current?.transferId;
+    if (transferId) void window.remoteFileApi.cancelDownload(transferId);
+  }, [sessionId]);
 
   const selectedEntry = useMemo(() => {
     if (treeRoot?.path === selectedPath) return treeRoot;
@@ -295,6 +341,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setEditorContent("");
     setSaveState({ status: "idle" });
     setPreviewSearchQuery("");
+    setViewMode("edit");
   }, []);
 
   const updateDirectories = useCallback((updater: (current: DirectoryTreeState) => DirectoryTreeState) => {
@@ -551,6 +598,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       if (nextPreview.kind === "text") {
         setOriginalContent(nextPreview.content);
         setEditorContent(nextPreview.content);
+        setViewMode(isMarkdownFile(entry.name) ? "preview" : "edit");
       }
     } catch (err) {
       if (previewRequestRef.current !== requestId) return;
@@ -698,6 +746,42 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     setDropTargetPath((current) => current === targetDir ? null : current);
   }, [currentPath]);
 
+  const startDownloadTransfer = useCallback(async (mode: "save" | "drag", entry: RemoteFileEntry) => {
+    if (!sessionId || entry.type === "directory" || downloadTransferRef.current) return;
+    const transferId = crypto.randomUUID();
+    const initial: DownloadTransferState = {
+      transferId,
+      mode,
+      entry,
+      status: mode === "save" ? "selecting" : "running",
+      transferredBytes: 0,
+      totalBytes: entry.size,
+      percent: entry.size === 0 ? null : 0
+    };
+    downloadTransferRef.current = initial;
+    setDownloadTransfer(initial);
+    if (mode === "drag") setDownloadDragPath(entry.path);
+    setError(null);
+    try {
+      const result = mode === "save"
+        ? await window.remoteFileApi.downloadFile(transferId, sessionId, entry.path, entry.name)
+        : await window.remoteFileApi.startDownloadDrag(transferId, sessionId, entry.path, entry.name);
+      if (result.canceled && downloadTransferRef.current?.status === "selecting") {
+        setDownloadTransfer(null);
+      }
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      setDownloadTransfer((current) => current?.transferId === transferId ? {
+        ...current,
+        status: "failed",
+        error: message
+      } : current);
+    } finally {
+      if (mode === "drag") setDownloadDragPath((current) => current === entry.path ? null : current);
+    }
+  }, [sessionId]);
+
   const handleRemoteFileDragStart = useCallback((event: DragEvent<HTMLButtonElement>, entry: RemoteFileEntry) => {
     if (!sessionId || entry.type === "directory") {
       event.preventDefault();
@@ -706,22 +790,19 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
     event.preventDefault();
     event.stopPropagation();
     closeFileContextMenu();
-    setError(null);
-    setDownloadDragPath(entry.path);
-    void window.remoteFileApi.startDownloadDrag(sessionId, entry.path, entry.name)
-      .catch((err) => {
-        setError(getErrorMessage(err));
-      })
-      .finally(() => {
-        setDownloadDragPath((current) => current === entry.path ? null : current);
-      });
-  }, [closeFileContextMenu, sessionId]);
+    void startDownloadTransfer("drag", entry);
+  }, [closeFileContextMenu, sessionId, startDownloadTransfer]);
 
   const handleDownload = useCallback(async (entry: RemoteFileEntry) => {
     closeFileContextMenu();
     if (!sessionId || entry.type === "directory") return;
-    await window.remoteFileApi.downloadFile(sessionId, entry.path, entry.name);
-  }, [closeFileContextMenu, sessionId]);
+    await startDownloadTransfer("save", entry);
+  }, [closeFileContextMenu, sessionId, startDownloadTransfer]);
+
+  const handleCancelDownload = useCallback(() => {
+    const transferId = downloadTransferRef.current?.transferId;
+    if (transferId) void window.remoteFileApi.cancelDownload(transferId);
+  }, []);
 
   const handleAddToTerminal = useCallback((entry: RemoteFileEntry) => {
     closeFileContextMenu();
@@ -814,6 +895,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
       if (nextPreview.kind === "text") {
         setOriginalContent(nextPreview.content);
         setEditorContent(nextPreview.content);
+        setViewMode(isMarkdownFile(preview.fileName) ? "preview" : "edit");
       } else {
         setOriginalContent("");
         setEditorContent("");
@@ -1002,11 +1084,53 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
         </div>
       )}
 
-      {(uploadingCount > 0 || downloadDragPath) && (
+      {(uploadingCount > 0 || (downloadTransfer && downloadTransfer.status !== "selecting")) && (
         <div className="remote-file-transfer-status">
-          {uploadingCount > 0
-            ? t("files.uploading", { count: uploadingCount })
-            : t("files.preparingDownload")}
+          {uploadingCount > 0 ? (
+            t("files.uploading", { count: uploadingCount })
+          ) : downloadTransfer && (
+            <>
+              <div className="remote-file-transfer-heading">
+                <span title={downloadTransfer.entry.name}>{downloadTransfer.entry.name}</span>
+                <strong>
+                  {downloadTransfer.status === "completed"
+                    ? t("files.downloadCompleted")
+                    : downloadTransfer.status === "canceled"
+                      ? t("files.downloadCanceled")
+                      : downloadTransfer.status === "failed"
+                        ? t("files.downloadFailed")
+                        : downloadTransfer.percent === null ? t("files.preparingDownload") : `${downloadTransfer.percent}%`}
+                </strong>
+              </div>
+              <div
+                className={`remote-file-transfer-progress ${downloadTransfer.percent === null ? "indeterminate" : ""}`}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={downloadTransfer.percent ?? undefined}
+              >
+                <span style={{ width: `${downloadTransfer.percent ?? 35}%` }} />
+              </div>
+              <div className="remote-file-transfer-footer">
+                <span>
+                  {downloadTransfer.totalBytes > 0
+                    ? `${formatSize(downloadTransfer.transferredBytes)} / ${formatSize(downloadTransfer.totalBytes)}`
+                    : formatSize(downloadTransfer.transferredBytes)}
+                </span>
+                {downloadTransfer.status === "running" && (
+                  <button type="button" onClick={handleCancelDownload}>{t("common.cancel")}</button>
+                )}
+                {downloadTransfer.status === "failed" && (
+                  <button type="button" onClick={() => {
+                    const { mode, entry } = downloadTransfer;
+                    setDownloadTransfer(null);
+                    downloadTransferRef.current = null;
+                    void startDownloadTransfer(mode, entry);
+                  }}>{t("common.retry")}</button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -1110,7 +1234,7 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
             <span>{t("files.deleteEntry")}</span>
           </button>
           {contextEntry.type !== "directory" && (
-            <button type="button" role="menuitem" onClick={() => void handleDownload(contextEntry)}>
+            <button type="button" role="menuitem" disabled={downloadTransfer !== null} onClick={() => void handleDownload(contextEntry)}>
               <Download aria-hidden="true" />
               <span>{t("common.download")}</span>
             </button>
@@ -1132,30 +1256,45 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
             <div className="remote-preview-actions">
               {preview.status === "ready" && preview.preview.kind === "text" && (
                 <>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title={t("files.reloadFile")}
-                    aria-label={t("files.reloadFile")}
-                    disabled={saveState.status === "saving"}
-                    onClick={() => void handleReloadPreview()}
-                  >
-                    <RefreshCw aria-hidden="true" />
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title={t("files.saveFile")}
-                    aria-label={t("files.saveFile")}
-                    disabled={!isDirty || saveState.status === "saving" || saveState.status === "conflict"}
-                    onClick={() => void handleSavePreview()}
-                  >
-                    <Save aria-hidden="true" />
-                  </button>
+                  {isMarkdownFile(preview.fileName) && (
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title={viewMode === "preview" ? t("files.editMode") : t("files.previewMode")}
+                      aria-label={viewMode === "preview" ? t("files.editMode") : t("files.previewMode")}
+                      onClick={() => setViewMode((m) => m === "preview" ? "edit" : "preview")}
+                    >
+                      {viewMode === "preview" ? <SquarePen aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                    </button>
+                  )}
+                  {viewMode === "edit" && (
+                    <>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={t("files.reloadFile")}
+                        aria-label={t("files.reloadFile")}
+                        disabled={saveState.status === "saving"}
+                        onClick={() => void handleReloadPreview()}
+                      >
+                        <RefreshCw aria-hidden="true" />
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={t("files.saveFile")}
+                        aria-label={t("files.saveFile")}
+                        disabled={!isDirty || saveState.status === "saving" || saveState.status === "conflict"}
+                        onClick={() => void handleSavePreview()}
+                      >
+                        <Save aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
                 </>
               )}
               {preview.status === "ready" && selectedEntry && selectedEntry.type !== "directory" && (
-                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} onClick={() => void handleDownload(selectedEntry)}>
+                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} disabled={downloadTransfer !== null} onClick={() => void handleDownload(selectedEntry)}>
                   <Download aria-hidden="true" />
                 </button>
               )}
@@ -1174,84 +1313,90 @@ export function RemoteFilePanel({ session, openRequest, onOpenRequestHandled, on
           )}
           {preview.status === "ready" && (
             preview.preview.kind === "text" ? (
-              <>
-                {saveState.status !== "idle" && saveState.status !== "saving" && (
-                  <div className={`remote-preview-save-message ${saveState.status}`}>
-                    <span>{saveState.message}</span>
-                    {saveState.status === "conflict" && (
-                      <button type="button" onClick={() => void handleReloadPreview()}>{t("common.reload")}</button>
-                    )}
-                  </div>
-                )}
-                <div className="remote-preview-search">
-                  <Search aria-hidden="true" />
-                  <input
-                    type="text"
-                    aria-label={t("files.searchPreview")}
-                    placeholder={t("files.searchPreview")}
-                    value={previewSearchQuery}
-                    onChange={(event) => {
-                      setPreviewSearchQuery(event.target.value);
-                      setActivePreviewMatch(0);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        movePreviewMatch(event.shiftKey ? -1 : 1);
-                      }
-                    }}
-                  />
-                  <span className="remote-preview-match-count">
-                    {previewMatches.length ? activePreviewMatch + 1 : 0} / {previewMatches.length}
-                  </span>
-                  <button type="button" title={t("files.previousMatch")} aria-label={t("files.previousMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(-1)}>
-                    <ArrowUp aria-hidden="true" />
-                  </button>
-                  <button type="button" title={t("files.nextMatch")} aria-label={t("files.nextMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
-                    <ArrowDown aria-hidden="true" />
-                  </button>
-                  <button type="button" title={t("files.clearPreviewSearch")} aria-label={t("files.clearPreviewSearch")} disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
-                    <X aria-hidden="true" />
-                  </button>
+              viewMode === "preview" && isMarkdownFile(preview.fileName) ? (
+                <div className="remote-preview-markdown">
+                  <MarkdownBlock className="remote-preview-markdown-content" content={editorContent} />
                 </div>
-                <div className="remote-preview-editor-shell">
-                  <div className="remote-preview-highlight-viewport" aria-hidden="true">
-                    <div ref={previewHighlightRef} className="remote-preview-highlight-content">
-                      {activeMatch ? (
-                        <>
-                          {editorContent.slice(0, activeMatch.start)}
-                          <mark>{editorContent.slice(activeMatch.start, activeMatch.end)}</mark>
-                          {editorContent.slice(activeMatch.end)}
-                        </>
-                      ) : editorContent}
+              ) : (
+                <>
+                  {saveState.status !== "idle" && saveState.status !== "saving" && (
+                    <div className={`remote-preview-save-message ${saveState.status}`}>
+                      <span>{saveState.message}</span>
+                      {saveState.status === "conflict" && (
+                        <button type="button" onClick={() => void handleReloadPreview()}>{t("common.reload")}</button>
+                      )}
                     </div>
+                  )}
+                  <div className="remote-preview-search">
+                    <Search aria-hidden="true" />
+                    <input
+                      type="text"
+                      aria-label={t("files.searchPreview")}
+                      placeholder={t("files.searchPreview")}
+                      value={previewSearchQuery}
+                      onChange={(event) => {
+                        setPreviewSearchQuery(event.target.value);
+                        setActivePreviewMatch(0);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          movePreviewMatch(event.shiftKey ? -1 : 1);
+                        }
+                      }}
+                    />
+                    <span className="remote-preview-match-count">
+                      {previewMatches.length ? activePreviewMatch + 1 : 0} / {previewMatches.length}
+                    </span>
+                    <button type="button" title={t("files.previousMatch")} aria-label={t("files.previousMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(-1)}>
+                      <ArrowUp aria-hidden="true" />
+                    </button>
+                    <button type="button" title={t("files.nextMatch")} aria-label={t("files.nextMatch")} disabled={!previewMatches.length} onClick={() => movePreviewMatch(1)}>
+                      <ArrowDown aria-hidden="true" />
+                    </button>
+                    <button type="button" title={t("files.clearPreviewSearch")} aria-label={t("files.clearPreviewSearch")} disabled={!previewSearchQuery} onClick={() => setPreviewSearchQuery("")}>
+                      <X aria-hidden="true" />
+                    </button>
                   </div>
-                  <textarea
-                    ref={previewContentRef}
-                    className="remote-preview-editor"
-                    aria-label={t("files.editContent")}
-                    spellCheck={false}
-                    value={editorContent}
-                    onScroll={syncPreviewHighlight}
-                    onChange={(event) => {
-                      setEditorContent(event.target.value);
-                      if (saveState.status === "error") {
-                        setSaveState({ status: "idle" });
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-                        event.preventDefault();
-                        void handleSavePreview();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="remote-preview-status">
-                  <span>{formatSize(new TextEncoder().encode(editorContent).length)}</span>
-                  <span>{saveState.status === "saving" ? t("common.saving") : isDirty ? t("common.unsavedChanges") : t("common.saved")}</span>
-                </div>
-              </>
+                  <div className="remote-preview-editor-shell">
+                    <div className="remote-preview-highlight-viewport" aria-hidden="true">
+                      <div ref={previewHighlightRef} className="remote-preview-highlight-content">
+                        {activeMatch ? (
+                          <>
+                            {editorContent.slice(0, activeMatch.start)}
+                            <mark>{editorContent.slice(activeMatch.start, activeMatch.end)}</mark>
+                            {editorContent.slice(activeMatch.end)}
+                          </>
+                        ) : editorContent}
+                      </div>
+                    </div>
+                    <textarea
+                      ref={previewContentRef}
+                      className="remote-preview-editor"
+                      aria-label={t("files.editContent")}
+                      spellCheck={false}
+                      value={editorContent}
+                      onScroll={syncPreviewHighlight}
+                      onChange={(event) => {
+                        setEditorContent(event.target.value);
+                        if (saveState.status === "error") {
+                          setSaveState({ status: "idle" });
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+                          event.preventDefault();
+                          void handleSavePreview();
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="remote-preview-status">
+                    <span>{formatSize(new TextEncoder().encode(editorContent).length)}</span>
+                    <span>{saveState.status === "saving" ? t("common.saving") : isDirty ? t("common.unsavedChanges") : t("common.saved")}</span>
+                  </div>
+                </>
+              )
             ) : preview.preview.kind === "too_large" ? (
               <div className="remote-file-empty">
                 {t("files.tooLarge", { size: formatSize(preview.preview.size) })}

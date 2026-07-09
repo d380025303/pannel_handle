@@ -3,6 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const SftpClient = require("ssh2-sftp-client");
 const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
 
@@ -196,6 +197,7 @@ function joinWslPath(basePath, name) {
 function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
   const clients = new Map();
   const previews = new Map();
+  const activeDownloads = new Map();
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
     terminalManager,
     sessionStore,
@@ -582,15 +584,111 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return uploaded;
   }
 
-  async function downloadFile(sessionId, remotePath, localPath) {
+  async function downloadFile(sessionId, remotePath, localPath, options = {}) {
     const session = getSession(sessionId);
-    if (session.type !== "ssh") {
-      await fsApi.promises.copyFile(toLocalHostPath(session, remotePath), localPath);
-      return { localPath };
+    const transferId = String(options.transferId || crypto.randomUUID());
+    if (activeDownloads.has(transferId)) {
+      throw new Error("Download transfer already exists.");
     }
-    const client = await getClient(sessionId);
-    await client.fastGet(normalizeRemotePath(remotePath), localPath);
-    return { localPath };
+    const task = {
+      canceled: false,
+      client: null,
+      streams: [],
+      rejectCanceled: null
+    };
+    const canceled = new Promise((_, reject) => {
+      task.rejectCanceled = () => reject(Object.assign(new Error("Download canceled."), { code: "DOWNLOAD_CANCELED" }));
+    });
+    activeDownloads.set(transferId, task);
+
+    const reportProgress = (transferredBytes, totalBytes) => {
+      options.onProgress?.({
+        transferId,
+        transferredBytes,
+        totalBytes,
+        percent: totalBytes > 0 ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100)) : null
+      });
+    };
+
+    try {
+      if (session.type === "ssh") {
+        const client = sftpFactory();
+        task.client = client;
+        await Promise.race([sshRuntime.createSftpClient(sessionId, { sftp: client }), canceled]);
+        const normalizedPath = normalizeRemotePath(remotePath);
+        const stat = await Promise.race([client.stat(normalizedPath), canceled]);
+        const totalBytes = Number(stat?.size) || 0;
+        reportProgress(0, totalBytes);
+        await Promise.race([
+          client.fastGet(normalizedPath, localPath, {
+            step: (transferredBytes, _chunk, total) => reportProgress(transferredBytes, Number(total) || totalBytes)
+          }),
+          canceled
+        ]);
+        reportProgress(totalBytes, totalBytes);
+      } else {
+        const sourcePath = toLocalHostPath(session, remotePath);
+        const stat = await Promise.race([fsApi.promises.stat(sourcePath), canceled]);
+        const totalBytes = Number(stat?.size) || 0;
+        const source = fsApi.createReadStream(sourcePath);
+        const destination = fsApi.createWriteStream(localPath);
+        task.streams = [source, destination];
+        let transferredBytes = 0;
+        source.on("data", (chunk) => {
+          transferredBytes += chunk.length;
+          reportProgress(transferredBytes, totalBytes);
+        });
+        reportProgress(0, totalBytes);
+        await Promise.race([pipeline(source, destination), canceled]);
+        reportProgress(totalBytes, totalBytes);
+      }
+      return { localPath, transferId };
+    } catch (err) {
+      await Promise.all(task.streams.map((stream) => new Promise((resolve) => {
+        if (stream.closed) {
+          resolve();
+          return;
+        }
+        stream.once("close", resolve);
+        if (!stream.destroyed) stream.destroy();
+      })));
+      try {
+        await fsApi.promises.rm(localPath, { force: true });
+      } catch {
+        // Ignore cleanup failures; preserve the original transfer error.
+      }
+      throw err;
+    } finally {
+      activeDownloads.delete(transferId);
+      for (const stream of task.streams) {
+        if (!stream.destroyed) stream.destroy();
+      }
+      if (task.client) {
+        try {
+          await task.client.end();
+        } catch {
+          // Ignore close failures after a dedicated download connection.
+        }
+      }
+    }
+  }
+
+  async function cancelDownload(transferId) {
+    const task = activeDownloads.get(String(transferId || ""));
+    if (!task || task.canceled) return false;
+    task.canceled = true;
+    task.rejectCanceled?.();
+    for (const stream of task.streams) {
+      stream.destroy(Object.assign(new Error("Download canceled."), { code: "DOWNLOAD_CANCELED" }));
+    }
+    if (task.client) {
+      try {
+        await task.client.end();
+      } catch {
+        // The download promise owns final cleanup.
+      }
+    }
+    return true;
   }
 
   async function openInExplorer(sessionId, remotePath) {
@@ -643,6 +741,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
   }
 
   async function shutdown() {
+    await Promise.all(Array.from(activeDownloads.keys()).map((transferId) => cancelDownload(transferId)));
     const ids = Array.from(clients.keys());
     await Promise.all(ids.map((id) => disconnect(id)));
     previews.clear();
@@ -660,6 +759,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     uploadFile,
     uploadFiles,
     downloadFile,
+    cancelDownload,
     openInExplorer,
     deleteEntry,
     disconnect,

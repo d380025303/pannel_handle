@@ -41,6 +41,67 @@ function getDownloadFileName(fileName, remotePath) {
 }
 
 function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
+  const downloadOwners = new Map();
+
+  async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
+    const id = String(transferId || "").trim();
+    if (!id) throw new Error("A download transfer ID is required.");
+    if (downloadOwners.has(id) || Array.from(downloadOwners.values()).includes(event.sender.id)) {
+      throw new Error("Another download is already in progress.");
+    }
+    downloadOwners.set(id, event.sender.id);
+    let lastProgressAt = 0;
+    const sendProgress = (payload) => {
+      const now = Date.now();
+      if (payload.percent !== 100 && now - lastProgressAt < 80) return;
+      lastProgressAt = now;
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("remote-files:download-progress", {
+          ...payload,
+          sessionId,
+          remotePath,
+          fileName,
+          status: "running"
+        });
+      }
+    };
+    const cancelWhenDestroyed = () => void remoteFileService.cancelDownload(id);
+    event.sender.once("destroyed", cancelWhenDestroyed);
+    try {
+      const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, localPath, {
+        transferId: id,
+        onProgress: sendProgress
+      });
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("remote-files:download-progress", {
+          transferId: id,
+          sessionId,
+          remotePath,
+          fileName,
+          status: "completed"
+        });
+      }
+      return { canceled: false, ...downloaded };
+    } catch (err) {
+      const canceled = err?.code === "DOWNLOAD_CANCELED";
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("remote-files:download-progress", {
+          transferId: id,
+          sessionId,
+          remotePath,
+          fileName,
+          status: canceled ? "canceled" : "failed",
+          error: canceled ? undefined : getErrorMessage(err)
+        });
+      }
+      if (canceled) return { canceled: true, transferId: id };
+      throw err;
+    } finally {
+      event.sender.removeListener("destroyed", cancelWhenDestroyed);
+      downloadOwners.delete(id);
+    }
+  }
+
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
@@ -243,7 +304,7 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return { canceled: false, uploaded };
   });
 
-  ipcMain.handle("remote-files:download-file", async (event, { sessionId, remotePath, fileName }) => {
+  ipcMain.handle("remote-files:download-file", async (event, { transferId, sessionId, remotePath, fileName }) => {
     const ownerWindow = windowManager.getWindowFromEvent(event);
     const result = await dialog.showSaveDialog(ownerWindow, {
       defaultPath: fileName || "download"
@@ -251,21 +312,27 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (result.canceled || !result.filePath) {
       return { canceled: true };
     }
-    const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, result.filePath);
-    return { canceled: false, ...downloaded };
+    return runDownload(event, { transferId, sessionId, remotePath, localPath: result.filePath, fileName });
   });
 
-  ipcMain.handle("remote-files:start-download-drag", async (event, { sessionId, remotePath, fileName }) => {
+  ipcMain.handle("remote-files:start-download-drag", async (event, { transferId, sessionId, remotePath, fileName }) => {
     const tempRoot = path.join(os.tmpdir(), "pannel-handle-drag-downloads");
     await fs.promises.mkdir(tempRoot, { recursive: true });
     const tempDir = await fs.promises.mkdtemp(path.join(tempRoot, "drag-"));
     const localPath = path.join(tempDir, getDownloadFileName(fileName, remotePath));
-    const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, localPath);
+    const downloaded = await runDownload(event, { transferId, sessionId, remotePath, localPath, fileName });
+    if (downloaded.canceled) return downloaded;
     event.sender.startDrag({
       file: downloaded.localPath,
       icon: path.join(__dirname, "..", "..", "build", "icon.png")
     });
     return { canceled: false, ...downloaded };
+  });
+
+  ipcMain.handle("remote-files:cancel-download", (event, { transferId }) => {
+    const id = String(transferId || "");
+    if (downloadOwners.get(id) !== event.sender.id) return false;
+    return remoteFileService.cancelDownload(id);
   });
 
   ipcMain.handle("remote-files:open-in-explorer", (_event, { sessionId, remotePath }) => {

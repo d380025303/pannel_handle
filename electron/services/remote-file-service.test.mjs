@@ -528,10 +528,79 @@ describe("remote-file-service", () => {
         sftpFactory: () => createSftpMock()
       });
 
-      await expect(service.downloadFile("run-1", sourceFile, targetFile)).resolves.toEqual({ localPath: targetFile });
+      await expect(service.downloadFile("run-1", sourceFile, targetFile, { transferId: "download-1" })).resolves.toEqual({
+        localPath: targetFile,
+        transferId: "download-1"
+      });
       expect(fs.readFileSync(targetFile, "utf-8")).toBe("downloaded");
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports local download progress and removes a canceled partial file", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-dst-"));
+    const sourceFile = path.join(sourceDir, "large.bin");
+    const targetFile = path.join(targetDir, "large-copy.bin");
+    fs.writeFileSync(sourceFile, Buffer.alloc(256 * 1024, 1));
+    const progress = [];
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: sourceDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+      const download = service.downloadFile("run-1", sourceFile, targetFile, {
+        transferId: "cancel-me",
+        onProgress: (event) => {
+          progress.push(event);
+          if (event.transferredBytes === 0) void service.cancelDownload("cancel-me");
+        }
+      });
+
+      await expect(download).rejects.toMatchObject({ code: "DOWNLOAD_CANCELED" });
+      expect(progress[0]).toMatchObject({ transferId: "cancel-me", transferredBytes: 0, totalBytes: 256 * 1024 });
+      expect(fs.existsSync(targetFile)).toBe(false);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports SSH fastGet progress using a dedicated client", async () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-download-dst-"));
+    const targetFile = path.join(targetDir, "remote.bin");
+    const progress = [];
+    const sftp = createSftpMock({
+      stat: vi.fn(async () => ({ size: 10 })),
+      fastGet: vi.fn(async (_remotePath, _localPath, options) => options.step(6, 6, 10))
+    });
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({
+          id: "run-1",
+          type: "ssh",
+          sshConfig: { host: "example.com", username: "deploy", encryptedSecret: "ciphertext", extraArgs: [] }
+        }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => sftp
+      });
+
+      await service.downloadFile("run-1", "/tmp/remote.bin", targetFile, {
+        transferId: "ssh-download",
+        onProgress: (event) => progress.push(event)
+      });
+
+      expect(sftp.fastGet).toHaveBeenCalledWith("/tmp/remote.bin", targetFile, expect.objectContaining({ step: expect.any(Function) }));
+      expect(progress).toEqual(expect.arrayContaining([
+        expect.objectContaining({ transferredBytes: 0, totalBytes: 10, percent: 0 }),
+        expect.objectContaining({ transferredBytes: 6, totalBytes: 10, percent: 60 }),
+        expect.objectContaining({ transferredBytes: 10, totalBytes: 10, percent: 100 })
+      ]));
+      expect(sftp.end).toHaveBeenCalled();
+    } finally {
       fs.rmSync(targetDir, { recursive: true, force: true });
     }
   });

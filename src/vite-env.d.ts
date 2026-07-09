@@ -248,7 +248,19 @@ export type RemoteTextWriteResult =
 
 export type RemoteFileDialogResult =
   | { canceled: true }
-  | { canceled: false; remotePath?: string; localPath?: string };
+  | { canceled: false; remotePath?: string; localPath?: string; transferId?: string };
+
+export type RemoteFileDownloadProgress = {
+  transferId: string;
+  sessionId: string;
+  remotePath: string;
+  fileName?: string;
+  transferredBytes?: number;
+  totalBytes?: number;
+  percent?: number | null;
+  status: "running" | "completed" | "canceled" | "failed";
+  error?: string;
+};
 
 export type RemoteFileBatchUploadResult =
   | { canceled: true }
@@ -483,8 +495,10 @@ export type RemoteFileApi = {
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[] | string[]) => Promise<RemoteFileBatchUploadResult>;
-  downloadFile: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
-  startDownloadDrag: (sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+  downloadFile: (transferId: string, sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+  startDownloadDrag: (transferId: string, sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
+  cancelDownload: (transferId: string) => Promise<boolean>;
+  onDownloadProgress: (callback: (progress: RemoteFileDownloadProgress) => void) => () => void;
   openInExplorer: (sessionId: string, remotePath: string) => Promise<void>;
   deleteEntry: (sessionId: string, remotePath: string) => Promise<void>;
 };

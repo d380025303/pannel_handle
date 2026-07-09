@@ -128,8 +128,14 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   writeText: (sessionId, remotePath, content, expectedVersion) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion }),
   uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
   uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("remote-files:upload-files", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
-  downloadFile: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { sessionId, remotePath, fileName }),
-  startDownloadDrag: (sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:start-download-drag", { sessionId, remotePath, fileName }),
+  downloadFile: (transferId, sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { transferId, sessionId, remotePath, fileName }),
+  startDownloadDrag: (transferId, sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:start-download-drag", { transferId, sessionId, remotePath, fileName }),
+  cancelDownload: (transferId) => ipcRenderer.invoke("remote-files:cancel-download", { transferId }),
+  onDownloadProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-files:download-progress", listener);
+    return () => ipcRenderer.removeListener("remote-files:download-progress", listener);
+  },
   openInExplorer: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:open-in-explorer", { sessionId, remotePath }),
   deleteEntry: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:delete", { sessionId, remotePath })
 });

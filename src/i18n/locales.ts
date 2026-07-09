@@ -193,6 +193,9 @@ export type TranslationKey =
   | "files.cannotResolveLocalPaths"
   | "files.uploading"
   | "files.preparingDownload"
+  | "files.downloadCompleted"
+  | "files.downloadCanceled"
+  | "files.downloadFailed"
   | "files.loading"
   | "files.emptyDirectory"
   | "files.noMatches"
@@ -215,6 +218,8 @@ export type TranslationKey =
   | "files.deleteEntry"
   | "files.tooLarge"
   | "files.binary"
+  | "files.previewMode"
+  | "files.editMode"
   | "system.loading"
   | "system.unavailable"
   | "system.metrics"
@@ -515,6 +520,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.cannotResolveLocalPaths": "无法识别拖放的文件来源，仅支持从文件资源管理器拖入本地文件。",
     "files.uploading": "正在上传 {count} 个文件...",
     "files.preparingDownload": "正在准备下载...",
+    "files.downloadCompleted": "下载完成",
+    "files.downloadCanceled": "已取消",
+    "files.downloadFailed": "下载失败",
     "files.loading": "正在加载文件...",
     "files.emptyDirectory": "目录为空",
     "files.noMatches": "当前目录没有匹配的文件。",
@@ -537,6 +545,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.deleteEntry": "删除",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
+    "files.previewMode": "预览模式",
+    "files.editMode": "编辑模式",
     "system.loading": "正在读取服务器状态...",
     "system.unavailable": "服务器监控不可用",
     "system.metrics": "SSH 服务器指标",
@@ -829,6 +839,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.cannotResolveLocalPaths": "Cannot recognize the dropped items. Only files dragged from the file explorer are supported.",
     "files.uploading": "Uploading {count} files...",
     "files.preparingDownload": "Preparing download...",
+    "files.downloadCompleted": "Download complete",
+    "files.downloadCanceled": "Canceled",
+    "files.downloadFailed": "Download failed",
     "files.loading": "Loading files...",
     "files.emptyDirectory": "Directory is empty",
     "files.noMatches": "No matching files in this directory.",
@@ -851,6 +864,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.deleteEntry": "Delete",
     "files.tooLarge": "File is {size}. Download it to view locally.",
     "files.binary": "Binary file. Download it to view locally.",
+    "files.previewMode": "Preview mode",
+    "files.editMode": "Edit mode",
     "system.loading": "Reading server status...",
     "system.unavailable": "Server monitoring is unavailable",
     "system.metrics": "SSH server metrics",
