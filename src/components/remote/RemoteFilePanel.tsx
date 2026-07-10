@@ -18,7 +18,7 @@ type RemoteFilePanelProps = {
   onDirtyChange?: (dirty: boolean) => void;
   onPreviewActive?: (active: boolean) => void;
   onPreviewTabsChange?: (tabs: RemotePreviewTabSummary[]) => void;
-  onActivePreviewTabChange?: (tabId: string | null) => void;
+  onActivePreviewTabChange?: (tabId: string | null, fromRestore?: boolean) => void;
   onCurrentPathChange?: (path: string) => void;
   onSearchRequest?: (mode: "files" | "text", rootPath: string) => void;
   onFocusTerminal?: () => void;
@@ -82,6 +82,19 @@ type PreviewTabState = {
   activePreviewMatch: number;
   previewRequestId: number;
   saveRequestId: number;
+};
+
+type RemoteFilePanelSessionState = {
+  currentPath: string;
+  pathInput: string;
+  navigationRoot: string | null;
+  treeRoot: RemoteFileEntry | null;
+  directories: DirectoryTreeState;
+  expandedPaths: Set<string>;
+  selectedPath: string | null;
+  searchQuery: string;
+  tabs: PreviewTabState[];
+  activeTabId: string | null;
 };
 
 function formatSize(size: number) {
@@ -226,12 +239,16 @@ export function RemoteFilePanel({
   const handledClosePreviewRequestRef = useRef(0);
   const openRequestAttemptRef = useRef(0);
   const previewTabsRef = useRef<PreviewTabState[]>([]);
-  const previewTabsBySessionRef = useRef(new Map<string, { tabs: PreviewTabState[]; activeTabId: string | null }>());
+  const panelStateBySessionRef = useRef(new Map<string, RemoteFilePanelSessionState>());
   const activePreviewTabIdRef = useRef<string | null>(null);
+  const currentPathRef = useRef(".");
+  const pathInputRef = useRef(".");
   const selectedPathRef = useRef<string | null>(null);
   const treeRootRef = useRef<RemoteFileEntry | null>(null);
   const navigationRootRef = useRef<string | null>(null);
   const directoriesRef = useRef<DirectoryTreeState>({});
+  const expandedPathsRef = useRef<Set<string>>(new Set());
+  const searchQueryRef = useRef("");
   const directoryRequestRef = useRef(new Map<string, number>());
   const directoryRequestSequenceRef = useRef(0);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -241,6 +258,10 @@ export function RemoteFilePanel({
   downloadTransferRef.current = downloadTransfer;
   previewTabsRef.current = previewTabs;
   activePreviewTabIdRef.current = activePreviewTabId ?? null;
+  currentPathRef.current = currentPath;
+  pathInputRef.current = pathInput;
+  expandedPathsRef.current = expandedPaths;
+  searchQueryRef.current = searchQuery;
 
   useEffect(() => window.remoteFileApi.onDownloadProgress((progress: RemoteFileDownloadProgress) => {
     if (downloadTransferRef.current?.transferId !== progress.transferId) return;
@@ -324,10 +345,10 @@ export function RemoteFilePanel({
     };
 
     previewTabsRef.current.forEach(releaseUniquePreview);
-    previewTabsBySessionRef.current.forEach(({ tabs }) => {
-      tabs.forEach(releaseUniquePreview);
+    panelStateBySessionRef.current.forEach((state) => {
+      state.tabs.forEach(releaseUniquePreview);
     });
-    previewTabsBySessionRef.current.clear();
+    panelStateBySessionRef.current.clear();
   }, []);
 
   const previewMatches = useMemo<TextMatch[]>(() => {
@@ -415,6 +436,7 @@ export function RemoteFilePanel({
   const handleFileContextMenu = useCallback((event: MouseEvent<HTMLElement>, entry: RemoteFileEntry) => {
     event.preventDefault();
     event.stopPropagation();
+    selectedPathRef.current = entry.path;
     setSelectedPath(entry.path);
 
     const menuWidth = 176;
@@ -468,6 +490,10 @@ export function RemoteFilePanel({
     treeRootRef.current = null;
     directoriesRef.current = {};
     selectedPathRef.current = null;
+    currentPathRef.current = path;
+    pathInputRef.current = path;
+    expandedPathsRef.current = new Set();
+    searchQueryRef.current = "";
     setNavigationRoot(null);
     setCurrentPath(path);
     setPathInput(path);
@@ -483,6 +509,51 @@ export function RemoteFilePanel({
     closeFileContextMenu();
     setError(null);
   }, [closeFileContextMenu, onCurrentPathChange]);
+
+  const createPanelStateSnapshot = useCallback((): RemoteFilePanelSessionState => ({
+    currentPath: currentPathRef.current,
+    pathInput: pathInputRef.current,
+    navigationRoot: navigationRootRef.current,
+    treeRoot: treeRootRef.current,
+    directories: directoriesRef.current,
+    expandedPaths: new Set(expandedPathsRef.current),
+    selectedPath: selectedPathRef.current,
+    searchQuery: searchQueryRef.current,
+    tabs: previewTabsRef.current,
+    activeTabId: activePreviewTabIdRef.current
+  }), []);
+
+  const restorePanelState = useCallback((state: RemoteFilePanelSessionState) => {
+    treeRowRefs.current.clear();
+    navigationRootRef.current = state.navigationRoot;
+    treeRootRef.current = state.treeRoot;
+    directoriesRef.current = state.directories;
+    selectedPathRef.current = state.selectedPath;
+    currentPathRef.current = state.currentPath;
+    pathInputRef.current = state.pathInput;
+    expandedPathsRef.current = new Set(state.expandedPaths);
+    searchQueryRef.current = state.searchQuery;
+    setNavigationRoot(state.navigationRoot);
+    setCurrentPath(state.currentPath);
+    setPathInput(state.pathInput);
+    onCurrentPathChange?.(state.currentPath);
+    setTreeRoot(state.treeRoot);
+    setDirectories(state.directories);
+    setExpandedPaths(new Set(state.expandedPaths));
+    setSelectedPath(state.selectedPath);
+    setSearchQuery(state.searchQuery);
+    setDropTargetPath(null);
+    setUploadingCount(0);
+    setDownloadDragPath(null);
+    closeFileContextMenu();
+    setError(null);
+    setLoading(false);
+    setPreviewTabs(state.tabs);
+    const restoredActiveTabId = state.activeTabId && state.tabs.some((tab) => tab.id === state.activeTabId)
+      ? state.activeTabId
+      : state.tabs.at(-1)?.id ?? null;
+    onActivePreviewTabChange?.(restoredActiveTabId, true);
+  }, [closeFileContextMenu, onActivePreviewTabChange, onCurrentPathChange]);
 
   const loadTreeDirectory = useCallback(async (path: string) => {
     if (!sessionId) return undefined;
@@ -591,14 +662,19 @@ export function RemoteFilePanel({
       setLoading(false);
       return;
     }
+    const cachedPanelState = panelStateBySessionRef.current.get(sessionId);
+    if (cachedPanelState) {
+      restorePanelState(cachedPanelState);
+      return () => {
+        panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
+        requestRef.current += 1;
+        previewRequestRef.current += 1;
+        directoryRequestSequenceRef.current += 1;
+        directoryRequestRef.current.clear();
+      };
+    }
+
     resetPanelState(".");
-    const cachedPreviewState = previewTabsBySessionRef.current.get(sessionId);
-    const restoredTabs = cachedPreviewState?.tabs ?? [];
-    const restoredActiveTabId = cachedPreviewState?.activeTabId && restoredTabs.some((tab) => tab.id === cachedPreviewState.activeTabId)
-      ? cachedPreviewState.activeTabId
-      : restoredTabs.at(-1)?.id ?? null;
-    setPreviewTabs(restoredTabs);
-    onActivePreviewTabChange?.(restoredActiveTabId);
 
     let disposed = false;
     const initialRequestId = requestRef.current;
@@ -623,17 +699,14 @@ export function RemoteFilePanel({
       });
 
     return () => {
-      previewTabsBySessionRef.current.set(sessionId, {
-        tabs: previewTabsRef.current,
-        activeTabId: activePreviewTabIdRef.current
-      });
+      panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
       directoryRequestSequenceRef.current += 1;
       directoryRequestRef.current.clear();
     };
-  }, [loadDirectory, onActivePreviewTabChange, onCurrentPathChange, resetPanelState, sessionId]);
+  }, [createPanelStateSnapshot, loadDirectory, onActivePreviewTabChange, resetPanelState, restorePanelState, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {

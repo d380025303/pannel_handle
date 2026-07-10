@@ -80,6 +80,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
+  const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
+  const workspaceTabRef = useRef<WorkspaceTab>("terminal");
+  workspaceTabRef.current = workspaceTab;
   const { isMaximized } = useWindowState();
   const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
   const { rightToolsWidth: liveRightToolsWidth, handleSplitterMouseDown: handleRightSplitterMouseDown } = useRightToolsResize(
@@ -208,6 +211,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     if (id === terminalSessions.activeId) {
       return;
     }
+    const outgoingId = terminalSessions.activeId;
+    if (outgoingId) {
+      workspaceTabBySessionRef.current.set(outgoingId, workspaceTabRef.current);
+    }
+    const cached = workspaceTabBySessionRef.current.get(id);
+    setWorkspaceTab(cached ?? "terminal");
     terminalSessions.setActiveId(id);
   }, [terminalSessions]);
 
@@ -274,9 +283,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setWorkspaceTab((current) => tabs.length === 0 && current === "preview" ? "terminal" : current);
   }, []);
 
-  const handleActivePreviewTabChange = useCallback((tabId: string | null) => {
+  const handleActivePreviewTabChange = useCallback((tabId: string | null, fromRestore?: boolean) => {
     setActivePreviewTabId(tabId);
-    setWorkspaceTab(tabId ? "preview" : "terminal");
+    if (!fromRestore) {
+      setWorkspaceTab(tabId ? "preview" : "terminal");
+    }
   }, []);
 
   const handleClosePreviewTab = useCallback((tabId: string) => {
