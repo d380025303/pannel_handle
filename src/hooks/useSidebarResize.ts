@@ -1,32 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { startResizeDrag } from "./resizeDrag";
 
 export function useSidebarResize() {
   const [sidebarWidth, setSidebarWidth] = useState(290);
-  const draggingRef = useRef(false);
+  const stopDraggingRef = useRef<(() => void) | null>(null);
 
   const handleSplitterMouseDown = useCallback(() => {
-    draggingRef.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    stopDraggingRef.current?.();
+    stopDraggingRef.current = startResizeDrag({
+      onMove: (e) => {
+        const newWidth = Math.min(500, Math.max(180, e.clientX));
+        setSidebarWidth(newWidth);
+      },
+      onEnd: () => {
+        stopDraggingRef.current = null;
+      }
+    });
   }, []);
 
   useEffect(() => {
-    const handleMouseMove = (e: globalThis.MouseEvent) => {
-      if (!draggingRef.current) return;
-      const newWidth = Math.min(500, Math.max(180, e.clientX));
-      setSidebarWidth(newWidth);
-    };
-    const handleMouseUp = () => {
-      if (!draggingRef.current) return;
-      draggingRef.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      stopDraggingRef.current?.();
+      stopDraggingRef.current = null;
     };
   }, []);
 

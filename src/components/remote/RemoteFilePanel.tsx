@@ -699,7 +699,9 @@ export function RemoteFilePanel({
       });
 
     return () => {
-      panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
+      if (navigationRootRef.current) {
+        panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
+      }
       disposed = true;
       requestRef.current += 1;
       previewRequestRef.current += 1;
@@ -758,6 +760,9 @@ export function RemoteFilePanel({
     const existingTab = previewTabsRef.current.find((tab) => tab.id === tabId);
     if (existingTab) {
       onActivePreviewTabChange?.(tabId);
+      if (existingTab.state.status === "ready" || existingTab.state.status === "error") {
+        void handleReloadPreview(existingTab);
+      }
       return;
     }
     const requestId = previewRequestRef.current + 1;
@@ -1102,18 +1107,20 @@ export function RemoteFilePanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPreviewActive, handleClosePreview]);
 
-  const handleReloadPreview = useCallback(async () => {
-    if (!activePreviewTab || activePreview.status !== "ready" || !confirmDiscardTab(activePreviewTab)) {
+  const handleReloadPreview = useCallback(async (tab?: PreviewTabState) => {
+    const targetTab = tab || activePreviewTab;
+    if (!targetTab || targetTab.state.status !== "ready" || !confirmDiscardTab(targetTab)) {
       return;
     }
+    const targetState = targetTab.state;
     const requestId = previewRequestRef.current + 1;
     previewRequestRef.current = requestId;
-    const tabId = activePreviewTab.id;
-    updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "idle" }, previewRequestId: requestId }));
+    const tabId = targetTab.id;
+    updatePreviewTab(tabId, (t) => ({ ...t, saveState: { status: "idle" }, previewRequestId: requestId }));
     try {
-      releasePreviewForTab(activePreviewTab);
-      const nextPreview = await window.remoteFileApi.previewFile(activePreview.sessionId, activePreview.path);
-      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      releasePreviewForTab(targetTab);
+      const nextPreview = await window.remoteFileApi.previewFile(targetState.sessionId, targetState.path);
+      const currentTab = previewTabsRef.current.find((t) => t.id === tabId);
       if (!currentTab || currentTab.previewRequestId !== requestId) {
         const stalePreviewId = getPreviewId(nextPreview);
         if (stalePreviewId) {
@@ -1121,19 +1128,19 @@ export function RemoteFilePanel({
         }
         return;
       }
-      updatePreviewTab(tabId, (tab) => ({
-        ...tab,
-        state: { ...activePreview, preview: nextPreview },
+      updatePreviewTab(tabId, (t) => ({
+        ...t,
+        state: { ...targetState, preview: nextPreview },
         originalContent: nextPreview.kind === "text" ? nextPreview.content : "",
         editorContent: nextPreview.kind === "text" ? nextPreview.content : "",
-        viewMode: isMarkdownFile(activePreview.fileName) ? "preview" : "edit"
+        viewMode: isMarkdownFile(targetTab.fileName) ? "preview" : "edit"
       }));
     } catch (err) {
-      const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
+      const currentTab = previewTabsRef.current.find((t) => t.id === tabId);
       if (!currentTab || currentTab.previewRequestId !== requestId) return;
-      updatePreviewTab(tabId, (tab) => ({ ...tab, saveState: { status: "error", message: getErrorMessage(err) } }));
+      updatePreviewTab(tabId, (t) => ({ ...t, saveState: { status: "error", message: getErrorMessage(err) } }));
     }
-  }, [activePreview, activePreviewTab, confirmDiscardTab, releasePreviewForTab, updatePreviewTab]);
+  }, [activePreviewTab, confirmDiscardTab, releasePreviewForTab, updatePreviewTab]);
 
   const handleSavePreview = useCallback(async () => {
     if (

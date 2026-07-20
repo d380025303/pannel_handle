@@ -67,6 +67,7 @@ function shouldAutoFocusTerminal(terminalHost: HTMLDivElement | null) {
 
 function autoFocusTerminal(entry: TerminalEntry, terminalHost: HTMLDivElement | null) {
   if (shouldAutoFocusTerminal(terminalHost)) {
+    entry.inputGuard.reset();
     entry.terminal.focus();
   }
 }
@@ -118,6 +119,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     if (!activeId) return;
     const entry = terminalsRef.current.get(activeId);
     if (entry) {
+      entry.inputGuard.reset();
       entry.terminal.focus();
     }
   }, [activeId]);
@@ -299,6 +301,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     }
 
     const textarea = entry.terminal.textarea;
+    const onFocus = () => entry?.inputGuard.reset();
 
     const onPaste = (e: ClipboardEvent) => {
       e.preventDefault();
@@ -313,6 +316,8 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
       entry?.inputGuard.handleInput(event as InputEvent);
     };
 
+    entry.inputGuard.reset();
+    textarea?.addEventListener("focus", onFocus);
     textarea?.addEventListener("paste", onPaste, true);
     textarea?.addEventListener("compositionstart", onCompositionStart);
     textarea?.addEventListener("compositionend", onCompositionEnd);
@@ -337,6 +342,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     resizeObserver.observe(terminalHost);
 
     return () => {
+      textarea?.removeEventListener("focus", onFocus);
       textarea?.removeEventListener("paste", onPaste, true);
       textarea?.removeEventListener("compositionstart", onCompositionStart);
       textarea?.removeEventListener("compositionend", onCompositionEnd);

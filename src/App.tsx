@@ -50,6 +50,26 @@ function hasBlockingOverlay() {
   ));
 }
 
+function getBlockingOverlayDiagnostics() {
+  const overlays = Array.from(document.querySelectorAll<HTMLElement>(
+    ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .git-stash-overlay, .project-search-overlay"
+  ));
+  const activeElement = document.activeElement;
+  const activeElementSummary = activeElement instanceof HTMLElement
+    ? {
+        tagName: activeElement.tagName.toLowerCase(),
+        className: activeElement.className,
+        id: activeElement.id
+      }
+    : null;
+  return {
+    overlays: overlays.map((overlay) => overlay.className),
+    activeElement: activeElementSummary,
+    bodyCursor: document.body.style.cursor,
+    bodyUserSelect: document.body.style.userSelect
+  };
+}
+
 type AppContentProps = {
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
@@ -80,6 +100,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
+  const lastBlockingOverlaySignatureRef = useRef("");
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
   workspaceTabRef.current = workspaceTab;
@@ -143,7 +164,16 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       if (!terminalSessions.activeSession || terminalSessions.activeSession.type === "ssh") {
         return;
       }
-      if (projectSearchMode || hasBlockingOverlay()) {
+      const blockingOverlay = hasBlockingOverlay();
+      if (projectSearchMode || blockingOverlay) {
+        if ((debugMode || import.meta.env.DEV) && blockingOverlay) {
+          const diagnostics = getBlockingOverlayDiagnostics();
+          const signature = JSON.stringify(diagnostics);
+          if (lastBlockingOverlaySignatureRef.current !== signature) {
+            lastBlockingOverlaySignatureRef.current = signature;
+            console.debug("[pannel-handle] keyboard shortcut blocked by overlay", diagnostics);
+          }
+        }
         return;
       }
       if (isEditableShortcutTarget(event.target)) {
@@ -165,7 +195,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [openProjectSearch, projectSearchMode, terminalSessions.activeSession]);
+  }, [debugMode, openProjectSearch, projectSearchMode, terminalSessions.activeSession]);
 
   useEffect(() => {
     if (!debugMode) {

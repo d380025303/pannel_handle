@@ -85,4 +85,19 @@ describe("createImeInputGuard", () => {
     guard.handleCompositionEnd();
     expect(guard.shouldForwardData("，")).toBe(false);
   });
+
+  it("allows ordinary terminal data after reset clears a pending IME commit", () => {
+    let time = 0;
+    const guard = createImeInputGuard({ now: () => time });
+
+    guard.handleCompositionStart();
+    guard.handleCompositionEnd();
+    expect(guard.shouldForwardData("a")).toBe(true);
+
+    time = 20;
+    guard.reset();
+
+    expect(guard.shouldForwardData("a")).toBe(true);
+    expect(guard.shouldForwardData("a")).toBe(true);
+  });
 });

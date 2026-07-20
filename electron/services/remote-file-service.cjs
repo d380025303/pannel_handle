@@ -172,13 +172,25 @@ function toWslHostPath(wslDistro, linuxPath) {
   if (normalized === "~") {
     return path.win32.join(`\\\\wsl.localhost\\${distro}`, "home");
   }
+  const mntMatch = normalized.match(/^\/mnt\/([a-zA-Z])(\/.*)?$/);
+  if (mntMatch) {
+    const drive = mntMatch[1].toUpperCase();
+    const rest = mntMatch[2] ? mntMatch[2].replace(/\//g, "\\") : "\\";
+    return `${drive}:${rest}`;
+  }
   return path.win32.join(`\\\\wsl.localhost\\${distro}`, ...normalized.split("/").filter(Boolean));
 }
 
 function fromWslHostPath(hostPath, wslDistro) {
   const distro = validateWslDistro(wslDistro);
-  const prefix = `\\\\wsl.localhost\\${distro}`;
   const normalizedHostPath = String(hostPath || "").replace(/\//g, "\\");
+  const winDriveMatch = normalizedHostPath.match(/^([a-zA-Z]):(.*)$/);
+  if (winDriveMatch) {
+    const drive = winDriveMatch[1].toLowerCase();
+    const rest = winDriveMatch[2] ? winDriveMatch[2].replace(/\\/g, "/") : "";
+    return normalizeWslPath(`/mnt/${drive}${rest}`);
+  }
+  const prefix = `\\\\wsl.localhost\\${distro}`;
   if (!normalizedHostPath.toLowerCase().startsWith(prefix.toLowerCase())) {
     return normalizeWslPath(hostPath);
   }
