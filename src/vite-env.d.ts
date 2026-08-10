@@ -364,8 +364,23 @@ export type GitDiffResult = {
   path: string;
   oldPath?: string;
   status: string;
+  scope: GitDiffScope;
   kind: "text" | "binary";
   rows: GitDiffRow[];
+  truncated: boolean;
+  capturedBytes: number;
+};
+
+export type GitDiffScope = "working" | "staged" | "commit" | "stash" | "combined";
+
+export type GitDiffRequest = {
+  scope: GitDiffScope;
+  path?: string;
+  oldPath?: string;
+  status?: string;
+  indexStatus?: string;
+  worktreeStatus?: string;
+  revision?: string;
 };
 
 export type GitBranchEntry = {
@@ -379,6 +394,13 @@ export type GitBranchEntry = {
 export type GitBranchListResult = {
   cwd: string;
   branches: GitBranchEntry[];
+  error?: string;
+};
+
+export type GitRemoteListResult = {
+  cwd: string;
+  remotes: string[];
+  error?: string;
 };
 
 export type GitStashEntry = {
@@ -391,19 +413,53 @@ export type GitStashEntry = {
 export type GitStashListResult = {
   cwd: string;
   stashes: GitStashEntry[];
+  error?: string;
+};
+
+export type GitRepositoryOperationState = "merge" | "rebase" | "cherry-pick" | "revert";
+
+export type GitRepositorySnapshot = {
+  cwd: string;
+  status: GitStatusResult;
+  branches: GitBranchListResult;
+  remotes: GitRemoteListResult;
+  stashes: GitStashListResult;
+  operationState: GitRepositoryOperationState | null;
+  operationStateError?: string;
+};
+
+export type GitHistoryEntry = {
+  oid: string;
+  shortOid: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: number;
+  subject: string;
+  decorations: string[];
+};
+
+export type GitHistoryResult = {
+  cwd: string;
+  commits: GitHistoryEntry[];
+  hasMore: boolean;
+  nextSkip: number;
 };
 
 export type GitOperationResult = {
   ok: boolean;
-  cwd: string;
+  operationId?: string;
+  cwd?: string;
   message?: string;
-  status?: GitStatusResult;
-  branches?: GitBranchListResult;
+  stdout?: string;
+  stderr?: string;
+  canceled?: boolean;
+  truncated?: boolean;
 };
 
 export type GitDirectoryChangeResult = {
   cwd: string;
   history: string[];
+  snapshot: GitRepositorySnapshot;
   status: GitStatusResult;
   branches: GitBranchListResult;
   stashes: GitStashListResult;
@@ -440,6 +496,13 @@ export type ProjectTextSearchResponse = {
   root: string;
   results: ProjectTextSearchResult[];
   engine: "ripgrep" | "fallback";
+};
+
+export type ProjectSearchOptions = {
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+  includeIgnored?: boolean;
 };
 
 export type AgentProvider = "claude" | "codex" | "opencode" | "qoder";
@@ -494,7 +557,7 @@ export type AgentHookDebugPayload = {
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; initialCommand?: string; agentProvider?: AgentProvider | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; initialCommand?: string; agentProvider?: AgentProvider | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
@@ -522,6 +585,8 @@ export type WindowApi = {
   minimize: () => void;
   toggleMaximize: () => void;
   close: () => void;
+  resolveClose: (confirmed: boolean) => void;
+  onCloseRequested: (callback: () => void) => () => void;
   isMaximized: () => Promise<boolean>;
   onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
 };
@@ -541,7 +606,10 @@ export type RemoteFileApi = {
   readText: (sessionId: string, remotePath: string) => Promise<RemoteTextPreview>;
   previewFile: (sessionId: string, remotePath: string) => Promise<RemoteFilePreview>;
   releasePreview: (previewId: string) => Promise<boolean>;
-  writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string) => Promise<RemoteTextWriteResult>;
+  writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string, options?: { force?: boolean; format?: { bom?: boolean; eol?: "lf" | "crlf" | "cr" } }) => Promise<RemoteTextWriteResult>;
+  createEntry: (sessionId: string, parentPath: string, name: string, kind: "file" | "directory", conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
+  moveEntry: (sessionId: string, sourcePath: string, targetDirectory: string, name?: string, conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
+  chooseRoot: (sessionId: string, currentRoot: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[] | string[]) => Promise<RemoteFileBatchUploadResult>;
   downloadFile: (transferId: string, sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;
@@ -549,35 +617,68 @@ export type RemoteFileApi = {
   cancelDownload: (transferId: string) => Promise<boolean>;
   onDownloadProgress: (callback: (progress: RemoteFileDownloadProgress) => void) => () => void;
   openInExplorer: (sessionId: string, remotePath: string) => Promise<void>;
-  deleteEntry: (sessionId: string, remotePath: string) => Promise<void>;
+  deleteEntry: (sessionId: string, remotePath: string, options?: { permanent?: boolean }) => Promise<{ mode: "trash" | "permanent" }>;
+  watchDirectories: (sessionId: string, directories: string[]) => Promise<boolean>;
+  unwatchDirectories: (sessionId: string) => Promise<void>;
+  onChanged: (callback: (payload: { sessionId: string; paths: string[] }) => void) => () => void;
+  onWatchError: (callback: (payload: { sessionId: string; error: string }) => void) => () => void;
 };
 
 export type RemoteSystemApi = {
   getMetrics: (sessionId: string) => Promise<RemoteSystemMetrics>;
 };
 
+export type FileTransferApi = {
+  list: () => Promise<FileTransferTask[]>;
+  chooseUpload: (sessionId: string, remoteDir: string) => Promise<{ canceled: true } | { canceled: false; tasks: FileTransferTask[] }>;
+  uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[]) => Promise<{ canceled: false; tasks: FileTransferTask[] }>;
+  chooseDownload: (sessionId: string, remotePath: string, fileName?: string) => Promise<{ canceled: true } | { canceled: false; task: FileTransferTask }>;
+  cancel: (id: string) => Promise<boolean>;
+  retry: (id: string) => Promise<boolean>;
+  resolveConflict: (id: string, policy: "overwrite" | "skip" | "rename") => Promise<boolean>;
+  clear: (id?: string) => Promise<FileTransferTask[]>;
+  onChanged: (callback: (tasks: FileTransferTask[]) => void) => () => void;
+};
+
 export type GitApi = {
   changeDirectory: (sessionId: string, cwd: string) => Promise<GitDirectoryChangeResult>;
+  getSnapshot: (sessionId: string) => Promise<GitRepositorySnapshot>;
+  discoverRepository: (sessionId: string) => Promise<{ cwd: string }>;
+  chooseDirectory: (sessionId: string, currentDirectory: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   getStatus: (sessionId: string) => Promise<GitStatusResult>;
-  getDiff: (sessionId: string, file: GitStatusEntry) => Promise<GitDiffResult>;
+  getDiff: (sessionId: string, request: GitDiffRequest) => Promise<GitDiffResult>;
   getBranches: (sessionId: string) => Promise<GitBranchListResult>;
-  checkoutBranch: (sessionId: string, branch: Pick<GitBranchEntry, "name" | "kind">) => Promise<GitOperationResult>;
+  getRemotes: (sessionId: string) => Promise<GitRemoteListResult>;
+  checkoutBranch: (sessionId: string, branch: Pick<GitBranchEntry, "name" | "kind">, operationId: string) => Promise<GitOperationResult>;
+  createBranch: (sessionId: string, branchName: string, operationId: string) => Promise<GitOperationResult>;
   getStashes: (sessionId: string) => Promise<GitStashListResult>;
-  stashChanges: (sessionId: string) => Promise<GitOperationResult>;
-  applyStash: (sessionId: string, ref: string) => Promise<GitOperationResult>;
-  popStash: (sessionId: string, ref: string) => Promise<GitOperationResult>;
-  revertFile: (sessionId: string, file: GitStatusEntry) => Promise<GitOperationResult>;
+  getHistory: (sessionId: string, options?: { skip?: number }) => Promise<GitHistoryResult>;
+  stageFiles: (sessionId: string, paths: string[], operationId: string) => Promise<GitOperationResult>;
+  stageAll: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
+  unstageFiles: (sessionId: string, paths: string[], operationId: string) => Promise<GitOperationResult>;
+  unstageAll: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
+  discardWorkingTree: (sessionId: string, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
+  commit: (sessionId: string, message: { subject: string; body?: string }, operationId: string) => Promise<GitOperationResult>;
+  fetch: (sessionId: string, remote: string, operationId: string) => Promise<GitOperationResult>;
+  pull: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
+  push: (sessionId: string, remote: string | undefined, operationId: string) => Promise<GitOperationResult>;
+  stashChanges: (sessionId: string, message: string | undefined, operationId: string) => Promise<GitOperationResult>;
+  applyStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
+  popStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
+  dropStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
+  revertFile: (sessionId: string, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
+  cancelOperation: (operationId: string) => Promise<boolean>;
 };
 
 export type ProjectSearchApi = {
-  searchWorkspaceEntries: (sessionId: string, query: string) => Promise<WorkspaceEntrySearchResponse>;
+  searchWorkspaceEntries: (sessionId: string, query: string, rootPath?: string, options?: ProjectSearchOptions) => Promise<WorkspaceEntrySearchResponse>;
   listDirectories: (sessionId: string, rootPath: string) => Promise<{
     workspaceRoot: string;
     path: string;
     directories: Array<{ name: string; path: string }>;
   }>;
-  searchFiles: (sessionId: string, query: string, rootPath: string) => Promise<ProjectFileSearchResponse>;
-  searchText: (sessionId: string, query: string, requestId: string, rootPath: string) => Promise<ProjectTextSearchResponse>;
+  searchFiles: (sessionId: string, query: string, rootPath: string, options?: ProjectSearchOptions) => Promise<ProjectFileSearchResponse>;
+  searchText: (sessionId: string, query: string, requestId: string, rootPath: string, options?: ProjectSearchOptions) => Promise<ProjectTextSearchResponse>;
   cancelTextSearch: (sessionId: string, requestId: string) => Promise<boolean>;
 };
 
@@ -625,6 +726,7 @@ declare global {
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
+    fileTransferApi: FileTransferApi;
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;

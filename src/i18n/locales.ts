@@ -359,6 +359,63 @@ export type TranslationKey =
   | "git.noStashes"
   | "git.apply"
   | "git.pop"
+  | "git.changesTab"
+  | "git.historyTab"
+  | "git.discoverRepository"
+  | "git.browseDirectory"
+  | "git.diffTruncated"
+  | "git.stashManager"
+  | "git.stashMessage"
+  | "git.createStash"
+  | "git.preview"
+  | "git.drop"
+  | "git.statusModified"
+  | "git.statusAdded"
+  | "git.statusDeleted"
+  | "git.statusRenamed"
+  | "git.statusCopied"
+  | "git.statusConflict"
+  | "git.statusTypeChanged"
+  | "git.statusUntracked"
+  | "git.cancelOperation"
+  | "git.details"
+  | "git.operationSucceeded"
+  | "git.operationFailed"
+  | "git.operationState"
+  | "git.operationStateGuidance"
+  | "git.createBranch"
+  | "git.branchName"
+  | "git.createAndCheckout"
+  | "git.detachedHead"
+  | "git.unbornBranch"
+  | "git.noBranch"
+  | "git.noUpstream"
+  | "git.selectRemote"
+  | "git.noRemotes"
+  | "git.fetch"
+  | "git.pull"
+  | "git.push"
+  | "git.commitSubject"
+  | "git.commitBody"
+  | "git.commitChanges"
+  | "git.conflicts"
+  | "git.stageResolved"
+  | "git.stagedChanges"
+  | "git.workingChanges"
+  | "git.unstage"
+  | "git.unstageAll"
+  | "git.stage"
+  | "git.stageAll"
+  | "git.discardTitle"
+  | "git.deleteUntrackedConfirm"
+  | "git.discardWorkingConfirm"
+  | "git.discard"
+  | "git.recentCommits"
+  | "git.loadingHistory"
+  | "git.noHistory"
+  | "git.loadMore"
+  | "git.dropStashTitle"
+  | "git.dropStashConfirm"
   | "theme.darkSlate"
   | "theme.darkBlue"
   | "theme.darkGreen"
@@ -727,6 +784,63 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.noStashes": "没有储藏。",
     "git.apply": "应用",
     "git.pop": "弹出",
+    "git.changesTab": "更改",
+    "git.historyTab": "历史",
+    "git.discoverRepository": "从会话目录发现仓库",
+    "git.browseDirectory": "浏览 Windows 仓库目录",
+    "git.diffTruncated": "差异过大，已显示安全范围内的预览。请在终端中审阅完整差异。",
+    "git.stashManager": "储藏管理",
+    "git.stashMessage": "储藏说明（可选）",
+    "git.createStash": "创建储藏",
+    "git.preview": "预览",
+    "git.drop": "删除",
+    "git.statusModified": "已修改",
+    "git.statusAdded": "已添加",
+    "git.statusDeleted": "已删除",
+    "git.statusRenamed": "已重命名",
+    "git.statusCopied": "已复制",
+    "git.statusConflict": "存在冲突",
+    "git.statusTypeChanged": "类型已更改",
+    "git.statusUntracked": "未跟踪",
+    "git.cancelOperation": "取消操作",
+    "git.details": "详情",
+    "git.operationSucceeded": "操作已完成。",
+    "git.operationFailed": "操作失败。",
+    "git.operationState": "仓库正在执行 {state}",
+    "git.operationStateGuidance": "可继续审阅和暂存；请在对应终端中继续或中止该操作。",
+    "git.createBranch": "新建分支",
+    "git.branchName": "输入新分支名称",
+    "git.createAndCheckout": "新建并切换",
+    "git.detachedHead": "游离 HEAD",
+    "git.unbornBranch": "尚无提交",
+    "git.noBranch": "未识别当前分支",
+    "git.noUpstream": "未设置上游",
+    "git.selectRemote": "选择远端",
+    "git.noRemotes": "没有远端",
+    "git.fetch": "获取",
+    "git.pull": "拉取",
+    "git.push": "推送",
+    "git.commitSubject": "提交标题",
+    "git.commitBody": "提交正文（可选）",
+    "git.commitChanges": "提交已暂存更改",
+    "git.conflicts": "冲突",
+    "git.stageResolved": "暂存已解决文件",
+    "git.stagedChanges": "已暂存的更改",
+    "git.workingChanges": "未暂存的更改",
+    "git.unstage": "取消暂存",
+    "git.unstageAll": "全部取消暂存",
+    "git.stage": "暂存",
+    "git.stageAll": "全部暂存",
+    "git.discardTitle": "放弃工作区更改",
+    "git.deleteUntrackedConfirm": "永久删除未跟踪文件 {file}？此操作无法由应用恢复。",
+    "git.discardWorkingConfirm": "放弃 {file} 的未暂存更改？已暂存内容会保留。",
+    "git.discard": "放弃",
+    "git.recentCommits": "最近提交",
+    "git.loadingHistory": "正在加载提交历史...",
+    "git.noHistory": "当前 HEAD 没有可显示的提交。",
+    "git.loadMore": "加载更多",
+    "git.dropStashTitle": "删除储藏",
+    "git.dropStashConfirm": "永久删除 {stash}？此操作无法由应用恢复。",
     "theme.darkSlate": "深色石板",
     "theme.darkBlue": "深蓝色",
     "theme.darkGreen": "深绿色",
@@ -1087,6 +1201,63 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.noStashes": "No stashes found.",
     "git.apply": "Apply",
     "git.pop": "Pop",
+    "git.changesTab": "Changes",
+    "git.historyTab": "History",
+    "git.discoverRepository": "Discover repository from session directory",
+    "git.browseDirectory": "Browse for a Windows repository",
+    "git.diffTruncated": "This diff is too large. A safe preview is shown; review the complete diff in the terminal.",
+    "git.stashManager": "Stash manager",
+    "git.stashMessage": "Stash message (optional)",
+    "git.createStash": "Create stash",
+    "git.preview": "Preview",
+    "git.drop": "Drop",
+    "git.statusModified": "Modified",
+    "git.statusAdded": "Added",
+    "git.statusDeleted": "Deleted",
+    "git.statusRenamed": "Renamed",
+    "git.statusCopied": "Copied",
+    "git.statusConflict": "Conflict",
+    "git.statusTypeChanged": "Type changed",
+    "git.statusUntracked": "Untracked",
+    "git.cancelOperation": "Cancel operation",
+    "git.details": "Details",
+    "git.operationSucceeded": "Operation completed.",
+    "git.operationFailed": "Operation failed.",
+    "git.operationState": "Repository is in a {state} operation",
+    "git.operationStateGuidance": "You can inspect and stage files; continue or abort the operation in the matching terminal.",
+    "git.createBranch": "Create branch",
+    "git.branchName": "New branch name",
+    "git.createAndCheckout": "Create and checkout",
+    "git.detachedHead": "Detached HEAD",
+    "git.unbornBranch": "No commits yet",
+    "git.noBranch": "No current branch",
+    "git.noUpstream": "No upstream",
+    "git.selectRemote": "Select remote",
+    "git.noRemotes": "No remotes",
+    "git.fetch": "Fetch",
+    "git.pull": "Pull",
+    "git.push": "Push",
+    "git.commitSubject": "Commit subject",
+    "git.commitBody": "Commit body (optional)",
+    "git.commitChanges": "Commit staged changes",
+    "git.conflicts": "Conflicts",
+    "git.stageResolved": "Stage resolved file",
+    "git.stagedChanges": "Staged changes",
+    "git.workingChanges": "Working tree changes",
+    "git.unstage": "Unstage",
+    "git.unstageAll": "Unstage all",
+    "git.stage": "Stage",
+    "git.stageAll": "Stage all",
+    "git.discardTitle": "Discard working tree changes",
+    "git.deleteUntrackedConfirm": "Permanently delete untracked file {file}? The app cannot recover it.",
+    "git.discardWorkingConfirm": "Discard unstaged changes in {file}? Staged content will be preserved.",
+    "git.discard": "Discard",
+    "git.recentCommits": "Recent commits",
+    "git.loadingHistory": "Loading commit history...",
+    "git.noHistory": "There are no commits reachable from the current HEAD.",
+    "git.loadMore": "Load more",
+    "git.dropStashTitle": "Drop stash",
+    "git.dropStashConfirm": "Permanently drop {stash}? The app cannot recover it.",
     "theme.darkSlate": "Dark slate",
     "theme.darkBlue": "Dark blue",
     "theme.darkGreen": "Dark green",

@@ -1,55 +1,51 @@
 import { EventEmitter } from "node:events";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createRequire } from "node:module";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
+  MAX_DIFF_ROWS,
   createGitStatusService,
   parseBranchList,
+  parseHistory,
   parsePorcelainStatus,
+  parsePorcelainV2,
   parseStashList,
   parseUnifiedDiff
 } = require("./git-status-service.cjs");
+
+const temporaryDirectories = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 function createTerminalManager(session) {
   return {
     getSession: vi.fn(() => session),
     updateGitDirectory: vi.fn((_id, cwd) => {
       session.gitCwd = cwd;
-      session.gitCwdHistory = [cwd, ...(session.gitCwdHistory || []).filter(item => item !== cwd)].slice(0, 10);
+      session.gitCwdHistory = [cwd, ...(session.gitCwdHistory || []).filter((item) => item !== cwd)].slice(0, 10);
       return session;
     })
   };
 }
 
-function createSpawnMock({ stdout = "", stderr = "", code = 0 } = {}) {
+function createSpawnMock(results = [{ stdout: "", stderr: "", code: 0 }]) {
   const calls = [];
   const spawn = vi.fn((command, args, options) => {
+    const result = results[Math.min(calls.length, results.length - 1)] || {};
     calls.push({ command, args, options });
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
-    child.kill = vi.fn();
-    queueMicrotask(() => {
-      if (stdout) child.stdout.emit("data", Buffer.from(stdout, "utf-8"));
-      if (stderr) child.stderr.emit("data", Buffer.from(stderr, "utf-8"));
-      child.emit("close", code);
-    });
-    return child;
-  });
-  spawn.calls = calls;
-  return spawn;
-}
-
-function createSpawnSequenceMock(results) {
-  const calls = [];
-  const spawn = vi.fn((command, args, options) => {
-    calls.push({ command, args, options });
-    const result = results[Math.min(calls.length - 1, results.length - 1)] || {};
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = vi.fn();
+    child.kill = vi.fn(() => queueMicrotask(() => child.emit("close", -1)));
     queueMicrotask(() => {
       if (result.stdout) child.stdout.emit("data", Buffer.from(result.stdout, "utf-8"));
       if (result.stderr) child.stderr.emit("data", Buffer.from(result.stderr, "utf-8"));
@@ -61,587 +57,264 @@ function createSpawnSequenceMock(results) {
   return spawn;
 }
 
-function createSshClientMock({ stdout = "", stderr = "", code = 0 } = {}) {
-  const client = new EventEmitter();
-  client.connect = vi.fn(() => queueMicrotask(() => client.emit("ready")));
-  client.end = vi.fn();
-  client.exec = vi.fn((_command, callback) => {
-    const stream = new EventEmitter();
-    stream.stderr = new EventEmitter();
-    callback(undefined, stream);
-    queueMicrotask(() => {
-      if (stdout) stream.emit("data", Buffer.from(stdout, "utf-8"));
-      if (stderr) stream.stderr.emit("data", Buffer.from(stderr, "utf-8"));
-      stream.emit("close", code);
-    });
-  });
-  return client;
+function createSshRuntimeMock(result = { stdout: "", stderr: "", code: 0 }) {
+  const calls = [];
+  return {
+    calls,
+    execStreaming: vi.fn(async (sessionId, command, options) => {
+      calls.push({ sessionId, command, options });
+      options.onStdout?.(result.stdout || "");
+      options.onStderr?.(result.stderr || "");
+      return {
+        promise: Promise.resolve({ exitCode: result.code ?? 0 }),
+        cancel: vi.fn()
+      };
+    })
+  };
 }
 
-describe("git-status-service", () => {
-  it("parses porcelain status entries", () => {
+function git(cwd, ...args) {
+  return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function createRepository() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-test-"));
+  temporaryDirectories.push(directory);
+  git(directory, "init");
+  git(directory, "config", "user.name", "Pannel Test");
+  git(directory, "config", "user.email", "pannel@example.test");
+  const session = { id: `session-${temporaryDirectories.length}`, type: "windows", cwd: directory };
+  const terminalManager = createTerminalManager(session);
+  return {
+    directory,
+    session,
+    terminalManager,
+    service: createGitStatusService({ terminalManager, sessionStore: {} })
+  };
+}
+
+describe("git status parsers", () => {
+  it("preserves both index and worktree state in legacy porcelain entries", () => {
+    const output = ["MM src/App.tsx", "A  src/new.ts", "?? scratch.txt", "R  src/new-name.ts", "src/old-name.ts", ""].join("\0");
+    expect(parsePorcelainStatus(output)).toEqual([
+      expect.objectContaining({ status: "M", indexStatus: "M", worktreeStatus: "M", path: "src/App.tsx" }),
+      expect.objectContaining({ status: "A", indexStatus: "A", worktreeStatus: " ", path: "src/new.ts" }),
+      expect.objectContaining({ status: "?", indexStatus: "?", worktreeStatus: "?", path: "scratch.txt" }),
+      expect.objectContaining({ status: "R", indexStatus: "R", path: "src/new-name.ts", oldPath: "src/old-name.ts" })
+    ]);
+  });
+
+  it("parses porcelain v2 branch metadata, double changes, conflicts, and renames", () => {
     const output = [
-      " M src/App.tsx",
-      "A  src/new.ts",
-      " D old.txt",
-      "?? scratch.txt",
-      "R  src/new-name.ts",
-      "src/old-name.ts",
+      "# branch.oid abcdef123456",
+      "# branch.head feature/体验",
+      "# branch.upstream origin/feature/体验",
+      "# branch.ab +2 -3",
+      "1 MM N... 100644 100644 100644 abc def src/App.tsx",
+      "2 R. N... 100644 100644 100644 abc def R100 src/new name.ts",
+      "src/old name.ts",
+      "u UU N... 100644 100644 100644 100644 abc def fed conflict.txt",
+      "? scratch.txt",
       ""
     ].join("\0");
-
-    expect(parsePorcelainStatus(output)).toEqual([
-      { status: "M", label: "已修改", path: "src/App.tsx" },
-      { status: "A", label: "已添加", path: "src/new.ts" },
-      { status: "D", label: "已删除", path: "old.txt" },
-      { status: "?", label: "未跟踪", path: "scratch.txt" },
-      { status: "R", label: "已重命名", path: "src/new-name.ts", oldPath: "src/old-name.ts" }
+    const parsed = parsePorcelainV2(output);
+    expect(parsed.branch).toMatchObject({ name: "feature/体验", detached: false, ahead: 2, behind: 3, upstream: { remote: "origin", branch: "feature/体验" } });
+    expect(parsed.files).toEqual([
+      expect.objectContaining({ path: "src/App.tsx", indexStatus: "M", worktreeStatus: "M" }),
+      expect.objectContaining({ path: "src/new name.ts", oldPath: "src/old name.ts", indexStatus: "R" }),
+      expect.objectContaining({ path: "conflict.txt", conflicted: true, status: "U" }),
+      expect.objectContaining({ path: "scratch.txt", status: "?" })
     ]);
   });
 
-  it("parses branch entries and filters remote HEAD refs", () => {
-    const output = [
-      "refs/heads/main\tmain\t*\tabc1234\t2 hours ago",
-      "refs/heads/feature/git\tfeature/git\t\tdef5678\t3 days ago",
-      "refs/remotes/origin/HEAD\torigin/HEAD\t\tabc1234\t2 hours ago",
-      "refs/remotes/origin/main\torigin/main\t\tabc1234\t2 hours ago"
-    ].join("\n");
-
-    expect(parseBranchList(output)).toEqual([
-      { name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" },
-      { name: "feature/git", kind: "local", current: false, commit: "def5678", relativeTime: "3 days ago" },
-      { name: "origin/main", kind: "remote", current: false, commit: "abc1234", relativeTime: "2 hours ago" }
+  it("parses branch, stash, and history records", () => {
+    expect(parseBranchList("refs/heads/main\tmain\t*\tabc1234\tnow\nrefs/remotes/origin/HEAD\torigin/HEAD\t\tabc\tnow")).toEqual([
+      { name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "now" }
+    ]);
+    expect(parseStashList("stash@{0}\tabc\t1 minute ago\tOn main: work")).toEqual([
+      { ref: "stash@{0}", commit: "abc", relativeTime: "1 minute ago", message: "On main: work" }
+    ]);
+    expect(parseHistory("abcdef\x1fabcdef\x1fAda\x1fada@example.test\x1f10\x1fSubject\x1fHEAD -> main\x1e")).toEqual([
+      expect.objectContaining({ oid: "abcdef", authorName: "Ada", authoredAt: 10000, decorations: ["HEAD -> main"] })
     ]);
   });
 
-  it("parses stash list entries", () => {
-    const output = [
-      "stash@{0}\tabc123456789\t5 minutes ago\tWIP on main: abc1234 work",
-      "stash@{1}\tdef567812345\t2 days ago\tOn feature: scratch"
-    ].join("\n");
-
-    expect(parseStashList(output)).toEqual([
-      { ref: "stash@{0}", commit: "abc123456789", relativeTime: "5 minutes ago", message: "WIP on main: abc1234 work" },
-      { ref: "stash@{1}", commit: "def567812345", relativeTime: "2 days ago", message: "On feature: scratch" }
-    ]);
-  });
-
-  it("parses unified diff hunks into side-by-side rows", () => {
-    const diff = [
-      "diff --git a/README.md b/README.md",
-      "index 1111111..2222222 100644",
-      "--- a/README.md",
-      "+++ b/README.md",
-      "@@ -1,4 +1,5 @@",
-      " title",
-      "-old value",
-      "+new value",
-      "+extra value",
-      " tail"
-    ].join("\n");
-
-    expect(parseUnifiedDiff(diff)).toEqual({
+  it("parses side-by-side diffs and truncates row output", () => {
+    const diff = ["@@ -1,2 +1,3 @@", " same", "-old", "+new", "+extra"].join("\n");
+    expect(parseUnifiedDiff(diff)).toMatchObject({
       kind: "text",
+      truncated: false,
       rows: [
-        { type: "context", oldLineNumber: 1, newLineNumber: 1, oldText: "title", newText: "title" },
-        { type: "modify", oldLineNumber: 2, newLineNumber: 2, oldText: "old value", newText: "new value" },
-        { type: "add", newLineNumber: 3, newText: "extra value" },
-        { type: "context", oldLineNumber: 3, newLineNumber: 4, oldText: "tail", newText: "tail" }
+        { type: "context", oldLineNumber: 1, newLineNumber: 1, oldText: "same", newText: "same" },
+        { type: "modify", oldLineNumber: 2, newLineNumber: 2, oldText: "old", newText: "new" },
+        { type: "add", newLineNumber: 3, newText: "extra" }
       ]
     });
+    expect(parseUnifiedDiff("Binary files a/x and b/x differ")).toMatchObject({ kind: "binary", rows: [] });
+    const oversized = ["@@ -1,6000 +1,6000 @@", ...Array.from({ length: 6000 }, (_, index) => ` line ${index}`)].join("\n");
+    expect(parseUnifiedDiff(oversized)).toMatchObject({ truncated: true });
+    expect(parseUnifiedDiff(oversized).rows).toHaveLength(MAX_DIFF_ROWS);
   });
+});
 
-  it("detects binary diffs", () => {
-    expect(parseUnifiedDiff("Binary files a/logo.png and b/logo.png differ")).toEqual({
-      kind: "binary",
-      rows: []
-    });
-  });
-
-  it("runs git status in a Windows session cwd", async () => {
-    const spawn = createSpawnMock({ stdout: " M README.md\0" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getStatus("run-1")).resolves.toEqual({
-      cwd: "C:\\work\\repo",
-      clean: false,
-      files: [{ status: "M", label: "已修改", path: "README.md" }]
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "git",
-      ["status", "--porcelain=v1", "-z"],
-      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
-    );
-  });
-
-  it("validates and persists a changed Windows Git directory atomically", async () => {
-    const session = {
-      id: "run-1",
-      type: "windows",
-      cwd: "C:\\work\\terminal",
-      gitCwdHistory: ["C:\\work\\old"]
-    };
-    const terminalManager = createTerminalManager(session);
-    const spawn = createSpawnSequenceMock([
-      { stdout: " M README.md\0" },
-      { stdout: "refs/heads/main\tmain\t*\tabc1234\tnow\n" },
-      { stdout: "" }
-    ]);
-    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
-
-    await expect(service.changeDirectory("run-1", "C:\\work\\repo")).resolves.toMatchObject({
-      cwd: "C:\\work\\repo",
-      history: ["C:\\work\\repo", "C:\\work\\old"],
-      status: { cwd: "C:\\work\\repo", clean: false },
-      branches: { cwd: "C:\\work\\repo" },
-      stashes: { cwd: "C:\\work\\repo" }
-    });
-    expect(spawn.calls).toHaveLength(3);
-    expect(spawn.calls.every(call => call.options.cwd === "C:\\work\\repo")).toBe(true);
-    expect(terminalManager.updateGitDirectory).toHaveBeenCalledWith("run-1", "C:\\work\\repo");
-    expect(session.cwd).toBe("C:\\work\\terminal");
-  });
-
-  it("does not persist a Git directory when repository validation fails", async () => {
-    const session = { id: "run-1", type: "windows", cwd: "C:\\work\\terminal" };
-    const terminalManager = createTerminalManager(session);
-    const spawn = createSpawnMock({ stderr: "fatal: not a git repository", code: 128 });
-    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
-
-    await expect(service.changeDirectory("run-1", "C:\\work\\missing")).rejects.toThrow("not a git repository");
-    expect(terminalManager.updateGitDirectory).not.toHaveBeenCalled();
-    expect(session.gitCwd).toBeUndefined();
-  });
-
-  it("rejects relative Git directory changes before running commands", async () => {
-    const session = { id: "run-1", type: "windows", cwd: "C:\\work\\terminal" };
-    const terminalManager = createTerminalManager(session);
-    const spawn = createSpawnMock();
-    const service = createGitStatusService({ terminalManager, sessionStore: {}, spawn });
-
-    await expect(service.changeDirectory("run-1", "..\\repo")).rejects.toThrow("absolute Git working directory");
-    expect(spawn).not.toHaveBeenCalled();
-    expect(terminalManager.updateGitDirectory).not.toHaveBeenCalled();
-  });
-
-  it("uses the selected Git directory without changing the session cwd", async () => {
-    const spawn = createSpawnMock({ stdout: "" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "wsl",
-        cwd: "/home/me/terminal",
-        gitCwd: "/home/me/repo",
-        wslDistro: "Ubuntu-24.04"
-      }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getStatus("run-1")).resolves.toMatchObject({ cwd: "/home/me/repo" });
-    expect(spawn).toHaveBeenCalledWith(
-      "wsl.exe",
-      expect.arrayContaining(["--cd", "/home/me/repo"]),
-      expect.any(Object)
-    );
-  });
-
-  it("runs git status through wsl.exe for WSL sessions", async () => {
-    const spawn = createSpawnMock({ stdout: "" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "wsl",
-        cwd: "/home/me/project",
-        wslDistro: "Ubuntu-24.04"
-      }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getStatus("run-1")).resolves.toEqual({
-      cwd: "/home/me/project",
-      clean: true,
-      files: []
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "wsl.exe",
-      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "status", "--porcelain=v1", "-z"],
-      expect.objectContaining({ windowsHide: true })
-    );
-  });
-
-  it("runs git status over SSH with the saved secret", async () => {
-    const client = createSshClientMock({ stdout: "?? remote.txt\0" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "ssh",
-        cwd: "/srv/app",
-        sshConfig: {
-          host: "example.com",
-          username: "deploy",
-          encryptedSecret: "ciphertext"
-        }
-      }),
-      sessionStore: { decryptSecret: vi.fn(() => "secret") },
-      clientFactory: () => client
-    });
-
-    await expect(service.getStatus("run-1")).resolves.toEqual({
-      cwd: "/srv/app",
-      clean: false,
-      files: [{ status: "?", label: "未跟踪", path: "remote.txt" }]
-    });
-    expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({
-      host: "example.com",
-      username: "deploy",
-      password: "secret"
-    }));
-    expect(client.exec).toHaveBeenCalledWith(
-      "cd '/srv/app' && git 'status' '--porcelain=v1' '-z'",
-      expect.any(Function)
-    );
-    expect(client.end).toHaveBeenCalledTimes(1);
-  });
-
-  it("shell-quotes a selected SSH Git directory", async () => {
-    const client = createSshClientMock({ stdout: "" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "ssh",
-        cwd: "/srv/terminal",
-        gitCwd: "/srv/app's repo",
-        sshConfig: { host: "example.com", username: "deploy" }
-      }),
-      sessionStore: {},
-      clientFactory: () => client
-    });
-
-    await service.getStatus("run-1");
-    expect(client.exec).toHaveBeenCalledWith(
-      "cd '/srv/app'\\''s repo' && git 'status' '--porcelain=v1' '-z'",
-      expect.any(Function)
-    );
-  });
-
-  it("runs git diff in a Windows session cwd", async () => {
-    const spawn = createSpawnMock({
-      stdout: [
-        "diff --git a/README.md b/README.md",
-        "--- a/README.md",
-        "+++ b/README.md",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new"
-      ].join("\n")
-    });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getDiff("run-1", { status: "M", path: "README.md" })).resolves.toEqual({
-      cwd: "C:\\work\\repo",
-      path: "README.md",
-      oldPath: undefined,
-      status: "M",
-      kind: "text",
-      rows: [{ type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "old", newText: "new" }]
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "git",
-      ["diff", "--no-color", "--find-renames", "HEAD", "--", "README.md"],
-      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
-    );
-  });
-
-  it("runs git diff through wsl.exe for WSL sessions", async () => {
-    const spawn = createSpawnMock({ stdout: "" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "wsl",
-        cwd: "/home/me/project",
-        wslDistro: "Ubuntu-24.04"
-      }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getDiff("run-1", { status: "D", path: "old.txt" })).resolves.toEqual({
-      cwd: "/home/me/project",
-      path: "old.txt",
-      oldPath: undefined,
-      status: "D",
-      kind: "text",
-      rows: []
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "wsl.exe",
-      ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "diff", "--no-color", "--find-renames", "HEAD", "--", "old.txt"],
-      expect.objectContaining({ windowsHide: true })
-    );
-  });
-
-  it("runs git diff over SSH with the saved secret", async () => {
-    const client = createSshClientMock({
-      stdout: [
-        "diff --git a/app.js b/app.js",
-        "--- a/app.js",
-        "+++ b/app.js",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new"
-      ].join("\n")
-    });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "ssh",
-        cwd: "/srv/app",
-        sshConfig: {
-          host: "example.com",
-          username: "deploy",
-          encryptedSecret: "ciphertext"
-        }
-      }),
-      sessionStore: { decryptSecret: vi.fn(() => "secret") },
-      clientFactory: () => client
-    });
-
-    await expect(service.getDiff("run-1", { status: "M", path: "app.js" })).resolves.toMatchObject({
-      cwd: "/srv/app",
-      path: "app.js",
-      kind: "text",
-      rows: [{ type: "modify", oldLineNumber: 1, newLineNumber: 1, oldText: "old", newText: "new" }]
-    });
-    expect(client.exec).toHaveBeenCalledWith(
-      "cd '/srv/app' && git 'diff' '--no-color' '--find-renames' 'HEAD' '--' 'app.js'",
-      expect.any(Function)
-    );
-  });
-
-  it("builds an added-file diff for untracked files", async () => {
-    const spawn = createSpawnMock({
-      code: 1,
-      stdout: [
-        "diff --git a/dev/null b/new.txt",
-        "--- /dev/null",
-        "+++ b/new.txt",
-        "@@ -0,0 +1,2 @@",
-        "+first",
-        "+second"
-      ].join("\n")
-    });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getDiff("run-1", { status: "?", path: "new.txt" })).resolves.toEqual({
-      cwd: "C:\\work\\repo",
-      path: "new.txt",
-      oldPath: undefined,
-      status: "?",
-      kind: "text",
-      rows: [
-        { type: "add", newLineNumber: 1, newText: "first" },
-        { type: "add", newLineNumber: 2, newText: "second" }
-      ]
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "git",
-      ["diff", "--no-color", "--no-index", "--", "/dev/null", "new.txt"],
-      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
-    );
-  });
-
-  it("lists branches in a Windows session cwd", async () => {
-    const spawn = createSpawnMock({ stdout: "refs/heads/main\tmain\t*\tabc1234\t2 hours ago\n" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getBranches("run-1")).resolves.toEqual({
-      cwd: "C:\\work\\repo",
-      branches: [{ name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" }]
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "git",
-      ["for-each-ref", expect.stringContaining("--format="), "refs/heads", "refs/remotes"],
-      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
-    );
-  });
-
-  it("lists branches through wsl.exe --exec for WSL sessions", async () => {
-    const spawn = createSpawnMock({ stdout: "refs/heads/main\tmain\t*\tabc1234\t2 hours ago\n" });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "wsl",
-        cwd: "/home/me/project",
-        wslDistro: "Ubuntu-24.04"
-      }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.getBranches("run-1")).resolves.toEqual({
-      cwd: "/home/me/project",
-      branches: [{ name: "main", kind: "local", current: true, commit: "abc1234", relativeTime: "2 hours ago" }]
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "wsl.exe",
-      [
-        "-d",
-        "Ubuntu-24.04",
-        "--cd",
-        "/home/me/project",
-        "--exec",
-        "git",
-        "for-each-ref",
-        expect.stringContaining("--format=%(refname)"),
-        "refs/heads",
-        "refs/remotes"
-      ],
-      expect.objectContaining({ windowsHide: true })
-    );
-  });
-
-  it("checks out local and remote branches", async () => {
-    const spawn = createSpawnSequenceMock([
-      { stdout: "Switched to branch 'feature'\n" },
-      { stdout: "" },
-      { stdout: "refs/heads/feature\tfeature\t*\tabc1234\t1 minute ago\n" },
-      { stdout: "branch 'main' set up to track 'origin/main'\n" },
-      { stdout: "" },
-      { stdout: "refs/heads/main\tmain\t*\tabc1234\t1 minute ago\n" }
-    ]);
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
-      sessionStore: {},
-      spawn
-    });
-
-    await expect(service.checkoutBranch("run-1", { kind: "local", name: "feature" })).resolves.toMatchObject({ ok: true });
-    await expect(service.checkoutBranch("run-1", { kind: "remote", name: "origin/main" })).resolves.toMatchObject({ ok: true });
-    expect(spawn.calls[0]).toMatchObject({ command: "git", args: ["checkout", "feature"] });
-    expect(spawn.calls[3]).toMatchObject({ command: "git", args: ["checkout", "--track", "origin/main"] });
-  });
-
-  it("runs stash operations in Windows and WSL sessions", async () => {
-    const windowsSpawn = createSpawnMock({ stdout: "Saved working directory and index state WIP\n" });
+describe("git command routing", () => {
+  it("runs non-interactive porcelain v2 status on Windows and WSL", async () => {
+    const status = ["# branch.oid abc", "# branch.head main", "1 .M N... 100644 100644 100644 abc def README.md", ""].join("\0");
+    const windowsSpawn = createSpawnMock([{ stdout: status }]);
     const windowsService = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn: windowsSpawn
     });
-    await expect(windowsService.stashChanges("run-1")).resolves.toMatchObject({ ok: true });
-    expect(windowsSpawn).toHaveBeenCalledWith(
-      "git",
-      ["stash", "push", "-u"],
-      expect.objectContaining({ cwd: "C:\\work\\repo", windowsHide: true })
-    );
+    await expect(windowsService.getStatus("win")).resolves.toMatchObject({ clean: false, branch: { name: "main" }, files: [expect.objectContaining({ worktreeStatus: "M" })] });
+    expect(windowsSpawn.calls[0]).toMatchObject({ command: "git", args: ["status", "--porcelain=v2", "--branch", "-z"] });
+    expect(windowsSpawn.calls[0].options.env.GIT_TERMINAL_PROMPT).toBe("0");
 
-    const wslSpawn = createSpawnMock({ stdout: "" });
+    const wslSpawn = createSpawnMock([{ stdout: status }]);
     const wslService = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me/project", wslDistro: "Ubuntu-24.04" }),
+      terminalManager: createTerminalManager({ id: "wsl", type: "wsl", cwd: "/work/repo", wslDistro: "Ubuntu-24.04" }),
       sessionStore: {},
       spawn: wslSpawn
     });
-    await expect(wslService.applyStash("run-1", "stash@{0}")).resolves.toMatchObject({ ok: true });
-    await expect(wslService.popStash("run-1", "stash@{1}")).resolves.toMatchObject({ ok: true });
-    expect(wslSpawn.calls[0]).toMatchObject({
-      command: "wsl.exe",
-      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "stash", "apply", "stash@{0}"]
-    });
-    expect(wslSpawn.calls[1]).toMatchObject({
-      command: "wsl.exe",
-      args: ["-d", "Ubuntu-24.04", "--cd", "/home/me/project", "--exec", "git", "stash", "pop", "stash@{1}"]
-    });
+    await wslService.getStatus("wsl");
+    expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "-z"]);
   });
 
-  it("runs branch, stash, and revert operations over SSH", async () => {
-    const client = createSshClientMock({ stdout: "" });
+  it("quotes SSH directories and supports cancellable streaming execution", async () => {
+    const status = ["# branch.oid abc", "# branch.head main", "? remote.txt", ""].join("\0");
+    const sshRuntime = createSshRuntimeMock({ stdout: status });
     const service = createGitStatusService({
-      terminalManager: createTerminalManager({
-        id: "run-1",
-        type: "ssh",
-        cwd: "/srv/app",
-        sshConfig: { host: "example.com", username: "deploy", encryptedSecret: "ciphertext" }
-      }),
-      sessionStore: { decryptSecret: vi.fn(() => "secret") },
-      clientFactory: () => client
+      terminalManager: createTerminalManager({ id: "ssh", type: "ssh", cwd: "/srv/app's repo" }),
+      sessionStore: {},
+      sshSessionRuntime: sshRuntime
     });
-
-    await expect(service.stashChanges("run-1")).resolves.toMatchObject({ ok: true });
-    await expect(service.revertFile("run-1", { status: "?", path: "scratch.txt" })).resolves.toMatchObject({ ok: true });
-    expect(client.exec).toHaveBeenNthCalledWith(
-      1,
-      "cd '/srv/app' && git 'stash' 'push' '-u'",
-      expect.any(Function)
-    );
-    expect(client.exec).toHaveBeenNthCalledWith(
-      2,
-      "cd '/srv/app' && git 'clean' '-f' '--' 'scratch.txt'",
-      expect.any(Function)
-    );
+    await expect(service.getStatus("ssh")).resolves.toMatchObject({ files: [expect.objectContaining({ path: "remote.txt" })] });
+    expect(sshRuntime.calls[0].command).toBe("cd '/srv/app'\\''s repo' && GIT_TERMINAL_PROMPT=0 git 'status' '--porcelain=v2' '--branch' '-z'");
   });
 
-  it("reverts tracked, untracked, and renamed files", async () => {
-    const spawn = createSpawnMock({ stdout: "" });
+  it("uses scoped diff, stash index restoration, and contextual discard commands", async () => {
+    const spawn = createSpawnMock(Array.from({ length: 5 }, () => ({ stdout: "" })));
     const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn
     });
-
-    await expect(service.revertFile("run-1", { status: "M", path: "src/App.tsx" })).resolves.toMatchObject({ ok: true });
-    await expect(service.revertFile("run-1", { status: "?", path: "scratch.txt" })).resolves.toMatchObject({ ok: true });
-    await expect(service.revertFile("run-1", { status: "R", path: "new-name.ts", oldPath: "old-name.ts" })).resolves.toMatchObject({ ok: true });
-    expect(spawn.calls[0]).toMatchObject({ command: "git", args: ["restore", "--staged", "--worktree", "--", "src/App.tsx"] });
-    expect(spawn.calls[1]).toMatchObject({ command: "git", args: ["clean", "-f", "--", "scratch.txt"] });
-    expect(spawn.calls[2]).toMatchObject({ command: "git", args: ["restore", "--staged", "--worktree", "--", "new-name.ts", "old-name.ts"] });
+    await service.getDiff("win", { scope: "staged", path: "src/App.tsx" });
+    await service.applyStash("win", "stash@{0}", "apply-1");
+    await service.popStash("win", "stash@{1}", "pop-1");
+    await service.discardWorkingTree("win", { path: "src/App.tsx", status: "M", indexStatus: "M" }, "discard-1");
+    await service.discardWorkingTree("win", { path: "scratch.txt", status: "?", indexStatus: "?" }, "discard-2");
+    expect(spawn.calls.map((call) => call.args)).toEqual([
+      ["diff", "--cached", "--no-color", "--find-renames", "--", "src/App.tsx"],
+      ["stash", "apply", "--index", "stash@{0}"],
+      ["stash", "pop", "--index", "stash@{1}"],
+      ["restore", "--worktree", "--", "src/App.tsx"],
+      ["clean", "-f", "--", "scratch.txt"]
+    ]);
   });
 
-  it("rejects invalid stash refs and repository paths", async () => {
+  it("rejects unsafe paths and refs", async () => {
     const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work\\repo" }),
+      terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn: createSpawnMock()
     });
+    expect(() => service.applyStash("win", "stash@{x}", "bad-stash")).toThrow("stash reference");
+    await expect(service.discardWorkingTree("win", { path: "../secret" }, "bad-path")).rejects.toThrow("repository-relative path");
+  });
+});
 
-    await expect(service.applyStash("run-1", "stash@{x}")).rejects.toThrow("stash reference");
-    await expect(service.popStash("run-1", "main")).rejects.toThrow("stash reference");
-    await expect(service.revertFile("run-1", { status: "M", path: "../secret.txt" })).rejects.toThrow("repository-relative path");
-    await expect(service.revertFile("run-1", { status: "M", path: "C:\\secret.txt" })).rejects.toThrow("repository-relative path");
-    await expect(service.revertFile("run-1", { status: "M", path: "bad\0path" })).rejects.toThrow("repository-relative path");
+describe("real temporary repository workflow", () => {
+  it("stages, commits, preserves staged content when discarding, and unstages", async () => {
+    const { directory, service } = createRepository();
+    fs.writeFileSync(path.join(directory, "note.txt"), "initial\n", "utf-8");
+    let status = await service.getStatus("session-1");
+    expect(status.branch.unborn).toBe(true);
+    expect(status.files[0]).toMatchObject({ path: "note.txt", indexStatus: "?" });
+
+    expect((await service.stageFiles("session-1", ["note.txt"], "stage-initial")).ok).toBe(true);
+    expect((await service.commit("session-1", { subject: "Initial", body: "Body" }, "commit-initial")).ok).toBe(true);
+    fs.writeFileSync(path.join(directory, "note.txt"), "staged\n", "utf-8");
+    await service.stageFiles("session-1", ["note.txt"], "stage-change");
+    fs.writeFileSync(path.join(directory, "note.txt"), "working\n", "utf-8");
+
+    status = await service.getStatus("session-1");
+    expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "M" });
+    await service.discardWorkingTree("session-1", status.files[0], "discard-working");
+    expect(fs.readFileSync(path.join(directory, "note.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("staged\n");
+    status = await service.getStatus("session-1");
+    expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "." });
+
+    await service.unstageFiles("session-1", ["note.txt"], "unstage-change");
+    status = await service.getStatus("session-1");
+    expect(status.files[0]).toMatchObject({ indexStatus: ".", worktreeStatus: "M" });
+    const commitWithoutStagedChanges = await service.commit("session-1", { subject: "Must not commit working tree" }, "commit-working-only");
+    expect(commitWithoutStagedChanges).toMatchObject({ ok: false, message: "Stage at least one change before committing." });
   });
 
-  it("rejects missing sessions and failed git commands", async () => {
-    const missingService = createGitStatusService({
-      terminalManager: createTerminalManager(undefined),
-      sessionStore: {}
-    });
-    await expect(missingService.getStatus("run-1")).rejects.toThrow("Session is not running.");
+  it("creates Unicode branches and paginates current-HEAD history", async () => {
+    const { directory, service } = createRepository();
+    fs.writeFileSync(path.join(directory, "one.txt"), "1\n", "utf-8");
+    await service.stageAll("session-1", "stage-all");
+    await service.commit("session-1", { subject: "First" }, "commit-first");
+    expect((await service.createBranch("session-1", "功能/体验", "branch-unicode")).ok).toBe(true);
+    fs.writeFileSync(path.join(directory, "one.txt"), "2\n", "utf-8");
+    await service.stageAll("session-1", "stage-second");
+    await service.commit("session-1", { subject: "Second" }, "commit-second");
+    const snapshot = await service.getSnapshot("session-1");
+    expect(snapshot.status.branch.name).toBe("功能/体验");
+    const history = await service.getHistory("session-1");
+    expect(history.commits.map((entry) => entry.subject)).toEqual(["Second", "First"]);
+    expect(history.hasMore).toBe(false);
+  });
 
-    const spawn = createSpawnMock({ stderr: "fatal: not a git repository", code: 128 });
-    const service = createGitStatusService({
-      terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: "C:\\work" }),
-      sessionStore: {},
-      spawn
-    });
-    await expect(service.getStatus("run-1")).rejects.toThrow("not a git repository");
-    await expect(service.getDiff("run-1", { status: "M", path: "README.md" })).rejects.toThrow("not a git repository");
+  it("creates a message stash, previews it, restores index state, and drops it", async () => {
+    const { directory, service } = createRepository();
+    fs.writeFileSync(path.join(directory, "stash.txt"), "base\n", "utf-8");
+    await service.stageAll("session-1", "stage-base");
+    await service.commit("session-1", { subject: "Base" }, "commit-base");
+    fs.writeFileSync(path.join(directory, "stash.txt"), "staged\n", "utf-8");
+    await service.stageAll("session-1", "stage-stash");
+    fs.writeFileSync(path.join(directory, "working.txt"), "working\n", "utf-8");
+    expect((await service.stashChanges("session-1", "work in progress", "stash-create")).ok).toBe(true);
+    const list = await service.getStashes("session-1");
+    expect(list.stashes[0].message).toContain("work in progress");
+    const diff = await service.getDiff("session-1", { scope: "stash", revision: list.stashes[0].ref });
+    expect(diff.rows.length).toBeGreaterThan(0);
+    expect((await service.applyStash("session-1", list.stashes[0].ref, "stash-apply")).ok).toBe(true);
+    const status = await service.getStatus("session-1");
+    expect(status.files.find((file) => file.path === "stash.txt")?.indexStatus).toBe("M");
+    expect((await service.dropStash("session-1", list.stashes[0].ref, "stash-drop")).ok).toBe(true);
+    expect((await service.getStashes("session-1")).stashes).toHaveLength(0);
+  });
+
+  it("sets upstream on first push and enforces fast-forward-only pulls", async () => {
+    const { directory, service } = createRepository();
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-remote-"));
+    temporaryDirectories.push(remote);
+    git(remote, "init", "--bare");
+    git(directory, "remote", "add", "origin", remote);
+    fs.writeFileSync(path.join(directory, "sync.txt"), "one\n", "utf-8");
+    await service.stageAll("session-1", "sync-stage");
+    await service.commit("session-1", { subject: "Sync base" }, "sync-commit");
+    expect((await service.pushBranch("session-1", "origin", "sync-push")).ok).toBe(true);
+    let snapshot = await service.getSnapshot("session-1");
+    expect(snapshot.status.branch.upstream?.remote).toBe("origin");
+
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-clone-"));
+    temporaryDirectories.push(clone);
+    execFileSync("git", ["clone", remote, clone], { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+    git(clone, "config", "user.name", "Other Test");
+    git(clone, "config", "user.email", "other@example.test");
+    fs.writeFileSync(path.join(clone, "sync.txt"), "two\n", "utf-8");
+    git(clone, "add", "-A");
+    git(clone, "commit", "-m", "Remote change");
+    git(clone, "push");
+
+    expect((await service.fetchRemote("session-1", "origin", "sync-fetch")).ok).toBe(true);
+    snapshot = await service.getSnapshot("session-1");
+    expect(snapshot.status.branch.behind).toBe(1);
+    expect((await service.pullBranch("session-1", "sync-pull")).ok).toBe(true);
+    expect(fs.readFileSync(path.join(directory, "sync.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("two\n");
   });
 });

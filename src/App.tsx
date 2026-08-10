@@ -100,6 +100,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
   const [fileTransfers, setFileTransfers] = useState<FileTransferTask[]>([]);
+  const [gitSummary, setGitSummary] = useState<{ sessionId: string; changes: number; conflicts: number } | null>(null);
   const [showCloseGuard, setShowCloseGuard] = useState(false);
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
@@ -127,6 +128,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   });
   const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;
+
+  const handleGitSummaryChange = useCallback(({ changes, conflicts }: { changes: number; conflicts: number }) => {
+    if (!activeSessionId) return;
+    setGitSummary((current) => (
+      current?.sessionId === activeSessionId && current.changes === changes && current.conflicts === conflicts
+        ? current
+        : { sessionId: activeSessionId, changes, conflicts }
+    ));
+  }, [activeSessionId]);
 
   useEffect(() => {
     let disposed = false;
@@ -213,11 +223,24 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         return;
       }
 
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        if (rightTool === "files" && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
+          return;
+        }
+        setRightTool("git");
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [debugMode, openProjectSearch, projectSearchMode, terminalSessions.activeSession]);
+  }, [debugMode, openProjectSearch, projectSearchMode, remoteFilesDirty, rightTool, t, terminalSessions.activeSession]);
+
+  useEffect(() => {
+    if (gitSummary?.sessionId !== terminalSessions.activeSession?.id) {
+      setGitSummary(null);
+    }
+  }, [gitSummary?.sessionId, terminalSessions.activeSession?.id]);
 
   useEffect(() => {
     if (!debugMode) {
@@ -575,7 +598,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                         aria-selected={activeRightTool === "git"}
                         onClick={() => handleRightToolChange("git")}
                       >
-                        {t("tabs.git")}
+                        <span>{t("tabs.git")}</span>
+                        {gitSummary && gitSummary.sessionId === terminalSessions.activeSession?.id && gitSummary.changes > 0 && (
+                          <strong className={`right-tool-badge ${gitSummary.conflicts > 0 ? "conflict" : ""}`} title={`${gitSummary.changes} changes, ${gitSummary.conflicts} conflicts`}>
+                            {gitSummary.conflicts > 0 ? `!${gitSummary.conflicts}` : gitSummary.changes}
+                          </strong>
+                        )}
                       </button>
                       <button
                         className={activeRightTool === "agents" ? "active" : ""}
@@ -632,7 +660,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onRegisterSaveAll={(handler) => { saveAllRemoteFilesRef.current = handler; }}
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
-                <GitStatusPanel session={terminalSessions.activeSession} />
+                <GitStatusPanel
+                  session={terminalSessions.activeSession}
+                  onSummaryChange={handleGitSummaryChange}
+                />
               ) : activeRightTool === "agents" && showFilesPanel ? (
                 <ListenerAgentPanel session={terminalSessions.activeSession!} />
               ) : activeRightTool === "completionDebug" ? (

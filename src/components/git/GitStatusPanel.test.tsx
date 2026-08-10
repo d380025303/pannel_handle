@@ -1,0 +1,213 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "../../i18n";
+import type { GitDiffResult, GitRepositorySnapshot, TerminalSession } from "../../vite-env";
+import { GitStatusPanel } from "./GitStatusPanel";
+
+function createSession(id: string): TerminalSession {
+  return {
+    id,
+    templateId: `template-${id}`,
+    type: "windows",
+    title: id,
+    shell: "powershell.exe",
+    cwd: `C:\\work\\${id}`,
+    createdAt: Date.now()
+  };
+}
+
+function createSnapshot(cwd: string, mode: "mixed" | "staged" | "working" | "clean" = "mixed"): GitRepositorySnapshot {
+  const files = mode === "clean" ? [] : mode === "staged" ? [{
+    status: "M",
+    label: "M",
+    indexStatus: "M",
+    worktreeStatus: " ",
+    conflicted: false,
+    path: "staged.ts"
+  }] : mode === "working" ? [{
+    status: "M",
+    label: "M",
+    indexStatus: ".",
+    worktreeStatus: "M",
+    conflicted: false,
+    path: "working.ts"
+  }] : [{
+    status: "M",
+    label: "M",
+    indexStatus: "M",
+    worktreeStatus: "M",
+    conflicted: false,
+    path: "both.ts"
+  }, {
+    status: "?",
+    label: "?",
+    indexStatus: "?",
+    worktreeStatus: "?",
+    conflicted: false,
+    path: "scratch.txt"
+  }];
+  return {
+    cwd,
+    status: {
+      cwd,
+      clean: files.length === 0,
+      files,
+      branch: {
+        name: "main",
+        oid: "abcdef123456",
+        detached: false,
+        unborn: false,
+        upstream: { name: "origin/main", remote: "origin", branch: "main" },
+        ahead: 1,
+        behind: 2
+      }
+    },
+    branches: {
+      cwd,
+      branches: [{ name: "main", kind: "local", current: true, commit: "abcdef1", relativeTime: "now" }]
+    },
+    remotes: { cwd, remotes: ["origin"] },
+    stashes: { cwd, stashes: [] },
+    operationState: null
+  };
+}
+
+function createGitApi(snapshotBySession: Record<string, GitRepositorySnapshot>) {
+  return {
+    changeDirectory: vi.fn(async (sessionId: string) => ({
+      cwd: snapshotBySession[sessionId].cwd,
+      history: [],
+      snapshot: snapshotBySession[sessionId],
+      status: snapshotBySession[sessionId].status,
+      branches: snapshotBySession[sessionId].branches,
+      stashes: snapshotBySession[sessionId].stashes
+    })),
+    getSnapshot: vi.fn(async (sessionId: string) => snapshotBySession[sessionId]),
+    discoverRepository: vi.fn(async (sessionId: string) => ({ cwd: snapshotBySession[sessionId].cwd })),
+    chooseDirectory: vi.fn(async () => ({ canceled: true as const })),
+    getStatus: vi.fn(async (sessionId: string) => snapshotBySession[sessionId].status),
+    getDiff: vi.fn(async (_sessionId: string, request: { scope: string }) => ({
+      cwd: "C:\\work",
+      path: "",
+      status: "M",
+      scope: request.scope as GitDiffResult["scope"],
+      kind: "text" as const,
+      rows: [{ type: "modify" as const, oldLineNumber: 1, newLineNumber: 1, oldText: "old", newText: "new" }],
+      truncated: false,
+      capturedBytes: 10
+    })),
+    getBranches: vi.fn(),
+    getRemotes: vi.fn(),
+    checkoutBranch: vi.fn(async () => ({ ok: true, message: "checked out" })),
+    createBranch: vi.fn(async () => ({ ok: true, message: "created" })),
+    getStashes: vi.fn(),
+    getHistory: vi.fn(async () => ({
+      cwd: "C:\\work",
+      commits: [{ oid: "abcdef123456", shortOid: "abcdef1", authorName: "Ada", authorEmail: "ada@example.test", authoredAt: Date.now(), subject: "Recent change", decorations: ["HEAD -> main"] }],
+      hasMore: false,
+      nextSkip: 1
+    })),
+    stageFiles: vi.fn(async () => ({ ok: true, message: "staged" })),
+    stageAll: vi.fn(async () => ({ ok: true, message: "staged all" })),
+    unstageFiles: vi.fn(async () => ({ ok: true, message: "unstaged" })),
+    unstageAll: vi.fn(async () => ({ ok: true, message: "unstaged all" })),
+    discardWorkingTree: vi.fn(async () => ({ ok: true, message: "discarded" })),
+    commit: vi.fn(async () => ({ ok: true, message: "committed" })),
+    fetch: vi.fn(async () => ({ ok: true, message: "fetched" })),
+    pull: vi.fn(async () => ({ ok: true, message: "pulled" })),
+    push: vi.fn(async () => ({ ok: true, message: "pushed" })),
+    stashChanges: vi.fn(async () => ({ ok: true, message: "stashed" })),
+    applyStash: vi.fn(async () => ({ ok: true, message: "applied" })),
+    popStash: vi.fn(async () => ({ ok: true, message: "popped" })),
+    dropStash: vi.fn(async () => ({ ok: true, message: "dropped" })),
+    revertFile: vi.fn(async () => ({ ok: true, message: "discarded" })),
+    cancelOperation: vi.fn(async () => true)
+  };
+}
+
+function renderPanel(session: TerminalSession) {
+  return render(<I18nProvider locale="zh-CN"><GitStatusPanel session={session} /></I18nProvider>);
+}
+
+describe("GitStatusPanel", () => {
+  beforeEach(() => {
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows staged and working copies separately and confirms permanent untracked deletion", async () => {
+    const session = createSession("mixed-panel");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "mixed") });
+    window.gitApi = api;
+    const user = userEvent.setup();
+    renderPanel(session);
+
+    expect(await screen.findByText("已暂存的更改")).toBeTruthy();
+    expect(screen.getByText("未暂存的更改")).toBeTruthy();
+    expect(screen.getAllByText("both.ts")).toHaveLength(2);
+
+    const scratchRow = screen.getByText("scratch.txt").closest(".git-status-row");
+    expect(scratchRow).toBeTruthy();
+    await user.click(scratchRow!.querySelector<HTMLButtonElement>(".git-status-revert")!);
+    expect(await screen.findByText(/永久删除未跟踪文件 scratch\.txt/)).toBeTruthy();
+    const cancel = screen.getByRole("button", { name: "取消" });
+    expect(document.activeElement).toBe(cancel);
+    await user.click(screen.getByRole("button", { name: "放弃" }));
+    await waitFor(() => expect(api.discardWorkingTree).toHaveBeenCalledWith(session.id, expect.objectContaining({ path: "scratch.txt" }), expect.any(String)));
+  });
+
+  it("retains commit drafts per session and clears only after a successful commit", async () => {
+    const first = createSession("draft-one");
+    const second = createSession("draft-two");
+    const api = createGitApi({
+      [first.id]: createSnapshot(first.cwd, "staged"),
+      [second.id]: createSnapshot(second.cwd, "staged")
+    });
+    window.gitApi = api;
+    const user = userEvent.setup();
+    const view = renderPanel(first);
+
+    const subject = await screen.findByPlaceholderText("提交标题");
+    await user.type(subject, "First draft");
+    view.rerender(<I18nProvider locale="zh-CN"><GitStatusPanel session={second} /></I18nProvider>);
+    expect((await screen.findByPlaceholderText("提交标题") as HTMLInputElement).value).toBe("");
+    view.rerender(<I18nProvider locale="zh-CN"><GitStatusPanel session={first} /></I18nProvider>);
+    expect((await screen.findByPlaceholderText("提交标题") as HTMLInputElement).value).toBe("First draft");
+
+    await user.click(screen.getByRole("button", { name: /提交已暂存更改/ }));
+    await waitFor(() => expect(api.commit).toHaveBeenCalledWith(first.id, expect.objectContaining({ subject: "First draft" }), expect.any(String)));
+    await waitFor(() => expect((screen.getByPlaceholderText("提交标题") as HTMLInputElement).value).toBe(""));
+  });
+
+  it("does not treat porcelain-v2 dots as staged changes", async () => {
+    const session = createSession("working-only");
+    window.gitApi = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    renderPanel(session);
+
+    await screen.findByText("working.ts");
+    const commitButton = screen.getByRole("button", { name: /提交已暂存更改/ });
+    expect((commitButton as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelectorAll(".git-change-group")).toHaveLength(1);
+  });
+
+  it("loads current-HEAD history and opens a commit diff", async () => {
+    const session = createSession("history-panel");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "clean") });
+    window.gitApi = api;
+    renderPanel(session);
+
+    await screen.findByText("工作目录干净。");
+    fireEvent.click(screen.getByRole("tab", { name: /历史/ }));
+    expect(await screen.findByText("Recent change")).toBeTruthy();
+    fireEvent.click(screen.getByText("Recent change"));
+    await waitFor(() => expect(api.getDiff).toHaveBeenCalledWith(session.id, { scope: "commit", revision: "abcdef123456" }));
+    expect(await screen.findByText(/abcdef1 Recent change/)).toBeTruthy();
+  });
+});

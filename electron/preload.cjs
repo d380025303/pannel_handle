@@ -177,15 +177,32 @@ contextBridge.exposeInMainWorld("fileTransferApi", {
 
 contextBridge.exposeInMainWorld("gitApi", {
   changeDirectory: (sessionId, cwd) => ipcRenderer.invoke("git:change-directory", { sessionId, cwd }),
+  getSnapshot: (sessionId) => ipcRenderer.invoke("git:snapshot", { sessionId }),
+  discoverRepository: (sessionId) => ipcRenderer.invoke("git:discover-repository", { sessionId }),
+  chooseDirectory: (sessionId, currentDirectory) => ipcRenderer.invoke("git:choose-directory", { sessionId, currentDirectory }),
   getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId }),
-  getDiff: (sessionId, file) => ipcRenderer.invoke("git:diff", { sessionId, file }),
+  getDiff: (sessionId, request) => ipcRenderer.invoke("git:diff", { sessionId, request }),
   getBranches: (sessionId) => ipcRenderer.invoke("git:branches", { sessionId }),
-  checkoutBranch: (sessionId, branch) => ipcRenderer.invoke("git:checkout-branch", { sessionId, branch }),
+  getRemotes: (sessionId) => ipcRenderer.invoke("git:remotes", { sessionId }),
+  checkoutBranch: (sessionId, branch, operationId) => ipcRenderer.invoke("git:checkout-branch", { sessionId, branch, operationId }),
+  createBranch: (sessionId, branchName, operationId) => ipcRenderer.invoke("git:create-branch", { sessionId, branchName, operationId }),
   getStashes: (sessionId) => ipcRenderer.invoke("git:stashes", { sessionId }),
-  stashChanges: (sessionId) => ipcRenderer.invoke("git:stash-changes", { sessionId }),
-  applyStash: (sessionId, ref) => ipcRenderer.invoke("git:apply-stash", { sessionId, ref }),
-  popStash: (sessionId, ref) => ipcRenderer.invoke("git:pop-stash", { sessionId, ref }),
-  revertFile: (sessionId, file) => ipcRenderer.invoke("git:revert-file", { sessionId, file })
+  getHistory: (sessionId, options) => ipcRenderer.invoke("git:history", { sessionId, options }),
+  stageFiles: (sessionId, paths, operationId) => ipcRenderer.invoke("git:stage-files", { sessionId, paths, operationId }),
+  stageAll: (sessionId, operationId) => ipcRenderer.invoke("git:stage-all", { sessionId, operationId }),
+  unstageFiles: (sessionId, paths, operationId) => ipcRenderer.invoke("git:unstage-files", { sessionId, paths, operationId }),
+  unstageAll: (sessionId, operationId) => ipcRenderer.invoke("git:unstage-all", { sessionId, operationId }),
+  discardWorkingTree: (sessionId, file, operationId) => ipcRenderer.invoke("git:discard-working-tree", { sessionId, file, operationId }),
+  commit: (sessionId, message, operationId) => ipcRenderer.invoke("git:commit", { sessionId, message, operationId }),
+  fetch: (sessionId, remote, operationId) => ipcRenderer.invoke("git:fetch", { sessionId, remote, operationId }),
+  pull: (sessionId, operationId) => ipcRenderer.invoke("git:pull", { sessionId, operationId }),
+  push: (sessionId, remote, operationId) => ipcRenderer.invoke("git:push", { sessionId, remote, operationId }),
+  stashChanges: (sessionId, message, operationId) => ipcRenderer.invoke("git:stash-changes", { sessionId, message, operationId }),
+  applyStash: (sessionId, ref, operationId) => ipcRenderer.invoke("git:apply-stash", { sessionId, ref, operationId }),
+  popStash: (sessionId, ref, operationId) => ipcRenderer.invoke("git:pop-stash", { sessionId, ref, operationId }),
+  dropStash: (sessionId, ref, operationId) => ipcRenderer.invoke("git:drop-stash", { sessionId, ref, operationId }),
+  revertFile: (sessionId, file, operationId) => ipcRenderer.invoke("git:revert-file", { sessionId, file, operationId }),
+  cancelOperation: (operationId) => ipcRenderer.invoke("git:cancel-operation", { operationId })
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {

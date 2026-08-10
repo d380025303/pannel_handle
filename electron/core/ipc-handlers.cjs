@@ -400,40 +400,117 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return gitStatusService.getStatus(sessionId);
   });
 
+  ipcMain.handle("git:snapshot", (_event, { sessionId }) => {
+    return gitStatusService.getSnapshot(sessionId);
+  });
+
+  ipcMain.handle("git:discover-repository", (_event, { sessionId }) => {
+    return gitStatusService.discoverRepository(sessionId);
+  });
+
+  ipcMain.handle("git:choose-directory", async (event, { sessionId, currentDirectory }) => {
+    const session = terminalManager.getSession(sessionId);
+    if (!session || session.type !== "windows") return { canceled: true };
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      defaultPath: currentDirectory || session.gitCwd || session.cwd,
+      properties: ["openDirectory"]
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? { canceled: true }
+      : { canceled: false, path: result.filePaths[0] };
+  });
+
   ipcMain.handle("git:change-directory", (_event, { sessionId, cwd }) => {
     return gitStatusService.changeDirectory(sessionId, cwd);
   });
 
-  ipcMain.handle("git:diff", (_event, { sessionId, file }) => {
-    return gitStatusService.getDiff(sessionId, file);
+  ipcMain.handle("git:diff", (_event, { sessionId, request, file }) => {
+    return gitStatusService.getDiff(sessionId, request || file);
   });
 
   ipcMain.handle("git:branches", (_event, { sessionId }) => {
     return gitStatusService.getBranches(sessionId);
   });
 
-  ipcMain.handle("git:checkout-branch", (_event, { sessionId, branch }) => {
-    return gitStatusService.checkoutBranch(sessionId, branch);
+  ipcMain.handle("git:remotes", (_event, { sessionId }) => {
+    return gitStatusService.getRemotes(sessionId);
+  });
+
+  ipcMain.handle("git:checkout-branch", (_event, { sessionId, branch, operationId }) => {
+    return gitStatusService.checkoutBranch(sessionId, branch, operationId);
+  });
+
+  ipcMain.handle("git:create-branch", (_event, { sessionId, branchName, operationId }) => {
+    return gitStatusService.createBranch(sessionId, branchName, operationId);
   });
 
   ipcMain.handle("git:stashes", (_event, { sessionId }) => {
     return gitStatusService.getStashes(sessionId);
   });
 
-  ipcMain.handle("git:stash-changes", (_event, { sessionId }) => {
-    return gitStatusService.stashChanges(sessionId);
+  ipcMain.handle("git:history", (_event, { sessionId, options }) => {
+    return gitStatusService.getHistory(sessionId, options);
   });
 
-  ipcMain.handle("git:apply-stash", (_event, { sessionId, ref }) => {
-    return gitStatusService.applyStash(sessionId, ref);
+  ipcMain.handle("git:stage-files", (_event, { sessionId, paths, operationId }) => {
+    return gitStatusService.stageFiles(sessionId, paths, operationId);
   });
 
-  ipcMain.handle("git:pop-stash", (_event, { sessionId, ref }) => {
-    return gitStatusService.popStash(sessionId, ref);
+  ipcMain.handle("git:stage-all", (_event, { sessionId, operationId }) => {
+    return gitStatusService.stageAll(sessionId, operationId);
   });
 
-  ipcMain.handle("git:revert-file", (_event, { sessionId, file }) => {
-    return gitStatusService.revertFile(sessionId, file);
+  ipcMain.handle("git:unstage-files", (_event, { sessionId, paths, operationId }) => {
+    return gitStatusService.unstageFiles(sessionId, paths, operationId);
+  });
+
+  ipcMain.handle("git:unstage-all", (_event, { sessionId, operationId }) => {
+    return gitStatusService.unstageAll(sessionId, operationId);
+  });
+
+  ipcMain.handle("git:discard-working-tree", (_event, { sessionId, file, operationId }) => {
+    return gitStatusService.discardWorkingTree(sessionId, file, operationId);
+  });
+
+  ipcMain.handle("git:commit", (_event, { sessionId, message, operationId }) => {
+    return gitStatusService.commit(sessionId, message, operationId);
+  });
+
+  ipcMain.handle("git:fetch", (_event, { sessionId, remote, operationId }) => {
+    return gitStatusService.fetchRemote(sessionId, remote, operationId);
+  });
+
+  ipcMain.handle("git:pull", (_event, { sessionId, operationId }) => {
+    return gitStatusService.pullBranch(sessionId, operationId);
+  });
+
+  ipcMain.handle("git:push", (_event, { sessionId, remote, operationId }) => {
+    return gitStatusService.pushBranch(sessionId, remote, operationId);
+  });
+
+  ipcMain.handle("git:stash-changes", (_event, { sessionId, message, operationId }) => {
+    return gitStatusService.stashChanges(sessionId, message, operationId);
+  });
+
+  ipcMain.handle("git:apply-stash", (_event, { sessionId, ref, operationId }) => {
+    return gitStatusService.applyStash(sessionId, ref, operationId);
+  });
+
+  ipcMain.handle("git:pop-stash", (_event, { sessionId, ref, operationId }) => {
+    return gitStatusService.popStash(sessionId, ref, operationId);
+  });
+
+  ipcMain.handle("git:drop-stash", (_event, { sessionId, ref, operationId }) => {
+    return gitStatusService.dropStash(sessionId, ref, operationId);
+  });
+
+  ipcMain.handle("git:revert-file", (_event, { sessionId, file, operationId }) => {
+    return gitStatusService.revertFile(sessionId, file, operationId);
+  });
+
+  ipcMain.handle("git:cancel-operation", (_event, { operationId }) => {
+    return gitStatusService.cancelOperation(operationId);
   });
 
   ipcMain.handle("project-search:list-directories", (_event, { sessionId, rootPath }) => {
