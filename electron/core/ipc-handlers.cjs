@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -283,8 +283,29 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return remoteFileService.releasePreview(previewId);
   });
 
-  ipcMain.handle("remote-files:write-text", (_event, { sessionId, remotePath, content, expectedVersion }) => {
-    return remoteFileService.writeText(sessionId, remotePath, content, expectedVersion);
+  ipcMain.handle("remote-files:write-text", (_event, { sessionId, remotePath, content, expectedVersion, options }) => {
+    return remoteFileService.writeText(sessionId, remotePath, content, expectedVersion, options);
+  });
+
+  ipcMain.handle("remote-files:create", (_event, { sessionId, parentPath, name, kind, conflictPolicy }) => {
+    return remoteFileService.createEntry(sessionId, parentPath, name, kind, conflictPolicy);
+  });
+
+  ipcMain.handle("remote-files:move", (_event, { sessionId, sourcePath, targetDirectory, name, conflictPolicy }) => {
+    return remoteFileService.moveEntry(sessionId, sourcePath, targetDirectory, name, conflictPolicy);
+  });
+
+  ipcMain.handle("remote-files:choose-root", async (event, { sessionId, currentRoot }) => {
+    const session = terminalManager.getSession(sessionId);
+    if (!session || session.type !== "windows") return { canceled: true };
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      defaultPath: currentRoot,
+      properties: ["openDirectory"]
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? { canceled: true }
+      : { canceled: false, path: result.filePaths[0] };
   });
 
   ipcMain.handle("remote-files:upload-file", async (event, { sessionId, remoteDir }) => {
@@ -339,9 +360,37 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return remoteFileService.openInExplorer(sessionId, remotePath);
   });
 
-  ipcMain.handle("remote-files:delete", (_event, { sessionId, remotePath }) => {
-    return remoteFileService.deleteEntry(sessionId, remotePath);
+  ipcMain.handle("remote-files:delete", (_event, { sessionId, remotePath, options }) => {
+    return remoteFileService.deleteEntry(sessionId, remotePath, options);
   });
+  ipcMain.handle("remote-files:watch", (_event, { sessionId, directories }) => fileWatchManager.setDirectories(sessionId, directories));
+  ipcMain.handle("remote-files:unwatch", (_event, { sessionId }) => fileWatchManager.stop(sessionId));
+
+  ipcMain.handle("file-transfers:list", () => fileTransferManager.list());
+
+  ipcMain.handle("file-transfers:choose-upload", async (event, { sessionId, remoteDir }) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, { properties: ["openFile", "multiSelections"] });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    return { canceled: false, tasks: fileTransferManager.enqueueUploads(sessionId, result.filePaths, remoteDir) };
+  });
+
+  ipcMain.handle("file-transfers:upload-paths", (_event, { sessionId, remoteDir, localPaths }) => ({
+    canceled: false,
+    tasks: fileTransferManager.enqueueUploads(sessionId, sanitizeLocalPaths(localPaths), remoteDir)
+  }));
+
+  ipcMain.handle("file-transfers:choose-download", async (event, { sessionId, remotePath, fileName }) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showSaveDialog(ownerWindow, { defaultPath: fileName || "download" });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    return { canceled: false, task: fileTransferManager.enqueueDownload(sessionId, remotePath, result.filePath, fileName) };
+  });
+
+  ipcMain.handle("file-transfers:cancel", (_event, { id }) => fileTransferManager.cancel(id));
+  ipcMain.handle("file-transfers:retry", (_event, { id }) => fileTransferManager.retry(id));
+  ipcMain.handle("file-transfers:resolve-conflict", (_event, { id, policy }) => fileTransferManager.resolveConflict(id, policy));
+  ipcMain.handle("file-transfers:clear", (_event, { id }) => fileTransferManager.clear(id));
 
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
@@ -391,16 +440,16 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return projectSearchService.listDirectories(sessionId, rootPath);
   });
 
-  ipcMain.handle("project-search:files", (_event, { sessionId, query, rootPath }) => {
-    return projectSearchService.searchFiles(sessionId, query, rootPath);
+  ipcMain.handle("project-search:files", (_event, { sessionId, query, rootPath, options }) => {
+    return projectSearchService.searchFiles(sessionId, query, rootPath, options);
   });
 
-  ipcMain.handle("project-search:workspace-entries", (_event, { sessionId, query }) => {
-    return projectSearchService.searchWorkspaceEntries(sessionId, query);
+  ipcMain.handle("project-search:workspace-entries", (_event, { sessionId, query, rootPath, options }) => {
+    return projectSearchService.searchWorkspaceEntries(sessionId, query, rootPath, options);
   });
 
-  ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId, rootPath }) => {
-    return projectSearchService.searchText(sessionId, query, requestId, rootPath);
+  ipcMain.handle("project-search:text", (_event, { sessionId, query, requestId, rootPath, options }) => {
+    return projectSearchService.searchText(sessionId, query, requestId, rootPath, options);
   });
 
   ipcMain.handle("project-search:cancel-text", (_event, { sessionId, requestId }) => {
@@ -520,11 +569,9 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.on("window:close", (event) => {
-    const window = windowManager.getWindowFromEvent(event);
-    if (window) {
-      window.close();
-    }
+    windowManager.requestClose();
   });
+  ipcMain.on("window:resolve-close", (_event, confirmed) => windowManager.resolveClose(Boolean(confirmed)));
 }
 
 module.exports = {

@@ -12,6 +12,7 @@ type ProjectSearchModalProps = {
   session: TerminalSession;
   onClose: () => void;
   onOpenPath: (path: string) => void;
+  embedded?: boolean;
 };
 
 type SearchState =
@@ -54,12 +55,16 @@ function HighlightLine({ result }: { result: ProjectTextSearchResult }) {
   return <>{result.line.slice(0, result.matchStart)}<mark>{result.line.slice(result.matchStart, result.matchStart + result.matchLength)}</mark>{result.line.slice(result.matchStart + result.matchLength)}</>;
 }
 
-export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpenPath }: ProjectSearchModalProps) {
+export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpenPath, embedded = false }: ProjectSearchModalProps) {
   const { t } = useI18n();
   const [activeMode, setActiveMode] = useState<ProjectSearchMode>(mode);
   const [query, setQuery] = useState("");
   const [rootPath, setRootPath] = useState(initialRoot || ".");
   const [rootInput, setRootInput] = useState(initialRoot || ".");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
+  const [includeIgnored, setIncludeIgnored] = useState(false);
   const [directoryState, setDirectoryState] = useState<DirectoryState>({ status: "loading" });
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,7 +82,14 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
     const requestId = directoryRequestRef.current + 1;
     directoryRequestRef.current = requestId;
     setDirectoryState({ status: "loading" });
-    window.projectSearchApi.listDirectories(session.id, nextPath)
+    const request = session.type === "ssh"
+      ? window.remoteFileApi.list(session.id, nextPath).then((entries) => ({
+          workspaceRoot: initialRoot,
+          path: nextPath,
+          directories: entries.filter((entry) => entry.type === "directory").map((entry) => ({ name: entry.name, path: entry.path }))
+        }))
+      : window.projectSearchApi.listDirectories(session.id, nextPath);
+    request
       .then((response) => {
         if (directoryRequestRef.current !== requestId) return;
         setRootPath(response.path);
@@ -88,7 +100,7 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
         if (directoryRequestRef.current !== requestId) return;
         setDirectoryState({ status: "error", message: getErrorMessage(error) });
       });
-  }, [session.id]);
+  }, [initialRoot, session.id, session.type]);
 
   useEffect(() => {
     loadDirectories(initialRoot || ".");
@@ -119,8 +131,10 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
     setSearchState({ status: "loading" });
     const timeout = window.setTimeout(() => {
       const runSearch = activeMode === "files"
-        ? window.projectSearchApi.searchFiles(session.id, trimmedQuery, rootPath)
-        : window.projectSearchApi.searchText(session.id, trimmedQuery, ipcRequestId, rootPath);
+        ? session.type === "ssh"
+          ? window.projectSearchApi.searchWorkspaceEntries(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored }).then((response) => ({ ...response, results: response.results.filter((entry) => entry.type === "file") }))
+          : window.projectSearchApi.searchFiles(session.id, trimmedQuery, rootPath, { caseSensitive, wholeWord, regex, includeIgnored })
+        : window.projectSearchApi.searchText(session.id, trimmedQuery, ipcRequestId, rootPath, { caseSensitive, wholeWord, regex, includeIgnored });
       runSearch.then((response) => {
         if (requestRef.current !== requestId) return;
         setSearchState({
@@ -140,20 +154,20 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
       window.clearTimeout(timeout);
       if (activeMode === "text") void window.projectSearchApi.cancelTextSearch(session.id, ipcRequestId);
     };
-  }, [activeMode, query, rootPath, session.id]);
+  }, [activeMode, caseSensitive, includeIgnored, query, regex, rootPath, session.id, session.type, wholeWord]);
 
   const handleOpen = (path: string) => {
     onOpenPath(path);
-    onClose();
+    if (!embedded) onClose();
   };
 
   return (
-    <div className="project-search-overlay" onClick={onClose}>
+    <div className={embedded ? "project-search-workspace" : "project-search-overlay"} onClick={embedded ? undefined : onClose}>
       <div className="project-search-dialog" onClick={(event) => event.stopPropagation()}>
         <div className="project-search-toolbar">
           <div className="project-search-modes" role="group" aria-label={t("projectSearch.mode")}>
             <button className={activeMode === "files" ? "active" : ""} type="button" onClick={() => setActiveMode("files")}><File aria-hidden="true" />{t("projectSearch.filesMode")}</button>
-            <button className={activeMode === "text" ? "active" : ""} type="button" onClick={() => setActiveMode("text")}><FileText aria-hidden="true" />{t("projectSearch.textMode")}</button>
+            <button className={activeMode === "text" ? "active" : ""} type="button" disabled={session.type === "ssh"} title={session.type === "ssh" ? t("projectSearch.sshTextUnavailable") : undefined} onClick={() => setActiveMode("text")}><FileText aria-hidden="true" />{t("projectSearch.textMode")}</button>
           </div>
           <button className="project-search-close" type="button" title={t("projectSearch.close")} aria-label={t("projectSearch.close")} onClick={onClose}><X aria-hidden="true" /></button>
         </div>
@@ -187,6 +201,12 @@ export function ProjectSearchModal({ mode, initialRoot, session, onClose, onOpen
         <div className="project-search-header">
           <Search aria-hidden="true" />
           <input ref={inputRef} type="text" value={query} placeholder={placeholder} aria-label={title} onChange={(event) => setQuery(event.target.value)} />
+          <div className="project-search-options">
+            <button className={caseSensitive ? "active" : ""} type="button" title={t("projectSearch.caseSensitive")} onClick={() => setCaseSensitive((value) => !value)}>Aa</button>
+            <button className={wholeWord ? "active" : ""} type="button" title={t("projectSearch.wholeWord")} onClick={() => setWholeWord((value) => !value)}>ab</button>
+            <button className={regex ? "active" : ""} type="button" title={t("projectSearch.regex")} onClick={() => setRegex((value) => !value)}>.*</button>
+            <label><input type="checkbox" checked={includeIgnored} onChange={(event) => setIncludeIgnored(event.target.checked)} />{t("projectSearch.includeIgnored")}</label>
+          </div>
         </div>
         <div className="project-search-meta">
           <span>{title}</span><span>{session.title}</span><span title={rootPath}>{rootPath}</span>

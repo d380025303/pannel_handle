@@ -51,16 +51,17 @@ function getSession(terminalManager, sessionId) {
 
 function getWorkspaceRoot(session) {
   if (session.type === "windows") {
-    const displayPath = normalizeWindowsPath(session.cwd, os.homedir());
+    const displayPath = normalizeWindowsPath(session.fileRoot || session.cwd, os.homedir());
     return {
       displayRoot: displayPath,
       hostRoot: displayPath
     };
   }
 
-  const displayPath = normalizeWslPath(session.cwd || "~") === "~"
+  const configuredPath = session.fileRoot || session.cwd || "~";
+  const displayPath = normalizeWslPath(configuredPath) === "~"
     ? "/home"
-    : normalizeWslPath(session.cwd);
+    : normalizeWslPath(configuredPath);
   return {
     displayRoot: displayPath,
     hostRoot: toWslHostPath(session.wslDistro, displayPath)
@@ -166,21 +167,24 @@ function isLikelyBinary(buffer) {
   return false;
 }
 
-function getLineMatches(content, query, limit) {
-  const normalizedQuery = query.toLowerCase();
+function getLineMatches(content, query, limit, options = {}) {
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matcher = new RegExp(options.regex ? query : options.wholeWord ? `\\b${escaped}\\b` : escaped, options.caseSensitive ? "g" : "gi");
   const lines = content.split(/\r?\n/);
   const matches = [];
   for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
     const line = lines[index];
-    const matchIndex = line.toLowerCase().indexOf(normalizedQuery);
-    if (matchIndex !== -1) {
+    matcher.lastIndex = 0;
+    const match = matcher.exec(line);
+    if (match) {
+      const matchIndex = match.index;
       const start = Math.max(0, matchIndex - 80);
-      const end = Math.min(line.length, matchIndex + query.length + 120);
+      const end = Math.min(line.length, matchIndex + match[0].length + 120);
       matches.push({
         lineNumber: index + 1,
         line: line.slice(start, end),
         matchStart: matchIndex - start,
-        matchLength: query.length
+        matchLength: match[0].length
       });
     }
   }
@@ -194,7 +198,7 @@ function throwIfCancelled(task) {
   throw error;
 }
 
-async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, maxVisitedEntries, task }) {
+async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, maxVisitedEntries, task, includeIgnored = false }) {
   const queue = [{ hostPath: hostRoot, relativePath: "" }];
   let visitedEntries = 0;
 
@@ -219,7 +223,7 @@ async function walkProject({ fsApi, hostRoot, onFile, onDirectory, maxResults, m
       const childHostPath = path.join(current.hostPath, dirent.name);
 
       if (dirent.isDirectory()) {
-        if (!isExcludedDirectory(dirent.name)) {
+        if (!isExcludedDirectory(dirent.name) || (includeIgnored && ![".git", ".hg", ".svn"].includes(dirent.name))) {
           if (onDirectory) {
             await onDirectory({ hostPath: childHostPath, relativePath: childRelativePath, name: dirent.name });
             if (maxResults && maxResults()) {
@@ -257,6 +261,15 @@ function isOrderedSubsequence(candidate, query) {
   }
 
   return queryIndex === normalizedQuery.length;
+}
+
+function matchesFileQuery(candidate, query, options = {}) {
+  const value = String(candidate || "");
+  if (options.regex) return new RegExp(query, options.caseSensitive ? "" : "i").test(value);
+  const haystack = options.caseSensitive ? value : value.toLowerCase();
+  const needle = options.caseSensitive ? query : query.toLowerCase();
+  if (options.wholeWord) return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, options.caseSensitive ? "" : "i").test(value);
+  return isOrderedSubsequence(haystack, needle);
 }
 
 function normalizeRequestId(requestId) {
@@ -309,19 +322,23 @@ function parseRipgrepMatch(event, session, displayRoot) {
   };
 }
 
-function getRipgrepArgs(query) {
+function getRipgrepArgs(query, options = {}) {
   const args = [
     "--json",
-    "--fixed-strings",
-    "--ignore-case",
     "--line-number",
     "--with-filename",
     "--hidden",
     "--max-filesize",
     String(MAX_TEXT_FILE_SIZE)
   ];
+  if (!options.regex) args.push("--fixed-strings");
+  if (!options.caseSensitive) args.push("--ignore-case");
+  if (options.wholeWord) args.push("--word-regexp");
+  if (options.includeIgnored) args.push("--no-ignore");
   for (const excludedDir of DEFAULT_EXCLUDED_DIRS) {
-    args.push("--glob", `!${excludedDir}/**`);
+    if (!options.includeIgnored || [".git", ".hg", ".svn"].includes(excludedDir)) {
+      args.push("--glob", `!${excludedDir}/**`);
+    }
   }
   args.push("--", query, ".");
   return args;
@@ -335,8 +352,8 @@ async function resolveBundledRipgrepPath() {
   );
 }
 
-async function createRipgrepInvocation(session, query, resolveRipgrepPath = resolveBundledRipgrepPath, displayRoot) {
-  const args = getRipgrepArgs(query);
+async function createRipgrepInvocation(session, query, resolveRipgrepPath = resolveBundledRipgrepPath, displayRoot, options = {}) {
+  const args = getRipgrepArgs(query, options);
   const searchRoot = displayRoot || getWorkspaceRoot(session).displayRoot;
   if (session.type === "windows") {
     return {
@@ -524,7 +541,7 @@ async function listWslGitFiles({ spawnProcess, session, displayRoot, task }) {
   return output.toString("utf-8").split("\0").filter((entry) => entry && !hasExcludedPathSegment(entry));
 }
 
-async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task }) {
+async function searchTextFile({ fsApi, hostPath, relativePath, name, query, session, displayRoot, results, task, options }) {
   throwIfCancelled(task);
   let stat;
   try {
@@ -543,7 +560,7 @@ async function searchTextFile({ fsApi, hostPath, relativePath, name, query, sess
   throwIfCancelled(task);
   if (buffer.length > MAX_TEXT_FILE_SIZE || isLikelyBinary(buffer)) return;
 
-  const matches = getLineMatches(buffer.toString("utf-8"), query, MAX_TEXT_RESULTS - results.length);
+  const matches = getLineMatches(buffer.toString("utf-8"), query, MAX_TEXT_RESULTS - results.length, options);
   for (const match of matches) {
     results.push({
       path: toDisplayPath(session, displayRoot, relativePath),
@@ -555,7 +572,7 @@ async function searchTextFile({ fsApi, hostPath, relativePath, name, query, sess
   }
 }
 
-async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root, task }) {
+async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root, task, options = {} }) {
   const { hostRoot, displayRoot } = root;
   const results = [];
   const gitFiles = session.type === "wsl"
@@ -577,7 +594,8 @@ async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root
         session,
         displayRoot,
         results,
-        task
+        task,
+        options
       });
     }
     return { root: displayRoot, results, engine: "fallback" };
@@ -598,8 +616,10 @@ async function runFallbackTextSearch({ fsApi, spawnProcess, session, query, root
       session,
       displayRoot,
       results,
-      task
-    })
+      task,
+      options
+    }),
+    includeIgnored: options.includeIgnored
   });
   return { root: displayRoot, results, engine: "fallback" };
 }
@@ -647,7 +667,7 @@ function createProjectSearchService({
     };
   }
 
-  async function searchFiles(sessionId, query, rootPath) {
+  async function searchFiles(sessionId, query, rootPath, options = {}) {
     const normalizedQuery = normalizeQuery(query);
     if (!normalizedQuery) {
       return { root: "", results: [] };
@@ -665,8 +685,8 @@ function createProjectSearchService({
       onFile: async ({ relativePath, name }) => {
         const displayRelativePath = toDisplayRelativePath(session, relativePath);
         if (
-          isOrderedSubsequence(name, normalizedQuery)
-          || isOrderedSubsequence(displayRelativePath, normalizedQuery)
+          matchesFileQuery(name, normalizedQuery, options)
+          || matchesFileQuery(displayRelativePath, normalizedQuery, options)
         ) {
           results.push({
             path: toDisplayPath(session, displayRoot, relativePath),
@@ -674,13 +694,14 @@ function createProjectSearchService({
             name
           });
         }
-      }
+      },
+      includeIgnored: options.includeIgnored
     });
 
     return { root: displayRoot, results };
   }
 
-  async function searchWorkspaceEntries(sessionId, query) {
+  async function searchWorkspaceEntries(sessionId, query, rootPath, options = {}) {
     const normalizedQuery = normalizeQuery(query);
     const session = terminalManager.getSession(sessionId);
     if (!session) {
@@ -688,13 +709,13 @@ function createProjectSearchService({
     }
 
     const matchesQuery = (name, relativePath) => !normalizedQuery
-      || isOrderedSubsequence(name, normalizedQuery)
-      || isOrderedSubsequence(relativePath, normalizedQuery);
+      || matchesFileQuery(name, normalizedQuery, options)
+      || matchesFileQuery(relativePath, normalizedQuery, options);
     const results = [];
 
     if (session.type !== "ssh") {
       const localSession = getSession(terminalManager, sessionId);
-      let configuredRoot = localSession.cwd || ".";
+      let configuredRoot = rootPath || localSession.fileRoot || localSession.cwd || ".";
       if (String(configuredRoot).startsWith("~") && remoteFileService) {
         const home = await remoteFileService.getHome(sessionId);
         configuredRoot = configuredRoot === "~"
@@ -721,7 +742,8 @@ function createProjectSearchService({
         maxVisitedEntries: MAX_FILE_VISITED_ENTRIES,
         maxResults: () => results.length >= MAX_FILE_RESULTS,
         onDirectory: addResult("directory"),
-        onFile: addResult("file")
+        onFile: addResult("file"),
+        includeIgnored: options.includeIgnored
       });
       return { root: displayRoot, results };
     }
@@ -730,7 +752,7 @@ function createProjectSearchService({
       throw new Error("Remote file search is not available.");
     }
     const home = await remoteFileService.getHome(sessionId);
-    const configuredCwd = String(session.cwd || "~").trim() || "~";
+    const configuredCwd = String(rootPath || session.fileRoot || session.cwd || "~").trim() || "~";
     const root = configuredCwd === "~"
       ? home
       : configuredCwd.startsWith("~/")
@@ -755,7 +777,7 @@ function createProjectSearchService({
         const relativePath = current.relativePath
           ? path.posix.join(current.relativePath, entry.name)
           : entry.name;
-        if (entry.type === "directory" && !isExcludedDirectory(entry.name)) {
+        if (entry.type === "directory" && (!isExcludedDirectory(entry.name) || (options.includeIgnored && ![".git", ".hg", ".svn"].includes(entry.name)))) {
           if (matchesQuery(entry.name, relativePath)) {
             results.push({ path: entry.path, relativePath, name: entry.name, type: "directory" });
           }
@@ -769,7 +791,7 @@ function createProjectSearchService({
     return { root, results };
   }
 
-  async function searchText(sessionId, query, requestId, rootPath) {
+  async function searchText(sessionId, query, requestId, rootPath, options = {}) {
     const normalizedQuery = normalizeQuery(query);
     const normalizedRequestId = normalizeRequestId(requestId);
     if (!normalizedQuery) {
@@ -789,18 +811,18 @@ function createProjectSearchService({
 
     try {
       if (forceTextFallback) {
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options });
       }
       const { displayRoot } = root;
       try {
-        const invocation = await createRipgrepInvocation(session, normalizedQuery, resolveRipgrepPath, displayRoot);
+        const invocation = await createRipgrepInvocation(session, normalizedQuery, resolveRipgrepPath, displayRoot, options);
         throwIfCancelled(task);
         const results = await runRipgrepSearch({ spawnProcess, invocation, session, displayRoot, task });
         return { root: displayRoot, results, engine: "ripgrep" };
       } catch (error) {
         if (session.type !== "wsl" || error?.code !== "RG_UNAVAILABLE") throw error;
         throwIfCancelled(task);
-        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task });
+        return await runFallbackTextSearch({ fsApi, spawnProcess, session, query: normalizedQuery, root, task, options });
       }
     } finally {
       if (activeTextSearches.get(String(sessionId)) === task) {

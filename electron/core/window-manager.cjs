@@ -3,6 +3,8 @@ const { app, BrowserWindow } = require("electron");
 
 function createWindowManager() {
   let mainWindow = null;
+  let allowClose = false;
+  let closeRequestPending = false;
 
   function hasWindow() {
     return mainWindow && !mainWindow.isDestroyed();
@@ -33,6 +35,17 @@ function createWindowManager() {
         preload: path.join(__dirname, "..", "preload.cjs"),
         contextIsolation: true,
         nodeIntegration: false
+      }
+    });
+    allowClose = false;
+    closeRequestPending = false;
+
+    mainWindow.on("close", (event) => {
+      if (allowClose) return;
+      event.preventDefault();
+      if (!closeRequestPending) {
+        closeRequestPending = true;
+        broadcast("window:close-requested");
       }
     });
 
@@ -94,6 +107,20 @@ function createWindowManager() {
     mainWindow = null;
   }
 
+  function requestClose() {
+    if (hasWindow() && !closeRequestPending) {
+      closeRequestPending = true;
+      broadcast("window:close-requested");
+    }
+  }
+
+  function resolveClose(confirmed) {
+    closeRequestPending = false;
+    if (!confirmed || !hasWindow()) return;
+    allowClose = true;
+    mainWindow.close();
+  }
+
   return {
     createWindow,
     focusWindow,
@@ -101,6 +128,8 @@ function createWindowManager() {
     focusAndSelectSession,
     broadcast,
     getWindowFromEvent,
+    requestClose,
+    resolveClose,
     closeWindowManager
   };
 }

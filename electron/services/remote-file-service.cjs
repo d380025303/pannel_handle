@@ -7,7 +7,7 @@ const { pipeline } = require("node:stream/promises");
 const SftpClient = require("ssh2-sftp-client");
 const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
 
-const TEXT_PREVIEW_LIMIT = 1024 * 1024;
+const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const MEDIA_PROTOCOL = "pannel-media";
 const IMAGE_MIME_BY_EXTENSION = new Map([
   [".png", "image/png"],
@@ -55,6 +55,34 @@ function isLikelyBinary(buffer) {
 
 function getContentVersion(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function decodeTextBuffer(buffer) {
+  const bom = buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
+  const content = buffer.subarray(bom ? 3 : 0).toString("utf-8");
+  const eol = content.includes("\r\n") ? "crlf" : content.includes("\r") ? "cr" : "lf";
+  return { content, encoding: "utf-8", bom, eol };
+}
+
+function encodeTextContent(content, format = {}) {
+  const eol = format.eol === "crlf" ? "\r\n" : format.eol === "cr" ? "\r" : "\n";
+  const normalized = String(content).replace(/\r\n|\r|\n/g, eol);
+  const body = Buffer.from(normalized, "utf-8");
+  return format.bom ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), body]) : body;
+}
+
+function validateEntryName(name) {
+  const value = String(name || "").trim();
+  if (!value || value === "." || value === ".." || /[\\/\0]/.test(value)) {
+    throw new Error("A valid file name is required.");
+  }
+  return value;
+}
+
+function autoRename(name, attempt) {
+  const extension = path.posix.extname(name);
+  const stem = extension ? name.slice(0, -extension.length) : name;
+  return `${stem} (${attempt})${extension}`;
 }
 
 function getMediaType(filePath) {
@@ -311,7 +339,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return {
       kind: "text",
       size: buffer.length,
-      content: buffer.toString("utf-8"),
+      ...decodeTextBuffer(buffer),
       version: getContentVersion(buffer)
     };
   }
@@ -348,16 +376,18 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     };
   }
 
-  async function writeLocalText(session, filePath, content, expectedVersion) {
-    const contentBuffer = Buffer.from(content, "utf-8");
+  async function writeLocalText(session, filePath, content, expectedVersion, options = {}) {
+    const contentBuffer = encodeTextContent(content, options.format);
     const hostPath = toLocalHostPath(session, filePath);
-    const currentStat = await fsApi.promises.stat(hostPath);
-    if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
-      return { status: "conflict" };
-    }
-    const currentBuffer = await fsApi.promises.readFile(hostPath);
-    if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
-      return { status: "conflict" };
+    if (!options.force) {
+      const currentStat = await fsApi.promises.stat(hostPath);
+      if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
+        return { status: "conflict" };
+      }
+      const currentBuffer = await fsApi.promises.readFile(hostPath);
+      if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
+        return { status: "conflict" };
+      }
     }
 
     await fsApi.promises.writeFile(hostPath, contentBuffer);
@@ -429,7 +459,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     return {
       kind: "text",
       size: buffer.length,
-      content: buffer.toString("utf-8"),
+      ...decodeTextBuffer(buffer),
       version: getContentVersion(buffer)
     };
   }
@@ -498,30 +528,32 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     };
   }
 
-  async function writeText(sessionId, remotePath, content, expectedVersion) {
-    if (typeof content !== "string" || typeof expectedVersion !== "string" || !expectedVersion) {
+  async function writeText(sessionId, remotePath, content, expectedVersion, options = {}) {
+    if (typeof content !== "string" || (!options.force && (typeof expectedVersion !== "string" || !expectedVersion))) {
       throw new Error("Invalid text save request.");
     }
 
-    const contentBuffer = Buffer.from(content, "utf-8");
+    const contentBuffer = encodeTextContent(content, options.format);
     if (contentBuffer.length > TEXT_PREVIEW_LIMIT) {
       throw new Error(`Text file exceeds the ${TEXT_PREVIEW_LIMIT} byte edit limit.`);
     }
 
     const session = getSession(sessionId);
     if (session.type !== "ssh") {
-      return writeLocalText(session, remotePath, content, expectedVersion);
+      return writeLocalText(session, remotePath, content, expectedVersion, options);
     }
     const normalizedPath = normalizeRemotePath(remotePath);
     const client = await getClient(sessionId);
-    const currentStat = await client.stat(normalizedPath);
-    if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
-      return { status: "conflict" };
-    }
-    const currentData = await client.get(normalizedPath);
-    const currentBuffer = Buffer.isBuffer(currentData) ? currentData : Buffer.from(currentData);
-    if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
-      return { status: "conflict" };
+    if (!options.force) {
+      const currentStat = await client.stat(normalizedPath);
+      if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
+        return { status: "conflict" };
+      }
+      const currentData = await client.get(normalizedPath);
+      const currentBuffer = Buffer.isBuffer(currentData) ? currentData : Buffer.from(currentData);
+      if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
+        return { status: "conflict" };
+      }
     }
 
     await client.put(contentBuffer, normalizedPath);
@@ -563,24 +595,23 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     }
   }
 
-  async function uploadValidatedFile(sessionId, session, localPath, remoteDir) {
+  async function uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy = "cancel") {
+    const fileName = path.basename(localPath);
+    const target = await resolveConflictPath(sessionId, session, remoteDir, fileName, conflictPolicy);
+    if (target.status === "conflict" || target.status === "skipped") return { status: target.status, remotePath: target.path };
     if (session.type !== "ssh") {
-      const fileName = path.basename(localPath);
-      const targetPath = joinLocalPath(session, remoteDir, fileName);
-      await fsApi.promises.copyFile(localPath, toLocalHostPath(session, targetPath));
-      return { remotePath: targetPath };
+      await fsApi.promises.copyFile(localPath, toLocalHostPath(session, target.path));
+      return { status: "completed", remotePath: target.path };
     }
     const client = await getClient(sessionId);
-    const fileName = path.basename(localPath);
-    const remotePath = joinRemotePath(normalizeRemotePath(remoteDir), fileName);
-    await client.fastPut(localPath, remotePath);
-    return { remotePath };
+    await client.fastPut(localPath, target.path);
+    return { status: "completed", remotePath: target.path };
   }
 
-  async function uploadFile(sessionId, localPath, remoteDir) {
+  async function uploadFile(sessionId, localPath, remoteDir, conflictPolicy = "cancel") {
     const session = getSession(sessionId);
     await validateLocalUploadPath(localPath);
-    return uploadValidatedFile(sessionId, session, localPath, remoteDir);
+    return uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy);
   }
 
   async function uploadFiles(sessionId, localPaths, remoteDir) {
@@ -719,13 +750,98 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     }
   }
 
-  async function deleteEntry(sessionId, remotePath) {
+  async function entryExists(sessionId, session, entryPath) {
+    if (session.type !== "ssh") {
+      try {
+        await fsApi.promises.lstat(toLocalHostPath(session, entryPath));
+        return true;
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }
+    const client = await getClient(sessionId);
+    if (typeof client.exists === "function") return Boolean(await client.exists(normalizeRemotePath(entryPath)));
+    try {
+      await client.stat(normalizeRemotePath(entryPath));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function resolveConflictPath(sessionId, session, parentPath, requestedName, conflictPolicy = "cancel") {
+    let name = validateEntryName(requestedName);
+    let targetPath = session.type === "ssh"
+      ? joinRemotePath(normalizeRemotePath(parentPath), name)
+      : joinLocalPath(session, parentPath, name);
+    if (!await entryExists(sessionId, session, targetPath)) return { status: "ready", path: targetPath, name };
+    if (conflictPolicy === "skip") return { status: "skipped", path: targetPath, name };
+    if (conflictPolicy === "cancel") return { status: "conflict", path: targetPath, name };
+    if (conflictPolicy === "rename") {
+      for (let attempt = 1; attempt < 10000; attempt += 1) {
+        name = autoRename(requestedName, attempt);
+        targetPath = session.type === "ssh"
+          ? joinRemotePath(normalizeRemotePath(parentPath), name)
+          : joinLocalPath(session, parentPath, name);
+        if (!await entryExists(sessionId, session, targetPath)) return { status: "ready", path: targetPath, name };
+      }
+      throw new Error("Unable to find an available file name.");
+    }
+    return { status: "overwrite", path: targetPath, name };
+  }
+
+  async function createEntry(sessionId, parentPath, name, kind, conflictPolicy = "cancel") {
+    const session = getSession(sessionId);
+    if (kind !== "file" && kind !== "directory") throw new Error("Invalid entry type.");
+    const target = await resolveConflictPath(sessionId, session, parentPath, name, conflictPolicy);
+    if (target.status === "conflict" || target.status === "skipped") return target;
+    if (target.status === "overwrite") {
+      if (kind === "directory") return { status: "conflict", path: target.path, name: target.name };
+      await deleteEntry(sessionId, target.path, { permanent: session.type !== "windows" });
+    }
+    if (session.type !== "ssh") {
+      const hostPath = toLocalHostPath(session, target.path);
+      if (kind === "directory") await fsApi.promises.mkdir(hostPath);
+      else await fsApi.promises.writeFile(hostPath, Buffer.alloc(0), { flag: "wx" });
+    } else {
+      const client = await getClient(sessionId);
+      if (kind === "directory") await client.mkdir(target.path, false);
+      else await client.put(Buffer.alloc(0), target.path);
+    }
+    return { status: "completed", path: target.path, name: target.name };
+  }
+
+  async function moveEntry(sessionId, sourcePath, targetDirectory, requestedName, conflictPolicy = "cancel") {
+    const session = getSession(sessionId);
+    const sourceName = session.type === "windows" ? path.win32.basename(sourcePath) : path.posix.basename(normalizeRemotePath(sourcePath));
+    const target = await resolveConflictPath(sessionId, session, targetDirectory, requestedName || sourceName, conflictPolicy);
+    if (target.status === "conflict" || target.status === "skipped") return target;
+    if (target.path === sourcePath) return { status: "completed", path: sourcePath, name: target.name };
+    if (target.status === "overwrite") {
+      await deleteEntry(sessionId, target.path, { permanent: session.type !== "windows" });
+    }
+    if (session.type !== "ssh") {
+      await fsApi.promises.rename(toLocalHostPath(session, sourcePath), toLocalHostPath(session, target.path));
+    } else {
+      const client = await getClient(sessionId);
+      await client.rename(normalizeRemotePath(sourcePath), target.path);
+    }
+    return { status: "completed", path: target.path, name: target.name };
+  }
+
+  async function deleteEntry(sessionId, remotePath, options = {}) {
     const session = getSession(sessionId);
     if (session.type !== "ssh") {
       const hostPath = toLocalHostPath(session, remotePath);
+      if (session.type === "windows" && !options.permanent && shellApi && typeof shellApi.trashItem === "function") {
+        await shellApi.trashItem(hostPath);
+        return { mode: "trash" };
+      }
       await fsApi.promises.rm(hostPath, { recursive: true, force: true });
-      return;
+      return { mode: "permanent" };
     }
+    return { mode: "permanent" };
     const normalizedPath = normalizeRemotePath(remotePath);
     const client = await getClient(sessionId);
     try {
@@ -773,6 +889,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     downloadFile,
     cancelDownload,
     openInExplorer,
+    createEntry,
+    moveEntry,
     deleteEntry,
     disconnect,
     shutdown

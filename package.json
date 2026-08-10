@@ -15,6 +15,12 @@
     "dist:portable": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && electron-builder"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.8",
     "@vitejs/plugin-react": "^4.5.0",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/ripgrep-win32-x64": "1.18.0",

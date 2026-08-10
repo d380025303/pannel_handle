@@ -106,11 +106,17 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   }
 
   function serializeTemplate(template) {
+    const fileSortKeys = new Set(["name", "modifiedAt", "size"]);
+    const fileSort = template.fileSort && fileSortKeys.has(template.fileSort.key)
+      ? { key: template.fileSort.key, direction: template.fileSort.direction === "desc" ? "desc" : "asc" }
+      : { key: "name", direction: "asc" };
     return {
       id: template.id,
       title: template.title,
       shell: template.shell,
       cwd: template.cwd,
+      fileRoot: typeof template.fileRoot === "string" && template.fileRoot.trim() ? template.fileRoot.trim() : undefined,
+      fileSort,
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
       agentProvider: AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined,

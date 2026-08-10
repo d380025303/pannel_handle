@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Terminal as TerminalIcon, X } from "lucide-react";
+import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
@@ -15,6 +15,7 @@ import { CompletionDebugSidebar } from "./components/terminal/CompletionDebugSid
 import { mergeCompletionDebugEvent, type CompletionDebugEntry } from "./components/terminal/completionDebug";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
+import { FileTransferPanel } from "./components/remote/FileTransferPanel";
 import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { TitleBar } from "./components/app/TitleBar";
@@ -27,11 +28,11 @@ import { useWindowState } from "./hooks/useWindowState";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
-import type { AgentHookDebugPayload, AgentProvider, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 type RightTool = "files" | "git" | "agents" | "debug" | "completionDebug";
-type WorkspaceTab = "terminal" | "preview";
+type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -98,8 +99,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [projectSearchRoot, setProjectSearchRoot] = useState(".");
   const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
   const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
+  const [fileTransfers, setFileTransfers] = useState<FileTransferTask[]>([]);
+  const [showCloseGuard, setShowCloseGuard] = useState(false);
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
+  const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
   const lastBlockingOverlaySignatureRef = useRef("");
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
@@ -121,15 +125,32 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     isVisible: workspaceTab === "terminal",
     terminalTheme: activeTheme.terminal
   });
-  const canSearchProject = Boolean(terminalSessions.activeSession && terminalSessions.activeSession.type !== "ssh");
+  const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;
+
+  useEffect(() => {
+    let disposed = false;
+    void window.fileTransferApi.list().then((tasks) => { if (!disposed) setFileTransfers(tasks); });
+    const removeListener = window.fileTransferApi.onChanged(setFileTransfers);
+    return () => { disposed = true; removeListener(); };
+  }, []);
+
+  useEffect(() => window.windowApi.onCloseRequested(() => {
+    const hasActiveTransfers = fileTransfers.some((task) => task.status === "queued" || task.status === "running");
+    if (!remoteFilesDirty && !hasActiveTransfers) {
+      window.windowApi.resolveClose(true);
+      return;
+    }
+    setShowCloseGuard(true);
+  }), [fileTransfers, remoteFilesDirty]);
 
   const openProjectSearch = useCallback((mode: ProjectSearchMode, rootPath?: string) => {
     const activeSession = terminalSessions.activeSession;
-    if (!activeSession || activeSession.type === "ssh") return;
+    if (!activeSession) return;
     const currentPanelPath = filePanelPath?.sessionId === activeSession.id ? filePanelPath.path : null;
     setProjectSearchRoot(rootPath || currentPanelPath || activeSession.cwd || ".");
     setProjectSearchMode(mode);
+    setWorkspaceTab("search");
   }, [filePanelPath, terminalSessions.activeSession]);
 
   const handleFilePanelPathChange = useCallback((path: string) => {
@@ -161,7 +182,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!terminalSessions.activeSession || terminalSessions.activeSession.type === "ssh") {
+      if (!terminalSessions.activeSession) {
         return;
       }
       const blockingOverlay = hasBlockingOverlay();
@@ -191,6 +212,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         openProjectSearch("files");
         return;
       }
+
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
@@ -233,9 +255,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
+    const closingSession = terminalSessions.sessions.find((session) => session.id === id);
+    const hasActiveTransfer = fileTransfers.some((task) => task.sessionId === id && (task.status === "queued" || task.status === "running"));
+    if (closingSession?.type === "ssh" && hasActiveTransfer && !window.confirm(t("files.closeSshTransfers"))) return;
+    if (closingSession?.type === "ssh" && hasActiveTransfer) {
+      await Promise.all(fileTransfers.filter((task) => task.sessionId === id && (task.status === "queued" || task.status === "running")).map((task) => window.fileTransferApi.cancel(task.id)));
+    }
     await terminalSessions.closeSession(id);
     terminalInstances.disposeTerminal(id);
-  }, [remoteFilesDirty, terminalInstances, terminalSessions, t]);
+  }, [fileTransfers, remoteFilesDirty, terminalInstances, terminalSessions, t]);
 
   const handleSelectSession = useCallback((id: string) => {
     if (id === terminalSessions.activeId) {
@@ -286,7 +314,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const handleOpenSearchResult = useCallback((path: string) => {
     const activeSession = terminalSessions.activeSession;
-    if (!activeSession || activeSession.type === "ssh") {
+    if (!activeSession) {
       return;
     }
     setRightTool("files");
@@ -460,6 +488,20 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   </button>
                 </div>
               ))}
+              {projectSearchMode && (
+                <div className={`workspace-tab file-tab ${workspaceTab === "search" ? "active" : ""}`} role="tab" tabIndex={0} aria-selected={workspaceTab === "search"} onClick={() => setWorkspaceTab("search")}>
+                  <Search aria-hidden="true" />
+                  <span>{t("files.searchProject")}</span>
+                  <button className="workspace-tab-close" type="button" title={t("projectSearch.close")} onClick={(event) => { event.stopPropagation(); setProjectSearchMode(null); setWorkspaceTab(activePreviewTabId ? "preview" : "terminal"); }}><X aria-hidden="true" /></button>
+                </div>
+              )}
+              {fileTransfers.length > 0 && (
+                <div className={`workspace-tab file-tab ${workspaceTab === "transfers" ? "active" : ""}`} role="tab" tabIndex={0} aria-selected={workspaceTab === "transfers"} onClick={() => setWorkspaceTab("transfers")}>
+                  <ArrowDownToLine aria-hidden="true" />
+                  <span>{t("files.transfers")}</span>
+                  <strong className="workspace-tab-dirty">{fileTransfers.filter((task) => task.status === "queued" || task.status === "running").length || ""}</strong>
+                </div>
+              )}
             </div>
             <div className="workspace-content">
               <div className="terminal-area" style={{ display: workspaceTab === "terminal" ? undefined : "none" }}>
@@ -489,6 +531,23 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 ref={setPreviewHost}
                 style={{ display: workspaceTab === "preview" ? undefined : "none" }}
               />
+              {projectSearchMode && terminalSessions.activeSession && (
+                <div className="workspace-search" style={{ display: workspaceTab === "search" ? undefined : "none" }}>
+                  <ProjectSearchModal
+                    embedded
+                    mode={projectSearchMode}
+                    initialRoot={projectSearchRoot}
+                    session={terminalSessions.activeSession}
+                    onClose={() => { setProjectSearchMode(null); setWorkspaceTab(activePreviewTabId ? "preview" : "terminal"); }}
+                    onOpenPath={handleOpenSearchResult}
+                  />
+                </div>
+              )}
+              {fileTransfers.length > 0 && (
+                <div className="workspace-search" style={{ display: workspaceTab === "transfers" ? undefined : "none" }}>
+                  <FileTransferPanel tasks={fileTransfers} sessions={terminalSessions.sessions} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -568,6 +627,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onCurrentPathChange={handleFilePanelPathChange}
                   onSearchRequest={openProjectSearch}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
+                  transfers={fileTransfers}
+                  onShowTransfers={() => setWorkspaceTab("transfers")}
+                  onRegisterSaveAll={(handler) => { saveAllRemoteFilesRef.current = handler; }}
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel session={terminalSessions.activeSession} />
@@ -649,15 +711,23 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         />
       )}
 
-      {projectSearchMode && terminalSessions.activeSession && canSearchProject && (
-        <ProjectSearchModal
-          mode={projectSearchMode}
-          initialRoot={projectSearchRoot}
-          session={terminalSessions.activeSession}
-          onClose={() => setProjectSearchMode(null)}
-          onOpenPath={handleOpenSearchResult}
-        />
+      {showCloseGuard && (
+        <div className="modal-overlay">
+          <div className="file-operation-dialog close-guard-dialog">
+            <h2>{t("files.closeGuardTitle")}</h2>
+            {previewTabs.some((tab) => tab.dirty) && (
+              <div><strong>{t("files.unsavedFiles")}</strong><ul>{previewTabs.filter((tab) => tab.dirty).map((tab) => <li key={tab.id}>{tab.fileName}</li>)}</ul></div>
+            )}
+            {fileTransfers.some((task) => task.status === "queued" || task.status === "running") && <p>{t("files.activeTransfersExit")}</p>}
+            <div className="file-operation-actions">
+              <button type="button" onClick={() => { setShowCloseGuard(false); window.windowApi.resolveClose(false); }}>{t("common.cancel")}</button>
+              <button type="button" onClick={() => window.windowApi.resolveClose(true)}>{t("files.discardAndExit")}</button>
+              {remoteFilesDirty && <button type="button" onClick={async () => { const saved = await saveAllRemoteFilesRef.current?.(); if (saved) window.windowApi.resolveClose(true); }}>{t("files.saveAllAndExit")}</button>}
+            </div>
+          </div>
+        </div>
       )}
+
     </>
   );
 }

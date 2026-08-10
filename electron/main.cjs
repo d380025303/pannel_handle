@@ -17,6 +17,8 @@ const { createGitStatusService } = require("./services/git-status-service.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createCompletionService } = require("./services/completion-service.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-file-service.cjs");
+const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
+const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
@@ -38,6 +40,8 @@ let knownHostStore = null;
 let terminalManager = null;
 let agentHookServer = null;
 let remoteFileService = null;
+let fileTransferManager = null;
+let fileWatchManager = null;
 let remoteSystemService = null;
 let sshHookTunnelService = null;
 let sshSessionRuntime = null;
@@ -197,6 +201,11 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       shellApi: shell
     });
+    fileTransferManager = createFileTransferManager({
+      remoteFileService,
+      broadcast: windowManager.broadcast
+    });
+    fileWatchManager = createFileWatchManager({ terminalManager, broadcast: windowManager.broadcast });
     registerMediaPreviewProtocol();
     clipboardImageService = createClipboardImageService({
       clipboard,
@@ -275,6 +284,8 @@ if (!gotSingleInstanceLock) {
       clipboardImageService,
       dialog,
       remoteFileService,
+      fileTransferManager,
+      fileWatchManager,
       remoteSystemService,
       hookConfigManager,
       remoteHookConfigService,
@@ -302,11 +313,20 @@ app.on("window-all-closed", () => {
   if (terminalManager) {
     terminalManager.shutdown();
   }
+  if (fileTransferManager) {
+    void fileTransferManager.shutdown();
+  }
   if (remoteFileService) {
     void remoteFileService.shutdown();
   }
+  if (fileWatchManager) {
+    void fileWatchManager.shutdown();
+  }
   if (remoteSystemService) {
     void remoteSystemService.shutdown();
+  }
+  if (gitStatusService) {
+    gitStatusService.shutdown();
   }
   if (sshHookTunnelService) {
     void sshHookTunnelService.shutdown();

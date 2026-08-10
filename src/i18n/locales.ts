@@ -70,6 +70,7 @@ export type TranslationKey =
   | "common.unsavedChanges"
   | "confirm.discardUnsavedFileChanges"
   | "confirm.deleteEntry"
+  | "confirm.trashEntry"
   | "window.minimize"
   | "window.maximize"
   | "window.restore"
@@ -222,6 +223,39 @@ export type TranslationKey =
   | "files.binary"
   | "files.previewMode"
   | "files.editMode"
+  | "files.newFile"
+  | "files.newDirectory"
+  | "files.changeRoot"
+  | "files.back"
+  | "files.forward"
+  | "files.sortBy"
+  | "files.sortNameAsc"
+  | "files.sortNameDesc"
+  | "files.sortModified"
+  | "files.sortSize"
+  | "files.rename"
+  | "files.move"
+  | "files.copyPath"
+  | "files.targetDirectory"
+  | "files.nameConflict"
+  | "files.overwrite"
+  | "files.skip"
+  | "files.autoRename"
+  | "files.saveAs"
+  | "files.forceOverwrite"
+  | "files.localChanges"
+  | "files.remoteChanges"
+  | "files.transfers"
+  | "files.clearCompleted"
+  | "files.noTransfers"
+  | "files.activeTransfers"
+  | "files.transferHistory"
+  | "files.closeGuardTitle"
+  | "files.unsavedFiles"
+  | "files.activeTransfersExit"
+  | "files.discardAndExit"
+  | "files.saveAllAndExit"
+  | "files.closeSshTransfers"
   | "system.loading"
   | "system.unavailable"
   | "system.metrics"
@@ -271,6 +305,11 @@ export type TranslationKey =
   | "projectSearch.filesPlaceholder"
   | "projectSearch.textPlaceholder"
   | "projectSearch.close"
+  | "projectSearch.caseSensitive"
+  | "projectSearch.wholeWord"
+  | "projectSearch.regex"
+  | "projectSearch.includeIgnored"
+  | "projectSearch.sshTextUnavailable"
   | "projectSearch.results"
   | "projectSearch.idleFiles"
   | "projectSearch.idleText"
@@ -399,6 +438,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.unsavedChanges": "未保存更改",
     "confirm.discardUnsavedFileChanges": "放弃未保存的文件更改？",
     "confirm.deleteEntry": "确定要删除 \"{name}\" 吗？此操作无法撤销。",
+    "confirm.trashEntry": "确定将 \"{name}\" 移到回收站吗？",
     "window.minimize": "最小化",
     "window.maximize": "最大化",
     "window.restore": "还原",
@@ -551,6 +591,39 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.binary": "二进制文件。请下载后在本地查看。",
     "files.previewMode": "预览模式",
     "files.editMode": "编辑模式",
+    "files.newFile": "新建文件",
+    "files.newDirectory": "新建文件夹",
+    "files.changeRoot": "更换文件根目录",
+    "files.back": "后退",
+    "files.forward": "前进",
+    "files.sortBy": "文件排序",
+    "files.sortNameAsc": "名称升序",
+    "files.sortNameDesc": "名称降序",
+    "files.sortModified": "最近修改",
+    "files.sortSize": "大小降序",
+    "files.rename": "重命名",
+    "files.move": "移动",
+    "files.copyPath": "复制路径",
+    "files.targetDirectory": "目标目录",
+    "files.nameConflict": "目标中已存在同名项目",
+    "files.overwrite": "覆盖",
+    "files.skip": "跳过",
+    "files.autoRename": "自动重命名",
+    "files.saveAs": "另存为",
+    "files.forceOverwrite": "保留本地并覆盖",
+    "files.localChanges": "本地修改",
+    "files.remoteChanges": "磁盘最新内容",
+    "files.transfers": "文件传输",
+    "files.clearCompleted": "清除已完成",
+    "files.noTransfers": "暂无文件传输任务。",
+    "files.activeTransfers": "{count} 个任务进行中",
+    "files.transferHistory": "最近 {count} 个任务",
+    "files.closeGuardTitle": "退出前处理文件工作区",
+    "files.unsavedFiles": "未保存文件",
+    "files.activeTransfersExit": "退出将取消仍在进行或排队的文件传输。",
+    "files.discardAndExit": "放弃并退出",
+    "files.saveAllAndExit": "全部保存并退出",
+    "files.closeSshTransfers": "该 SSH 会话仍有文件传输。确定取消这些任务并关闭会话吗？",
     "system.loading": "正在读取服务器状态...",
     "system.unavailable": "服务器监控不可用",
     "system.metrics": "SSH 服务器指标",
@@ -600,6 +673,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.filesPlaceholder": "输入文件名或路径...",
     "projectSearch.textPlaceholder": "输入要在项目中搜索的文本...",
     "projectSearch.close": "关闭搜索",
+    "projectSearch.caseSensitive": "区分大小写",
+    "projectSearch.wholeWord": "全词匹配",
+    "projectSearch.regex": "使用正则表达式",
+    "projectSearch.includeIgnored": "包含已忽略文件",
+    "projectSearch.sshTextUnavailable": "SSH 会话暂不支持内容搜索",
     "projectSearch.results": "{count} 个结果",
     "projectSearch.idleFiles": "开始输入以查找当前工作目录中的文件。",
     "projectSearch.idleText": "开始输入以搜索当前工作目录中的文本。",
@@ -720,6 +798,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "common.unsavedChanges": "Unsaved changes",
     "confirm.discardUnsavedFileChanges": "Discard unsaved file changes?",
     "confirm.deleteEntry": "Are you sure you want to delete \"{name}\"? This cannot be undone.",
+    "confirm.trashEntry": "Move \"{name}\" to the Recycle Bin?",
     "window.minimize": "Minimize",
     "window.maximize": "Maximize",
     "window.restore": "Restore",
@@ -872,6 +951,39 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.binary": "Binary file. Download it to view locally.",
     "files.previewMode": "Preview mode",
     "files.editMode": "Edit mode",
+    "files.newFile": "New file",
+    "files.newDirectory": "New folder",
+    "files.changeRoot": "Change file root",
+    "files.back": "Back",
+    "files.forward": "Forward",
+    "files.sortBy": "File sorting",
+    "files.sortNameAsc": "Name ascending",
+    "files.sortNameDesc": "Name descending",
+    "files.sortModified": "Recently modified",
+    "files.sortSize": "Size descending",
+    "files.rename": "Rename",
+    "files.move": "Move",
+    "files.copyPath": "Copy path",
+    "files.targetDirectory": "Target directory",
+    "files.nameConflict": "An item with the same name already exists",
+    "files.overwrite": "Overwrite",
+    "files.skip": "Skip",
+    "files.autoRename": "Auto rename",
+    "files.saveAs": "Save as",
+    "files.forceOverwrite": "Keep local and overwrite",
+    "files.localChanges": "Local changes",
+    "files.remoteChanges": "Latest file content",
+    "files.transfers": "File transfers",
+    "files.clearCompleted": "Clear completed",
+    "files.noTransfers": "No file transfer tasks.",
+    "files.activeTransfers": "{count} active",
+    "files.transferHistory": "{count} recent tasks",
+    "files.closeGuardTitle": "Resolve the file workspace before exiting",
+    "files.unsavedFiles": "Unsaved files",
+    "files.activeTransfersExit": "Exiting will cancel active and queued file transfers.",
+    "files.discardAndExit": "Discard and exit",
+    "files.saveAllAndExit": "Save all and exit",
+    "files.closeSshTransfers": "This SSH session still has file transfers. Cancel them and close the session?",
     "system.loading": "Reading server status...",
     "system.unavailable": "Server monitoring is unavailable",
     "system.metrics": "SSH server metrics",
@@ -921,6 +1033,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectSearch.filesPlaceholder": "Type a file name or path...",
     "projectSearch.textPlaceholder": "Type text to search in project...",
     "projectSearch.close": "Close search",
+    "projectSearch.caseSensitive": "Match case",
+    "projectSearch.wholeWord": "Match whole word",
+    "projectSearch.regex": "Use regular expression",
+    "projectSearch.includeIgnored": "Include ignored files",
+    "projectSearch.sshTextUnavailable": "Content search is not available for SSH sessions",
     "projectSearch.results": "{count} results",
     "projectSearch.idleFiles": "Start typing to find files in this working directory.",
     "projectSearch.idleText": "Start typing to search text in this working directory.",

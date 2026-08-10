@@ -25,6 +25,8 @@ export type TerminalSession = {
   title: string;
   shell: string;
   cwd: string;
+  fileRoot?: string;
+  fileSort?: FileSort;
   createdAt: number;
   initialCommand?: string;
   agentProvider?: AgentProvider;
@@ -231,8 +233,21 @@ export type RemoteFileEntry = {
   };
 };
 
+export type FileSort = {
+  key: "name" | "modifiedAt" | "size";
+  direction: "asc" | "desc";
+};
+
+export type FileConflictPolicy = "overwrite" | "skip" | "rename" | "cancel";
+
+export type RemoteFileMutationResult = {
+  status: "completed" | "conflict" | "skipped";
+  path: string;
+  name: string;
+};
+
 export type RemoteTextPreview =
-  | { kind: "text"; size: number; content: string; version: string }
+  | { kind: "text"; size: number; content: string; version: string; encoding: "utf-8"; bom: boolean; eol: "lf" | "crlf" | "cr" }
   | { kind: "binary"; size: number }
   | { kind: "too_large"; size: number; limit: number };
 
@@ -266,6 +281,22 @@ export type RemoteFileBatchUploadResult =
   | { canceled: true }
   | { canceled: false; uploaded: { remotePath: string }[] };
 
+export type FileTransferTask = {
+  id: string;
+  sessionId: string;
+  direction: "upload" | "download";
+  name: string;
+  localPath?: string;
+  remotePath?: string;
+  status: "queued" | "running" | "conflict" | "completed" | "canceled" | "failed";
+  transferredBytes: number;
+  totalBytes: number;
+  percent: number | null;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type RemoteSystemMetrics = {
   sampledAt: number;
   network: {
@@ -290,14 +321,32 @@ export type RemoteSystemMetrics = {
 export type GitStatusEntry = {
   status: string;
   label: string;
+  indexStatus: string;
+  worktreeStatus: string;
+  conflicted: boolean;
   path: string;
   oldPath?: string;
+};
+
+export type GitBranchState = {
+  name: string;
+  oid: string;
+  detached: boolean;
+  unborn: boolean;
+  upstream?: {
+    name: string;
+    remote: string;
+    branch: string;
+  };
+  ahead: number;
+  behind: number;
 };
 
 export type GitStatusResult = {
   cwd: string;
   clean: boolean;
   files: GitStatusEntry[];
+  branch: GitBranchState;
 };
 
 export type GitDiffRowType = "context" | "add" | "delete" | "modify";

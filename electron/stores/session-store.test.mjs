@@ -41,6 +41,13 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("persists an independent file root and normalized file sorting", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{ id: "1", title: "Files", type: "windows", cwd: "C:\\terminal", fileRoot: " C:\\repo ", fileSort: { key: "modifiedAt", direction: "desc" } }]));
+    const [session] = createStore(sessionsFile).loadLibrary();
+    expect(session).toMatchObject({ cwd: "C:\\terminal", fileRoot: "C:\\repo", fileSort: { key: "modifiedAt", direction: "desc" } });
+  });
+
   it("preserves Git directory state and defaults old sessions to no override", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

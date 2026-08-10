@@ -2849,6 +2849,20 @@
   background: color-mix(in srgb, var(--color-bg-overlay) 72%, transparent);
 }
 
+.project-search-workspace {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.project-search-workspace .project-search-dialog {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  box-shadow: none;
+}
+
 .project-search-dialog {
   display: flex;
   width: min(880px, calc(100vw - 48px));
@@ -2990,13 +3004,18 @@
 
 .project-search-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-app);
 }
+
+.project-search-options { display: flex; align-items: center; gap: 4px; }
+.project-search-options button.active { color: var(--color-text-strong); background: var(--color-bg-selection); }
+.project-search-options label { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-muted); font-size: 11px; white-space: nowrap; }
+.project-search-options label input { width: auto; }
 
 .project-search-header > svg {
   width: 17px;
@@ -3863,6 +3882,148 @@
   margin: 0 4px 0 0;
   vertical-align: middle;
 }
+
+.remote-file-path {
+  gap: 4px;
+}
+
+.remote-file-history {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.remote-file-history:hover:not(:disabled) { background: var(--color-bg-hover); }
+.remote-file-history:disabled { opacity: .35; }
+.remote-file-history svg { width: 14px; height: 14px; }
+
+.remote-file-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 28px;
+  padding: 0 10px 7px;
+  overflow-x: auto;
+}
+
+.remote-file-breadcrumbs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 5px;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.remote-file-breadcrumbs button:hover { color: var(--color-text); background: var(--color-bg-hover); }
+.remote-file-breadcrumbs select {
+  margin-left: auto;
+  max-width: 94px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 3px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-control);
+}
+
+.remote-file-inline-row { border: 1px solid var(--color-accent); }
+.remote-file-inline-input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 3px 5px;
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+}
+
+.remote-code-editor { height: 100%; min-height: 0; overflow: hidden; }
+.remote-code-editor .cm-editor { height: 100%; }
+
+.file-operation-dialog,
+.remote-conflict-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 18px;
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .42);
+}
+
+.file-operation-dialog h2,
+.remote-conflict-dialog h2 { margin: 0 0 14px; font-size: 15px; }
+.file-operation-dialog label { display: grid; gap: 7px; }
+.file-operation-dialog input {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+}
+.file-operation-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.file-operation-actions.wrap { flex-wrap: wrap; }
+.file-operation-actions button {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 11px;
+  color: var(--color-text);
+  background: var(--color-bg-control);
+}
+.file-operation-actions button:hover { border-color: var(--color-accent); }
+.remote-conflict-dialog { width: min(920px, calc(100vw - 32px)); }
+.remote-conflict-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.remote-conflict-columns section { min-width: 0; }
+.remote-conflict-columns pre {
+  max-height: 52vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--color-bg-control);
+}
+
+@media (max-width: 900px) {
+  .remote-conflict-columns { grid-template-columns: 1fr; }
+}
+
+.remote-file-transfer-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 10px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-control);
+}
+
+.remote-file-transfer-summary strong { color: var(--color-info-text); font-size: 11px; }
+.file-transfer-workspace { display: flex; height: 100%; min-height: 0; flex-direction: column; padding: 14px; box-sizing: border-box; }
+.file-transfer-workspace > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
+.file-transfer-workspace > header div { display: flex; align-items: baseline; gap: 8px; }
+.file-transfer-workspace h2 { margin: 0; font-size: 16px; }
+.file-transfer-workspace > header button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 9px; color: var(--color-text-secondary); background: var(--color-bg-control); }
+.file-transfer-workspace button svg { width: 14px; height: 14px; }
+.file-transfer-list { min-height: 0; overflow: auto; padding-top: 10px; }
+.file-transfer-task { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid var(--color-border); }
+.file-transfer-direction svg { width: 17px; height: 17px; color: var(--color-accent); }
+.file-transfer-main { display: grid; gap: 6px; min-width: 0; }
+.file-transfer-main > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
+.file-transfer-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-transfer-main span, .file-transfer-main small { color: var(--color-text-muted); }
+.file-transfer-buttons { display: flex; gap: 4px; }
+.file-transfer-buttons button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; color: var(--color-text-secondary); background: var(--color-bg-control); }
+.file-transfer-task.failed small { color: var(--color-danger-text); }
 
 @media (max-width: 760px) {
   .listener-agent-settings-grid,

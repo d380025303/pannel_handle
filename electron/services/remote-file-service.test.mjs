@@ -22,6 +22,7 @@ function createSftpMock(overrides = {}) {
     cwd: vi.fn(async () => "/home/deploy"),
     list: vi.fn(async () => []),
     stat: vi.fn(async () => ({ size: 4 })),
+    exists: vi.fn(async () => false),
     get: vi.fn(async () => Buffer.from("text")),
     mkdir: vi.fn(),
     put: vi.fn(),
@@ -49,6 +50,37 @@ function readStream(stream) {
 }
 
 describe("remote-file-service", () => {
+  it("preserves UTF-8 BOM and CRLF when saving text", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-format-"));
+    const filePath = path.join(dir, "note.txt");
+    fs.writeFileSync(filePath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("one\r\ntwo", "utf-8")]));
+    try {
+      const service = createRemoteFileService({ terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }), sessionStore: createSessionStore(), shellApi: createShellMock() });
+      const preview = await service.readText("run-1", filePath);
+      expect(preview).toEqual(expect.objectContaining({ content: "one\r\ntwo", bom: true, eol: "crlf" }));
+      await service.writeText("run-1", filePath, "next\nline", preview.version, { format: { bom: preview.bom, eol: preview.eol } });
+      expect(fs.readFileSync(filePath)).toEqual(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("next\r\nline")]));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates, auto-renames, moves, and trashes Windows entries", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-mutate-"));
+    const shellApi = createShellMock({ trashItem: vi.fn(async (target) => fs.promises.rm(target, { recursive: true, force: true })) });
+    try {
+      const service = createRemoteFileService({ terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }), sessionStore: createSessionStore(), shellApi });
+      await expect(service.createEntry("run-1", dir, "note.txt", "file")).resolves.toEqual(expect.objectContaining({ status: "completed" }));
+      const renamed = await service.createEntry("run-1", dir, "note.txt", "file", "rename");
+      expect(renamed).toEqual(expect.objectContaining({ status: "completed", name: "note (1).txt" }));
+      const moved = await service.moveEntry("run-1", renamed.path, dir, "moved.txt");
+      expect(moved).toEqual(expect.objectContaining({ status: "completed", name: "moved.txt" }));
+      await expect(service.deleteEntry("run-1", moved.path)).resolves.toEqual({ mode: "trash" });
+      expect(shellApi.trashItem).toHaveBeenCalledWith(moved.path);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("connects with saved SSH password and lists files", async () => {
     const session = {
       id: "run-1",
@@ -134,6 +166,9 @@ describe("remote-file-service", () => {
         kind: "text",
         size: 4,
         content: "text",
+        encoding: "utf-8",
+        bom: false,
+        eol: "lf",
         version: "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
       });
 
@@ -328,6 +363,9 @@ describe("remote-file-service", () => {
       kind: "text",
       size: 4,
       content: "text",
+      encoding: "utf-8",
+      bom: false,
+      eol: "lf",
       version: "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
     });
 
@@ -452,8 +490,8 @@ describe("remote-file-service", () => {
       });
 
       await expect(service.uploadFiles("run-1", [firstFile, secondFile], targetDir)).resolves.toEqual([
-        { remotePath: path.join(targetDir, "first.txt") },
-        { remotePath: path.join(targetDir, "second.txt") }
+        { status: "completed", remotePath: path.join(targetDir, "first.txt") },
+        { status: "completed", remotePath: path.join(targetDir, "second.txt") }
       ]);
       expect(fs.readFileSync(path.join(targetDir, "first.txt"), "utf-8")).toBe("one");
       expect(fs.readFileSync(path.join(targetDir, "second.txt"), "utf-8")).toBe("two");
@@ -505,8 +543,8 @@ describe("remote-file-service", () => {
       });
 
       await expect(service.uploadFiles("run-1", [firstFile, secondFile], "/home/deploy")).resolves.toEqual([
-        { remotePath: "/home/deploy/first.txt" },
-        { remotePath: "/home/deploy/second.txt" }
+        { status: "completed", remotePath: "/home/deploy/first.txt" },
+        { status: "completed", remotePath: "/home/deploy/second.txt" }
       ]);
       expect(sftp.fastPut).toHaveBeenCalledWith(firstFile, "/home/deploy/first.txt");
       expect(sftp.fastPut).toHaveBeenCalledWith(secondFile, "/home/deploy/second.txt");

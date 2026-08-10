@@ -125,7 +125,10 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   readText: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:read-text", { sessionId, remotePath }),
   previewFile: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:preview-file", { sessionId, remotePath }),
   releasePreview: (previewId) => ipcRenderer.invoke("remote-files:release-preview", { previewId }),
-  writeText: (sessionId, remotePath, content, expectedVersion) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion }),
+  writeText: (sessionId, remotePath, content, expectedVersion, options) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion, options }),
+  createEntry: (sessionId, parentPath, name, kind, conflictPolicy) => ipcRenderer.invoke("remote-files:create", { sessionId, parentPath, name, kind, conflictPolicy }),
+  moveEntry: (sessionId, sourcePath, targetDirectory, name, conflictPolicy) => ipcRenderer.invoke("remote-files:move", { sessionId, sourcePath, targetDirectory, name, conflictPolicy }),
+  chooseRoot: (sessionId, currentRoot) => ipcRenderer.invoke("remote-files:choose-root", { sessionId, currentRoot }),
   uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
   uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("remote-files:upload-files", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
   downloadFile: (transferId, sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { transferId, sessionId, remotePath, fileName }),
@@ -137,11 +140,39 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
     return () => ipcRenderer.removeListener("remote-files:download-progress", listener);
   },
   openInExplorer: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:open-in-explorer", { sessionId, remotePath }),
-  deleteEntry: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:delete", { sessionId, remotePath })
+  deleteEntry: (sessionId, remotePath, options) => ipcRenderer.invoke("remote-files:delete", { sessionId, remotePath, options })
+  , watchDirectories: (sessionId, directories) => ipcRenderer.invoke("remote-files:watch", { sessionId, directories })
+  , unwatchDirectories: (sessionId) => ipcRenderer.invoke("remote-files:unwatch", { sessionId })
+  , onChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-files:changed", listener);
+    return () => ipcRenderer.removeListener("remote-files:changed", listener);
+  }
+  , onWatchError: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-files:watch-error", listener);
+    return () => ipcRenderer.removeListener("remote-files:watch-error", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("remoteSystemApi", {
   getMetrics: (sessionId) => ipcRenderer.invoke("remote-system:metrics", { sessionId })
+});
+
+contextBridge.exposeInMainWorld("fileTransferApi", {
+  list: () => ipcRenderer.invoke("file-transfers:list"),
+  chooseUpload: (sessionId, remoteDir) => ipcRenderer.invoke("file-transfers:choose-upload", { sessionId, remoteDir }),
+  uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("file-transfers:upload-paths", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
+  chooseDownload: (sessionId, remotePath, fileName) => ipcRenderer.invoke("file-transfers:choose-download", { sessionId, remotePath, fileName }),
+  cancel: (id) => ipcRenderer.invoke("file-transfers:cancel", { id }),
+  retry: (id) => ipcRenderer.invoke("file-transfers:retry", { id }),
+  resolveConflict: (id, policy) => ipcRenderer.invoke("file-transfers:resolve-conflict", { id, policy }),
+  clear: (id) => ipcRenderer.invoke("file-transfers:clear", { id }),
+  onChanged: (callback) => {
+    const listener = (_event, tasks) => callback(tasks);
+    ipcRenderer.on("file-transfers:changed", listener);
+    return () => ipcRenderer.removeListener("file-transfers:changed", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("gitApi", {
@@ -158,10 +189,10 @@ contextBridge.exposeInMainWorld("gitApi", {
 });
 
 contextBridge.exposeInMainWorld("projectSearchApi", {
-  searchWorkspaceEntries: (sessionId, query) => ipcRenderer.invoke("project-search:workspace-entries", { sessionId, query }),
+  searchWorkspaceEntries: (sessionId, query, rootPath, options) => ipcRenderer.invoke("project-search:workspace-entries", { sessionId, query, rootPath, options }),
   listDirectories: (sessionId, rootPath) => ipcRenderer.invoke("project-search:list-directories", { sessionId, rootPath }),
-  searchFiles: (sessionId, query, rootPath) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath }),
-  searchText: (sessionId, query, requestId, rootPath) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath }),
+  searchFiles: (sessionId, query, rootPath, options) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath, options }),
+  searchText: (sessionId, query, requestId, rootPath, options) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath, options }),
   cancelTextSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-text", { sessionId, requestId })
 });
 
@@ -169,6 +200,12 @@ contextBridge.exposeInMainWorld("windowApi", {
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),
   close: () => ipcRenderer.send("window:close"),
+  resolveClose: (confirmed) => ipcRenderer.send("window:resolve-close", confirmed),
+  onCloseRequested: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("window:close-requested", listener);
+    return () => ipcRenderer.removeListener("window:close-requested", listener);
+  },
   isMaximized: () => ipcRenderer.invoke("window:is-maximized"),
   onMaximizedChanged: (callback) => {
     const listener = (_event, isMaximized) => callback(isMaximized);
