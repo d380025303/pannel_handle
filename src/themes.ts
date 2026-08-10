@@ -1,4 +1,4 @@
-import type { ITheme } from "xterm";
+import type { ITheme } from "@xterm/xterm";
 import type { TranslationKey } from "./i18n";
 import type { ThemeId } from "./vite-env";
 

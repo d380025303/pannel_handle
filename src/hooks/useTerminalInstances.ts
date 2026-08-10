@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MouseEvent, WheelEvent } from "react";
-import { Terminal, type ITheme } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { useI18n } from "../i18n";
 import { createImeInputGuard } from "../utils/terminalInput";
 
