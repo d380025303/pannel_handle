@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +16,75 @@ function createProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-hooks-"));
   tempDirs.push(dir);
   return dir;
+}
+
+async function runWindowsHook(scriptPath, expectedPath, input) {
+  let child;
+  const server = http.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const address = server.address();
+    const requestPromise = new Promise((resolve, reject) => {
+      server.once("request", (request, response) => {
+        const chunks = [];
+        request.on("data", chunk => chunks.push(chunk));
+        request.on("error", reject);
+        request.on("end", () => {
+          try {
+            response.writeHead(204);
+            response.end();
+            resolve({
+              path: request.url,
+              contentType: request.headers["content-type"],
+              payload: JSON.parse(Buffer.concat(chunks).toString("utf-8"))
+            });
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    });
+    let stderr = "";
+    child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath
+    ], {
+      env: {
+        ...process.env,
+        PANNEL_HANDLE_HOOK_URL: `http://127.0.0.1:${address.port}/claude-hook`,
+        PANNEL_HANDLE_SESSION_ID: "run-unicode"
+      },
+      stdio: ["pipe", "ignore", "pipe"]
+    });
+    child.stderr.on("data", chunk => {
+      stderr += chunk.toString("utf-8");
+    });
+    const exitPromise = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", code => code === 0 ? resolve() : reject(new Error(stderr || `PowerShell exited with code ${code}.`)));
+    });
+    child.stdin.end(Buffer.from(JSON.stringify(input), "utf-8"));
+
+    const timeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Timed out waiting for ${expectedPath}.`)), 5000).unref();
+    });
+    const [request] = await Promise.race([
+      Promise.all([requestPromise, exitPromise]),
+      timeout
+    ]);
+    expect(request.path).toBe(expectedPath);
+    return request;
+  } finally {
+    child?.kill();
+    await new Promise(resolve => server.close(resolve));
+  }
 }
 
 afterEach(() => {
@@ -42,6 +113,54 @@ describe("hook-config-manager", () => {
     expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "pannel-handle-hook.ps1"))).toBe(true);
     expect(manager.inspect({ type: "windows", path: projectPath }, ["qoder"]).providers.qoder.status).toBe("installed");
+  });
+
+  it.runIf(process.platform === "win32")("preserves UTF-8 payloads in installed Windows hooks", async () => {
+    const projectPath = createProject();
+    const manager = createHookConfigManager({ assetsDir });
+    const message = "中文测试";
+    const cases = [
+      ["claude", ".claude", "/claude-hook"],
+      ["codex", ".codex", "/codex-hook"],
+      ["qoder", ".qoder", "/qoder-hook"]
+    ];
+
+    expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
+
+    for (const [, directory, requestPath] of cases) {
+      const request = await runWindowsHook(
+        path.join(projectPath, directory, "pannel-handle-hook.ps1"),
+        requestPath,
+        { hook_event_name: "Stop", last_assistant_message: message }
+      );
+      expect(request.contentType).toBe("application/json; charset=utf-8");
+      expect(request.payload.last_assistant_message).toBe(message);
+      expect(request.payload.pannel_handle_session_id).toBe("run-unicode");
+    }
+  });
+
+  it("reports and repairs an outdated managed Windows hook", () => {
+    const projectPath = createProject();
+    const manager = createHookConfigManager({ assetsDir });
+    const target = { type: "windows", path: projectPath };
+
+    manager.install(target, ["codex"]);
+    const scriptPath = path.join(projectPath, ".codex", "pannel-handle-hook.ps1");
+    const outdatedScript = fs.readFileSync(scriptPath, "utf-8")
+      .replace(/  \$bodyBytes = \[System\.Text\.Encoding\]::UTF8\.GetBytes\(\$body\)\r?\n/, "")
+      .replace("-Body $bodyBytes", "-Body $body")
+      .replace("application/json; charset=utf-8", "application/json");
+    expect(outdatedScript).not.toContain("UTF8.GetBytes");
+    fs.writeFileSync(scriptPath, outdatedScript, "utf-8");
+
+    expect(manager.inspect(target, ["codex"]).providers.codex.status).toBe("needs_repair");
+
+    const result = manager.install(target, ["codex"]);
+
+    expect(result.providers.codex.status).toBe("installed");
+    expect(fs.readFileSync(scriptPath, "utf-8")).toBe(
+      fs.readFileSync(path.join(assetsDir, "pannel-handle-codex-hook.ps1"), "utf-8")
+    );
   });
 
   it("reports and repairs a modified OpenCode plugin without creating opencode.json", () => {

@@ -26,11 +26,12 @@ $payload["pannel_handle_session_id"] = $env:PANNEL_HANDLE_SESSION_ID
 
 try {
   $body = $payload | ConvertTo-Json -Depth 20 -Compress
+  $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
   Invoke-RestMethod `
     -Uri $codexHookUrl `
     -Method Post `
-    -Body $body `
-    -ContentType "application/json" `
+    -Body $bodyBytes `
+    -ContentType "application/json; charset=utf-8" `
     -TimeoutSec 2 `
     | Out-Null
 } catch {
