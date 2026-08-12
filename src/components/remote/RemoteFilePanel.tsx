@@ -802,6 +802,12 @@ export function RemoteFilePanel({
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {
+      if (sessionId) {
+        const existingTab = previewTabsRef.current.find((tab) => tab.id === getPreviewTabId(sessionId, entry.path));
+        if (existingTab) {
+          onActivePreviewTabChange?.(existingTab.id);
+        }
+      }
       return;
     }
     selectedPathRef.current = entry.path;
