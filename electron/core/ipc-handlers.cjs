@@ -1,7 +1,8 @@
-const { ipcMain } = require("electron");
+const { app, ipcMain, nativeImage } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { startNativeFileDrag } = require("./native-file-drag.cjs");
 const {
   MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
   MAX_AGENT_OUTPUT_MAX_BYTES,
@@ -354,9 +355,12 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     const localPath = path.join(tempDir, getDownloadFileName(fileName, remotePath));
     const downloaded = await runDownload(event, { transferId, sessionId, remotePath, localPath, fileName });
     if (downloaded.canceled) return downloaded;
-    event.sender.startDrag({
-      file: downloaded.localPath,
-      icon: path.join(__dirname, "..", "..", "build", "icon.png")
+    await startNativeFileDrag({
+      app,
+      nativeImage,
+      sender: event.sender,
+      filePath: downloaded.localPath,
+      fallbackIconPath: path.join(__dirname, "..", "..", "build", "icon.png")
     });
     return { canceled: false, ...downloaded };
   });
