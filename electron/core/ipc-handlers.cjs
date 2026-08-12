@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager, mobileRemoteService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -176,13 +176,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("sessions:launch-selected", async (_event, sessionsToLaunch) => {
-    const result = await agentSessionLauncher.launchSessions(sessionsToLaunch);
-    await listenerAgentManager.syncAll().catch(err => console.error("Failed to start listener Agents:", err));
-    return result;
+    return agentSessionLauncher.launchSessions(sessionsToLaunch);
   });
 
   ipcMain.handle("sessions:delete-saved", (_event, id) => {
-    listenerAgentManager.removeTemplate(id);
     return terminalManager.deleteSavedSession(id);
   });
 
@@ -201,9 +198,7 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("wsl:list-distros", () => terminalManager.listWslDistros());
 
   ipcMain.handle("sessions:create", async (_event, options) => {
-    const result = await agentSessionLauncher.createSession(options);
-    await listenerAgentManager.syncAll().catch(err => console.error("Failed to start listener Agents:", err));
-    return result;
+    return agentSessionLauncher.createSession(options);
   });
 
   ipcMain.handle("sessions:rename", (_event, { id, title }) => {
@@ -211,9 +206,7 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("sessions:update", async (_event, { id, title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags }) => {
-    const result = terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags });
-    await listenerAgentManager.syncAll().catch(err => console.error("Failed to sync listener Agents:", err));
-    return result;
+    return terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {
@@ -224,17 +217,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (remoteSystemService) {
       await remoteSystemService.disconnect(id);
     }
-    await listenerAgentManager.syncAll().catch(err => console.error("Failed to sync listener Agents:", err));
     return sessions;
   });
-
-  ipcMain.handle("listener-agents:get-state", (_event, templateId) => listenerAgentManager.stateFor(templateId));
-  ipcMain.handle("listener-agents:save", (_event, { templateId, agent }) => listenerAgentManager.saveAgent(templateId, agent));
-  ipcMain.handle("listener-agents:delete", (_event, { templateId, agentId }) => listenerAgentManager.deleteAgent(templateId, agentId));
-  ipcMain.handle("listener-agents:run", (_event, { templateId, agentId, triggerId }) => listenerAgentManager.runNow(templateId, agentId, triggerId));
-  ipcMain.handle("listener-agents:cancel", (_event, { templateId, agentId }) => listenerAgentManager.cancel(templateId, agentId));
-  ipcMain.handle("listener-agents:history", (_event, { templateId, agentId }) => listenerAgentManager.listHistory(templateId, agentId));
-  ipcMain.handle("listener-agents:clear-history", (_event, { templateId, agentId }) => listenerAgentManager.clearHistory(templateId, agentId));
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
 

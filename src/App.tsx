@@ -5,7 +5,6 @@ import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
-import { ListenerAgentPanel } from "./components/agents/ListenerAgentPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
 import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
@@ -31,7 +30,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "agents" | "debug" | "completionDebug";
+type RightTool = "files" | "git" | "debug" | "completionDebug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -615,15 +614,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                           </strong>
                         )}
                       </button>
-                      <button
-                        className={activeRightTool === "agents" ? "active" : ""}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeRightTool === "agents"}
-                        onClick={() => handleRightToolChange("agents")}
-                      >
-                        {locale === "zh-CN" ? "Agent" : "Agents"}
-                      </button>
                     </>
                   )}
                   {debugMode && (
@@ -674,8 +664,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   session={terminalSessions.activeSession}
                   onSummaryChange={handleGitSummaryChange}
                 />
-              ) : activeRightTool === "agents" && showFilesPanel ? (
-                <ListenerAgentPanel session={terminalSessions.activeSession!} />
               ) : activeRightTool === "completionDebug" ? (
                 <CompletionDebugSidebar
                   entries={completionDebugEntries}

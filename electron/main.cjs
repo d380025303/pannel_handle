@@ -1,9 +1,6 @@
 const path = require("node:path");
 const { Readable } = require("node:stream");
 const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
-const { createListenerAgentCli } = require("./agents/listener-agent-cli.cjs");
-const { createListenerAgentManager } = require("./agents/listener-agent-manager.cjs");
-const { createListenerAgentStore } = require("./agents/listener-agent-store.cjs");
 const { registerIpcHandlers } = require("./core/ipc-handlers.cjs");
 const { createWindowManager } = require("./core/window-manager.cjs");
 const { createAgentHookServer } = require("./hooks/agent-hook-server.cjs");
@@ -56,8 +53,6 @@ let dingTalkNotificationManager = null;
 let gitStatusService = null;
 let projectSearchService = null;
 let clipboardImageService = null;
-let listenerAgentStore = null;
-let listenerAgentManager = null;
 let completionService = null;
 let mobileAccessStore = null;
 let mobileRemoteService = null;
@@ -189,9 +184,6 @@ if (!gotSingleInstanceLock) {
         if (sshHookTunnelService) {
           void sshHookTunnelService.disconnect(id);
         }
-        if (listenerAgentManager) {
-          void listenerAgentManager.syncAll();
-        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -208,10 +200,6 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       knownHostStore
     });
-    listenerAgentStore = createListenerAgentStore({
-      historyFile: path.join(app.getPath("userData"), "listener-agent-history.json")
-    });
-    listenerAgentStore.load();
     remoteFileService = createRemoteFileService({
       terminalManager,
       sessionStore,
@@ -308,15 +296,6 @@ if (!gotSingleInstanceLock) {
       broadcastDebug: (payload) => windowManager.broadcast("completion:debug", payload)
     });
 
-    listenerAgentManager = createListenerAgentManager({
-      terminalManager,
-      sessionStore,
-      historyStore: listenerAgentStore,
-      cli: createListenerAgentCli({ sshSessionRuntime }),
-      sshSessionRuntime,
-      broadcast: windowManager.broadcast
-    });
-
     sessionStore.loadLibrary();
     await agentHookServer.start();
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
@@ -342,7 +321,6 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       gitStatusService,
       projectSearchService,
-      listenerAgentManager,
       mobileRemoteService
     });
     windowManager.createWindow();
@@ -394,9 +372,6 @@ app.on("window-all-closed", () => {
   }
   if (agentNotificationManager) {
     agentNotificationManager.shutdown();
-  }
-  if (listenerAgentManager) {
-    listenerAgentManager.shutdown();
   }
   if (windowManager) {
     windowManager.closeWindowManager();
