@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installInputRecovery } from "./inputRecovery";
+import {
+  INPUT_INTERRUPTION_END_EVENT,
+  INPUT_INTERRUPTION_START_EVENT,
+  installInputRecovery
+} from "./inputRecovery";
 
 function appendInput(className?: string) {
   const input = document.createElement("textarea");
@@ -127,6 +131,69 @@ describe("installInputRecovery", () => {
     const input = appendInput();
     const dispose = installInputRecovery({ schedule: (callback) => callback() });
 
+    input.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).toBe(input);
+    dispose();
+  });
+
+  it("waits for an asynchronous native drag to finish before restoring focus", () => {
+    const input = appendInput();
+    const draggable = document.createElement("button");
+    draggable.draggable = true;
+    document.body.appendChild(draggable);
+    input.focus();
+    const dispose = installInputRecovery({ schedule: (callback) => callback() });
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+    draggable.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    document.dispatchEvent(new CustomEvent(INPUT_INTERRUPTION_START_EVENT, {
+      detail: { id: "transfer-1" }
+    }));
+    input.blur();
+    document.dispatchEvent(new Event("dragend", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+
+    document.dispatchEvent(new CustomEvent(INPUT_INTERRUPTION_END_EVENT, {
+      detail: { id: "transfer-1" }
+    }));
+
+    expect(document.activeElement).toBe(input);
+    dispose();
+  });
+
+  it("keeps a failed recovery target available for the next window focus", () => {
+    const input = appendInput();
+    input.focus();
+    const realFocus = input.focus.bind(input);
+    let blockFocus = true;
+    vi.spyOn(input, "focus").mockImplementation(() => {
+      if (!blockFocus) realFocus();
+    });
+    const dispose = installInputRecovery({ schedule: (callback) => callback() });
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    input.blur();
+
+    document.dispatchEvent(new Event("dragend", { bubbles: true }));
+    expect(document.activeElement).not.toBe(input);
+
+    blockFocus = false;
+    window.dispatchEvent(new Event("focus"));
+
+    expect(document.activeElement).toBe(input);
+    dispose();
+  });
+
+  it("allows an explicit editable click to recover while drag state is still active", () => {
+    const input = appendInput();
+    const draggable = document.createElement("button");
+    draggable.draggable = true;
+    document.body.appendChild(draggable);
+    const dispose = installInputRecovery({ schedule: (callback) => callback() });
+
+    draggable.dispatchEvent(new Event("dragstart", { bubbles: true }));
     input.dispatchEvent(new Event("pointerdown", { bubbles: true }));
 
     expect(document.activeElement).toBe(input);

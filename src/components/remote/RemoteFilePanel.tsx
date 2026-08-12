@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Copy, Download
 import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { RemoteCodeEditor } from "./RemoteCodeEditor";
-import { INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
+import { beginInputInterruption, endInputInterruption, INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
@@ -1164,7 +1164,10 @@ export function RemoteFilePanel({
     };
     downloadTransferRef.current = initial;
     setDownloadTransfer(initial);
-    if (mode === "drag") setDownloadDragPath(entry.path);
+    if (mode === "drag") {
+      setDownloadDragPath(entry.path);
+      beginInputInterruption(transferId);
+    }
     setError(null);
     try {
       const result = mode === "save"
@@ -1182,7 +1185,10 @@ export function RemoteFilePanel({
         error: message
       } : current);
     } finally {
-      if (mode === "drag") setDownloadDragPath((current) => current === entry.path ? null : current);
+      if (mode === "drag") {
+        setDownloadDragPath((current) => current === entry.path ? null : current);
+        endInputInterruption(transferId);
+      }
     }
   }, [sessionId]);
 

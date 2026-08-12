@@ -1,6 +1,26 @@
 import { useEffect } from "react";
 
 export const INPUT_RECOVERY_EVENT = "pannel-handle:input-recovery";
+export const INPUT_INTERRUPTION_START_EVENT = "pannel-handle:input-interruption-start";
+export const INPUT_INTERRUPTION_END_EVENT = "pannel-handle:input-interruption-end";
+
+type InputInterruptionDetail = {
+  id: string;
+};
+
+function dispatchInputInterruption(type: string, id: string, targetDocument = document) {
+  targetDocument.dispatchEvent(new CustomEvent<InputInterruptionDetail>(type, {
+    detail: { id }
+  }));
+}
+
+export function beginInputInterruption(id: string, targetDocument?: Document) {
+  dispatchInputInterruption(INPUT_INTERRUPTION_START_EVENT, id, targetDocument);
+}
+
+export function endInputInterruption(id: string, targetDocument?: Document) {
+  dispatchInputInterruption(INPUT_INTERRUPTION_END_EVENT, id, targetDocument);
+}
 
 type InputRecoveryOptions = {
   debug?: boolean;
@@ -76,6 +96,7 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
   let dragActive = false;
   let recoveryScheduled = false;
   let disposed = false;
+  const activeInterruptions = new Set<string>();
 
   const captureActiveTarget = () => {
     const activeElement = recoveryDocument.activeElement;
@@ -106,19 +127,22 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
 
   const recover = (reason: string) => {
     recoveryScheduled = false;
-    if (disposed || !savedTarget) return;
+    if (disposed) return;
 
     const target = savedTarget;
-    savedTarget = null;
     const activeElement = recoveryDocument.activeElement;
-    const terminalTarget = Boolean(target.closest(".terminal-host"));
+    const terminalTarget = Boolean(target?.closest(".terminal-host"));
     let restored = false;
 
-    if (isUsableFocusTarget(target) && !hasUserSelectedAnotherTarget(activeElement, target, dragSource)) {
+    if (target && isUsableFocusTarget(target) && !hasUserSelectedAnotherTarget(activeElement, target, dragSource)) {
       options.resetTerminalInput?.(terminalTarget);
       target.focus({ preventScroll: true });
       restored = recoveryDocument.activeElement === target;
-    } else {
+      if (restored) {
+        savedTarget = null;
+      }
+    } else if (target) {
+      savedTarget = null;
       options.resetTerminalInput?.(false);
     }
 
@@ -140,8 +164,8 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
     }
   };
 
-  const scheduleRecovery = (reason: string) => {
-    if (!savedTarget || recoveryScheduled) return;
+  const scheduleRecovery = (reason: string, force = false) => {
+    if ((!savedTarget && !force) || recoveryScheduled) return;
     recoveryScheduled = true;
     schedule(() => recover(reason));
   };
@@ -154,8 +178,29 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
 
   const handleDragFinished = (event: Event) => {
     if (!dragActive && !savedTarget) return;
+    if (activeInterruptions.size > 0) return;
     dragActive = false;
     scheduleRecovery(event.type);
+  };
+
+  const getInterruptionId = (event: Event) => {
+    const id = (event as CustomEvent<Partial<InputInterruptionDetail>>).detail?.id;
+    return typeof id === "string" && id ? id : null;
+  };
+
+  const handleInterruptionStart = (event: Event) => {
+    const id = getInterruptionId(event);
+    if (!id) return;
+    captureActiveTarget();
+    activeInterruptions.add(id);
+    dragActive = true;
+  };
+
+  const handleInterruptionEnd = (event: Event) => {
+    const id = getInterruptionId(event);
+    if (!id || !activeInterruptions.delete(id) || activeInterruptions.size > 0) return;
+    dragActive = false;
+    scheduleRecovery(`input-interruption:${id}`, true);
   };
 
   const handleWindowBlur = () => {
@@ -164,6 +209,7 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
   };
 
   const handleWindowFocus = () => {
+    if (activeInterruptions.size > 0) return;
     dragActive = false;
     scheduleRecovery("focus");
   };
@@ -174,14 +220,15 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
       options.resetTerminalInput?.(false);
       return;
     }
+    if (activeInterruptions.size > 0) return;
     dragActive = false;
     scheduleRecovery("visibilitychange");
   };
 
   const handlePointerDown = (event: Event) => {
-    if (dragActive) return;
     const target = findEditableTarget(event.target);
     if (!target || !isUsableFocusTarget(target)) return;
+    lastEditableTarget = target;
 
     schedule(() => {
       if (disposed || !isUsableFocusTarget(target) || recoveryDocument.activeElement === target) return;
@@ -198,6 +245,8 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
   recoveryDocument.addEventListener("pointerdown", handlePointerDown, true);
   recoveryDocument.addEventListener("visibilitychange", handleVisibilityChange);
   recoveryDocument.addEventListener("focusin", handleFocusIn, true);
+  recoveryDocument.addEventListener(INPUT_INTERRUPTION_START_EVENT, handleInterruptionStart);
+  recoveryDocument.addEventListener(INPUT_INTERRUPTION_END_EVENT, handleInterruptionEnd);
   recoveryWindow.addEventListener("blur", handleWindowBlur);
   recoveryWindow.addEventListener("focus", handleWindowFocus);
 
@@ -205,6 +254,7 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
     if (disposed) return;
     savedTarget = null;
     dragSource = null;
+    activeInterruptions.clear();
     options.resetTerminalInput?.(false);
     recoveryDocument.querySelectorAll<HTMLElement>(".dragging").forEach((element) => {
       element.classList.remove("dragging");
@@ -217,6 +267,8 @@ export function installInputRecovery(options: InputRecoveryOptions = {}) {
     recoveryDocument.removeEventListener("pointerdown", handlePointerDown, true);
     recoveryDocument.removeEventListener("visibilitychange", handleVisibilityChange);
     recoveryDocument.removeEventListener("focusin", handleFocusIn, true);
+    recoveryDocument.removeEventListener(INPUT_INTERRUPTION_START_EVENT, handleInterruptionStart);
+    recoveryDocument.removeEventListener(INPUT_INTERRUPTION_END_EVENT, handleInterruptionEnd);
     recoveryWindow.removeEventListener("blur", handleWindowBlur);
     recoveryWindow.removeEventListener("focus", handleWindowFocus);
   };
