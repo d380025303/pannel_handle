@@ -64,7 +64,7 @@ export function MobileAccessSettings() {
   return (
     <section className="settings-section mobile-access-settings">
       <div className="collapsible-header" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen((value) => !value); } }}>
-        <span className={`collapsible-chevron${open ? "" : " collapsed"}`}>▼</span>
+        <span className={`collapsible-chevron${open ? "" : " collapsed"}`}>▾</span>
         <h4>{t("settings.mobileTitle")}</h4>
         <label className="auto-restore-label ding-talk-toggle" onClick={(event) => event.stopPropagation()}>
           <input type="checkbox" className="auto-restore-checkbox" checked={state.config.enabled} disabled={busy} onChange={(event) => toggleEnabled(event.target.checked)} />
