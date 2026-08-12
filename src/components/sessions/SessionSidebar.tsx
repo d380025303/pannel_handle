@@ -131,6 +131,7 @@ export function SessionSidebar({
           filteredSessions.map((session) => {
             const agentStatus = agentStatusesBySessionId[session.id];
             const agentStatusLabel = getAgentStatusLabel(agentStatus, t);
+            const agentSummary = agentStatus?.lastAssistantMessage?.trim();
             return (
               <button
                 className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
@@ -165,6 +166,11 @@ export function SessionSidebar({
                   {agentStatusLabel && (
                     <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
                       {agentStatusLabel}
+                    </span>
+                  )}
+                  {agentSummary && (
+                    <span className="agent-status-summary" title={agentSummary}>
+                      {agentSummary}
                     </span>
                   )}
                 </span>
