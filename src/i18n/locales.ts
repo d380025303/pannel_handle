@@ -27,6 +27,7 @@ export type TranslationKey =
   | "settings.mobileNoTrustedDevices"
   | "settings.mobileAudit"
   | "settings.open"
+  | "settings.generalTitle"
   | "settings.autoRestore"
   | "settings.debugMode"
   | "settings.theme"
@@ -439,6 +440,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileNoTrustedDevices": "尚未配对移动设备。",
     "settings.mobileAudit": "安全事件",
     "settings.open": "打开设置",
+    "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
     "settings.debugMode": "Debug 模式",
     "settings.theme": "主题",
@@ -843,6 +845,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileNoTrustedDevices": "No mobile devices have been paired.",
     "settings.mobileAudit": "Security events",
     "settings.open": "Open settings",
+    "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
     "settings.debugMode": "Debug mode",
     "settings.theme": "Theme",

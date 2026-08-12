@@ -45,6 +45,8 @@ export function SettingsModal({
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
   const [dingTalkOpen, setDingTalkOpen] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [generalOpen, setGeneralOpen] = useState(true);
+  const [agentLogOpen, setAgentLogOpen] = useState(false);
   const [agentHistoryMaxEntries, setAgentHistoryMaxEntries] = useState(String(agentOutputHistoryMaxEntries));
   const [agentOutputMaxKiB, setAgentOutputMaxKiB] = useState(String(agentOutputMaxBytes / 1024));
   const [agentLogBusy, setAgentLogBusy] = useState(false);
@@ -165,84 +167,113 @@ export function SettingsModal({
           <h3>{t("settings.title")}</h3>
         </div>
         <div className="modal-body settings-body">
-          <section className="settings-section">
-            <label className="auto-restore-label">
-              <input
-                type="checkbox"
-                className="auto-restore-checkbox"
-                checked={autoRestore}
-                onChange={onToggleAutoRestore}
-              />
-              <span className="auto-restore-track" />
-              <span className="auto-restore-text">{t("settings.autoRestore")}</span>
-            </label>
-            <label className="auto-restore-label">
-              <input
-                type="checkbox"
-                className="auto-restore-checkbox"
-                checked={debugMode}
-                onChange={onToggleDebugMode}
-              />
-              <span className="auto-restore-track" />
-              <span className="auto-restore-text">{t("settings.debugMode")}</span>
-            </label>
-            <div className="settings-field">
-              <span className="modal-label">{t("settings.theme")}</span>
-              <SearchableSelect
-                className="settings-theme-select"
-                value={themeId}
-                options={themeOptions}
-                ariaLabel={t("settings.theme")}
-                onChange={(nextThemeId) => onThemeChange(nextThemeId as ThemeId)}
-              />
+          <section className="settings-section general-settings">
+            <div
+              className="collapsible-header"
+              role="button"
+              tabIndex={0}
+              aria-expanded={generalOpen}
+              onClick={() => setGeneralOpen((value) => !value)}
+              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setGeneralOpen((value) => !value); } }}
+            >
+              <span className={`collapsible-chevron${generalOpen ? "" : " collapsed"}`} aria-hidden="true">▾</span>
+              <h4>{t("settings.generalTitle")}</h4>
             </div>
-            <div className="settings-field">
-              <span className="modal-label">{t("settings.language")}</span>
-              <SearchableSelect
-                className="settings-theme-select"
-                value={locale}
-                options={localeOptions}
-                ariaLabel={t("settings.language")}
-                onChange={(nextLocale) => onLocaleChange(nextLocale as Locale)}
-              />
-            </div>
+            {generalOpen && (
+              <>
+                <label className="auto-restore-label">
+                  <input
+                    type="checkbox"
+                    className="auto-restore-checkbox"
+                    checked={autoRestore}
+                    onChange={onToggleAutoRestore}
+                  />
+                  <span className="auto-restore-track" />
+                  <span className="auto-restore-text">{t("settings.autoRestore")}</span>
+                </label>
+                <label className="auto-restore-label">
+                  <input
+                    type="checkbox"
+                    className="auto-restore-checkbox"
+                    checked={debugMode}
+                    onChange={onToggleDebugMode}
+                  />
+                  <span className="auto-restore-track" />
+                  <span className="auto-restore-text">{t("settings.debugMode")}</span>
+                </label>
+                <div className="settings-field">
+                  <span className="modal-label">{t("settings.theme")}</span>
+                  <SearchableSelect
+                    className="settings-theme-select"
+                    value={themeId}
+                    options={themeOptions}
+                    ariaLabel={t("settings.theme")}
+                    onChange={(nextThemeId) => onThemeChange(nextThemeId as ThemeId)}
+                  />
+                </div>
+                <div className="settings-field">
+                  <span className="modal-label">{t("settings.language")}</span>
+                  <SearchableSelect
+                    className="settings-theme-select"
+                    value={locale}
+                    options={localeOptions}
+                    ariaLabel={t("settings.language")}
+                    onChange={(nextLocale) => onLocaleChange(nextLocale as Locale)}
+                  />
+                </div>
+              </>
+            )}
           </section>
           <section className="settings-section agent-log-settings">
-            <h4>{t("settings.agentLogTitle")}</h4>
-            <p className="settings-help">{t("settings.agentLogDescription")}</p>
-            <label className="settings-field">
-              <span className="modal-label">{t("settings.agentLogHistoryMaxEntries")}</span>
-              <input
-                className="modal-input"
-                type="number"
-                min="1"
-                max="1000"
-                step="1"
-                value={agentHistoryMaxEntries}
-                disabled={agentLogBusy}
-                onChange={(event) => setAgentHistoryMaxEntries(event.target.value)}
-              />
-            </label>
-            <label className="settings-field">
-              <span className="modal-label">{t("settings.agentLogOutputMaxKiB")}</span>
-              <input
-                className="modal-input"
-                type="number"
-                min="16"
-                max={16 * 1024}
-                step="1"
-                value={agentOutputMaxKiB}
-                disabled={agentLogBusy}
-                onChange={(event) => setAgentOutputMaxKiB(event.target.value)}
-              />
-            </label>
-            <p className="settings-help">{t("settings.agentLogRange")}</p>
-            <div className="settings-actions">
-              <button className="modal-button primary" type="button" disabled={agentLogBusy} onClick={saveAgentOutputHistory}>
-                {t("common.save")}
-              </button>
+            <div
+              className="collapsible-header"
+              role="button"
+              tabIndex={0}
+              aria-expanded={agentLogOpen}
+              onClick={() => setAgentLogOpen((value) => !value)}
+              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentLogOpen((value) => !value); } }}
+            >
+              <span className={`collapsible-chevron${agentLogOpen ? "" : " collapsed"}`} aria-hidden="true">▾</span>
+              <h4>{t("settings.agentLogTitle")}</h4>
             </div>
-            {agentLogResult && <p className={`settings-result ${agentLogResult.kind}`} role="status">{agentLogResult.message}</p>}
+            {agentLogOpen && (
+              <>
+                <p className="settings-help">{t("settings.agentLogDescription")}</p>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.agentLogHistoryMaxEntries")}</span>
+                  <input
+                    className="modal-input"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    step="1"
+                    value={agentHistoryMaxEntries}
+                    disabled={agentLogBusy}
+                    onChange={(event) => setAgentHistoryMaxEntries(event.target.value)}
+                  />
+                </label>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.agentLogOutputMaxKiB")}</span>
+                  <input
+                    className="modal-input"
+                    type="number"
+                    min="16"
+                    max={16 * 1024}
+                    step="1"
+                    value={agentOutputMaxKiB}
+                    disabled={agentLogBusy}
+                    onChange={(event) => setAgentOutputMaxKiB(event.target.value)}
+                  />
+                </label>
+                <p className="settings-help">{t("settings.agentLogRange")}</p>
+                <div className="settings-actions">
+                  <button className="modal-button primary" type="button" disabled={agentLogBusy} onClick={saveAgentOutputHistory}>
+                    {t("common.save")}
+                  </button>
+                </div>
+                {agentLogResult && <p className={`settings-result ${agentLogResult.kind}`} role="status">{agentLogResult.message}</p>}
+              </>
+            )}
           </section>
           <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">
