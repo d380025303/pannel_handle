@@ -708,6 +708,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onEdit={handleEditFromPicker}
           onImport={terminalSessions.importLibrary}
           onExport={terminalSessions.exportLibrary}
+          launchTemplates={terminalSessions.launchTemplates}
+          onCreateLaunchTemplate={terminalSessions.createLaunchTemplate}
+          onUpdateLaunchTemplate={terminalSessions.updateLaunchTemplate}
+          onDeleteLaunchTemplate={terminalSessions.deleteLaunchTemplate}
+          onLaunchTemplate={terminalSessions.launchLaunchTemplate}
           onCancel={handleClosePicker}
         />
       )}

@@ -68,6 +68,14 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("launchTemplateApi", {
+  list: () => ipcRenderer.invoke("launch-templates:list"),
+  create: (input) => ipcRenderer.invoke("launch-templates:create", input),
+  update: (id, input) => ipcRenderer.invoke("launch-templates:update", id, input),
+  delete: (id) => ipcRenderer.invoke("launch-templates:delete", id),
+  launch: (id) => ipcRenderer.invoke("launch-templates:launch", id)
+});
+
 contextBridge.exposeInMainWorld("mobileAccessApi", {
   getState: () => ipcRenderer.invoke("mobile-access:get-state"),
   updateConfig: (partial) => ipcRenderer.invoke("mobile-access:update-config", partial),

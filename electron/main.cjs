@@ -13,6 +13,7 @@ const { createClipboardImageService } = require("./services/clipboard-image-serv
 const { createGitStatusService } = require("./services/git-status-service.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
+const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-file-service.cjs");
 const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
@@ -24,6 +25,7 @@ const { createConfigStore } = require("./stores/config-store.cjs");
 const { createAgentOutputHistoryStore } = require("./stores/agent-output-history-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
+const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
@@ -32,6 +34,8 @@ const { createTerminalManager, getDefaultShell, getWslShell } = require("./termi
 let windowManager = null;
 let sessionStore = null;
 let templateUsageStore = null;
+let launchTemplateStore = null;
+let launchTemplateService = null;
 let configStore = null;
 let agentOutputHistoryStore = null;
 let dingTalkConfigStore = null;
@@ -108,12 +112,17 @@ if (!gotSingleInstanceLock) {
       usageFile: path.join(app.getPath("userData"), "template-usage.json")
     });
     templateUsageStore.load();
+    launchTemplateStore = createLaunchTemplateStore({
+      templatesFile: path.join(app.getPath("userData"), "launch-templates.json")
+    });
+    launchTemplateStore.load();
     sessionStore = createSessionStore({
       sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
       getDefaultShell,
       getWslShell,
       safeStorage,
-      templateUsageStore
+      templateUsageStore,
+      launchTemplateStore
     });
     configStore = createConfigStore({
       configFile: path.join(app.getPath("userData"), "config.json"),
@@ -247,6 +256,11 @@ if (!gotSingleInstanceLock) {
       sshHookTunnelService,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
+    launchTemplateService = createLaunchTemplateService({
+      launchTemplateStore,
+      sessionStore,
+      agentSessionLauncher
+    });
     mobileRemoteService = createMobileRemoteService({
       terminalManager,
       agentSessionLauncher,
@@ -296,6 +310,8 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       agentSessionLauncher,
       sessionStore,
+      launchTemplateStore,
+      launchTemplateService,
       configStore,
       dingTalkConfigStore,
       dingTalkNotificationManager,

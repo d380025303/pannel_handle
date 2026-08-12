@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Download, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../../vite-env";
+import type { LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../../vite-env";
+import { LaunchTemplatePanel } from "./LaunchTemplatePanel";
 
 type SessionPickerModalProps = {
   pendingSessions: TerminalSession[];
@@ -14,6 +15,11 @@ type SessionPickerModalProps = {
   onEdit: (session: TerminalSession) => void;
   onImport: () => Promise<SessionLibraryImportResult>;
   onExport: () => Promise<SessionLibraryFileResult>;
+  launchTemplates: LaunchTemplate[];
+  onCreateLaunchTemplate: (input: LaunchTemplateSaveInput) => Promise<LaunchTemplate>;
+  onUpdateLaunchTemplate: (id: string, input: LaunchTemplateSaveInput) => Promise<LaunchTemplate>;
+  onDeleteLaunchTemplate: (id: string) => Promise<void>;
+  onLaunchTemplate: (id: string) => Promise<LaunchTemplateResult>;
   onCancel: () => void;
 };
 
@@ -51,6 +57,11 @@ export function SessionPickerModal({
   onEdit,
   onImport,
   onExport,
+  launchTemplates,
+  onCreateLaunchTemplate,
+  onUpdateLaunchTemplate,
+  onDeleteLaunchTemplate,
+  onLaunchTemplate,
   onCancel
 }: SessionPickerModalProps) {
   const { t } = useI18n();
@@ -63,6 +74,7 @@ export function SessionPickerModal({
   const [isExporting, setIsExporting] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"sessions" | "launchTemplates">("sessions");
 
   const runningCounts = useMemo(() => {
     return runningSessions.reduce((counts, session) => {
@@ -190,6 +202,27 @@ export function SessionPickerModal({
           <h3>{pickerManual ? t("picker.libraryTitle") : t("picker.restoreTitle")}</h3>
         </div>
         <div className="modal-body">
+          {pickerManual && (
+            <div className="session-picker-tabs" role="tablist" aria-label={t("picker.libraryTitle")}>
+              <button type="button" role="tab" aria-selected={activeTab === "sessions"} className={activeTab === "sessions" ? "active" : ""} onClick={() => setActiveTab("sessions")}>
+                {t("picker.sessionTemplatesTab")}
+              </button>
+              <button type="button" role="tab" aria-selected={activeTab === "launchTemplates"} className={activeTab === "launchTemplates" ? "active" : ""} onClick={() => setActiveTab("launchTemplates")}>
+                {t("picker.launchTemplatesTab")}
+              </button>
+            </div>
+          )}
+          {pickerManual && activeTab === "launchTemplates" ? (
+            <LaunchTemplatePanel
+              launchTemplates={launchTemplates}
+              sessionTemplates={pendingSessions}
+              onCreate={onCreateLaunchTemplate}
+              onUpdate={onUpdateLaunchTemplate}
+              onDelete={onDeleteLaunchTemplate}
+              onLaunch={onLaunchTemplate}
+            />
+          ) : (
+          <>
           <div className="picker-library-actions">
             <button className="modal-button" type="button" onClick={handleImport} disabled={isImporting || isExporting}>
               <Upload aria-hidden="true" />
@@ -354,13 +387,21 @@ export function SessionPickerModal({
               )}
             </>
           )}
+          </>
+          )}
         </div>
         <div className="modal-footer">
+          {pickerManual && activeTab === "launchTemplates" ? (
+            <button className="modal-button" type="button" onClick={onCancel}>{t("common.close")}</button>
+          ) : (
+          <>
           {!pickerManual && <button className="modal-button" type="button" disabled={isLaunching} onClick={() => void onStartFresh()}>{t("picker.startFresh")}</button>}
           <button className="modal-button" type="button" disabled={isLaunching} onClick={onCancel}>{pickerManual ? t("common.close") : t("common.cancel")}</button>
           <button className="modal-button primary" type="button" onClick={() => void handleLaunch(toLaunch)} disabled={isLaunching || toLaunch.length === 0}>
             {isLaunching ? t("picker.launching") : t("picker.launchSelected", { count: toLaunch.length })}
           </button>
+          </>
+          )}
         </div>
       </div>
     </div>

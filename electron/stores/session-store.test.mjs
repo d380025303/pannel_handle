@@ -23,13 +23,14 @@ function createSafeStorageMock() {
   };
 }
 
-function createStore(sessionsFile, safeStorage = createSafeStorageMock(), templateUsageStore) {
+function createStore(sessionsFile, safeStorage = createSafeStorageMock(), templateUsageStore, launchTemplateStore) {
   return createSessionStore({
     sessionsFile,
     getDefaultShell: () => "powershell.exe",
     getWslShell: () => "wsl.exe",
     safeStorage,
-    templateUsageStore
+    templateUsageStore,
+    launchTemplateStore
   });
 }
 
@@ -430,7 +431,8 @@ describe("session-store", () => {
         : { recentLaunchCount: 0, lastLaunchedAt: undefined }),
       remove: vi.fn()
     };
-    const store = createStore(sessionsFile, createSafeStorageMock(), templateUsageStore);
+    const launchTemplateStore = { removeSessionTemplate: vi.fn() };
+    const store = createStore(sessionsFile, createSafeStorageMock(), templateUsageStore, launchTemplateStore);
     store.loadLibrary();
     store.importLibrary([{
       id: "external-id",
@@ -451,5 +453,6 @@ describe("session-store", () => {
 
     store.removeFromLibrary("1");
     expect(templateUsageStore.remove).toHaveBeenCalledWith("1");
+    expect(launchTemplateStore.removeSessionTemplate).toHaveBeenCalledWith("1");
   });
 });

@@ -468,6 +468,212 @@
   background: var(--color-danger-bg);
 }
 
+.session-picker-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-control);
+}
+
+.session-picker-tabs button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.session-picker-tabs button:hover,
+.session-picker-tabs button:focus-visible {
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.session-picker-tabs button.active {
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.launch-template-panel,
+.launch-template-editor,
+.launch-template-editor-section {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.launch-template-toolbar,
+.launch-template-item,
+.launch-template-actions,
+.launch-template-editor-actions {
+  display: flex;
+  align-items: center;
+}
+
+.launch-template-toolbar,
+.launch-template-item {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.launch-template-toolbar p,
+.launch-template-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.launch-template-toolbar .modal-button {
+  gap: 6px;
+  flex: none;
+}
+
+.launch-template-toolbar svg,
+.launch-template-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.launch-template-list,
+.launch-template-selected-list,
+.launch-template-member-picker {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.launch-template-list {
+  max-height: 420px;
+}
+
+.launch-template-item,
+.launch-template-selected-item,
+.launch-template-member-picker label {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-app);
+}
+
+.launch-template-item {
+  padding: 10px 12px;
+}
+
+.launch-template-item-content {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.launch-template-item-content strong,
+.launch-template-item-content span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch-template-item-content span,
+.launch-template-item-content small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.launch-template-actions {
+  gap: 5px;
+  flex: none;
+}
+
+.launch-template-actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.launch-template-actions .icon-button.danger {
+  color: var(--color-danger-text);
+}
+
+.launch-template-actions .icon-button.confirm {
+  width: auto;
+  padding: 0 8px;
+  border-color: var(--color-danger-hover);
+  background: var(--color-danger-bg);
+  font-size: 11px;
+}
+
+.launch-template-failures ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.launch-template-selected-list {
+  max-height: 150px;
+}
+
+.launch-template-selected-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  cursor: grab;
+}
+
+.launch-template-selected-item.dragging {
+  opacity: 0.4;
+}
+
+.launch-template-selected-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.launch-template-member-picker {
+  max-height: 210px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.launch-template-member-picker legend {
+  padding: 0 5px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.launch-template-member-picker label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.launch-template-member-picker input {
+  accent-color: var(--color-accent);
+}
+
+.launch-template-member-picker small {
+  color: var(--color-text-muted);
+}
+
+.launch-template-editor-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .picker-item {
   display: flex;
   align-items: center;

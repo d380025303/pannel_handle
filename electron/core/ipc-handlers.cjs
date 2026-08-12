@@ -48,7 +48,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -186,6 +186,16 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("sessions:launch-selected", async (_event, sessionsToLaunch, launchMode) => {
     return agentSessionLauncher.launchSessions(sessionsToLaunch, { recordUsage: launchMode === "manual" });
   });
+
+  ipcMain.handle("launch-templates:list", () => launchTemplateStore.getAll());
+
+  ipcMain.handle("launch-templates:create", (_event, input) => launchTemplateStore.create(input));
+
+  ipcMain.handle("launch-templates:update", (_event, id, input) => launchTemplateStore.update(String(id || ""), input));
+
+  ipcMain.handle("launch-templates:delete", (_event, id) => launchTemplateStore.remove(String(id || "")));
+
+  ipcMain.handle("launch-templates:launch", (_event, id) => launchTemplateService.launch(String(id || "")));
 
   ipcMain.handle("sessions:delete-saved", (_event, id) => {
     return terminalManager.deleteSavedSession(id);

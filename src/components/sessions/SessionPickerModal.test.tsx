@@ -54,6 +54,11 @@ describe("SessionPickerModal frequent templates", () => {
           onEdit={vi.fn()}
           onImport={vi.fn()}
           onExport={vi.fn()}
+          launchTemplates={[]}
+          onCreateLaunchTemplate={vi.fn()}
+          onUpdateLaunchTemplate={vi.fn()}
+          onDeleteLaunchTemplate={vi.fn()}
+          onLaunchTemplate={vi.fn()}
           onCancel={vi.fn()}
         />
       </I18nProvider>
@@ -63,6 +68,35 @@ describe("SessionPickerModal frequent templates", () => {
     expect(container.querySelector(".picker-item")?.textContent).toContain("Template frequent");
     expect(container.querySelector(".picker-drag-handle")).toBeNull();
     expect(container.querySelector("[draggable='true']")).toBeNull();
+  });
+
+  it("switches from session templates to launch templates", () => {
+    render(
+      <I18nProvider locale="zh-CN">
+        <SessionPickerModal
+          pendingSessions={[createSession("normal")]}
+          runningSessions={[]}
+          pickerManual
+          onLaunch={vi.fn()}
+          onStartFresh={vi.fn()}
+          onDelete={vi.fn()}
+          onDuplicate={vi.fn()}
+          onEdit={vi.fn()}
+          onImport={vi.fn()}
+          onExport={vi.fn()}
+          launchTemplates={[]}
+          onCreateLaunchTemplate={vi.fn()}
+          onUpdateLaunchTemplate={vi.fn()}
+          onDeleteLaunchTemplate={vi.fn()}
+          onLaunchTemplate={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "开启模板" }));
+    expect(screen.getByText("还没有开启模板")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("搜索会话或标签...")).toBeNull();
   });
 
   it("filters before applying the frequent ordering", () => {
@@ -82,6 +116,11 @@ describe("SessionPickerModal frequent templates", () => {
           onEdit={vi.fn()}
           onImport={vi.fn()}
           onExport={vi.fn()}
+          launchTemplates={[]}
+          onCreateLaunchTemplate={vi.fn()}
+          onUpdateLaunchTemplate={vi.fn()}
+          onDeleteLaunchTemplate={vi.fn()}
+          onLaunchTemplate={vi.fn()}
           onCancel={vi.fn()}
         />
       </I18nProvider>

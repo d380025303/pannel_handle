@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentProvider, AgentStatusPayload, AppConfig, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentProvider, AgentStatusPayload, AppConfig, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { generateId } from "../utils/id";
 
 type CreateSessionOptions = {
@@ -17,6 +17,7 @@ export function useTerminalSessions() {
   const [activeId, setActiveId] = useState<string | undefined>();
   const [pendingSessions, setPendingSessions] = useState<TerminalSession[] | null>(null);
   const [librarySessions, setLibrarySessions] = useState<TerminalSession[]>([]);
+  const [launchTemplates, setLaunchTemplates] = useState<LaunchTemplate[]>([]);
   const [pickerManual, setPickerManual] = useState(false);
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
@@ -49,12 +50,14 @@ export function useTerminalSessions() {
 
     Promise.all([
       window.terminalApi.loadSavedSessions(),
-      window.terminalApi.getConfig()
-    ]).then(([saved, config]) => {
+      window.terminalApi.getConfig(),
+      window.launchTemplateApi.list()
+    ]).then(([saved, config, savedLaunchTemplates]) => {
       if (isDisposed) return;
 
       setAutoRestore(config.autoRestore);
       setLibrarySessions(saved);
+      setLaunchTemplates(savedLaunchTemplates);
 
       if (!hasAutoRestored.current && config.autoRestore && config.lastActiveSessionIds.length > 0) {
         hasAutoRestored.current = true;
@@ -95,8 +98,6 @@ export function useTerminalSessions() {
         }
         return nextSessions[0]?.id;
       });
-      setPendingSessions(null);
-      setPickerManual(false);
     });
 
     const removeAgentStatusListener = window.terminalApi.onAgentStatus((payload) => {
@@ -165,8 +166,12 @@ export function useTerminalSessions() {
   }, [activeId, activeSession, updateSession]);
 
   const openPicker = useCallback(async () => {
-    const library = await window.terminalApi.loadSavedSessions();
+    const [library, savedLaunchTemplates] = await Promise.all([
+      window.terminalApi.loadSavedSessions(),
+      window.launchTemplateApi.list()
+    ]);
     setLibrarySessions(library);
+    setLaunchTemplates(savedLaunchTemplates);
     setPendingSessions(library);
     setPickerManual(true);
   }, []);
@@ -194,6 +199,8 @@ export function useTerminalSessions() {
         const newest = matches[matches.length - 1];
         if (newest) setActiveId(newest.id);
       }
+      setPendingSessions(null);
+      setPickerManual(false);
     } catch (err: any) {
       setStartupError(err?.message || String(err));
       throw err;
@@ -202,12 +209,42 @@ export function useTerminalSessions() {
 
   const startFresh = useCallback(async () => {
     await window.terminalApi.launchSessions([], "manual");
+    setPendingSessions(null);
+    setPickerManual(false);
   }, []);
 
   const deleteFromLibrary = useCallback(async (id: string) => {
     await window.terminalApi.deleteSavedSession(id);
     setLibrarySessions((prev) => prev.filter((session) => session.id !== id));
     setPendingSessions((prev) => prev ? prev.filter((session) => session.id !== id) : null);
+    setLaunchTemplates(await window.launchTemplateApi.list());
+  }, []);
+
+  const createLaunchTemplate = useCallback(async (input: LaunchTemplateSaveInput) => {
+    const created = await window.launchTemplateApi.create(input);
+    setLaunchTemplates((current) => [...current, created]);
+    return created;
+  }, []);
+
+  const updateLaunchTemplate = useCallback(async (id: string, input: LaunchTemplateSaveInput) => {
+    const updated = await window.launchTemplateApi.update(id, input);
+    setLaunchTemplates((current) => current.map(item => item.id === id ? updated : item));
+    return updated;
+  }, []);
+
+  const deleteLaunchTemplate = useCallback(async (id: string) => {
+    const next = await window.launchTemplateApi.delete(id);
+    setLaunchTemplates(next);
+  }, []);
+
+  const launchLaunchTemplate = useCallback(async (id: string): Promise<LaunchTemplateResult> => {
+    const result = await window.launchTemplateApi.launch(id);
+    if (result.launchedSessionIds[0]) setActiveId(result.launchedSessionIds[0]);
+    if (result.failures.length === 0) {
+      setPendingSessions(null);
+      setPickerManual(false);
+    }
+    return result;
   }, []);
 
   const duplicateFromLibrary = useCallback(async (id: string) => {
@@ -244,6 +281,7 @@ export function useTerminalSessions() {
     clearStartupError: () => setStartupError(null),
     quickCommandsForActiveSession,
     tagSuggestions,
+    launchTemplates,
     pendingSessions,
     setPendingSessions,
     pickerManual,
@@ -258,6 +296,10 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     duplicateFromLibrary,
+    createLaunchTemplate,
+    updateLaunchTemplate,
+    deleteLaunchTemplate,
+    launchLaunchTemplate,
     reorderRunningSessions,
     autoRestore,
     toggleAutoRestore,

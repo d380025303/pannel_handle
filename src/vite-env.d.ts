@@ -41,6 +41,36 @@ export type TerminalSession = {
   readonly lastLaunchedAt?: number;
 };
 
+export type LaunchTemplate = {
+  id: string;
+  name: string;
+  sessionTemplateIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type LaunchTemplateSaveInput = {
+  name: string;
+  sessionTemplateIds: string[];
+};
+
+export type LaunchTemplateResult = {
+  launchedSessionIds: string[];
+  failures: Array<{
+    templateId: string;
+    title?: string;
+    error: string;
+  }>;
+};
+
+export type LaunchTemplateApi = {
+  list: () => Promise<LaunchTemplate[]>;
+  create: (input: LaunchTemplateSaveInput) => Promise<LaunchTemplate>;
+  update: (id: string, input: LaunchTemplateSaveInput) => Promise<LaunchTemplate>;
+  delete: (id: string) => Promise<LaunchTemplate[]>;
+  launch: (id: string) => Promise<LaunchTemplateResult>;
+};
+
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
 export type Locale = "zh-CN" | "en-US";
 
@@ -595,6 +625,7 @@ export type DingTalkApi = {
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;

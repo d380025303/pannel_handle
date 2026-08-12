@@ -34,7 +34,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore }) {
+function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -216,6 +216,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     librarySessions = librarySessions.filter(s => s.id !== id);
     templateUsageStore?.remove(id);
     saveLibrary();
+    launchTemplateStore?.removeSessionTemplate(id);
   }
 
   function duplicateInLibrary(id) {

@@ -278,6 +278,21 @@ export type TranslationKey =
   | "picker.launchSelected"
   | "picker.launching"
   | "picker.launchFailed"
+  | "picker.sessionTemplatesTab"
+  | "picker.launchTemplatesTab"
+  | "launchTemplate.name"
+  | "launchTemplate.namePlaceholder"
+  | "launchTemplate.nameExists"
+  | "launchTemplate.selectedMembers"
+  | "launchTemplate.noMembersSelected"
+  | "launchTemplate.members"
+  | "launchTemplate.description"
+  | "launchTemplate.new"
+  | "launchTemplate.partialFailure"
+  | "launchTemplate.empty"
+  | "launchTemplate.noMembers"
+  | "launchTemplate.memberCount"
+  | "launchTemplate.launch"
   | "hooks.title"
   | "hooks.localProjectDirectory"
   | "hooks.remoteProjectDirectory"
@@ -695,6 +710,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.launchSelected": "启动所选 ({count})",
     "picker.launching": "启动中...",
     "picker.launchFailed": "启动会话失败",
+    "picker.sessionTemplatesTab": "会话模板",
+    "picker.launchTemplatesTab": "开启模板",
+    "launchTemplate.name": "名称",
+    "launchTemplate.namePlaceholder": "例如：日常开发",
+    "launchTemplate.nameExists": "开启模板名称已存在",
+    "launchTemplate.selectedMembers": "启动顺序（可拖拽）",
+    "launchTemplate.noMembersSelected": "尚未选择会话模板",
+    "launchTemplate.members": "选择会话模板",
+    "launchTemplate.description": "保存常用会话组合，并按配置顺序一键开启。",
+    "launchTemplate.new": "新建开启模板",
+    "launchTemplate.partialFailure": "有 {count} 个会话模板启动失败",
+    "launchTemplate.empty": "还没有开启模板",
+    "launchTemplate.noMembers": "未配置会话模板",
+    "launchTemplate.memberCount": "{count} 个会话模板",
+    "launchTemplate.launch": "开启全部会话",
     "hooks.title": "安装项目 Hook",
     "hooks.localProjectDirectory": "项目目录",
     "hooks.remoteProjectDirectory": "远程项目目录",
@@ -1104,6 +1134,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.launchSelected": "Launch selected ({count})",
     "picker.launching": "Launching...",
     "picker.launchFailed": "Failed to launch session",
+    "picker.sessionTemplatesTab": "Session templates",
+    "picker.launchTemplatesTab": "Launch templates",
+    "launchTemplate.name": "Name",
+    "launchTemplate.namePlaceholder": "For example: Daily development",
+    "launchTemplate.nameExists": "A launch template with this name already exists",
+    "launchTemplate.selectedMembers": "Launch order (drag to reorder)",
+    "launchTemplate.noMembersSelected": "No session templates selected",
+    "launchTemplate.members": "Select session templates",
+    "launchTemplate.description": "Save reusable session groups and launch them in order with one action.",
+    "launchTemplate.new": "New launch template",
+    "launchTemplate.partialFailure": "{count} session templates failed to launch",
+    "launchTemplate.empty": "No launch templates yet",
+    "launchTemplate.noMembers": "No session templates configured",
+    "launchTemplate.memberCount": "{count} session templates",
+    "launchTemplate.launch": "Launch all sessions",
     "hooks.title": "Install Project Hooks",
     "hooks.localProjectDirectory": "Project directory",
     "hooks.remoteProjectDirectory": "Remote project directory",
