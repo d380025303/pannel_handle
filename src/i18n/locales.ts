@@ -44,23 +44,6 @@ export type TranslationKey =
   | "settings.dingTalkSaved"
   | "settings.dingTalkCleared"
   | "settings.dingTalkTestSuccess"
-  | "settings.completionTitle"
-  | "settings.completionDescription"
-  | "settings.completionEnabled"
-  | "settings.completionBaseUrl"
-  | "settings.completionModel"
-  | "settings.completionApiKey"
-  | "settings.completionApiKeyPlaceholder"
-  | "settings.completionConfigured"
-  | "settings.completionTest"
-  | "settings.completionClear"
-  | "settings.completionSaved"
-  | "settings.completionCleared"
-  | "settings.completionTestSuccess"
-  | "settings.completionThinkingEnabled"
-  | "settings.completionThinkingLevel"
-  | "settings.completionThinkingLevelHigh"
-  | "settings.completionThinkingLevelMax"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -166,14 +149,11 @@ export type TranslationKey =
   | "composer.uploadingImage"
   | "composer.noClipboardImage"
   | "composer.imageUploadFailed"
-  | "composer.suggesting"
-  | "composer.completionFailed"
   | "tabs.files"
   | "tabs.git"
   | "tabs.terminal"
   | "tabs.workspace"
   | "tabs.debug"
-  | "tabs.completionDebug"
   | "debug.eventsCount"
   | "debug.clearEvents"
   | "debug.providerFilter"
@@ -182,26 +162,6 @@ export type TranslationKey =
   | "debug.noEvents"
   | "debug.handled"
   | "debug.unhandled"
-  | "completionDebug.eventsCount"
-  | "completionDebug.clear"
-  | "completionDebug.allSessions"
-  | "completionDebug.noEvents"
-  | "completionDebug.status.pending"
-  | "completionDebug.status.success"
-  | "completionDebug.status.error"
-  | "completionDebug.expand"
-  | "completionDebug.collapse"
-  | "completionDebug.request"
-  | "completionDebug.response"
-  | "completionDebug.result"
-  | "completionDebug.emptyResult"
-  | "completionDebug.error"
-  | "completionDebug.metricsTitle"
-  | "completionDebug.metricsShown"
-  | "completionDebug.metricsAccepted"
-  | "completionDebug.metricsZeroEdit"
-  | "completionDebug.metricsErrors"
-  | "completionDebug.clearMetrics"
   | "files.title"
   | "files.noSession"
   | "files.availableAfterSession"
@@ -488,23 +448,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "钉钉配置已保存。",
     "settings.dingTalkCleared": "钉钉机器人凭据已清除。",
     "settings.dingTalkTestSuccess": "测试消息发送成功。",
-    "settings.completionTitle": "智能输入补全",
-    "settings.completionDescription": "停止输入后，根据 terminal-composer 中的当前草稿生成建议；按 Tab 接受。",
-    "settings.completionEnabled": "启用智能补全",
-    "settings.completionBaseUrl": "OpenAI 兼容 Base URL",
-    "settings.completionModel": "模型名称",
-    "settings.completionApiKey": "API Key",
-    "settings.completionApiKeyPlaceholder": "例如 sk-...",
-    "settings.completionConfigured": "已安全保存；留空表示保持不变",
-    "settings.completionTest": "测试连接",
-    "settings.completionClear": "清除 API Key",
-    "settings.completionSaved": "智能补全配置已保存。",
-    "settings.completionCleared": "智能补全 API Key 已清除。",
-    "settings.completionTestSuccess": "模型连接测试成功。",
-    "settings.completionThinkingEnabled": "启用深度思考",
-    "settings.completionThinkingLevel": "思考强度",
-    "settings.completionThinkingLevelHigh": "高（平衡速度与深度）",
-    "settings.completionThinkingLevelMax": "最大（深入推理，适合复杂问题）",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -610,14 +553,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.uploadingImage": "正在上传剪贴板图片...",
     "composer.noClipboardImage": "剪贴板中没有图片",
     "composer.imageUploadFailed": "图片上传失败：{message}",
-    "composer.suggesting": "正在生成补全建议...",
-    "composer.completionFailed": "智能补全失败：{message}",
     "tabs.files": "文件",
     "tabs.git": "Git",
     "tabs.terminal": "终端",
     "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
-    "tabs.completionDebug": "补全 Debug",
     "debug.eventsCount": "{count} 个 hook 事件",
     "debug.clearEvents": "清除事件",
     "debug.providerFilter": "Provider 过滤",
@@ -626,26 +566,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "debug.noEvents": "暂无 hook 事件",
     "debug.handled": "已处理",
     "debug.unhandled": "未处理",
-    "completionDebug.eventsCount": "{count} 个补全请求",
-    "completionDebug.clear": "清除补全调试记录",
-    "completionDebug.allSessions": "全部会话",
-    "completionDebug.noEvents": "暂无补全请求",
-    "completionDebug.status.pending": "进行中",
-    "completionDebug.status.success": "成功",
-    "completionDebug.status.error": "失败",
-    "completionDebug.expand": "展开",
-    "completionDebug.collapse": "收起",
-    "completionDebug.request": "模型请求",
-    "completionDebug.response": "原始响应",
-    "completionDebug.result": "提取结果",
-    "completionDebug.emptyResult": "（空字符串）",
-    "completionDebug.error": "错误",
-    "completionDebug.metricsTitle": "本地效果指标",
-    "completionDebug.metricsShown": "展示 {count}",
-    "completionDebug.metricsAccepted": "接受率 {rate}",
-    "completionDebug.metricsZeroEdit": "零修改提交 {rate}",
-    "completionDebug.metricsErrors": "错误 {count}",
-    "completionDebug.clearMetrics": "清除补全效果指标",
     "files.title": "文件",
     "files.noSession": "未选择会话",
     "files.availableAfterSession": "选择会话后可浏览文件。",
@@ -924,23 +844,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "DingTalk configuration saved.",
     "settings.dingTalkCleared": "DingTalk robot credentials cleared.",
     "settings.dingTalkTestSuccess": "Test message sent successfully.",
-    "settings.completionTitle": "AI Input Completion",
-    "settings.completionDescription": "After you pause typing, suggest text from the current terminal-composer draft; press Tab to accept.",
-    "settings.completionEnabled": "Enable AI completion",
-    "settings.completionBaseUrl": "OpenAI-compatible Base URL",
-    "settings.completionModel": "Model name",
-    "settings.completionApiKey": "API Key",
-    "settings.completionApiKeyPlaceholder": "For example, sk-...",
-    "settings.completionConfigured": "Stored securely; leave blank to keep unchanged",
-    "settings.completionTest": "Test connection",
-    "settings.completionClear": "Clear API Key",
-    "settings.completionSaved": "AI completion settings saved.",
-    "settings.completionCleared": "AI completion API Key cleared.",
-    "settings.completionTestSuccess": "Model connection test succeeded.",
-    "settings.completionThinkingEnabled": "Enable thinking mode",
-    "settings.completionThinkingLevel": "Thinking intensity",
-    "settings.completionThinkingLevelHigh": "High (balanced speed & depth)",
-    "settings.completionThinkingLevelMax": "Maximum (deepest reasoning)",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -1046,14 +949,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.uploadingImage": "Uploading clipboard image...",
     "composer.noClipboardImage": "No image found in the clipboard",
     "composer.imageUploadFailed": "Image upload failed: {message}",
-    "composer.suggesting": "Generating a completion...",
-    "composer.completionFailed": "AI completion failed: {message}",
     "tabs.files": "Files",
     "tabs.git": "Git",
     "tabs.terminal": "Terminal",
     "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
-    "tabs.completionDebug": "Completion Debug",
     "debug.eventsCount": "{count} hook events",
     "debug.clearEvents": "Clear events",
     "debug.providerFilter": "Provider filter",
@@ -1062,26 +962,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "debug.noEvents": "No hook events yet",
     "debug.handled": "handled",
     "debug.unhandled": "unhandled",
-    "completionDebug.eventsCount": "{count} completion requests",
-    "completionDebug.clear": "Clear completion debug entries",
-    "completionDebug.allSessions": "All sessions",
-    "completionDebug.noEvents": "No completion requests yet",
-    "completionDebug.status.pending": "pending",
-    "completionDebug.status.success": "success",
-    "completionDebug.status.error": "failed",
-    "completionDebug.expand": "Expand",
-    "completionDebug.collapse": "Collapse",
-    "completionDebug.request": "Model request",
-    "completionDebug.response": "Raw response",
-    "completionDebug.result": "Extracted result",
-    "completionDebug.emptyResult": "(empty string)",
-    "completionDebug.error": "Error",
-    "completionDebug.metricsTitle": "Local effectiveness metrics",
-    "completionDebug.metricsShown": "Shown {count}",
-    "completionDebug.metricsAccepted": "Acceptance {rate}",
-    "completionDebug.metricsZeroEdit": "Zero-edit submits {rate}",
-    "completionDebug.metricsErrors": "Errors {count}",
-    "completionDebug.clearMetrics": "Clear completion metrics",
     "files.title": "Files",
     "files.noSession": "No session selected",
     "files.availableAfterSession": "Files are available after selecting a session.",

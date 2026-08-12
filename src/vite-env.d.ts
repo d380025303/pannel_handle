@@ -92,94 +92,6 @@ export type DingTalkTestResult =
   | { ok: true }
   | { ok: false; error: string };
 
-export type CompletionConfig = {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  hasApiKey: boolean;
-  thinkingEnabled: boolean;
-  thinkingLevel: "high" | "max";
-};
-
-export type CompletionConfigInput = {
-  enabled?: boolean;
-  baseUrl?: string;
-  model?: string;
-  apiKey?: string;
-  thinkingEnabled?: boolean;
-  thinkingLevel?: "high" | "max";
-};
-
-export type CompletionRequest = {
-  sessionId: string;
-  draft: string;
-  cursor: number;
-  localOnly?: boolean;
-};
-
-export type CompletionMode = "agent" | "shell";
-export type CompletionSource = "model" | "history";
-
-export type CompletionResult = {
-  candidateId: string;
-  completion: string;
-  mode: CompletionMode;
-  source: CompletionSource;
-  confidence?: number;
-};
-
-export type CompletionFeedbackInput = {
-  candidateId: string;
-  event: "shown" | "accepted" | "dismissed" | "submitted_after_accept";
-  editDistance?: number;
-  finalLength?: number;
-};
-
-export type CompletionMetricCounters = {
-  shown: number;
-  accepted: number;
-  dismissed: number;
-  submittedAfterAccept: number;
-  zeroEditSubmissions: number;
-  editDistanceTotal: number;
-  finalLengthTotal: number;
-  errors: number;
-  latencyBuckets: { lt250: number; lt1000: number; lt3000: number; gte3000: number };
-};
-
-export type CompletionMetricGroups = Record<CompletionMode, Record<CompletionSource, CompletionMetricCounters>>;
-
-export type CompletionMetrics = {
-  version: number;
-  totals: CompletionMetricGroups;
-  days: Record<string, CompletionMetricGroups>;
-};
-
-export type CompletionDebugRequest = {
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  body: string;
-};
-
-export type CompletionDebugPayload = {
-  requestId: string;
-  phase: "request" | "response" | "error";
-  timestamp: number;
-  sessionId: string;
-  request?: CompletionDebugRequest;
-  durationMs?: number;
-  status?: "success" | "error";
-  httpStatus?: number;
-  responseBody?: string;
-  completion?: string;
-  error?: string;
-};
-
-export type CompletionTestResult =
-  | { ok: true }
-  | { ok: false; error: string };
-
 export type SessionLibraryFileResult =
   | { canceled: true }
   | { canceled: false; ok: true; filePath: string; exportedCount: number }
@@ -677,19 +589,6 @@ export type DingTalkApi = {
   test: () => Promise<DingTalkTestResult>;
 };
 
-export type CompletionApi = {
-  getConfig: () => Promise<CompletionConfig>;
-  setConfig: (input: CompletionConfigInput) => Promise<CompletionConfig>;
-  clearCredentials: () => Promise<CompletionConfig>;
-  test: () => Promise<CompletionTestResult>;
-  complete: (input: CompletionRequest) => Promise<CompletionResult>;
-  recordSubmission: (input: { sessionId: string; value: string }) => Promise<boolean>;
-  recordFeedback: (input: CompletionFeedbackInput) => Promise<boolean>;
-  getMetrics: () => Promise<CompletionMetrics>;
-  clearMetrics: () => Promise<CompletionMetrics>;
-  onDebugEvent: (callback: (payload: CompletionDebugPayload) => void) => () => void;
-};
-
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -702,7 +601,6 @@ declare global {
     projectSearchApi: ProjectSearchApi;
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
-    completionApi: CompletionApi;
     windowApi: WindowApi;
   }
 }

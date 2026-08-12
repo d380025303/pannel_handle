@@ -66,11 +66,6 @@ Real-time agent status captured via Claude Code / Codex / OpenCode hooks and dis
 - Diff preview and stash management
 - Works with both local and SSH remote repositories
 
-### AI Completion Quality Tracking
-
-- Collect and visualize quality metrics for in-terminal AI completions
-- Debug mode provides per-completion detailed logs and latency analysis
-
 ### Themes & i18n
 
 - **4 Terminal Themes** — Dark Slate, Dark Blue, Dark Green, Light
@@ -117,7 +112,7 @@ pannel_handle/
 │   ├── components/
 │   │   ├── app/              # Title bar
 │   │   ├── sessions/         # Session sidebar, create/edit/picker modals
-│   │   ├── terminal/         # Terminal panel, quick commands, completion debug
+│   │   ├── terminal/         # Terminal panel and quick commands
 │   │   ├── remote/           # Remote file panel, system status, project search
 │   │   ├── agents/           # Agent debug sidebar, hook installer
 │   │   ├── git/              # Git status panel
@@ -134,7 +129,7 @@ pannel_handle/
 │   ├── terminal/             # PTY terminal manager
 │   ├── ssh/                  # SSH connection, SFTP, hook tunnel
 │   ├── hooks/                # Agent hook server, config manager
-│   ├── services/             # Remote file, git, search, completion
+│   ├── services/             # Remote file, git, and search
 │   ├── agents/               # Listener agent
 │   ├── notifications/        # System & DingTalk notifications
 │   └── stores/               # Persistent config & session data

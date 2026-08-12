@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -585,30 +585,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     }
     return configStore.getConfig();
   });
-
-  ipcMain.handle("completion:get-config", () => completionConfigStore.getConfig());
-
-  ipcMain.handle("completion:set-config", (_event, input) => completionConfigStore.updateConfig(input));
-
-  ipcMain.handle("completion:clear-credentials", () => completionConfigStore.clearCredentials());
-
-  ipcMain.handle("completion:test", async () => {
-    try {
-      return await completionService.testConnection();
-    } catch (err) {
-      return { ok: false, error: getErrorMessage(err) };
-    }
-  });
-
-  ipcMain.handle("completion:complete", (_event, input) => completionService.complete(input));
-
-  ipcMain.handle("completion:record-submission", (_event, input) => completionService.recordSubmission(input));
-
-  ipcMain.handle("completion:record-feedback", (_event, input) => completionService.recordFeedback(input));
-
-  ipcMain.handle("completion:get-metrics", () => completionMetricsStore.getMetrics());
-
-  ipcMain.handle("completion:clear-metrics", () => completionMetricsStore.clear());
 
   ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());
 

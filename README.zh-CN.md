@@ -66,11 +66,6 @@
 - 支持 diff 预览和 stash 管理
 - 本地和 SSH 远程仓库均可使用
 
-### AI 补全质量追踪
-
-- 终端内 AI 补全的质量指标采集与可视化
-- Debug 模式下可查看每次补全的详细日志和耗时分析
-
 ### 主题与国际化
 
 - **4 套终端主题** — Dark Slate、Dark Blue、Dark Green、Light
@@ -117,7 +112,7 @@ pannel_handle/
 │   ├── components/
 │   │   ├── app/              # 标题栏
 │   │   ├── sessions/         # 会话侧栏、创建/编辑/选择弹窗
-│   │   ├── terminal/         # 终端面板、快捷命令、补全调试
+│   │   ├── terminal/         # 终端面板、快捷命令
 │   │   ├── remote/           # 远程文件面板、系统状态、项目搜索
 │   │   ├── agents/           # Agent 状态调试、Hook 安装
 │   │   ├── git/              # Git 状态面板
@@ -134,10 +129,10 @@ pannel_handle/
 │   ├── terminal/             # PTY 终端管理
 │   ├── ssh/                  # SSH 连接、SFTP、Hook 隧道
 │   ├── hooks/                # Agent Hook 服务、配置管理
-│   ├── services/             # 远程文件、Git、搜索、补全服务
+│   ├── services/             # 远程文件、Git、搜索服务
 │   ├── agents/               # Listener Agent
 │   ├── notifications/        # 系统通知、钉钉通知
-│   └── stores/               # 配置、会话、补全数据持久化
+│   └── stores/               # 配置、会话数据持久化
 ├── docs/                     # Hook 配置文档
 ├── scripts/                  # 构建辅助脚本
 └── build/                    # 图标等资源

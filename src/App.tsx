@@ -10,8 +10,6 @@ import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { TerminalComposer } from "./components/terminal/TerminalComposer";
-import { CompletionDebugSidebar } from "./components/terminal/CompletionDebugSidebar";
-import { mergeCompletionDebugEvent, type CompletionDebugEntry } from "./components/terminal/completionDebug";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
 import { FileTransferPanel } from "./components/remote/FileTransferPanel";
@@ -30,7 +28,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "debug" | "completionDebug";
+type RightTool = "files" | "git" | "debug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -87,7 +85,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
-  const [completionDebugEntries, setCompletionDebugEntries] = useState<CompletionDebugEntry[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
   const [previewTabs, setPreviewTabs] = useState<RemotePreviewTabSummary[]>([]);
@@ -252,18 +249,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   useEffect(() => {
     if (!debugMode) {
       setHookDebugEvents([]);
-      setCompletionDebugEntries([]);
       return undefined;
     }
     const removeHookListener = window.terminalApi.onAgentHookDebug((payload) => {
       setHookDebugEvents((current) => [...current, payload].slice(-300));
     });
-    const removeCompletionListener = window.completionApi.onDebugEvent((payload) => {
-      setCompletionDebugEntries((current) => mergeCompletionDebugEvent(current, payload));
-    });
     return () => {
       removeHookListener();
-      removeCompletionListener();
     };
   }, [debugMode]);
 
@@ -419,7 +411,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       setRightTool(debugMode ? "debug" : "files");
       return;
     }
-    if (!debugMode && (rightTool === "debug" || rightTool === "completionDebug")) {
+    if (!debugMode && rightTool === "debug") {
       setRightTool("files");
       return;
     }
@@ -427,10 +419,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showRightTools = showFilesPanel || debugMode;
-  const activeRightTool: RightTool = showFilesPanel && (debugMode || (rightTool !== "debug" && rightTool !== "completionDebug"))
+  const activeRightTool: RightTool = showFilesPanel && (debugMode || rightTool !== "debug")
     ? rightTool
     : debugMode
-      ? rightTool === "completionDebug" ? "completionDebug" : "debug"
+      ? "debug"
       : "files";
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
@@ -617,26 +609,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     </>
                   )}
                   {debugMode && (
-                    <>
-                      <button
-                        className={activeRightTool === "debug" ? "active" : ""}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeRightTool === "debug"}
-                        onClick={() => handleRightToolChange("debug")}
-                      >
-                        {t("tabs.debug")}
-                      </button>
-                      <button
-                        className={activeRightTool === "completionDebug" ? "active" : ""}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeRightTool === "completionDebug"}
-                        onClick={() => handleRightToolChange("completionDebug")}
-                      >
-                        {t("tabs.completionDebug")}
-                      </button>
-                    </>
+                    <button
+                      className={activeRightTool === "debug" ? "active" : ""}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeRightTool === "debug"}
+                      onClick={() => handleRightToolChange("debug")}
+                    >
+                      {t("tabs.debug")}
+                    </button>
                   )}
                 </div>
               )}
@@ -663,12 +644,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 <GitStatusPanel
                   session={terminalSessions.activeSession}
                   onSummaryChange={handleGitSummaryChange}
-                />
-              ) : activeRightTool === "completionDebug" ? (
-                <CompletionDebugSidebar
-                  entries={completionDebugEntries}
-                  sessions={terminalSessions.sessions}
-                  onClear={() => setCompletionDebugEntries([])}
                 />
               ) : (
                 <DebugSidebar
