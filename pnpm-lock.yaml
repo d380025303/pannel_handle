@@ -26,6 +26,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.8
         version: 6.43.8
+      '@lezer/highlight':
+        specifier: 1.2.3
+        version: 1.2.3
       '@vitejs/plugin-react':
         specifier: ^4.5.0
         version: 4.7.0(vite@6.4.3(@types/node@22.19.19)(jiti@2.7.0))

@@ -1,19 +1,55 @@
 import { useEffect, useRef } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { defaultHighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { Compartment, EditorState } from "@codemirror/state";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from "@codemirror/view";
+import { tags } from "@lezer/highlight";
+import { useI18n } from "../../i18n";
+
+export type RemoteCodeLanguageMode = "auto" | "plain" | `language:${string}`;
 
 type RemoteCodeEditorProps = {
   value: string;
   fileName: string;
+  languageMode: RemoteCodeLanguageMode;
   onChange: (value: string) => void;
+  onLanguageModeChange: (mode: RemoteCodeLanguageMode) => void;
   onSave: () => void;
 };
 
-export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCodeEditorProps) {
+const remoteCodeHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: "var(--color-code-keyword)", fontWeight: "600" },
+  { tag: [tags.atom, tags.bool, tags.null], color: "var(--color-code-constant)" },
+  { tag: [tags.number, tags.integer, tags.float], color: "var(--color-code-number)" },
+  { tag: [tags.string, tags.special(tags.string)], color: "var(--color-code-string)" },
+  { tag: [tags.regexp, tags.escape], color: "var(--color-code-regexp)" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: "var(--color-code-comment)", fontStyle: "italic" },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--color-code-type)" },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--color-code-function)" },
+  { tag: [tags.definition(tags.variableName), tags.variableName], color: "var(--color-code-variable)" },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--color-code-property)" },
+  { tag: [tags.tagName, tags.heading], color: "var(--color-code-tag)" },
+  { tag: [tags.operator, tags.punctuation], color: "var(--color-code-operator)" },
+  { tag: [tags.meta, tags.annotation, tags.macroName], color: "var(--color-code-meta)" },
+  { tag: [tags.link, tags.url], color: "var(--color-code-link)", textDecoration: "underline" },
+  { tag: tags.invalid, color: "var(--color-danger-text)", textDecoration: "underline wavy" }
+]);
+
+function detectLanguage(fileName: string): LanguageDescription | null {
+  return LanguageDescription.matchFilename(languages, fileName);
+}
+
+function getLanguageForMode(fileName: string, mode: RemoteCodeLanguageMode): LanguageDescription | null {
+  if (mode === "plain") return null;
+  if (mode === "auto") return detectLanguage(fileName);
+  const languageName = mode.slice("language:".length);
+  return languages.find((language) => language.name === languageName) ?? null;
+}
+
+export function RemoteCodeEditor({ value, fileName, languageMode, onChange, onLanguageModeChange, onSave }: RemoteCodeEditorProps) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -36,7 +72,7 @@ export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCo
           drawSelection({ cursorBlinkRate: 900 }),
           dropCursor(),
           indentOnInput(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          syntaxHighlighting(remoteCodeHighlightStyle, { fallback: true }),
           highlightActiveLine(),
           highlightSelectionMatches(),
           EditorView.lineWrapping,
@@ -87,7 +123,7 @@ export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCo
     const view = viewRef.current;
     if (!view) return undefined;
     let disposed = false;
-    const description = languages.find((language) => language.filename?.test(fileName));
+    const description = getLanguageForMode(fileName, languageMode);
     if (!description) {
       view.dispatch({ effects: languageRef.current.reconfigure([]) });
       return undefined;
@@ -96,9 +132,36 @@ export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCo
       if (!disposed && viewRef.current === view) {
         view.dispatch({ effects: languageRef.current.reconfigure(support) });
       }
+    }).catch(() => {
+      if (!disposed && viewRef.current === view) {
+        view.dispatch({ effects: languageRef.current.reconfigure([]) });
+      }
     });
     return () => { disposed = true; };
-  }, [fileName]);
+  }, [fileName, languageMode]);
 
-  return <div ref={hostRef} className="remote-code-editor" aria-label={fileName} />;
+  const detectedLanguage = detectLanguage(fileName);
+  return (
+    <div className="remote-code-editor">
+      <div className="remote-code-editor-toolbar">
+        <label>
+          <span>{t("files.languageMode")}</span>
+          <select
+            aria-label={t("files.languageMode")}
+            value={languageMode}
+            onChange={(event) => onLanguageModeChange(event.target.value as RemoteCodeLanguageMode)}
+          >
+            <option value="auto">
+              {detectedLanguage ? t("files.languageAutoDetected", { language: detectedLanguage.name }) : t("files.languageAuto")}
+            </option>
+            <option value="plain">{t("files.languagePlainText")}</option>
+            {languages.map((language) => (
+              <option key={language.name} value={`language:${language.name}`}>{language.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div ref={hostRef} className="remote-code-editor-host" aria-label={fileName} />
+    </div>
+  );
 }

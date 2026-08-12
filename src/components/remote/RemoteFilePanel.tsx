@@ -4,7 +4,7 @@ import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, Mou
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Copy, Download, Eye, File, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, LoaderCircle, Move, Pencil, RefreshCw, Save, Search, SquarePen, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
-import { RemoteCodeEditor } from "./RemoteCodeEditor";
+import { RemoteCodeEditor, type RemoteCodeLanguageMode } from "./RemoteCodeEditor";
 import { beginInputInterruption, endInputInterruption, INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
@@ -93,6 +93,7 @@ type PreviewTabState = {
   state: Exclude<PreviewState, { status: "idle" }>;
   originalContent: string;
   editorContent: string;
+  languageMode: RemoteCodeLanguageMode;
   saveState: SaveState;
   viewMode: "edit" | "preview";
   previewSearchQuery: string;
@@ -877,6 +878,7 @@ export function RemoteFilePanel({
       state: { status: "loading", path: entry.path },
       originalContent: "",
       editorContent: "",
+      languageMode: "auto",
       saveState: { status: "idle" },
       viewMode: isMarkdownFile(entry.name) ? "preview" : "edit",
       previewSearchQuery: "",
@@ -2006,12 +2008,16 @@ export function RemoteFilePanel({
                     <RemoteCodeEditor
                       value={editorContent}
                       fileName={activePreview.fileName}
+                      languageMode={activePreviewTab.languageMode}
                       onChange={(nextContent) => {
                         updatePreviewTab(activePreviewTab.id, (tab) => ({
                           ...tab,
                           editorContent: nextContent,
                           saveState: tab.saveState.status === "error" ? { status: "idle" } : tab.saveState
                         }));
+                      }}
+                      onLanguageModeChange={(languageMode) => {
+                        updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, languageMode }));
                       }}
                       onSave={() => void handleSavePreview()}
                     />

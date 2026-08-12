@@ -1,15 +1,22 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { RemoteCodeEditor } from "./RemoteCodeEditor";
+
+const baseProps = {
+  languageMode: "auto" as const,
+  onChange: () => undefined,
+  onLanguageModeChange: () => undefined,
+  onSave: () => undefined
+};
 
 describe("RemoteCodeEditor theme", () => {
   afterEach(cleanup);
 
   it("uses a visible themed cursor while CodeMirror keeps its blink animation", () => {
     const { container } = render(
-      <RemoteCodeEditor value="hello" fileName="example.txt" onChange={() => undefined} onSave={() => undefined} />
+      <RemoteCodeEditor value="hello" fileName="example.txt" {...baseProps} />
     );
 
     const editor = container.querySelector(".cm-editor");
@@ -27,7 +34,7 @@ describe("RemoteCodeEditor theme", () => {
 
   it("overrides CodeMirror selection colors with a subtle themed highlight", () => {
     render(
-      <RemoteCodeEditor value="hello" fileName="example.txt" onChange={() => undefined} onSave={() => undefined} />
+      <RemoteCodeEditor value="hello" fileName="example.txt" {...baseProps} />
     );
 
     const themeRules = Array.from(document.styleSheets)
@@ -41,5 +48,39 @@ describe("RemoteCodeEditor theme", () => {
     expect(themeRules).toMatch(
       /\.cm-focused\s*>\s*\.cm-scroller\s*>\s*\.cm-selectionLayer\s+\.cm-selectionBackground[^}]*background-color:\s*color-mix\(in srgb, var\(--color-accent\) 18%, transparent\)/
     );
+  });
+
+  it("auto-detects a language and applies semantic token highlighting", async () => {
+    const { container } = render(
+      <RemoteCodeEditor value={'const message = "hello";'} fileName="example.ts" {...baseProps} />
+    );
+
+    expect(container.querySelector("select")?.selectedOptions[0].textContent).toContain("TypeScript");
+    await waitFor(() => expect(container.querySelectorAll(".cm-content span").length).toBeGreaterThan(0));
+
+    const themeRules = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .map((rule) => rule.cssText)
+      .join("\n");
+    expect(themeRules).toContain("var(--color-code-keyword)");
+    expect(themeRules).toContain("var(--color-code-string)");
+  });
+
+  it("reports manual language and plain-text selections", () => {
+    const changes: string[] = [];
+    const { getByRole } = render(
+      <RemoteCodeEditor
+        value="server { listen 80; }"
+        fileName="site.conf"
+        {...baseProps}
+        onLanguageModeChange={(mode) => changes.push(mode)}
+      />
+    );
+    const select = getByRole("combobox", { name: "语言模式" });
+
+    fireEvent.change(select, { target: { value: "language:Nginx" } });
+    fireEvent.change(select, { target: { value: "plain" } });
+
+    expect(changes).toEqual(["language:Nginx", "plain"]);
   });
 });

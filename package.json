@@ -28,6 +28,7 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.8",
+    "@lezer/highlight": "1.2.3",
     "@vitejs/plugin-react": "^4.5.0",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/ripgrep-win32-x64": "1.18.0",

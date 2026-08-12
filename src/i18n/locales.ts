@@ -222,6 +222,10 @@ export type TranslationKey =
   | "files.nextMatch"
   | "files.clearPreviewSearch"
   | "files.editContent"
+  | "files.languageMode"
+  | "files.languageAuto"
+  | "files.languageAutoDetected"
+  | "files.languagePlainText"
   | "files.deleteEntry"
   | "files.tooLarge"
   | "files.binary"
@@ -676,6 +680,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.nextMatch": "下一个匹配",
     "files.clearPreviewSearch": "清除预览搜索",
     "files.editContent": "编辑文件内容",
+    "files.languageMode": "语言模式",
+    "files.languageAuto": "自动识别",
+    "files.languageAutoDetected": "自动识别（{language}）",
+    "files.languagePlainText": "纯文本",
     "files.deleteEntry": "删除",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
@@ -1122,6 +1130,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.nextMatch": "Next match",
     "files.clearPreviewSearch": "Clear preview search",
     "files.editContent": "Edit file content",
+    "files.languageMode": "Language mode",
+    "files.languageAuto": "Auto detect",
+    "files.languageAutoDetected": "Auto detect ({language})",
+    "files.languagePlainText": "Plain text",
     "files.deleteEntry": "Delete",
     "files.tooLarge": "File is {size}. Download it to view locally.",
     "files.binary": "Binary file. Download it to view locally.",
