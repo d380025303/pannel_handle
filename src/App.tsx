@@ -24,6 +24,7 @@ import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
 import { useWindowState } from "./hooks/useWindowState";
+import { useInputRecovery } from "./hooks/inputRecovery";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
@@ -127,6 +128,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     activeId: terminalSessions.activeId,
     isVisible: workspaceTab === "terminal",
     terminalTheme: activeTheme.terminal
+  });
+  useInputRecovery({
+    debug: debugMode || import.meta.env.DEV,
+    resetTerminalInput: terminalInstances.resetActiveTerminalInput
   });
   const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;

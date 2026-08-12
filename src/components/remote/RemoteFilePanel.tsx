@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Copy, Download
 import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { RemoteCodeEditor } from "./RemoteCodeEditor";
+import { INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
@@ -262,6 +263,15 @@ export function RemoteFilePanel({
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [downloadDragPath, setDownloadDragPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleInputRecovery = () => {
+      setDropTargetPath(null);
+      setDownloadDragPath(null);
+    };
+    document.addEventListener(INPUT_RECOVERY_EVENT, handleInputRecovery);
+    return () => document.removeEventListener(INPUT_RECOVERY_EVENT, handleInputRecovery);
+  }, []);
   const [downloadTransfer, setDownloadTransfer] = useState<DownloadTransferState | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
   const [fileSort, setFileSort] = useState(session?.fileSort ?? { key: "name" as const, direction: "asc" as const });

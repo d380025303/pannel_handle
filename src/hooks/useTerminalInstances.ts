@@ -126,6 +126,16 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     }
   }, [activeId]);
 
+  const resetActiveTerminalInput = useCallback((focus: boolean) => {
+    if (!activeId) return;
+    const entry = terminalsRef.current.get(activeId);
+    if (!entry) return;
+    entry.inputGuard.reset();
+    if (focus && isVisible) {
+      entry.terminal.focus();
+    }
+  }, [activeId, isVisible]);
+
   const disposeTerminal = useCallback((id: string) => {
     const entry = terminalsRef.current.get(id);
     if (entry) {
@@ -406,6 +416,7 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     handleTerminalWheel,
     disposeTerminal,
     focusActiveTerminal,
+    resetActiveTerminalInput,
     claimActiveSize,
     activeSizeOwner
   };

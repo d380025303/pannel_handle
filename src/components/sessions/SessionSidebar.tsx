@@ -3,6 +3,7 @@ import { GripVertical, Pencil, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
+import { INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 
 type SessionSidebarProps = {
   sessions: TerminalSession[];
@@ -66,6 +67,12 @@ export function SessionSidebar({
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [pendingCloseId]);
+
+  useEffect(() => {
+    const handleInputRecovery = () => setDragOverId(null);
+    document.addEventListener(INPUT_RECOVERY_EVENT, handleInputRecovery);
+    return () => document.removeEventListener(INPUT_RECOVERY_EVENT, handleInputRecovery);
+  }, []);
 
   const handleDragStart = (e: React.DragEvent, sessionId: string) => {
     e.dataTransfer.effectAllowed = "move";
