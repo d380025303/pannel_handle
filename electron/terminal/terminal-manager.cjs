@@ -501,11 +501,6 @@ function createTerminalManager({
     return sessionStore.duplicateInLibrary(id);
   }
 
-  function reorderSavedSessions(orderedIds) {
-    sessionStore.reorderLibrary(orderedIds);
-    return listSessions();
-  }
-
   function renameSession(id, title) {
     const session = sessions.get(id);
     if (!session) {
@@ -729,7 +724,6 @@ function createTerminalManager({
     launchSessions,
     deleteSavedSession,
     duplicateSavedSession,
-    reorderSavedSessions,
     reorderRunningSessions,
     renameSession,
     updateSession,

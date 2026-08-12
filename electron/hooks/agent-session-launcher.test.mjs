@@ -17,6 +17,7 @@ function installed(provider) {
 
 function createMocks(overrides = {}) {
   const sessions = [];
+  const onTemplateLaunched = vi.fn();
   const terminalManager = {
     createSession: vi.fn((options) => {
       const session = { ...options, id: "run-1", templateId: "1" };
@@ -51,10 +52,11 @@ function createMocks(overrides = {}) {
     remoteHookConfigService,
     sshSessionRuntime,
     sshHookTunnelService,
+    onTemplateLaunched,
     spawnSync,
     ...overrides
   });
-  return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, spawnSync };
+  return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync };
 }
 
 describe("agent-session-launcher", () => {
@@ -178,7 +180,35 @@ describe("agent-session-launcher", () => {
     await expect(mocks.launcher.launchSessions([
       { id: "1", type: "windows", cwd: "C:\\one", agentProvider: "claude" },
       { id: "2", type: "windows", cwd: "C:\\two", agentProvider: "codex" }
-    ])).rejects.toThrow("codex");
+    ], { recordUsage: true })).rejects.toThrow("codex");
     expect(mocks.terminalManager.launchSession).toHaveBeenCalledTimes(1);
+    expect(mocks.onTemplateLaunched).toHaveBeenCalledTimes(1);
+    expect(mocks.onTemplateLaunched).toHaveBeenCalledWith("1");
+  });
+
+  it("records only explicitly tracked successful template launches", async () => {
+    const mocks = createMocks();
+    const template = { id: "template-1", type: "windows", cwd: "C:\\work" };
+
+    await mocks.launcher.launchSession(template);
+    expect(mocks.onTemplateLaunched).not.toHaveBeenCalled();
+
+    await mocks.launcher.launchSession(template, { recordUsage: true });
+    expect(mocks.onTemplateLaunched).toHaveBeenCalledTimes(1);
+    expect(mocks.onTemplateLaunched).toHaveBeenCalledWith("template-1");
+    expect(mocks.terminalManager.launchSession).toHaveBeenLastCalledWith(template, {});
+  });
+
+  it("does not record a failed tracked launch", async () => {
+    const mocks = createMocks();
+    mocks.terminalManager.launchSession.mockImplementationOnce(() => {
+      throw new Error("spawn failed");
+    });
+
+    await expect(mocks.launcher.launchSession(
+      { id: "template-1", type: "windows", cwd: "C:\\work" },
+      { recordUsage: true }
+    )).rejects.toThrow("spawn failed");
+    expect(mocks.onTemplateLaunched).not.toHaveBeenCalled();
   });
 });

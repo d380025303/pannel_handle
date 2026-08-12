@@ -26,10 +26,12 @@ const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.c
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
+const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
 
 let windowManager = null;
 let sessionStore = null;
+let templateUsageStore = null;
 let configStore = null;
 let agentOutputHistoryStore = null;
 let dingTalkConfigStore = null;
@@ -102,11 +104,16 @@ if (!gotSingleInstanceLock) {
       app.setAppUserModelId("local.pannel-handle");
     }
     windowManager = createWindowManager();
+    templateUsageStore = createTemplateUsageStore({
+      usageFile: path.join(app.getPath("userData"), "template-usage.json")
+    });
+    templateUsageStore.load();
     sessionStore = createSessionStore({
       sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
       getDefaultShell,
       getWslShell,
-      safeStorage
+      safeStorage,
+      templateUsageStore
     });
     configStore = createConfigStore({
       configFile: path.join(app.getPath("userData"), "config.json"),
@@ -237,7 +244,8 @@ if (!gotSingleInstanceLock) {
       hookConfigManager,
       remoteHookConfigService,
       sshSessionRuntime,
-      sshHookTunnelService
+      sshHookTunnelService,
+      onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
     mobileRemoteService = createMobileRemoteService({
       terminalManager,

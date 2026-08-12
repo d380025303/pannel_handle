@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createPairingUrls, getMobileHostname, isPrivateIpv4, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
+import { vi } from "vitest";
+import { createPairingUrls, getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
 
 describe("mobile remote network helpers", () => {
   it("only accepts RFC1918 IPv4 addresses", () => {
@@ -30,6 +31,20 @@ describe("mobile remote network helpers", () => {
     }, "pairing-token")).toEqual({
       url: "http://192.168.3.9:43123/#pair=pairing-token",
       fallbackUrl: "http://pannel-handle-dx.local:43123/#pair=pairing-token"
+    });
+  });
+
+  it("marks successful mobile template launches for usage tracking", async () => {
+    const launcher = {
+      launchSession: vi.fn(() => Promise.resolve({ id: "run-1" }))
+    };
+    const template = { id: "template-1" };
+
+    await expect(launchMobileTemplate(launcher, template, 120, 40)).resolves.toEqual({ id: "run-1" });
+    expect(launcher.launchSession).toHaveBeenCalledWith(template, {
+      cols: 120,
+      rows: 40,
+      recordUsage: true
     });
   });
 });

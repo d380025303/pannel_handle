@@ -531,6 +531,17 @@
   font-size: 14px;
 }
 
+.picker-frequent-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  font-size: 10px;
+  line-height: 16px;
+}
+
 .picker-empty {
   text-align: center;
   padding: 24px 0;

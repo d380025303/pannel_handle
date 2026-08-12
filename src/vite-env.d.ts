@@ -37,6 +37,8 @@ export type TerminalSession = {
   tags?: string[];
   gitCwd?: string;
   gitCwdHistory?: string[];
+  readonly recentLaunchCount?: number;
+  readonly lastLaunchedAt?: number;
 };
 
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
@@ -458,10 +460,9 @@ export type TerminalApi = {
   loadSavedSessions: () => Promise<TerminalSession[]>;
   exportSavedSessions: () => Promise<SessionLibraryFileResult>;
   importSavedSessions: () => Promise<SessionLibraryImportResult>;
-  launchSessions: (sessions: TerminalSession[]) => Promise<TerminalSession[]>;
+  launchSessions: (sessions: TerminalSession[], launchMode: "manual" | "restore") => Promise<TerminalSession[]>;
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
   duplicateSession: (id: string) => Promise<TerminalSession>;
-  reorderSavedSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;

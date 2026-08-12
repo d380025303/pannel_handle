@@ -706,7 +706,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onDelete={terminalSessions.deleteFromLibrary}
           onDuplicate={terminalSessions.duplicateFromLibrary}
           onEdit={handleEditFromPicker}
-          onReorder={terminalSessions.reorderLibrary}
           onImport={terminalSessions.importLibrary}
           onExport={terminalSessions.exportLibrary}
           onCancel={handleClosePicker}

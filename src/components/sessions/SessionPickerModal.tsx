@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Download, GripVertical, Pencil, Search, Trash2, Upload, X } from "lucide-react";
+import { Copy, Download, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../../vite-env";
 
@@ -12,7 +12,6 @@ type SessionPickerModalProps = {
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onEdit: (session: TerminalSession) => void;
-  onReorder: (sessions: TerminalSession[]) => void;
   onImport: () => Promise<SessionLibraryImportResult>;
   onExport: () => Promise<SessionLibraryFileResult>;
   onCancel: () => void;
@@ -24,6 +23,23 @@ function getSessionTypeLabel(session: TerminalSession) {
   return "PS";
 }
 
+export function orderSessionsByFrequency(sessions: TerminalSession[]) {
+  const originalIndexes = new Map(sessions.map((session, index) => [session.id, index]));
+  const frequentSessions = sessions
+    .filter((session) => (session.recentLaunchCount ?? 0) >= 2)
+    .sort((left, right) => (
+      (right.recentLaunchCount ?? 0) - (left.recentLaunchCount ?? 0)
+      || (right.lastLaunchedAt ?? 0) - (left.lastLaunchedAt ?? 0)
+      || (originalIndexes.get(left.id) ?? 0) - (originalIndexes.get(right.id) ?? 0)
+    ))
+    .slice(0, 10);
+  const frequentIds = new Set(frequentSessions.map((session) => session.id));
+  return {
+    orderedSessions: [...frequentSessions, ...sessions.filter((session) => !frequentIds.has(session.id))],
+    frequentIds
+  };
+}
+
 export function SessionPickerModal({
   pendingSessions,
   runningSessions,
@@ -33,7 +49,6 @@ export function SessionPickerModal({
   onDelete,
   onDuplicate,
   onEdit,
-  onReorder,
   onImport,
   onExport,
   onCancel
@@ -41,7 +56,6 @@ export function SessionPickerModal({
   const { t } = useI18n();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(() => new Set());
   const [libraryStatus, setLibraryStatus] = useState<{ kind: "info" | "error"; text: string } | null>(null);
@@ -105,7 +119,11 @@ export function SessionPickerModal({
     });
   }, [pendingSessions, searchQuery, selectedTags]);
 
-  const isFiltering = searchQuery.trim() !== "" || selectedTags.size > 0;
+  const { orderedSessions, frequentIds } = useMemo(
+    () => orderSessionsByFrequency(filteredSessions),
+    [filteredSessions]
+  );
+
   const toLaunch = pendingSessions.filter((session) => selectedIds.has(session.id));
 
   const toggleFilterTag = (tag: string) => {
@@ -115,32 +133,6 @@ export function SessionPickerModal({
       else next.add(tag);
       return next;
     });
-  };
-
-  const handleDragStart = (event: React.DragEvent, sessionId: string) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", sessionId);
-    (event.currentTarget as HTMLElement).classList.add("dragging");
-  };
-
-  const handleDrop = (event: React.DragEvent, targetSessionId: string) => {
-    event.preventDefault();
-    const draggedId = event.dataTransfer.getData("text/plain");
-    if (!draggedId || draggedId === targetSessionId) {
-      setDragOverId(null);
-      return;
-    }
-    const fromIndex = pendingSessions.findIndex((session) => session.id === draggedId);
-    const toIndex = pendingSessions.findIndex((session) => session.id === targetSessionId);
-    if (fromIndex === -1 || toIndex === -1) {
-      setDragOverId(null);
-      return;
-    }
-    const reordered = [...pendingSessions];
-    const [moved] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, moved);
-    onReorder(reordered);
-    setDragOverId(null);
   };
 
   const handleImport = async () => {
@@ -258,35 +250,20 @@ export function SessionPickerModal({
                 <div className="picker-empty"><p>{t("picker.noMatches")}</p></div>
               ) : (
                 <div className="picker-list">
-                  {filteredSessions.map((session) => {
+                  {orderedSessions.map((session) => {
                     const runningCount = runningCounts.get(session.id) ?? 0;
                     const isRunning = runningCount > 0;
                     const isChecked = selectedIds.has(session.id);
+                    const isFrequent = frequentIds.has(session.id);
                     return (
                       <div
                         key={session.id}
-                        className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
-                        draggable={!isFiltering}
-                        onDragStart={(event) => handleDragStart(event, session.id)}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "move";
-                          setDragOverId(session.id);
-                        }}
-                        onDragLeave={() => setDragOverId(null)}
-                        onDrop={(event) => handleDrop(event, session.id)}
-                        onDragEnd={(event) => {
-                          (event.currentTarget as HTMLElement).classList.remove("dragging");
-                          setDragOverId(null);
-                        }}
+                        className={`picker-item ${isChecked ? "checked" : ""} ${isRunning ? "running" : ""}`}
                         onClick={() => {
                           setConfirmDeleteId(null);
                           void handleLaunch([session]);
                         }}
                       >
-                        <span className={`picker-drag-handle${isFiltering ? " disabled" : ""}`} onClick={(event) => event.stopPropagation()}>
-                          <GripVertical aria-hidden="true" />
-                        </span>
                         <input
                           type="checkbox"
                           className="picker-checkbox"
@@ -305,6 +282,7 @@ export function SessionPickerModal({
                         <span className="picker-item-content">
                           <span className="picker-item-info">
                             <span className="picker-item-title">{session.title}</span>
+                            {isFrequent && <span className="picker-frequent-badge">{t("picker.frequent")}</span>}
                             <span className={`session-type-badge ${session.type}`}>{getSessionTypeLabel(session)}</span>
                             {isRunning && <span className="picker-running-badge">{t("picker.runningCount", { count: runningCount })}</span>}
                           </span>

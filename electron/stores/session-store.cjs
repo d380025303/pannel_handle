@@ -34,7 +34,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage }) {
+function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -214,6 +214,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
 
   function removeFromLibrary(id) {
     librarySessions = librarySessions.filter(s => s.id !== id);
+    templateUsageStore?.remove(id);
     saveLibrary();
   }
 
@@ -251,7 +252,10 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   }
 
   function getLibrary() {
-    return librarySessions.map(sanitizeTemplate);
+    return librarySessions.map((session) => ({
+      ...sanitizeTemplate(session),
+      ...(templateUsageStore?.getSummary(session.id) || { recentLaunchCount: 0, lastLaunchedAt: undefined })
+    }));
   }
 
   function exportLibrary(options = {}) {
@@ -299,22 +303,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     return librarySessions.find(item => item.id === id);
   }
 
-  function reorderLibrary(orderedIds) {
-    const sessionMap = new Map(librarySessions.map(s => [s.id, s]));
-    const reordered = [];
-    for (const id of orderedIds) {
-      if (sessionMap.has(id)) {
-        reordered.push(sessionMap.get(id));
-        sessionMap.delete(id);
-      }
-    }
-    for (const session of sessionMap.values()) {
-      reordered.push(session);
-    }
-    librarySessions = reordered;
-    saveLibrary();
-  }
-
   return {
     createTemplateId,
     normalizeTemplate,
@@ -330,7 +318,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     exportLibrary,
     importLibrary,
     getTemplate,
-    reorderLibrary
   };
 }
 

@@ -23,12 +23,13 @@ function createSafeStorageMock() {
   };
 }
 
-function createStore(sessionsFile, safeStorage = createSafeStorageMock()) {
+function createStore(sessionsFile, safeStorage = createSafeStorageMock(), templateUsageStore) {
   return createSessionStore({
     sessionsFile,
     getDefaultShell: () => "powershell.exe",
     getWslShell: () => "wsl.exe",
-    safeStorage
+    safeStorage,
+    templateUsageStore
   });
 }
 
@@ -419,5 +420,36 @@ describe("session-store", () => {
       hasSecret: true
     });
     expect(store.getLibrary()[0].sshConfig.encryptedSecret).toBeUndefined();
+  });
+
+  it("exposes local usage summaries without exporting or importing usage history", () => {
+    const sessionsFile = createTempSessionsFile();
+    const templateUsageStore = {
+      getSummary: vi.fn((id) => id === "1"
+        ? { recentLaunchCount: 3, lastLaunchedAt: 500 }
+        : { recentLaunchCount: 0, lastLaunchedAt: undefined }),
+      remove: vi.fn()
+    };
+    const store = createStore(sessionsFile, createSafeStorageMock(), templateUsageStore);
+    store.loadLibrary();
+    store.importLibrary([{
+      id: "external-id",
+      title: "Imported",
+      type: "windows",
+      cwd: "C:\\work",
+      recentLaunchCount: 99,
+      lastLaunchedAt: 999
+    }]);
+
+    expect(store.getLibrary()[0]).toMatchObject({ recentLaunchCount: 3, lastLaunchedAt: 500 });
+    expect(store.exportLibrary()[0]).not.toHaveProperty("recentLaunchCount");
+    expect(store.exportLibrary()[0]).not.toHaveProperty("lastLaunchedAt");
+
+    const duplicated = store.duplicateInLibrary("1");
+    expect(duplicated).not.toHaveProperty("recentLaunchCount");
+    expect(store.getLibrary().find((session) => session.id === duplicated.id)).toMatchObject({ recentLaunchCount: 0 });
+
+    store.removeFromLibrary("1");
+    expect(templateUsageStore.remove).toHaveBeenCalledWith("1");
   });
 });

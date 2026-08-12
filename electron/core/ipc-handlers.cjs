@@ -183,8 +183,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     }
   });
 
-  ipcMain.handle("sessions:launch-selected", async (_event, sessionsToLaunch) => {
-    return agentSessionLauncher.launchSessions(sessionsToLaunch);
+  ipcMain.handle("sessions:launch-selected", async (_event, sessionsToLaunch, launchMode) => {
+    return agentSessionLauncher.launchSessions(sessionsToLaunch, { recordUsage: launchMode === "manual" });
   });
 
   ipcMain.handle("sessions:delete-saved", (_event, id) => {
@@ -193,10 +193,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("sessions:duplicate", (_event, id) => {
     return terminalManager.duplicateSavedSession(id);
-  });
-
-  ipcMain.handle("sessions:reorder", (_event, orderedIds) => {
-    return terminalManager.reorderSavedSessions(orderedIds);
   });
 
   ipcMain.handle("sessions:reorder-running", (_event, orderedIds) => {

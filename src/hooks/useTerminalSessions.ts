@@ -65,7 +65,7 @@ export function useTerminalSessions() {
         }
         if (toRestore.length > 0) {
           const targetTemplateId = toRestore[0]?.id;
-          window.terminalApi.launchSessions(toRestore).then((updatedSessions) => {
+          window.terminalApi.launchSessions(toRestore, "restore").then((updatedSessions) => {
             if (isDisposed) return;
             const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
             const newest = matches[matches.length - 1];
@@ -188,7 +188,7 @@ export function useTerminalSessions() {
     setStartupError(null);
     try {
       const targetTemplateId = toLaunch[0]?.id;
-      const updatedSessions = await window.terminalApi.launchSessions(toLaunch);
+      const updatedSessions = await window.terminalApi.launchSessions(toLaunch, "manual");
       if (targetTemplateId) {
         const matches = updatedSessions.filter(s => s.templateId === targetTemplateId);
         const newest = matches[matches.length - 1];
@@ -201,7 +201,7 @@ export function useTerminalSessions() {
   }, []);
 
   const startFresh = useCallback(async () => {
-    await window.terminalApi.launchSessions([]);
+    await window.terminalApi.launchSessions([], "manual");
   }, []);
 
   const deleteFromLibrary = useCallback(async (id: string) => {
@@ -214,12 +214,6 @@ export function useTerminalSessions() {
     const duplicated = await window.terminalApi.duplicateSession(id);
     setLibrarySessions((prev) => [...prev, duplicated]);
     setPendingSessions((prev) => prev ? [...prev, duplicated] : null);
-  }, []);
-
-  const reorderLibrary = useCallback(async (orderedSessions: TerminalSession[]) => {
-    setPendingSessions(orderedSessions);
-    setLibrarySessions(orderedSessions);
-    await window.terminalApi.reorderSavedSessions(orderedSessions.map(s => s.id));
   }, []);
 
   const reorderRunningSessions = useCallback(async (orderedIds: string[]) => {
@@ -264,7 +258,6 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     duplicateFromLibrary,
-    reorderLibrary,
     reorderRunningSessions,
     autoRestore,
     toggleAutoRestore,

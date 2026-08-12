@@ -78,6 +78,10 @@ function toSavedTemplates(sessionStore, terminalManager) {
   }));
 }
 
+function launchMobileTemplate(agentSessionLauncher, template, cols, rows) {
+  return agentSessionLauncher.launchSession(template, { cols, rows, recordUsage: true });
+}
+
 function createMobileRemoteService({
   terminalManager,
   agentSessionLauncher,
@@ -401,7 +405,7 @@ function createMobileRemoteService({
         if (!template) throw new Error("模板不存在或已被删除。");
         const cols = Math.max(20, Math.min(500, Math.floor(Number(message.cols) || 100)));
         const rows = Math.max(5, Math.min(200, Math.floor(Number(message.rows) || 30)));
-        const session = await agentSessionLauncher.launchSession(template, { cols, rows });
+        const session = await launchMobileTemplate(agentSessionLauncher, template, cols, rows);
         applySize(session.id, socket.mobileDevice.id, cols, rows);
         socket.subscriptions.clear();
         socket.subscriptions.add(session.id);
@@ -647,5 +651,6 @@ module.exports = {
   isPrivateIpv4,
   listPrivateInterfaces,
   createPairingUrls,
+  launchMobileTemplate,
   createMobileRemoteService
 };

@@ -264,6 +264,7 @@ export type TranslationKey =
   | "picker.tagFilter"
   | "picker.noMatches"
   | "picker.runningCount"
+  | "picker.frequent"
   | "picker.deleteFromLibrary"
   | "picker.duplicateSession"
   | "picker.editSession"
@@ -675,6 +676,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.tagFilter": "标签筛选",
     "picker.noMatches": "没有匹配的会话",
     "picker.runningCount": "运行中 {count}",
+    "picker.frequent": "常用",
     "picker.deleteFromLibrary": "从库中删除",
     "picker.duplicateSession": "复制会话",
     "picker.editSession": "编辑会话",
@@ -1078,6 +1080,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "picker.tagFilter": "Tag filter",
     "picker.noMatches": "No matching sessions",
     "picker.runningCount": "Running {count}",
+    "picker.frequent": "Frequent",
     "picker.deleteFromLibrary": "Delete from library",
     "picker.duplicateSession": "Duplicate session",
     "picker.editSession": "Edit session",

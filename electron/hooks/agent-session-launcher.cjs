@@ -54,6 +54,7 @@ function createAgentSessionLauncher({
   remoteHookConfigService,
   sshSessionRuntime,
   sshHookTunnelService,
+  onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync
 }) {
   function validateAgentSession(session) {
@@ -202,19 +203,27 @@ function createAgentSessionLauncher({
   }
 
   async function launchSession(template, options = {}) {
-    if (!template.agentProvider) return terminalManager.launchSession(template, options);
-    validateAgentSession(template);
-    if (template.type === "ssh") {
-      const session = terminalManager.launchSession(template, { ...options, runtimeInitialCommand: "" });
-      return finishSsh(session);
+    const { recordUsage = false, ...launchOptions } = options;
+    let session;
+    if (!template.agentProvider) {
+      session = terminalManager.launchSession(template, launchOptions);
+    } else {
+      validateAgentSession(template);
+      if (template.type === "ssh") {
+        const pendingSession = terminalManager.launchSession(template, { ...launchOptions, runtimeInitialCommand: "" });
+        session = await finishSsh(pendingSession);
+      } else {
+        const runtimeInitialCommand = await prepareLocal(template);
+        session = terminalManager.launchSession(template, { ...launchOptions, runtimeInitialCommand });
+      }
     }
-    const runtimeInitialCommand = await prepareLocal(template);
-    return terminalManager.launchSession(template, { ...options, runtimeInitialCommand });
+    if (recordUsage) onTemplateLaunched(template.id);
+    return session;
   }
 
-  async function launchSessions(templates) {
+  async function launchSessions(templates, options = {}) {
     for (const template of templates) {
-      await launchSession(template);
+      await launchSession(template, options);
     }
     return terminalManager.listSessions();
   }
