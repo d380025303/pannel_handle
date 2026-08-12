@@ -19,6 +19,7 @@ const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-f
 const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
 const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
+const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
@@ -46,6 +47,7 @@ let remoteFileService = null;
 let fileTransferManager = null;
 let fileWatchManager = null;
 let remoteSystemService = null;
+let agentUsageService = null;
 let sshHookTunnelService = null;
 let sshSessionRuntime = null;
 let remoteHookConfigService = null;
@@ -190,6 +192,9 @@ if (!gotSingleInstanceLock) {
         if (remoteSystemService) {
           void remoteSystemService.disconnect(id);
         }
+        if (agentUsageService) {
+          agentUsageService.disconnect(id);
+        }
         if (sshHookTunnelService) {
           void sshHookTunnelService.disconnect(id);
         }
@@ -208,6 +213,10 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       sessionStore,
       knownHostStore
+    });
+    agentUsageService = createAgentUsageService({
+      terminalManager,
+      sshSessionRuntime
     });
     remoteFileService = createRemoteFileService({
       terminalManager,
@@ -323,6 +332,7 @@ if (!gotSingleInstanceLock) {
       fileTransferManager,
       fileWatchManager,
       remoteSystemService,
+      agentUsageService,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,
@@ -360,6 +370,9 @@ app.on("window-all-closed", () => {
   }
   if (remoteSystemService) {
     void remoteSystemService.shutdown();
+  }
+  if (agentUsageService) {
+    agentUsageService.shutdown();
   }
   if (gitStatusService) {
     gitStatusService.shutdown();

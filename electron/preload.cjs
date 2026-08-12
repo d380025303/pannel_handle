@@ -149,6 +149,14 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
   getMetrics: (sessionId) => ipcRenderer.invoke("remote-system:metrics", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("agentUsageApi", {
+  getUsage: (sessionId, options) => ipcRenderer.invoke("agent-usage:get", {
+    sessionId,
+    force: Boolean(options?.force)
+  }),
+  cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
+});
+
 contextBridge.exposeInMainWorld("fileTransferApi", {
   list: () => ipcRenderer.invoke("file-transfers:list"),
   chooseUpload: (sessionId, remoteDir) => ipcRenderer.invoke("file-transfers:choose-upload", { sessionId, remoteDir }),

@@ -3,6 +3,7 @@ import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
+import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
@@ -17,6 +18,7 @@ import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remo
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { TitleBar } from "./components/app/TitleBar";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
+import { useAgentUsage } from "./hooks/useAgentUsage";
 import { useRightToolsResize } from "./hooks/useRightToolsResize";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
@@ -118,6 +120,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     }
   );
   const terminalSessions = useTerminalSessions();
+  const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
   const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
   const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
@@ -559,7 +562,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
                       onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
                     />
-                    <RemoteSystemStatus state={remoteSystemMetrics} />
+                    <div className="terminal-status-cluster">
+                      <AgentUsageStatus state={agentUsage.state} onRefresh={agentUsage.refresh} />
+                      <RemoteSystemStatus state={remoteSystemMetrics} />
+                    </div>
                   </footer>
                 )}
               </div>

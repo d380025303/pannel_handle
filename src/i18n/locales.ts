@@ -145,6 +145,19 @@ export type TranslationKey =
   | "agent.running"
   | "agent.ended"
   | "agent.exited"
+  | "usage.loading"
+  | "usage.unavailable"
+  | "usage.retry"
+  | "usage.remaining"
+  | "usage.title"
+  | "usage.refresh"
+  | "usage.refreshing"
+  | "usage.close"
+  | "usage.limitRemaining"
+  | "usage.used"
+  | "usage.resetsAt"
+  | "usage.resetUnavailable"
+  | "usage.updatedAt"
   | "terminal.exited"
   | "terminal.imagePasteFailed"
   | "composer.inputLabel"
@@ -577,6 +590,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.running": "{agent} 运行中",
     "agent.ended": "{agent} 已结束",
     "agent.exited": "进程已退出",
+    "usage.loading": "正在读取 Codex 用量...",
+    "usage.unavailable": "Codex 用量不可用",
+    "usage.retry": "重试读取 Codex 用量",
+    "usage.remaining": "Codex 剩余 {remaining}%",
+    "usage.title": "Codex 用量",
+    "usage.refresh": "刷新用量",
+    "usage.refreshing": "正在刷新",
+    "usage.close": "关闭用量明细",
+    "usage.limitRemaining": "剩余 {remaining}%",
+    "usage.used": "已用 {used}%",
+    "usage.resetsAt": "{time} 重置",
+    "usage.resetUnavailable": "重置时间未知",
+    "usage.updatedAt": "更新于 {time}",
     "terminal.exited": "[进程已退出，退出码 {exitCode}]",
     "terminal.imagePasteFailed": "[图片粘贴失败: {message}]",
     "composer.inputLabel": "终端输入",
@@ -1001,6 +1027,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.running": "{agent} running",
     "agent.ended": "{agent} ended",
     "agent.exited": "Process exited",
+    "usage.loading": "Reading Codex usage...",
+    "usage.unavailable": "Codex usage unavailable",
+    "usage.retry": "Retry Codex usage",
+    "usage.remaining": "Codex {remaining}% left",
+    "usage.title": "Codex usage",
+    "usage.refresh": "Refresh usage",
+    "usage.refreshing": "Refreshing",
+    "usage.close": "Close usage details",
+    "usage.limitRemaining": "{remaining}% remaining",
+    "usage.used": "{used}% used",
+    "usage.resetsAt": "Resets {time}",
+    "usage.resetUnavailable": "Reset time unavailable",
+    "usage.updatedAt": "Updated {time}",
     "terminal.exited": "[Process exited with code {exitCode}]",
     "terminal.imagePasteFailed": "[Image paste failed: {message}]",
     "composer.inputLabel": "Terminal input",

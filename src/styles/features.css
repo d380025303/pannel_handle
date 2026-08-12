@@ -1368,6 +1368,213 @@
   flex-shrink: 0;
 }
 
+.terminal-status-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.terminal-status-cluster .remote-system-status {
+  margin-left: 0;
+}
+
+.agent-usage {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.agent-usage-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+button.agent-usage-status {
+  cursor: pointer;
+}
+
+button.agent-usage-status:hover,
+button.agent-usage-status:focus-visible,
+button.agent-usage-status[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  outline: none;
+  background: var(--color-bg-hover);
+}
+
+.agent-usage-status svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  stroke-width: 1.8;
+}
+
+.agent-usage-status.normal {
+  color: var(--color-ok-text);
+}
+
+.agent-usage-status.warning,
+.agent-usage-limit.warning .agent-usage-limit-heading span {
+  color: var(--color-warning-text);
+}
+
+.agent-usage-status.danger,
+.agent-usage-status.error,
+.agent-usage-limit.danger .agent-usage-limit-heading span {
+  color: var(--color-danger-text);
+}
+
+.agent-usage-status.loading {
+  color: var(--color-text-muted);
+}
+
+.agent-usage-refreshing {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.agent-usage-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 900;
+  display: flex;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(440px, calc(100vh - 120px));
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-dialog);
+}
+
+.agent-usage-popover-header,
+.agent-usage-popover-header > span,
+.agent-usage-limit-heading,
+.agent-usage-limit-meta {
+  display: flex;
+  align-items: center;
+}
+
+.agent-usage-popover-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-usage-popover-header > span {
+  gap: 4px;
+}
+
+.agent-usage-popover-header button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-usage-popover-header button:hover:not(:disabled),
+.agent-usage-popover-header button:focus-visible {
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.agent-usage-popover-header button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.agent-usage-popover-header svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-usage-limit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-usage-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-usage-limit-heading,
+.agent-usage-limit-meta {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-usage-limit-heading {
+  font-size: 12px;
+}
+
+.agent-usage-limit-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-usage-limit-heading span,
+.agent-usage-limit-meta,
+.agent-usage-popover > small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.agent-usage-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-bg-control);
+}
+
+.agent-usage-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
+.agent-usage-limit.warning .agent-usage-progress > span {
+  background: var(--color-warning-text);
+}
+
+.agent-usage-limit.danger .agent-usage-progress > span {
+  background: var(--color-danger);
+}
+
+.agent-usage-popover > small {
+  padding-top: 2px;
+  border-top: 1px solid var(--color-border);
+  text-align: right;
+}
+
 .remote-system-status {
   display: flex;
   align-items: center;

@@ -470,6 +470,27 @@ export type AgentHookDebugPayload = {
   payload: unknown;
 };
 
+export type AgentUsageLimit = {
+  id: string;
+  name: string;
+  usedPercent: number;
+  remainingPercent: number;
+  windowDurationMins?: number;
+  resetsAt?: number;
+};
+
+export type AgentUsageSnapshot = {
+  provider: "codex";
+  fetchedAt: number;
+  primaryLimitId: string;
+  limits: AgentUsageLimit[];
+};
+
+export type AgentUsageApi = {
+  getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
+  cancel: (sessionId: string) => void;
+};
+
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession>;
@@ -630,6 +651,7 @@ declare global {
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
+    agentUsageApi: AgentUsageApi;
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
