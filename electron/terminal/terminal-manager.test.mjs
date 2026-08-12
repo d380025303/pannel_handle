@@ -254,12 +254,12 @@ describe("terminal-manager", () => {
       cwd: "C:\\work",
       initialCommand: "pnpm install",
       agentProvider: "claude",
-      runtimeInitialCommand: "& { pnpm install }; if ($?) { claude }"
+      runtimeInitialCommand: "pnpm install && claude"
     });
     term.emitData("ready");
 
     expect(session).toMatchObject({ initialCommand: "pnpm install", agentProvider: "claude" });
-    expect(term.writes).toEqual(["& { pnpm install }; if ($?) { claude }\r"]);
+    expect(term.writes).toEqual(["pnpm install && claude\r"]);
     expect(sessionStore.addToLibrary).toHaveBeenCalledWith(expect.objectContaining({
       initialCommand: "pnpm install",
       agentProvider: "claude"

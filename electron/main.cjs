@@ -263,6 +263,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       sshSessionRuntime,
       sshHookTunnelService,
+      getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
     launchTemplateService = createLaunchTemplateService({

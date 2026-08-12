@@ -46,6 +46,7 @@ function createMocks(overrides = {}) {
   const sshSessionRuntime = { exec: vi.fn(() => Promise.resolve("/usr/bin/agent")) };
   const sshHookTunnelService = { ensureTunnel: vi.fn(() => Promise.resolve({ hookUrl: "http://127.0.0.1:9000/opencode-hook" })) };
   const spawnSync = vi.fn(() => ({ status: 0, stdout: "found" }));
+  const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
   const launcher = createAgentSessionLauncher({
     terminalManager,
     hookConfigManager,
@@ -54,9 +55,10 @@ function createMocks(overrides = {}) {
     sshHookTunnelService,
     onTemplateLaunched,
     spawnSync,
+    getDefaultShell,
     ...overrides
   });
-  return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync };
+  return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, getDefaultShell };
 }
 
 describe("agent-session-launcher", () => {
@@ -69,13 +71,34 @@ describe("agent-session-launcher", () => {
     });
   });
 
-  it("builds environment-specific commands and only starts after a successful pre-command", () => {
-    expect(buildAgentStartCommand({ type: "windows", agentProvider: "claude", initialCommand: "pnpm install" }))
+  it("uses cmd syntax for a Windows Agent pre-command", () => {
+    const command = buildAgentStartCommand({
+      type: "windows",
+      shell: "C:\\Windows\\System32\\cmd.exe",
+      agentProvider: "codex",
+      initialCommand: "chcp 65001 && set HTTP_PROXY=http://127.0.0.1:7892 && set HTTPS_PROXY=http://127.0.0.1:7892"
+    });
+
+    expect(command).toBe("chcp 65001 && set HTTP_PROXY=http://127.0.0.1:7892 && set HTTPS_PROXY=http://127.0.0.1:7892 && codex");
+    expect(command).not.toContain("& {");
+    expect(command).not.toContain("if ($?)");
+  });
+
+  it("preserves PowerShell syntax for an explicit PowerShell session", () => {
+    expect(buildAgentStartCommand({ type: "windows", shell: "pwsh.exe", agentProvider: "claude", initialCommand: "pnpm install" }))
       .toBe("& { pnpm install }; if ($?) { claude }");
+  });
+
+  it("builds POSIX Agent commands for WSL and SSH", () => {
     expect(buildAgentStartCommand({ type: "wsl", agentProvider: "codex", initialCommand: "pnpm install" }))
       .toBe("pnpm install && codex");
     expect(buildAgentStartCommand({ type: "ssh", agentProvider: "opencode" }, { hookUrl: "http://local/hook", sessionId: "run-2" }))
       .toContain("PANNEL_HANDLE_SESSION_ID='run-2' opencode");
+  });
+
+  it("starts the Agent directly when there is no pre-command", () => {
+    expect(buildAgentStartCommand({ type: "windows", shell: "cmd.exe", agentProvider: "codex" }))
+      .toBe("codex");
   });
 
   it("checks and repairs a local hook before creating the terminal", async () => {
@@ -87,8 +110,9 @@ describe("agent-session-launcher", () => {
     expect(mocks.spawnSync).toHaveBeenCalledWith("where.exe", ["claude"], expect.any(Object));
     expect(mocks.hookConfigManager.install).toHaveBeenCalled();
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      shell: "C:\\Windows\\System32\\cmd.exe",
       initialCommand: "pnpm install",
-      runtimeInitialCommand: "& { pnpm install }; if ($?) { claude }"
+      runtimeInitialCommand: "pnpm install && claude"
     }));
   });
 

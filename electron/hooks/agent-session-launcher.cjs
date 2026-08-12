@@ -19,6 +19,15 @@ function getAgentCommand(provider) {
   return command;
 }
 
+function isPowerShell(shell) {
+  const executable = String(shell || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .toLowerCase();
+  return ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable);
+}
+
 function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
@@ -32,7 +41,7 @@ function buildAgentStartCommand(session, runtime = {}) {
   }
 
   if (!preCommand) return agentCommand;
-  if (session.type === "windows") {
+  if (session.type === "windows" && isPowerShell(session.shell)) {
     return `& { ${preCommand} }; if ($?) { ${agentCommand} }`;
   }
   return `${preCommand} && ${agentCommand}`;
@@ -55,8 +64,14 @@ function createAgentSessionLauncher({
   sshSessionRuntime,
   sshHookTunnelService,
   onTemplateLaunched = () => {},
-  spawnSync = defaultSpawnSync
+  spawnSync = defaultSpawnSync,
+  getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
 }) {
+  function resolveLocalShell(session) {
+    if (session.type !== "windows" || session.shell) return session;
+    return { ...session, shell: getDefaultShell() };
+  }
+
   function validateAgentSession(session) {
     if (!session.agentProvider) return;
     getAgentCommand(session.agentProvider);
@@ -186,8 +201,9 @@ function createAgentSessionLauncher({
   }
 
   async function createSession(options = {}) {
-    const request = { ...options, type: options.type || "windows" };
+    let request = { ...options, type: options.type || "windows" };
     if (!request.agentProvider) return terminalManager.createSession(request);
+    request = resolveLocalShell(request);
     validateAgentSession(request);
     if (request.type === "ssh") {
       const session = terminalManager.createSession({ ...request, runtimeInitialCommand: "" });
@@ -204,20 +220,21 @@ function createAgentSessionLauncher({
 
   async function launchSession(template, options = {}) {
     const { recordUsage = false, ...launchOptions } = options;
+    const launchTemplate = template.agentProvider ? resolveLocalShell(template) : template;
     let session;
-    if (!template.agentProvider) {
-      session = terminalManager.launchSession(template, launchOptions);
+    if (!launchTemplate.agentProvider) {
+      session = terminalManager.launchSession(launchTemplate, launchOptions);
     } else {
-      validateAgentSession(template);
-      if (template.type === "ssh") {
-        const pendingSession = terminalManager.launchSession(template, { ...launchOptions, runtimeInitialCommand: "" });
+      validateAgentSession(launchTemplate);
+      if (launchTemplate.type === "ssh") {
+        const pendingSession = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand: "" });
         session = await finishSsh(pendingSession);
       } else {
-        const runtimeInitialCommand = await prepareLocal(template);
-        session = terminalManager.launchSession(template, { ...launchOptions, runtimeInitialCommand });
+        const runtimeInitialCommand = await prepareLocal(launchTemplate);
+        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand });
       }
     }
-    if (recordUsage) onTemplateLaunched(template.id);
+    if (recordUsage) onTemplateLaunched(launchTemplate.id);
     return session;
   }
 
