@@ -457,7 +457,7 @@ export type AgentStatusPayload = {
   message?: string;
   toolName?: string;
   toolInput?: unknown;
-  lastAssistantMessage?: string;
+  activitySummary?: string;
   resolution?: "none" | "provide_input";
 };
 

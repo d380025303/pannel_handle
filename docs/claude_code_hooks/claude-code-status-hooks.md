@@ -309,6 +309,12 @@ claude
 - 工具执行失败时，状态变为 `Claude 失败`。
 - 退出 Claude 或关闭会话后，状态变为 `Claude 已结束`。
 
+## 左侧会话动态摘要
+
+左侧会话栏会按 Hook 类型选择内容：`UserPromptSubmit` 展示提示词，`PreToolUse` 和 `PermissionRequest` 展示工具及参数，`PostToolUse` 展示结果或错误，`Notification` 展示通知消息，`Stop` 展示最后回复，`StopFailure` 和 `SessionEnd` 展示错误或结束原因。没有有效内容的后续事件不会清空已有摘要。
+
+摘要尽量保留 Hook 原文，不做敏感字段脱敏，最长 500 个字符；数据仅在本次应用运行期间保留。
+
 ## 常见问题
 
 ### 状态没有出现

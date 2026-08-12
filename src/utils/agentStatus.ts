@@ -7,21 +7,21 @@ export function mergeAgentStatus(
   current: AgentStatusPayload | undefined,
   incoming: AgentStatusPayload
 ): AgentStatusPayload {
-  const incomingSummary = incoming.lastAssistantMessage?.trim();
+  const incomingSummary = incoming.activitySummary?.trim();
   const previousSummary = current?.provider === incoming.provider
-    ? current.lastAssistantMessage?.trim()
+    ? current.activitySummary?.trim()
     : undefined;
-  const lastAssistantMessage = incomingSummary || previousSummary;
+  const activitySummary = incomingSummary || previousSummary;
 
-  if (!lastAssistantMessage) {
+  if (!activitySummary) {
     const statusWithoutSummary = { ...incoming };
-    delete statusWithoutSummary.lastAssistantMessage;
+    delete statusWithoutSummary.activitySummary;
     return statusWithoutSummary;
   }
 
   return {
     ...incoming,
-    lastAssistantMessage
+    activitySummary
   };
 }
 

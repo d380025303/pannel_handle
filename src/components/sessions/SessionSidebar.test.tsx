@@ -40,7 +40,7 @@ function renderSidebar(agentStatus?: AgentStatusPayload) {
 describe("SessionSidebar Agent summary", () => {
   afterEach(cleanup);
 
-  it("shows the last Agent response below its status with the full text as a tooltip", () => {
+  it("shows Agent activity below its status with the full text as a tooltip", () => {
     const summary = "已完成登录页修复并通过相关测试";
     renderSidebar({
       id: session.id,
@@ -48,7 +48,7 @@ describe("SessionSidebar Agent summary", () => {
       status: "completed",
       eventName: "Stop",
       timestamp: 1,
-      lastAssistantMessage: summary
+      activitySummary: summary
     });
 
     expect(screen.getByText(summary).getAttribute("title")).toBe(summary);
@@ -62,7 +62,7 @@ describe("SessionSidebar Agent summary", () => {
       status: "running",
       eventName: "PreToolUse",
       timestamp: 1,
-      lastAssistantMessage: "   "
+      activitySummary: "   "
     });
 
     expect(container.querySelector(".agent-status-summary")).toBeNull();

@@ -47,6 +47,12 @@ Windows 和 WSL 项目使用同一个 JavaScript 插件。WSL 会话依赖本工
 6. 将本工具窗口切到后台，确认等待权限、完成和失败状态会显示 Windows 通知。
 7. 启用 Debug 模式，确认 OpenCode 事件可按 `opencode` 筛选。
 
+## 左侧会话动态摘要
+
+左侧会话栏会根据 OpenCode 事件展示有用内容：工具执行前展示工具和参数，执行后展示结果或错误，权限事件展示权限内容，`session.error` 和 `session.deleted` 展示错误或结束原因。没有有效内容的 `session.status`、`session.idle` 等事件会保留上一条摘要。
+
+摘要使用 Hook 原始内容，不做敏感字段脱敏，最长 500 个字符；数据仅在本次应用运行期间保留。
+
 ## 故障排查
 
 - 必须从本工具创建的终端中启动 OpenCode；外部终端不会继承 `PANNEL_HANDLE_HOOK_URL`。

@@ -99,6 +99,43 @@ describe("agent-hook-server", () => {
     }));
   });
 
+  it.each([
+    ["UserPromptSubmit", { prompt: "分析登录失败原因" }, "分析登录失败原因"],
+    ["PreToolUse", { tool_name: "shell_command", tool_input: { command: "pnpm test" } }, "shell_command: {\"command\":\"pnpm test\"}"],
+    ["PermissionRequest", { tool_name: "shell_command", tool_input: { command: "git push" } }, "shell_command: {\"command\":\"git push\"}"],
+    ["PostToolUse", { tool_name: "shell_command", tool_response: { exitCode: 0 } }, "shell_command: {\"exitCode\":0}"],
+    ["Stop", { last_assistant_message: "已完成登录页修复" }, "已完成登录页修复"],
+    ["SessionStart", { model: "gpt-5.6", source: "startup" }, "gpt-5.6 · startup"]
+  ])("extracts Codex activity summary from %s", (eventName, extra, expectedSummary) => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("codex", {
+      hook_event_name: eventName,
+      session_id: "codex-1",
+      pannel_handle_session_id: "run-1",
+      ...extra
+    });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      activitySummary: expectedSummary
+    }));
+  });
+
+  it("truncates oversized activity summaries", () => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("codex", {
+      hook_event_name: "UserPromptSubmit",
+      prompt: "x".repeat(600),
+      session_id: "codex-1",
+      pannel_handle_session_id: "run-1"
+    });
+
+    const payload = terminalManager.broadcastAgentStatus.mock.calls[0][0];
+    expect(payload.activitySummary).toHaveLength(500);
+    expect(payload.activitySummary.endsWith("…")).toBe(true);
+  });
+
   it("recovers malformed Codex Stop hook payloads from raw_input", () => {
     const { server, terminalManager } = createServer();
     const rawInput = "{\"session_id\":\"codex-1\",\"turn_id\":\"turn-1\",\"cwd\":\"C:\\\\work\",\"hook_event_name\":\"Stop\",\"last_assistant_message\":\"unterminated";
@@ -164,6 +201,23 @@ describe("agent-hook-server", () => {
         tool_name: "request_user_input",
         recovered_from_raw_input: true
       })
+    }));
+  });
+
+  it("recovers a prompt summary from malformed Codex raw_input", () => {
+    const { server, terminalManager } = createServer();
+    const rawInput = "{\"session_id\":\"codex-1\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"检查构建失败\",\"broken\":";
+
+    server.handleAgentHookDebug("codex", {
+      parse_error: "Invalid object passed in",
+      raw_input: rawInput,
+      cwd: "C:\\work",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: "UserPromptSubmit",
+      activitySummary: "检查构建失败"
     }));
   });
 
@@ -249,6 +303,26 @@ describe("agent-hook-server", () => {
     }));
   });
 
+  it.each([
+    ["tool.execute.before", { tool_name: "bash", tool_input: { command: "pnpm build" } }, "bash: {\"command\":\"pnpm build\"}"],
+    ["tool.execute.after", { tool_name: "bash", success: false, error: { message: "exit code 1" } }, "bash: exit code 1"],
+    ["permission.asked", { permission: "external_directory" }, "external_directory"],
+    ["session.error", { error: "connection lost" }, "connection lost"]
+  ])("extracts OpenCode activity summary from %s", (eventName, extra, expectedSummary) => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("opencode", {
+      event_name: eventName,
+      session_id: "opencode-1",
+      pannel_handle_session_id: "run-1",
+      ...extra
+    });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      activitySummary: expectedSummary
+    }));
+  });
+
   it("broadcasts unknown OpenCode events only to debug", () => {
     const { server, terminalManager } = createServer();
     const payload = {
@@ -298,6 +372,21 @@ describe("agent-hook-server", () => {
       provider: "qoder",
       status: expectedStatus,
       eventName
+    }));
+  });
+
+  it("extracts Qoder prompt activity summary", () => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("qoder", {
+      hook_event_name: "UserPromptSubmit",
+      prompt: "重构会话侧栏",
+      session_id: "qoder-1",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      activitySummary: "重构会话侧栏"
     }));
   });
 
@@ -417,7 +506,24 @@ describe("agent-hook-server", () => {
       status: "failed",
       eventName: "PostToolUse",
       toolName: "Bash",
+      activitySummary: "Bash: Command failed with exit code 1",
       resolution: "provide_input"
+    }));
+  });
+
+  it("extracts Claude notification activity summary", () => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("claude", {
+      hook_event_name: "Notification",
+      notification_type: "permission_prompt",
+      message: "需要访问工作区外目录",
+      session_id: "claude-1",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      activitySummary: "需要访问工作区外目录"
     }));
   });
 

@@ -138,7 +138,7 @@ export function SessionSidebar({
           filteredSessions.map((session) => {
             const agentStatus = agentStatusesBySessionId[session.id];
             const agentStatusLabel = getAgentStatusLabel(agentStatus, t);
-            const agentSummary = agentStatus?.lastAssistantMessage?.trim();
+            const agentSummary = agentStatus?.activitySummary?.trim();
             return (
               <button
                 className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}

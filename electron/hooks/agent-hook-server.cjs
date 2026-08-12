@@ -1,6 +1,8 @@
 const http = require("node:http");
 const path = require("node:path");
 
+const MAX_ACTIVITY_SUMMARY_LENGTH = 500;
+
 function createAgentHookServer({ terminalManager }) {
   const agentSessions = {
     claude: new Map(),
@@ -86,6 +88,115 @@ function createAgentHookServer({ terminalManager }) {
     return input.tool_name || input.toolName || input.tool;
   }
 
+  function formatSummaryValue(value) {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+
+    let text;
+    if (typeof value === "string") {
+      text = value.trim();
+    } else if (typeof value === "object") {
+      try {
+        text = JSON.stringify(value);
+      } catch {
+        text = String(value);
+      }
+    } else {
+      text = String(value);
+    }
+
+    if (!text) {
+      return undefined;
+    }
+    if (text.length <= MAX_ACTIVITY_SUMMARY_LENGTH) {
+      return text;
+    }
+    return `${text.slice(0, MAX_ACTIVITY_SUMMARY_LENGTH - 1)}…`;
+  }
+
+  function firstSummaryValue(...values) {
+    for (const value of values) {
+      const formatted = formatSummaryValue(value);
+      if (formatted) {
+        return formatted;
+      }
+    }
+    return undefined;
+  }
+
+  function formatToolSummary(input, detail) {
+    const toolName = firstSummaryValue(getToolName(input));
+    const detailText = formatSummaryValue(detail);
+    if (toolName && detailText) {
+      return formatSummaryValue(`${toolName}: ${detailText}`);
+    }
+    return detailText || toolName;
+  }
+
+  function getErrorSummary(input) {
+    const error = input.error;
+    return firstSummaryValue(
+      error && typeof error === "object" ? error.message : undefined,
+      error,
+      input.message,
+      input.reason
+    );
+  }
+
+  function getActivitySummary(input) {
+    const eventName = getEventName(input);
+    const toolInput = input.tool_input ?? input.toolInput;
+    const toolResponse = input.tool_response ?? input.toolResponse ?? input.output ?? input.result;
+
+    if (eventName === "UserPromptSubmit") {
+      return firstSummaryValue(input.prompt, input.message);
+    }
+    if (eventName === "PreToolUse" || eventName === "tool.execute.before") {
+      return formatToolSummary(input, toolInput);
+    }
+    if (eventName === "PermissionRequest" || eventName === "permission.asked" || eventName === "permission.updated") {
+      return formatToolSummary(
+        input,
+        toolInput ?? input.permission ?? input.patterns ?? input.pattern ?? input.message ?? input.title
+      );
+    }
+    if (eventName === "PostToolUse" || eventName === "tool.execute.after") {
+      if (isToolFailure(input)) {
+        return formatToolSummary(input, getErrorSummary(input) ?? toolResponse);
+      }
+      return formatToolSummary(input, toolResponse);
+    }
+    if (eventName === "PostToolUseFailure") {
+      return formatToolSummary(input, getErrorSummary(input) ?? toolResponse);
+    }
+    if (eventName === "Stop") {
+      return firstSummaryValue(input.last_assistant_message, input.lastAssistantMessage, input.message);
+    }
+    if (eventName === "StopFailure" || eventName === "session.error") {
+      return getErrorSummary(input);
+    }
+    if (eventName === "Notification") {
+      return firstSummaryValue(input.message, input.title, input.notification_type, input.notificationType);
+    }
+    if (eventName === "SessionStart") {
+      const model = firstSummaryValue(input.model);
+      const source = firstSummaryValue(input.source);
+      return model && source ? formatSummaryValue(`${model} · ${source}`) : model || source;
+    }
+    if (eventName === "SessionEnd" || eventName === "session.deleted") {
+      return firstSummaryValue(input.reason, input.message, input.title);
+    }
+    if (eventName === "session.idle") {
+      return firstSummaryValue(input.last_assistant_message, input.lastAssistantMessage, input.message, input.title);
+    }
+    if (eventName === "session.status") {
+      return firstSummaryValue(input.message, input.title);
+    }
+
+    return firstSummaryValue(input.message, input.title, input.reason);
+  }
+
   function getJsonStringField(rawInput, fieldName) {
     if (typeof rawInput !== "string" || rawInput.length === 0) {
       return undefined;
@@ -110,7 +221,22 @@ function createAgentHookServer({ terminalManager }) {
     }
 
     const recovered = {};
-    for (const fieldName of ["hook_event_name", "session_id", "cwd", "last_assistant_message", "tool_name"]) {
+    for (const fieldName of [
+      "hook_event_name",
+      "session_id",
+      "cwd",
+      "last_assistant_message",
+      "tool_name",
+      "prompt",
+      "message",
+      "title",
+      "reason",
+      "error",
+      "model",
+      "source",
+      "tool_input",
+      "tool_response"
+    ]) {
       if (input[fieldName] === undefined) {
         const value = getJsonStringField(input.raw_input, fieldName);
         if (value !== undefined) {
@@ -312,6 +438,7 @@ function createAgentHookServer({ terminalManager }) {
     }
     const toolName = getToolName(input);
     const message = input.message || input.title || input.notification_type || input.reason;
+    const activitySummary = getActivitySummary(input);
     registerAgentSession(provider, getAgentSessionId(input), session.id);
     const resolution = getClaudeHookResolution(input);
     session.agentStatus = status;
@@ -325,7 +452,7 @@ function createAgentHookServer({ terminalManager }) {
       message,
       toolName,
       toolInput: input.tool_input || input.toolInput,
-      lastAssistantMessage: input.last_assistant_message || input.lastAssistantMessage,
+      activitySummary,
       ...(resolution !== undefined ? { resolution } : {})
     });
     return true;

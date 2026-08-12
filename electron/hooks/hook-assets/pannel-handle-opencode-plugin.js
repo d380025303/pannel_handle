@@ -83,7 +83,8 @@ export const PannelHandleNotification = async ({ directory }) => ({
       cwd: directory,
       tool_name: input?.tool,
       success: output?.error === undefined,
-      error: output?.error
+      error: output?.error,
+      tool_response: output?.output ?? output?.title
     });
   }
 });

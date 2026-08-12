@@ -66,6 +66,12 @@ codex
 
 这种方式的前提仍然是：Codex 必须从本工具创建的终端里启动。否则 `PANNEL_HANDLE_HOOK_URL` 不存在，hook 脚本会直接退出，不会上报任何状态。
 
+## 左侧会话动态摘要
+
+左侧会话栏不再只依赖 `Stop.last_assistant_message`。它会根据当前 Hook 展示对应的有效内容：`UserPromptSubmit` 展示提示词，`PreToolUse` 和 `PermissionRequest` 展示工具及参数，`PostToolUse` 展示工具结果，`Stop` 展示最后一条 Agent 回复，失败和结束事件展示错误或原因。没有有效内容的后续事件会保留当前摘要。
+
+工具参数、结果和提示词按 Hook 原文展示，不做敏感字段脱敏；超出 500 个字符时会截断。摘要只保存在当前应用运行期，应用重启后等待新的 Hook 事件更新。
+
 ## 常见问题
 
 ### 外部终端启动 Codex 能监听吗
