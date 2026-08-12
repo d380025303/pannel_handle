@@ -1,13 +1,15 @@
 import { Minus, PanelsTopLeft, Settings, Square, X } from "lucide-react";
 import { useI18n } from "../../i18n";
+import type { MobileAccessState } from "../../vite-env";
 
 type TitleBarProps = {
   activeTitle?: string;
   isMaximized: boolean;
   onOpenSettings: () => void;
+  mobileAccessState: MobileAccessState | null;
 };
 
-export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings }: TitleBarProps) {
   const { t } = useI18n();
 
   return (
@@ -24,6 +26,11 @@ export function TitleBar({ activeTitle, isMaximized, onOpenSettings }: TitleBarP
           <Settings aria-hidden="true" />
         </button>
       </div>
+      {mobileAccessState?.running && (
+        <button className={`titlebar-mobile-status${mobileAccessState.activeDevice?.connected ? " connected" : ""}`} type="button" title={mobileAccessState.activeDevice?.name || "局域网移动终端已启用"} onClick={onOpenSettings}>
+          <span />{mobileAccessState.activeDevice?.connected ? mobileAccessState.activeDevice.name : "移动访问"}
+        </button>
+      )}
       <div className="titlebar-session">{activeTitle || t("app.noActiveSession")}</div>
       <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
         <button

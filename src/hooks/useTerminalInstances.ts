@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent, WheelEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
@@ -76,6 +76,8 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
   const { t } = useI18n();
   const terminalHostRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
+  const sizeOwnersRef = useRef(new Map<string, string>());
+  const [activeSizeOwner, setActiveSizeOwner] = useState("desktop");
 
   const copyTerminalSelection = useCallback(async (terminal: Terminal) => {
     if (!terminal.hasSelection()) {
@@ -144,12 +146,14 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
 
     requestAnimationFrame(() => {
       try {
-        entry.fitAddon.fit();
+        if ((sizeOwnersRef.current.get(activeId) || "desktop") === "desktop") {
+          entry.fitAddon.fit();
+        }
         entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
         autoFocusTerminal(entry, terminalHostRefs.current.get(activeId) ?? null);
 
         const dims = entry.fitAddon.proposeDimensions();
-        if (dims && dims.cols > 0 && dims.rows > 0) {
+        if ((sizeOwnersRef.current.get(activeId) || "desktop") === "desktop" && dims && dims.cols > 0 && dims.rows > 0) {
           window.terminalApi.resize(activeId, dims.cols, dims.rows);
         }
       } catch {
@@ -157,6 +161,14 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
       }
     });
   }, [activeId, isVisible]);
+
+  const claimActiveSize = useCallback(() => {
+    if (!activeId) return;
+    const entry = terminalsRef.current.get(activeId);
+    const dims = entry?.fitAddon.proposeDimensions();
+    if (!entry || !dims || dims.cols <= 0 || dims.rows <= 0) return;
+    window.terminalApi.claimSize(activeId, dims.cols, dims.rows);
+  }, [activeId]);
 
   const handleTerminalWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
     const entry = activeId ? terminalsRef.current.get(activeId) : undefined;
@@ -326,9 +338,11 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
 
     const fit = () => {
       try {
-        entry?.fitAddon.fit();
+        if ((sizeOwnersRef.current.get(activeId) || "desktop") === "desktop") {
+          entry?.fitAddon.fit();
+        }
         const dims = entry?.fitAddon.proposeDimensions();
-        if (dims && dims.cols > 0 && dims.rows > 0) {
+        if ((sizeOwnersRef.current.get(activeId) || "desktop") === "desktop" && dims && dims.cols > 0 && dims.rows > 0) {
           window.terminalApi.resize(activeId, dims.cols, dims.rows);
         }
       } catch {
@@ -353,6 +367,23 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
   }, [activeId, copyTerminalSelection, pasteIntoTerminal, terminalTheme]);
 
   useEffect(() => {
+    const removeListener = window.terminalApi.onSizeOwner(({ sessionId, owner, cols, rows }) => {
+      sizeOwnersRef.current.set(sessionId, owner);
+      if (sessionId === activeId) setActiveSizeOwner(owner);
+      const entry = terminalsRef.current.get(sessionId);
+      if (entry && (entry.terminal.cols !== cols || entry.terminal.rows !== rows)) {
+        entry.terminal.resize(cols, rows);
+        entry.terminal.refresh(0, Math.max(0, rows - 1));
+      }
+    });
+    return removeListener;
+  }, [activeId]);
+
+  useEffect(() => {
+    setActiveSizeOwner(activeId ? (sizeOwnersRef.current.get(activeId) || "desktop") : "desktop");
+  }, [activeId]);
+
+  useEffect(() => {
     syncActiveTerminal();
   }, [syncActiveTerminal]);
 
@@ -374,6 +405,8 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
     handleTerminalContextMenu,
     handleTerminalWheel,
     disposeTerminal,
-    focusActiveTerminal
+    focusActiveTerminal,
+    claimActiveSize,
+    activeSizeOwner
   };
 }

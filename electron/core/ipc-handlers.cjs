@@ -40,7 +40,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, configStore, completionConfigStore, completionMetricsStore, completionService, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, listenerAgentManager, mobileRemoteService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -260,8 +260,21 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.on("terminal:resize", (_event, { id, cols, rows }) => {
-    terminalManager.resize(id, cols, rows);
+    if (mobileRemoteService) mobileRemoteService.resizeFromDesktop(id, cols, rows);
+    else terminalManager.resize(id, cols, rows);
   });
+
+  ipcMain.on("terminal:claim-size", (_event, { id, cols, rows }) => {
+    if (mobileRemoteService) mobileRemoteService.claimDesktopSize(id, cols, rows);
+    else terminalManager.resize(id, cols, rows);
+  });
+
+  ipcMain.handle("mobile-access:get-state", () => mobileRemoteService.getState());
+  ipcMain.handle("mobile-access:update-config", (_event, partial) => mobileRemoteService.updateConfig(partial));
+  ipcMain.handle("mobile-access:create-pairing", () => mobileRemoteService.createPairing());
+  ipcMain.handle("mobile-access:list-audit", () => mobileRemoteService.listAudit());
+  ipcMain.handle("mobile-access:revoke-device", (_event, deviceId) => mobileRemoteService.revokeDevice(deviceId));
+  ipcMain.handle("mobile-access:disconnect-device", () => mobileRemoteService.disconnectActiveDevice());
 
   ipcMain.handle("remote-files:home", (_event, { sessionId }) => {
     return remoteFileService.getHome(sessionId);

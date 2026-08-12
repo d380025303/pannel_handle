@@ -7,6 +7,8 @@ type TerminalPanelProps = {
   hostRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
   onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
   onWheel: (event: WheelEvent<HTMLDivElement>) => void;
+  sizeOwner: string;
+  onClaimSize: () => void;
 };
 
 export function TerminalPanel({
@@ -14,10 +16,17 @@ export function TerminalPanel({
   activeId,
   hostRefs,
   onContextMenu,
-  onWheel
+  onWheel,
+  sizeOwner,
+  onClaimSize
 }: TerminalPanelProps) {
   return (
     <section className="terminal-panel">
+      {activeId && (
+        <button className={`terminal-size-owner${sizeOwner === "desktop" ? " active" : ""}`} type="button" onClick={onClaimSize}>
+          {sizeOwner === "desktop" ? "PC 尺寸" : "适配本机"}
+        </button>
+      )}
       <div className="terminal-hosts-container" onContextMenu={onContextMenu} onWheel={onWheel}>
         {sessions.map((session) => (
           <div

@@ -3,6 +3,7 @@ import { LOCALE_OPTIONS, useI18n } from "../../i18n";
 import type { AppTheme } from "../../themes";
 import type { Locale, ThemeId } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { MobileAccessSettings } from "./MobileAccessSettings";
 
 type SettingsModalProps = {
   autoRestore: boolean;
@@ -265,6 +266,7 @@ export function SettingsModal({
               />
             </div>
           </section>
+          <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">
             <div
               className="collapsible-header"

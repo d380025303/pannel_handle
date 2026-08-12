@@ -293,9 +293,12 @@ function createTerminalManager({
 
     session.term = term;
     session.buffer = [];
+    session.cols = Math.max(2, Math.floor(Number(options.cols || term.cols || 100)));
+    session.rows = Math.max(1, Math.floor(Number(options.rows || term.rows || 30)));
     session.sshSecret = session.type === "ssh" ? getSshSecret(session) : undefined;
     session.sshSecretAttempts = 0;
     session.lastSshSecretPromptSignature = undefined;
+    broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
     term.onData((data) => {
       session.buffer.push(data);
@@ -676,6 +679,9 @@ function createTerminalManager({
     const session = sessions.get(id);
     if (typeof session?.term?.resize === "function") {
       session.term.resize(cols, rows);
+      session.cols = Math.floor(cols);
+      session.rows = Math.floor(rows);
+      broadcast("terminal:resized", { id, cols: session.cols, rows: session.rows });
     }
   }
 

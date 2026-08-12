@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
   write: (id, data) => ipcRenderer.send("terminal:write", { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send("terminal:resize", { id, cols, rows }),
+  claimSize: (id, cols, rows) => ipcRenderer.send("terminal:claim-size", { id, cols, rows }),
   onData: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("terminal:data", listener);
@@ -29,6 +30,11 @@ contextBridge.exposeInMainWorld("terminalApi", {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("terminal:exit", listener);
     return () => ipcRenderer.removeListener("terminal:exit", listener);
+  },
+  onSizeOwner: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("terminal:size-owner", listener);
+    return () => ipcRenderer.removeListener("terminal:size-owner", listener);
   },
   onAgentStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);
@@ -61,6 +67,20 @@ contextBridge.exposeInMainWorld("terminalApi", {
   },
   getConfig: () => ipcRenderer.invoke("config:get"),
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
+});
+
+contextBridge.exposeInMainWorld("mobileAccessApi", {
+  getState: () => ipcRenderer.invoke("mobile-access:get-state"),
+  updateConfig: (partial) => ipcRenderer.invoke("mobile-access:update-config", partial),
+  createPairing: () => ipcRenderer.invoke("mobile-access:create-pairing"),
+  listAudit: () => ipcRenderer.invoke("mobile-access:list-audit"),
+  revokeDevice: (deviceId) => ipcRenderer.invoke("mobile-access:revoke-device", deviceId),
+  disconnectDevice: () => ipcRenderer.invoke("mobile-access:disconnect-device"),
+  onStateChanged: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("mobile-access:state-changed", listener);
+    return () => ipcRenderer.removeListener("mobile-access:state-changed", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("hookConfigApi", {

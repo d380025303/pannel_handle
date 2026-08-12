@@ -16,6 +16,8 @@ const { createClipboardImageService } = require("./services/clipboard-image-serv
 const { createGitStatusService } = require("./services/git-status-service.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createCompletionService } = require("./services/completion-service.cjs");
+const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
+const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-file-service.cjs");
 const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
 const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
@@ -27,6 +29,7 @@ const { createCompletionConfigStore } = require("./stores/completion-config-stor
 const { createCompletionMetricsStore } = require("./stores/completion-metrics-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
+const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
 
@@ -56,6 +59,9 @@ let clipboardImageService = null;
 let listenerAgentStore = null;
 let listenerAgentManager = null;
 let completionService = null;
+let mobileAccessStore = null;
+let mobileRemoteService = null;
+let terminalStateHub = null;
 
 protocol.registerSchemesAsPrivileged([{
   scheme: MEDIA_PROTOCOL,
@@ -129,16 +135,28 @@ if (!gotSingleInstanceLock) {
     knownHostStore = createKnownHostStore({
       knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json")
     });
+    mobileAccessStore = createMobileAccessStore({
+      accessFile: path.join(app.getPath("userData"), "mobile-access.json"),
+      safeStorage
+    });
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     completionConfigStore.loadConfig();
     completionMetricsStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
+    mobileAccessStore.load();
+    terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
+    const broadcast = (channel, payload) => {
+      windowManager.broadcast(channel, payload);
+      if (mobileRemoteService) {
+        mobileRemoteService.handleTerminalEvent(channel, payload);
+      }
+    };
     terminalManager = createTerminalManager({
       sessionStore,
       configStore,
-      broadcast: windowManager.broadcast,
+      broadcast,
       getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
       knownHostStore,
       onAgentStatusChanged: (payload) => {
@@ -240,6 +258,38 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       sshHookTunnelService
     });
+    mobileRemoteService = createMobileRemoteService({
+      terminalManager,
+      agentSessionLauncher,
+      sessionStore,
+      accessStore: mobileAccessStore,
+      stateHub: terminalStateHub,
+      getStaticRoot: () => app.isPackaged
+        ? path.join(process.resourcesPath, "mobile")
+        : path.resolve(__dirname, "..", "mobile", "dist"),
+      desktopBroadcast: windowManager.broadcast,
+      confirmPairing: async ({ deviceName, verificationCode }) => {
+        const result = await dialog.showMessageBox(windowManager.focusWindow(), {
+          type: "question",
+          buttons: ["允许", "拒绝"],
+          defaultId: 0,
+          cancelId: 1,
+          title: "移动设备配对",
+          message: `允许“${deviceName}”控制终端吗？`,
+          detail: `请核对手机上的校验码：${verificationCode}\n\n移动访问使用局域网 HTTP 明文连接。`
+        });
+        return result.response === 0;
+      },
+      notifyConnection: (device) => {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: "移动终端已连接",
+            body: `${device.name} 已连接到 Pannel Handle`,
+            silent: true
+          }).show();
+        }
+      }
+    });
     gitStatusService = createGitStatusService({
       terminalManager,
       sessionStore,
@@ -269,6 +319,7 @@ if (!gotSingleInstanceLock) {
 
     sessionStore.loadLibrary();
     await agentHookServer.start();
+    await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
       terminalManager,
       agentSessionLauncher,
@@ -291,7 +342,8 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       gitStatusService,
       projectSearchService,
-      listenerAgentManager
+      listenerAgentManager,
+      mobileRemoteService
     });
     windowManager.createWindow();
 
@@ -333,6 +385,12 @@ app.on("window-all-closed", () => {
   }
   if (agentHookServer) {
     agentHookServer.stop();
+  }
+  if (mobileRemoteService) {
+    void mobileRemoteService.stop();
+  }
+  if (terminalStateHub) {
+    terminalStateHub.shutdown();
   }
   if (agentNotificationManager) {
     agentNotificationManager.shutdown();

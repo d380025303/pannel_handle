@@ -106,6 +106,31 @@ export type AppConfig = {
   rightToolsWidth: number;
 };
 
+export type MobileAccessInterface = { name: string; address: string };
+export type MobileAccessDevice = { id: string; name: string; createdAt: number; lastSeenAt: number };
+export type MobileAccessAuditEntry = {
+  id: string;
+  at: number;
+  type: string;
+  deviceId?: string;
+  deviceName?: string;
+  reason?: string;
+  remoteAddress?: string;
+};
+export type MobileAccessState = {
+  config: { enabled: boolean; interfaceName: string; port: number };
+  interfaces: MobileAccessInterface[];
+  running: boolean;
+  hostname: string;
+  address: string;
+  canonicalUrl: string;
+  fallbackUrl: string;
+  lastError: string;
+  devices: MobileAccessDevice[];
+  activeDevice: { id: string; name: string; connected: boolean; graceUntil?: number } | null;
+};
+export type MobilePairingInfo = { url: string; fallbackUrl: string; expiresAt: number; qrDataUrl: string };
+
 export type DingTalkConfig = {
   enabled: boolean;
   hasWebhook: boolean;
@@ -562,8 +587,10 @@ export type TerminalApi = {
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
   resize: (id: string, cols: number, rows: number) => void;
+  claimSize: (id: string, cols: number, rows: number) => void;
   onData: (callback: (payload: { id: string; data: string }) => void) => () => void;
   onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void;
+  onSizeOwner: (callback: (payload: { sessionId: string; owner: string; cols: number; rows: number }) => void) => () => void;
   onAgentStatus: (callback: (payload: AgentStatusPayload) => void) => () => void;
   onAgentHookDebug: (callback: (payload: AgentHookDebugPayload) => void) => () => void;
   onSessionsChanged: (callback: (sessions: TerminalSession[]) => void) => () => void;
@@ -589,6 +616,16 @@ export type WindowApi = {
   onCloseRequested: (callback: () => void) => () => void;
   isMaximized: () => Promise<boolean>;
   onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
+};
+
+export type MobileAccessApi = {
+  getState: () => Promise<MobileAccessState>;
+  updateConfig: (partial: Partial<MobileAccessState["config"]>) => Promise<MobileAccessState>;
+  createPairing: () => Promise<MobilePairingInfo>;
+  listAudit: () => Promise<MobileAccessAuditEntry[]>;
+  revokeDevice: (deviceId: string) => Promise<MobileAccessState>;
+  disconnectDevice: () => Promise<MobileAccessState>;
+  onStateChanged: (callback: (state: MobileAccessState) => void) => () => void;
 };
 
 export type ClipboardApi = {
@@ -723,6 +760,7 @@ export type CompletionApi = {
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;

@@ -190,3 +190,12 @@ MIT
 **Pannel Handle** — 让你的终端、远程服务器和 AI Agent 在一处协同工作。
 
 </div>
+# 局域网移动终端
+
+移动端源码位于本仓库的 `mobile/`，并通过 pnpm workspace 与桌面端统一管理：
+
+1. 在项目根目录执行 `corepack pnpm install` 安装桌面端与移动端依赖。
+2. 执行 `corepack pnpm test` 或 `corepack pnpm build` 时会依次验证两端；也可以使用 `test:mobile`、`build:mobile` 单独处理移动端。
+3. 执行 `corepack pnpm dist:portable` 时会重新构建并校验移动端 `build-manifest.json`，然后将 `mobile/dist` 纳入 Electron 资源。
+
+在“设置 → 局域网移动终端”中选择私人局域网网卡、确认端口并启用服务，再生成二维码配对 Android Chrome。v1 使用 HTTP 明文传输，只能在可信私人网络内使用，禁止映射到互联网。

@@ -7,6 +7,25 @@ export type TranslationParams = Record<string, string | number>;
 export type TranslationKey =
   | "app.noActiveSession"
   | "settings.title"
+  | "settings.mobileTitle"
+  | "settings.mobileRunning"
+  | "settings.mobileStopped"
+  | "settings.mobileHttpWarning"
+  | "settings.mobileInterface"
+  | "settings.mobilePort"
+  | "settings.mobilePair"
+  | "settings.mobilePairQr"
+  | "settings.mobilePairHint"
+  | "settings.mobilePairExpiry"
+  | "settings.mobileActiveDevice"
+  | "settings.mobileConnected"
+  | "settings.mobileReconnectGrace"
+  | "settings.mobileDisconnect"
+  | "settings.mobileNoActiveDevice"
+  | "settings.mobileTrustedDevices"
+  | "settings.mobileRevoke"
+  | "settings.mobileNoTrustedDevices"
+  | "settings.mobileAudit"
   | "settings.open"
   | "settings.autoRestore"
   | "settings.debugMode"
@@ -432,6 +451,25 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
     "app.noActiveSession": "无活动会话",
     "settings.title": "设置",
+    "settings.mobileTitle": "局域网移动终端",
+    "settings.mobileRunning": "运行中",
+    "settings.mobileStopped": "已停止",
+    "settings.mobileHttpWarning": "当前使用 HTTP 明文传输，只能在可信私人局域网中启用，禁止映射到互联网。",
+    "settings.mobileInterface": "局域网网卡",
+    "settings.mobilePort": "端口",
+    "settings.mobilePair": "配对新设备",
+    "settings.mobilePairQr": "移动设备配对二维码",
+    "settings.mobilePairHint": "使用 Android Chrome 扫码，然后在电脑端确认设备和校验码。",
+    "settings.mobilePairExpiry": "二维码 2 分钟内有效且只能使用一次。",
+    "settings.mobileActiveDevice": "当前移动设备",
+    "settings.mobileConnected": "已连接",
+    "settings.mobileReconnectGrace": "30 秒重连等待中",
+    "settings.mobileDisconnect": "断开",
+    "settings.mobileNoActiveDevice": "当前没有手机在线。",
+    "settings.mobileTrustedDevices": "受信任设备",
+    "settings.mobileRevoke": "撤销",
+    "settings.mobileNoTrustedDevices": "尚未配对移动设备。",
+    "settings.mobileAudit": "安全事件",
     "settings.open": "打开设置",
     "settings.autoRestore": "启动时自动恢复",
     "settings.debugMode": "Debug 模式",
@@ -849,6 +887,25 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "en-US": {
     "app.noActiveSession": "No active session",
     "settings.title": "Settings",
+    "settings.mobileTitle": "LAN Mobile Terminal",
+    "settings.mobileRunning": "Running",
+    "settings.mobileStopped": "Stopped",
+    "settings.mobileHttpWarning": "Traffic is unencrypted HTTP. Enable this only on a trusted private LAN and never expose it to the Internet.",
+    "settings.mobileInterface": "LAN adapter",
+    "settings.mobilePort": "Port",
+    "settings.mobilePair": "Pair device",
+    "settings.mobilePairQr": "Mobile device pairing QR code",
+    "settings.mobilePairHint": "Scan with Android Chrome, then confirm the device and verification code on this PC.",
+    "settings.mobilePairExpiry": "The QR code expires after two minutes and is single-use.",
+    "settings.mobileActiveDevice": "Active mobile device",
+    "settings.mobileConnected": "Connected",
+    "settings.mobileReconnectGrace": "Waiting 30 seconds for reconnection",
+    "settings.mobileDisconnect": "Disconnect",
+    "settings.mobileNoActiveDevice": "No mobile device is online.",
+    "settings.mobileTrustedDevices": "Trusted devices",
+    "settings.mobileRevoke": "Revoke",
+    "settings.mobileNoTrustedDevices": "No mobile devices have been paired.",
+    "settings.mobileAudit": "Security events",
     "settings.open": "Open settings",
     "settings.autoRestore": "Auto restore on startup",
     "settings.debugMode": "Debug mode",

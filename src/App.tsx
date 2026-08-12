@@ -28,7 +28,7 @@ import { useWindowState } from "./hooks/useWindowState";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
-import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 type RightTool = "files" | "git" | "agents" | "debug" | "completionDebug";
@@ -102,6 +102,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [fileTransfers, setFileTransfers] = useState<FileTransferTask[]>([]);
   const [gitSummary, setGitSummary] = useState<{ sessionId: string; changes: number; conflicts: number } | null>(null);
   const [showCloseGuard, setShowCloseGuard] = useState(false);
+  const [mobileAccessState, setMobileAccessState] = useState<MobileAccessState | null>(null);
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
   const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -128,6 +129,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   });
   const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;
+
+  useEffect(() => {
+    let disposed = false;
+    void window.mobileAccessApi.getState().then((state) => { if (!disposed) setMobileAccessState(state); });
+    const removeListener = window.mobileAccessApi.onStateChanged((state) => { if (!disposed) setMobileAccessState(state); });
+    return () => { disposed = true; removeListener(); };
+  }, []);
 
   const handleGitSummaryChange = useCallback(({ changes, conflicts }: { changes: number; conflicts: number }) => {
     if (!activeSessionId) return;
@@ -434,7 +442,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   return (
     <>
       <div className="app-frame">
-        <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} onOpenSettings={() => setShowSettingsModal(true)} />
+        <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} mobileAccessState={mobileAccessState} onOpenSettings={() => setShowSettingsModal(true)} />
         {terminalSessions.startupError && (
           <div className="startup-error-banner" role="alert">
             <span>{terminalSessions.startupError}</span>
@@ -534,6 +542,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   hostRefs={terminalInstances.terminalHostRefs}
                   onContextMenu={terminalInstances.handleTerminalContextMenu}
                   onWheel={terminalInstances.handleTerminalWheel}
+                  sizeOwner={terminalInstances.activeSizeOwner}
+                  onClaimSize={terminalInstances.claimActiveSize}
                 />
                 <TerminalComposer session={terminalSessions.activeSession} />
                 {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (

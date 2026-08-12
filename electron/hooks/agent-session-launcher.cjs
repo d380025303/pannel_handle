@@ -201,15 +201,15 @@ function createAgentSessionLauncher({
     return terminalManager.createSession({ ...request, runtimeInitialCommand });
   }
 
-  async function launchSession(template) {
-    if (!template.agentProvider) return terminalManager.launchSession(template);
+  async function launchSession(template, options = {}) {
+    if (!template.agentProvider) return terminalManager.launchSession(template, options);
     validateAgentSession(template);
     if (template.type === "ssh") {
-      const session = terminalManager.launchSession(template, { runtimeInitialCommand: "" });
+      const session = terminalManager.launchSession(template, { ...options, runtimeInitialCommand: "" });
       return finishSsh(session);
     }
     const runtimeInitialCommand = await prepareLocal(template);
-    return terminalManager.launchSession(template, { runtimeInitialCommand });
+    return terminalManager.launchSession(template, { ...options, runtimeInitialCommand });
   }
 
   async function launchSessions(templates) {
