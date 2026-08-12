@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowUp, File, Folder, ImagePlus, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
@@ -13,6 +13,9 @@ type Mention = {
   end: number;
   query: string;
 };
+
+type SearchStatus = "idle" | "loading" | "ready" | "error";
+type ImageStatus = "idle" | "uploading" | "error";
 
 function getMentionAtCaret(value: string, caret: number): Mention | null {
   const prefix = value.slice(0, caret);
@@ -43,65 +46,106 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [mention, setMention] = useState<Mention | null>(null);
   const [results, setResults] = useState<WorkspaceEntrySearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [searchStatus, setSearchStatus] = useState<SearchStatus>("idle");
+  const [searchError, setSearchError] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [imageStatus, setImageStatus] = useState<"idle" | "uploading" | "error">("idle");
-  const [statusMessage, setStatusMessage] = useState("");
+  const [imageStatus, setImageStatus] = useState<ImageStatus>("idle");
+  const [imageMessage, setImageMessage] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const searchRequestRef = useRef(0);
+  const listboxId = useId();
+  const feedbackId = useId();
   const value = session ? drafts[session.id] ?? "" : "";
 
   const mentionVisible = Boolean(session && mention);
   const currentMentionQuery = mention?.query ?? "";
   const canSend = Boolean(session && value.trim());
+  const selectedResult = useMemo(() => results[selectedIndex], [results, selectedIndex]);
+  const selectedOptionId = selectedResult ? `${listboxId}-option-${selectedIndex}` : undefined;
+  const feedbackMessage = imageStatus !== "idle"
+    ? imageMessage
+    : searchStatus === "error"
+      ? searchError
+      : "";
+  const feedbackIsError = imageStatus === "error" || searchStatus === "error";
+  const showShortcuts = Boolean(session && (isFocused || value));
+  const hasError = feedbackIsError;
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }, [value]);
 
   useEffect(() => {
+    searchRequestRef.current += 1;
     setMention(null);
     setResults([]);
+    setSearchStatus("idle");
+    setSearchError("");
     setSelectedIndex(0);
     setImageStatus("idle");
-    setStatusMessage("");
+    setImageMessage("");
+    setIsFocused(false);
+    setIsComposing(false);
   }, [session?.id]);
 
   useEffect(() => {
     if (!session || !mention) return undefined;
     const requestId = searchRequestRef.current + 1;
     searchRequestRef.current = requestId;
-    setSearching(true);
+    setSearchStatus("loading");
+    setSearchError("");
+    setResults([]);
+    setSelectedIndex(0);
+
     const timer = window.setTimeout(() => {
       window.projectSearchApi.searchWorkspaceEntries(session.id, currentMentionQuery)
         .then((response) => {
           if (searchRequestRef.current !== requestId) return;
           setResults(response.results);
           setSelectedIndex(0);
+          setSearchStatus("ready");
         })
         .catch((error) => {
           if (searchRequestRef.current !== requestId) return;
           setResults([]);
-          setImageStatus("error");
-          setStatusMessage(t("composer.searchFailed", { message: getErrorMessage(error) }));
-        })
-        .finally(() => {
-          if (searchRequestRef.current === requestId) setSearching(false);
+          setSearchStatus("error");
+          setSearchError(t("composer.searchFailed", { message: getErrorMessage(error) }));
         });
     }, 180);
+
     return () => window.clearTimeout(timer);
   }, [currentMentionQuery, mention, session, t]);
 
-  const selectedResult = useMemo(() => results[selectedIndex], [results, selectedIndex]);
+  useEffect(() => {
+    if (!mentionVisible || !selectedResult) return;
+    resultRefs.current[selectedIndex]?.scrollIntoView?.({ block: "nearest" });
+  }, [mentionVisible, selectedIndex, selectedResult]);
+
+  const clearMention = () => {
+    searchRequestRef.current += 1;
+    setMention(null);
+    setResults([]);
+    setSearchStatus("idle");
+    setSearchError("");
+    setSelectedIndex(0);
+  };
 
   const updateDraft = (nextValue: string, caret?: number) => {
     if (!session) return;
     setDrafts((current) => ({ ...current, [session.id]: nextValue }));
     const nextCaret = caret ?? textareaRef.current?.selectionStart ?? nextValue.length;
-    setMention(getMentionAtCaret(nextValue, nextCaret));
+    const nextMention = getMentionAtCaret(nextValue, nextCaret);
+    if (nextMention) {
+      setMention(nextMention);
+    } else {
+      clearMention();
+    }
   };
 
   const insertText = (text: string, range?: { start: number; end: number }) => {
@@ -112,8 +156,7 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     const nextValue = `${value.slice(0, start)}${text}${value.slice(end)}`;
     const nextCaret = start + text.length;
     setDrafts((current) => ({ ...current, [session.id]: nextValue }));
-    setMention(null);
-    setResults([]);
+    clearMention();
     requestAnimationFrame(() => {
       textarea?.focus();
       textarea?.setSelectionRange(nextCaret, nextCaret);
@@ -131,42 +174,60 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
     if (!session || !value.trim()) return;
     submitTerminalInput(session.id, value, window.terminalApi.write);
     setDrafts((current) => ({ ...current, [session.id]: "" }));
-    setMention(null);
-    setResults([]);
+    clearMention();
+    setImageStatus("idle");
+    setImageMessage("");
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(0, 0);
+    });
   };
 
   const pasteClipboardImage = async () => {
     if (!session || imageStatus === "uploading") return;
     setImageStatus("uploading");
-    setStatusMessage(t("composer.uploadingImage"));
+    setImageMessage(t("composer.uploadingImage"));
     try {
       const result = await window.clipboardApi.pasteImageToSession(session.id);
       if (result.status === "no_image") {
         setImageStatus("error");
-        setStatusMessage(t("composer.noClipboardImage"));
+        setImageMessage(t("composer.noClipboardImage"));
         return;
       }
       insertText(`@${getImageRelativePath(session, result.path)} `);
       setImageStatus("idle");
-      setStatusMessage("");
+      setImageMessage("");
     } catch (error) {
       setImageStatus("error");
-      setStatusMessage(t("composer.imageUploadFailed", { message: getErrorMessage(error) }));
+      setImageMessage(t("composer.imageUploadFailed", { message: getErrorMessage(error) }));
     }
   };
 
   return (
     <div className="terminal-composer-wrap">
       {mentionVisible && (
-        <div className="terminal-composer-mentions" role="listbox" aria-label={t("composer.searchWorkspace")}>
+        <div
+          id={listboxId}
+          className="terminal-composer-mentions"
+          role="listbox"
+          aria-label={t("composer.searchWorkspace")}
+        >
           <div className="terminal-composer-mentions-heading">
             <span>{t("composer.searchWorkspace")}</span>
-            {searching && <LoaderCircle className="spin" aria-hidden="true" />}
+            {searchStatus === "loading" && (
+              <LoaderCircle className="spin" aria-label={t("composer.searching")} />
+            )}
           </div>
-          {!searching && results.length === 0 ? (
+          {searchStatus === "idle" || searchStatus === "loading" ? (
+            <div className="terminal-composer-empty">{t("composer.searching")}</div>
+          ) : searchStatus === "error" ? (
+            <div className="terminal-composer-empty error">{t("composer.searchUnavailable")}</div>
+          ) : results.length === 0 ? (
             <div className="terminal-composer-empty">{t("composer.noMatches")}</div>
           ) : results.map((entry, index) => (
             <button
+              ref={(element) => { resultRefs.current[index] = element; }}
+              id={`${listboxId}-option-${index}`}
               className={index === selectedIndex ? "selected" : ""}
               type="button"
               role="option"
@@ -183,91 +244,112 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
           ))}
         </div>
       )}
-      <div className={`terminal-composer ${imageStatus === "error" ? "has-error" : ""}`}>
+      <div className={`terminal-composer ${hasError ? "has-error" : ""}`}>
         <div className="terminal-composer-input">
           <textarea
-          ref={textareaRef}
-          rows={1}
-          value={value}
-          disabled={!session}
-          aria-label={t("composer.inputLabel")}
-          placeholder={session ? t("composer.placeholder") : t("app.noActiveSession")}
-          onChange={(event) => updateDraft(event.target.value, event.target.selectionStart)}
-          onClick={(event) => {
-            setMention(getMentionAtCaret(value, event.currentTarget.selectionStart));
-          }}
-          onCompositionEnd={(event) => {
-            updateDraft(event.currentTarget.value, event.currentTarget.selectionStart);
-          }}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter" && (event.ctrlKey || event.altKey || event.metaKey) && !event.shiftKey) {
+            ref={textareaRef}
+            rows={1}
+            value={value}
+            disabled={!session}
+            aria-label={t("composer.inputLabel")}
+            aria-autocomplete="list"
+            aria-controls={mentionVisible ? listboxId : undefined}
+            aria-expanded={mentionVisible}
+            aria-activedescendant={mentionVisible ? selectedOptionId : undefined}
+            aria-describedby={feedbackMessage || showShortcuts ? feedbackId : undefined}
+            placeholder={session ? t("composer.placeholder") : t("app.noActiveSession")}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onChange={(event) => updateDraft(event.target.value, event.target.selectionStart)}
+            onClick={(event) => {
+              const nextMention = getMentionAtCaret(value, event.currentTarget.selectionStart);
+              if (nextMention) setMention(nextMention);
+              else clearMention();
+            }}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={(event) => {
+              setIsComposing(false);
+              updateDraft(event.currentTarget.value, event.currentTarget.selectionStart);
+            }}
+            onKeyDown={(event) => {
+              if (isComposing || event.nativeEvent.isComposing) return;
+              const hasPrimaryModifier = event.ctrlKey || event.altKey || event.metaKey;
+              const isPlainKey = !event.shiftKey && !hasPrimaryModifier;
+
+              if (event.key === "Enter" && hasPrimaryModifier && !event.shiftKey) {
+                event.preventDefault();
+                insertText("\n");
+                return;
+              }
+              if (mention && isPlainKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                const direction = event.key === "ArrowDown" ? 1 : -1;
+                setSelectedIndex((current) => results.length ? (current + direction + results.length) % results.length : 0);
+                return;
+              }
+              if (mention && isPlainKey && (event.key === "Enter" || event.key === "Tab") && selectedResult) {
+                event.preventDefault();
+                selectEntry(selectedResult);
+                return;
+              }
+              if (session && event.key === "Tab" && event.shiftKey && !hasPrimaryModifier) {
+                event.preventDefault();
+                window.terminalApi.write(session.id, "\x1b[Z");
+                return;
+              }
+              if (mention && event.key === "Escape") {
+                event.preventDefault();
+                clearMention();
+                return;
+              }
+              if (event.key === "Enter" && isPlainKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            onPaste={(event) => {
+              const hasImage = Array.from(event.clipboardData.items).some((item) => item.type.startsWith("image/"));
+              if (!hasImage) return;
               event.preventDefault();
-              insertText("\n");
-              return;
-            }
-            if (mention && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-              event.preventDefault();
-              const direction = event.key === "ArrowDown" ? 1 : -1;
-              setSelectedIndex((current) => results.length ? (current + direction + results.length) % results.length : 0);
-              return;
-            }
-            if (mention && (event.key === "Enter" || event.key === "Tab") && selectedResult) {
-              event.preventDefault();
-              selectEntry(selectedResult);
-              return;
-            }
-            if (session && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-              event.preventDefault();
-              window.terminalApi.write(session.id, "\x1b[Z");
-              return;
-            }
-            if (mention && event.key === "Escape") {
-              event.preventDefault();
-              setMention(null);
-              return;
-            }
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          onPaste={(event) => {
-            const hasImage = Array.from(event.clipboardData.items).some((item) => item.type.startsWith("image/"));
-            if (!hasImage) return;
-            event.preventDefault();
-            void pasteClipboardImage();
-          }}
+              void pasteClipboardImage();
+            }}
           />
         </div>
-        <div className="terminal-composer-actions">
-          <button
-            className="terminal-composer-image"
-            type="button"
-            disabled={!session || imageStatus === "uploading"}
-            title={t("composer.pasteImage")}
-            aria-label={t("composer.pasteImage")}
-            onClick={() => void pasteClipboardImage()}
+        <div className="terminal-composer-toolbar">
+          <div
+            id={feedbackId}
+            className={`terminal-composer-feedback ${feedbackIsError ? "error" : feedbackMessage ? "status" : "hint"} ${showShortcuts || feedbackMessage ? "visible" : ""}`}
+            role={feedbackIsError ? "alert" : "status"}
+            aria-live="polite"
           >
-            {imageStatus === "uploading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
-          </button>
-          <button
-            className="terminal-composer-send"
-            type="button"
-            disabled={!canSend}
-            title={t("composer.send")}
-            aria-label={t("composer.send")}
-            onClick={submit}
-          >
-            <ArrowUp aria-hidden="true" />
-          </button>
+            {feedbackMessage || (showShortcuts
+              ? t(session?.agentProvider ? "composer.shortcutsAgent" : "composer.shortcuts")
+              : "\u00a0")}
+          </div>
+          <div className="terminal-composer-actions">
+            <button
+              className="terminal-composer-image"
+              type="button"
+              disabled={!session || imageStatus === "uploading"}
+              title={t("composer.pasteImage")}
+              aria-label={t("composer.pasteImage")}
+              onClick={() => void pasteClipboardImage()}
+            >
+              {imageStatus === "uploading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
+            </button>
+            <button
+              className="terminal-composer-send"
+              type="button"
+              disabled={!canSend}
+              title={t("composer.send")}
+              aria-label={t("composer.send")}
+              onClick={submit}
+            >
+              <ArrowUp aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </div>
-      {statusMessage && (
-        <div className={`terminal-composer-status ${imageStatus === "error" ? "error" : ""}`} role="status">
-          {statusMessage}
-        </div>
-      )}
     </div>
   );
 }

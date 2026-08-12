@@ -152,11 +152,15 @@ export type TranslationKey =
   | "composer.send"
   | "composer.pasteImage"
   | "composer.searchWorkspace"
+  | "composer.searching"
+  | "composer.searchUnavailable"
   | "composer.noMatches"
   | "composer.searchFailed"
   | "composer.uploadingImage"
   | "composer.noClipboardImage"
   | "composer.imageUploadFailed"
+  | "composer.shortcuts"
+  | "composer.shortcutsAgent"
   | "tabs.files"
   | "tabs.git"
   | "tabs.terminal"
@@ -565,11 +569,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.send": "发送到终端",
     "composer.pasteImage": "上传剪贴板图片",
     "composer.searchWorkspace": "工作区文件与文件夹",
+    "composer.searching": "正在搜索工作区...",
+    "composer.searchUnavailable": "搜索暂时不可用",
     "composer.noMatches": "没有匹配的文件或文件夹",
     "composer.searchFailed": "搜索失败：{message}",
     "composer.uploadingImage": "正在上传剪贴板图片...",
     "composer.noClipboardImage": "剪贴板中没有图片",
     "composer.imageUploadFailed": "图片上传失败：{message}",
+    "composer.shortcuts": "Enter 发送 · Shift+Enter 换行 · @ 引用文件",
+    "composer.shortcutsAgent": "Enter 发送 · Shift+Enter 换行 · @ 引用文件 · Shift+Tab 切换模式",
     "tabs.files": "文件",
     "tabs.git": "Git",
     "tabs.terminal": "终端",
@@ -970,11 +978,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "composer.send": "Send to terminal",
     "composer.pasteImage": "Upload clipboard image",
     "composer.searchWorkspace": "Workspace files and folders",
+    "composer.searching": "Searching the workspace...",
+    "composer.searchUnavailable": "Search is temporarily unavailable",
     "composer.noMatches": "No matching files or folders",
     "composer.searchFailed": "Search failed: {message}",
     "composer.uploadingImage": "Uploading clipboard image...",
     "composer.noClipboardImage": "No image found in the clipboard",
     "composer.imageUploadFailed": "Image upload failed: {message}",
+    "composer.shortcuts": "Enter to send · Shift+Enter for a new line · @ to reference files",
+    "composer.shortcutsAgent": "Enter to send · Shift+Enter for a new line · @ to reference files · Shift+Tab to switch mode",
     "tabs.files": "Files",
     "tabs.git": "Git",
     "tabs.terminal": "Terminal",

@@ -20,6 +20,19 @@
     margin-inline: 8px;
   }
 
+  .terminal-composer {
+    gap: 6px;
+    padding: 9px 9px 7px 11px;
+  }
+
+  .terminal-composer-toolbar {
+    gap: 7px;
+  }
+
+  .terminal-composer-feedback {
+    font-size: 10px;
+  }
+
   .terminal-composer-mentions > button {
     grid-template-columns: 20px minmax(0, 1fr);
   }
