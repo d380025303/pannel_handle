@@ -815,7 +815,12 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
   async function moveEntry(sessionId, sourcePath, targetDirectory, requestedName, conflictPolicy = "cancel") {
     const session = getSession(sessionId);
     const sourceName = session.type === "windows" ? path.win32.basename(sourcePath) : path.posix.basename(normalizeRemotePath(sourcePath));
-    const target = await resolveConflictPath(sessionId, session, targetDirectory, requestedName || sourceName, conflictPolicy);
+    const name = validateEntryName(requestedName || sourceName);
+    const targetPath = session.type === "ssh"
+      ? joinRemotePath(normalizeRemotePath(targetDirectory), name)
+      : joinLocalPath(session, targetDirectory, name);
+    if (targetPath === sourcePath) return { status: "completed", path: sourcePath, name };
+    const target = await resolveConflictPath(sessionId, session, targetDirectory, name, conflictPolicy);
     if (target.status === "conflict" || target.status === "skipped") return target;
     if (target.path === sourcePath) return { status: "completed", path: sourcePath, name: target.name };
     if (target.status === "overwrite") {

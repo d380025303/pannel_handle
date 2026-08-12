@@ -24,7 +24,8 @@ function createRemoteFileApi(): RemoteFileApi {
     watchDirectories: vi.fn(async () => true),
     unwatchDirectories: vi.fn(async () => true),
     onChanged: vi.fn(() => () => undefined),
-    onWatchError: vi.fn(() => () => undefined)
+    onWatchError: vi.fn(() => () => undefined),
+    moveEntry: vi.fn(async () => ({ status: "conflict" }))
   } as unknown as RemoteFileApi;
 }
 
@@ -79,6 +80,32 @@ describe("RemoteFilePanel directory navigation", () => {
     fireEvent.click(within(menu).getByRole("menuitem", { name: "新建文件夹" }));
 
     expect(screen.getByPlaceholderText("新建文件夹")).toBeTruthy();
+  });
+
+  it("closes rename editing without requesting a move when the name is unchanged", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} />);
+
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "重命名" }));
+
+    const input = screen.getByDisplayValue("patches");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(screen.queryByDisplayValue("patches")).toBeNull());
+    expect(remoteFileApi.moveEntry).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "目标中已存在同名项目" })).toBeNull();
   });
 
   it("keeps toolbar, path, sorting, and directory filtering available in the compact layout", async () => {

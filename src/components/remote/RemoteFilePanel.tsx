@@ -1075,8 +1075,13 @@ export function RemoteFilePanel({
   const submitInlineEdit = useCallback(async () => {
     if (!inlineEdit || !sessionId || !inlineEdit.value.trim()) return;
     if (inlineEdit.mode === "rename") {
-      await runMutation(inlineEdit.value, (policy) => window.remoteFileApi.moveEntry(
-        sessionId, inlineEdit.entry.path, inlineEdit.parentPath, inlineEdit.value.trim(), policy
+      const nextName = inlineEdit.value.trim();
+      if (nextName === inlineEdit.entry.name) {
+        setInlineEdit(null);
+        return;
+      }
+      await runMutation(nextName, (policy) => window.remoteFileApi.moveEntry(
+        sessionId, inlineEdit.entry.path, inlineEdit.parentPath, nextName, policy
       ), inlineEdit.parentPath);
       return;
     }

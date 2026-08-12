@@ -81,6 +81,25 @@ describe("remote-file-service", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("treats moving a Windows entry to its unchanged name as completed", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-rename-noop-"));
+    const filePath = path.join(dir, "note.txt");
+    fs.writeFileSync(filePath, "text");
+    try {
+      const service = createRemoteFileService({ terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }), sessionStore: createSessionStore(), shellApi: createShellMock() });
+
+      await expect(service.moveEntry("run-1", filePath, dir, "note.txt")).resolves.toEqual({
+        status: "completed",
+        path: filePath,
+        name: "note.txt"
+      });
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("text");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("connects with saved SSH password and lists files", async () => {
     const session = {
       id: "run-1",
