@@ -49,6 +49,8 @@ export type AppConfig = {
   themeId: ThemeId;
   locale: Locale;
   rightToolsWidth: number;
+  listenerAgentHistoryMaxEntries: number;
+  listenerAgentOutputMaxBytes: number;
 };
 
 export type MobileAccessInterface = { name: string; address: string };

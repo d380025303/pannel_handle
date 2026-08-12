@@ -641,24 +641,28 @@
   line-height: 1.5;
 }
 
-.ding-talk-actions {
+.ding-talk-actions,
+.settings-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.ding-talk-result {
+.ding-talk-result,
+.settings-result {
   padding: 8px 10px;
   border-radius: var(--radius-md);
   font-size: 12px;
 }
 
-.ding-talk-result.success {
+.ding-talk-result.success,
+.settings-result.success {
   color: var(--color-success);
   background: color-mix(in srgb, var(--color-success) 10%, transparent);
 }
 
-.ding-talk-result.error {
+.ding-talk-result.error,
+.settings-result.error {
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }

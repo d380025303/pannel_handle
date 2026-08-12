@@ -21,6 +21,7 @@ const { createRemoteSystemService } = require("./services/remote-system-service.
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
+const { createAgentOutputHistoryStore } = require("./stores/agent-output-history-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
@@ -30,6 +31,7 @@ const { createTerminalManager, getDefaultShell, getWslShell } = require("./termi
 let windowManager = null;
 let sessionStore = null;
 let configStore = null;
+let agentOutputHistoryStore = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -126,6 +128,17 @@ if (!gotSingleInstanceLock) {
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
+    agentOutputHistoryStore = createAgentOutputHistoryStore({
+      historyFile: path.join(app.getPath("userData"), "listener-agent-history.json"),
+      getPolicy: () => {
+        const config = configStore.getConfig();
+        return {
+          maxEntries: config.listenerAgentHistoryMaxEntries,
+          maxOutputBytes: config.listenerAgentOutputMaxBytes
+        };
+      }
+    });
+    agentOutputHistoryStore.load();
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
     const broadcast = (channel, payload) => {
       windowManager.broadcast(channel, payload);
@@ -138,6 +151,7 @@ if (!gotSingleInstanceLock) {
       configStore,
       broadcast,
       getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
+      agentOutputHistoryStore,
       knownHostStore,
       onAgentStatusChanged: (payload) => {
         if (agentNotificationManager) {

@@ -182,6 +182,27 @@ describe("terminal-manager", () => {
     expect(manager.getSession(session.id).buffer).toHaveLength(1000);
   });
 
+  it("persists output lifecycle only for Agent terminal sessions", () => {
+    const agentOutputHistoryStore = {
+      start: vi.fn(),
+      appendOutput: vi.fn(),
+      finish: vi.fn(),
+      shutdown: vi.fn()
+    };
+    const { manager, term } = createManager({ agentOutputHistoryStore });
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    expect(agentOutputHistoryStore.start).toHaveBeenCalledWith(expect.objectContaining({
+      id: session.id,
+      templateId: session.templateId,
+      agentProvider: "codex"
+    }));
+    term.emitData("agent output");
+    expect(agentOutputHistoryStore.appendOutput).toHaveBeenCalledWith(session.id, "agent output");
+    term.emitExit(0);
+    expect(agentOutputHistoryStore.finish).toHaveBeenCalledWith(session.id, { exitCode: 0 });
+  });
+
   it("renames, updates, writes, resizes, and closes active sessions", () => {
     const { manager, term, sessionStore, broadcast } = createManager();
     const session = manager.createSession({ title: "Main" });

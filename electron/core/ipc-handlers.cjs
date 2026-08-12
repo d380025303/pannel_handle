@@ -2,7 +2,15 @@ const { ipcMain } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { VALID_LOCALES, VALID_THEME_IDS } = require("../stores/config-store.cjs");
+const {
+  MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
+  MAX_AGENT_OUTPUT_MAX_BYTES,
+  MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
+  MIN_AGENT_OUTPUT_MAX_BYTES,
+  VALID_LOCALES,
+  VALID_THEME_IDS,
+  isIntegerInRange
+} = require("../stores/config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -579,6 +587,20 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (partial && typeof partial.rightToolsWidth === "number"
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
+    }
+    if (partial && isIntegerInRange(
+      partial.listenerAgentHistoryMaxEntries,
+      MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
+      MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES
+    )) {
+      updates.listenerAgentHistoryMaxEntries = partial.listenerAgentHistoryMaxEntries;
+    }
+    if (partial && isIntegerInRange(
+      partial.listenerAgentOutputMaxBytes,
+      MIN_AGENT_OUTPUT_MAX_BYTES,
+      MAX_AGENT_OUTPUT_MAX_BYTES
+    )) {
+      updates.listenerAgentOutputMaxBytes = partial.listenerAgentOutputMaxBytes;
     }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);

@@ -31,6 +31,13 @@ export type TranslationKey =
   | "settings.debugMode"
   | "settings.theme"
   | "settings.language"
+  | "settings.agentLogTitle"
+  | "settings.agentLogDescription"
+  | "settings.agentLogHistoryMaxEntries"
+  | "settings.agentLogOutputMaxKiB"
+  | "settings.agentLogRange"
+  | "settings.agentLogSaved"
+  | "settings.agentLogInvalid"
   | "settings.close"
   | "settings.dingTalkTitle"
   | "settings.dingTalkDescription"
@@ -435,6 +442,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug 模式",
     "settings.theme": "主题",
     "settings.language": "语言",
+    "settings.agentLogTitle": "Agent 输出日志",
+    "settings.agentLogDescription": "仅持久化 Claude、Codex、OpenCode 和 Qoder Agent 终端会话的输出。配置在新会话启动时生效。",
+    "settings.agentLogHistoryMaxEntries": "每个 Agent 会话模板保留次数",
+    "settings.agentLogOutputMaxKiB": "每次会话输出上限（KiB）",
+    "settings.agentLogRange": "保留 1–1000 次；每次输出 16 KiB–16 MiB。",
+    "settings.agentLogSaved": "Agent 输出日志配置已保存。",
+    "settings.agentLogInvalid": "请输入有效范围内的整数。",
     "settings.close": "关闭",
     "settings.dingTalkTitle": "钉钉机器人通知",
     "settings.dingTalkDescription": "仅推送等待授权、等待输入和执行失败状态。消息固定包含 Pannel Handle 关键词。",
@@ -831,6 +845,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug mode",
     "settings.theme": "Theme",
     "settings.language": "Language",
+    "settings.agentLogTitle": "Agent output logs",
+    "settings.agentLogDescription": "Persist output only for Claude, Codex, OpenCode, and Qoder terminal sessions. Changes apply when a new session starts.",
+    "settings.agentLogHistoryMaxEntries": "Runs kept per Agent session template",
+    "settings.agentLogOutputMaxKiB": "Output limit per run (KiB)",
+    "settings.agentLogRange": "Keep 1–1000 runs; limit each run to 16 KiB–16 MiB.",
+    "settings.agentLogSaved": "Agent output log settings saved.",
+    "settings.agentLogInvalid": "Enter whole numbers within the allowed ranges.",
     "settings.close": "Close",
     "settings.dingTalkTitle": "DingTalk Robot Notifications",
     "settings.dingTalkDescription": "Only permission, input, and failure states are sent. Messages always include the Pannel Handle keyword.",

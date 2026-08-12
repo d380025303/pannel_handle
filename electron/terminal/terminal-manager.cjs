@@ -127,6 +127,7 @@ function createTerminalManager({
   getHookUrl,
   onSessionClosed,
   onAgentStatusChanged,
+  agentOutputHistoryStore,
   knownHostStore,
   pty = nodePty,
   ssh2TerminalFactory = createSsh2Terminal
@@ -297,6 +298,7 @@ function createTerminalManager({
     session.sshSecret = session.type === "ssh" ? getSshSecret(session) : undefined;
     session.sshSecretAttempts = 0;
     session.lastSshSecretPromptSignature = undefined;
+    agentOutputHistoryStore?.start(session);
     broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
     term.onData((data) => {
@@ -306,11 +308,13 @@ function createTerminalManager({
       }
       maybeAutofillTerminalSecretPrompt(session);
       maybeDetectCodexPermissionPrompt(session);
+      agentOutputHistoryStore?.appendOutput(session.id, data);
       broadcast("terminal:data", { id: session.id, data });
     });
 
     term.onExit(({ exitCode }) => {
       if (!sessions.has(session.id)) return;
+      agentOutputHistoryStore?.finish(session.id, { exitCode });
       broadcast("terminal:exit", { id: session.id, exitCode });
       broadcastAgentStatus({
         id: session.id,
@@ -641,6 +645,7 @@ function createTerminalManager({
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
+      agentOutputHistoryStore?.finish(id);
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
@@ -708,12 +713,14 @@ function createTerminalManager({
 
   function shutdown() {
     for (const session of sessions.values()) {
+      agentOutputHistoryStore?.finish(session.id);
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
     }
     sessions.clear();
     sessionOrder.length = 0;
+    agentOutputHistoryStore?.shutdown();
   }
 
   return {

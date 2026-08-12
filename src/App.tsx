@@ -82,6 +82,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
+  const [agentOutputHistoryMaxEntries, setAgentOutputHistoryMaxEntries] = useState(100);
+  const [agentOutputMaxBytes, setAgentOutputMaxBytes] = useState(1024 * 1024);
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
@@ -179,6 +181,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
+        setAgentOutputHistoryMaxEntries(config.listenerAgentHistoryMaxEntries);
+        setAgentOutputMaxBytes(config.listenerAgentOutputMaxBytes);
       }
     });
     return () => {
@@ -405,6 +409,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     const config = await window.terminalApi.setConfig({ locale: nextLocale });
     onLocaleChange(normalizeLocale(config.locale));
   }, [onLocaleChange]);
+
+  const handleAgentOutputHistoryChange = useCallback(async (maxEntries: number, maxOutputBytes: number) => {
+    const config = await window.terminalApi.setConfig({
+      listenerAgentHistoryMaxEntries: maxEntries,
+      listenerAgentOutputMaxBytes: maxOutputBytes
+    });
+    setAgentOutputHistoryMaxEntries(config.listenerAgentHistoryMaxEntries);
+    setAgentOutputMaxBytes(config.listenerAgentOutputMaxBytes);
+  }, []);
 
   useEffect(() => {
     if (!terminalSessions.activeSession) {
@@ -707,10 +720,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
+          agentOutputHistoryMaxEntries={agentOutputHistoryMaxEntries}
+          agentOutputMaxBytes={agentOutputMaxBytes}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
+          onSaveAgentOutputHistory={handleAgentOutputHistoryChange}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}
