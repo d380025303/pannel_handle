@@ -4,16 +4,12 @@ import type { AgentStatusPayload } from "../vite-env";
 type Translate = (key: TranslationKey, params?: TranslationParams) => string;
 
 export function mergeAgentStatus(
-  current: AgentStatusPayload | undefined,
+  _current: AgentStatusPayload | undefined,
   incoming: AgentStatusPayload
 ): AgentStatusPayload {
   const incomingSummary = incoming.activitySummary?.trim();
-  const previousSummary = current?.provider === incoming.provider
-    ? current.activitySummary?.trim()
-    : undefined;
-  const activitySummary = incomingSummary || previousSummary;
 
-  if (!activitySummary) {
+  if (!incomingSummary) {
     const statusWithoutSummary = { ...incoming };
     delete statusWithoutSummary.activitySummary;
     return statusWithoutSummary;
@@ -21,7 +17,7 @@ export function mergeAgentStatus(
 
   return {
     ...incoming,
-    activitySummary
+    activitySummary: incomingSummary
   };
 }
 

@@ -14,11 +14,11 @@ function status(overrides: Partial<AgentStatusPayload> = {}): AgentStatusPayload
 }
 
 describe("mergeAgentStatus", () => {
-  it("preserves the last summary when a later status has no summary", () => {
+  it("clears the last summary when a later status has no summary", () => {
     const previous = status({ activitySummary: "已完成登录页修复" });
     const incoming = status({ status: "running", eventName: "PreToolUse", timestamp: 2 });
 
-    expect(mergeAgentStatus(previous, incoming).activitySummary).toBe("已完成登录页修复");
+    expect(mergeAgentStatus(previous, incoming)).not.toHaveProperty("activitySummary");
   });
 
   it("replaces the previous summary with a new non-blank summary", () => {
@@ -29,9 +29,10 @@ describe("mergeAgentStatus", () => {
   });
 
   it("ignores a blank summary", () => {
+    const previous = status({ activitySummary: "旧摘要" });
     const incoming = status({ activitySummary: "  \n  " });
 
-    expect(mergeAgentStatus(undefined, incoming)).not.toHaveProperty("activitySummary");
+    expect(mergeAgentStatus(previous, incoming)).not.toHaveProperty("activitySummary");
   });
 
   it("does not carry a summary across providers", () => {
