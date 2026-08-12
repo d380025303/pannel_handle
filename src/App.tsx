@@ -449,7 +449,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   return (
     <>
       <div className="app-frame">
-        <TitleBar activeTitle={terminalSessions.activeSession?.title} isMaximized={isMaximized} mobileAccessState={mobileAccessState} onOpenSettings={() => setShowSettingsModal(true)} />
+        <TitleBar
+          activeTitle={terminalSessions.activeSession?.title}
+          isMaximized={isMaximized}
+          mobileAccessState={mobileAccessState}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenPicker={terminalSessions.openPicker}
+          onOpenCreate={handleOpenCreateModal}
+        />
         {terminalSessions.startupError && (
           <div className="startup-error-banner" role="alert">
             <span>{terminalSessions.startupError}</span>
@@ -467,8 +474,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onEditSession={setEditDialogSession}
             onInstallHooks={setHookInstallSession}
             onCloseSession={handleCloseSession}
-            onOpenPicker={terminalSessions.openPicker}
-            onOpenCreate={handleOpenCreateModal}
             onReorder={terminalSessions.reorderRunningSessions}
           />
 

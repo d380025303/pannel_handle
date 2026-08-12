@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { GripVertical, Library, Pencil, Plus, Search, Webhook, X } from "lucide-react";
+import { GripVertical, Pencil, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
@@ -13,8 +13,6 @@ type SessionSidebarProps = {
   onEditSession: (session: TerminalSession) => void;
   onInstallHooks: (session: TerminalSession) => void;
   onCloseSession: (id: string) => void;
-  onOpenPicker: () => void;
-  onOpenCreate: () => void;
   onReorder: (orderedIds: string[]) => void;
 };
 
@@ -33,8 +31,6 @@ export function SessionSidebar({
   onEditSession,
   onInstallHooks,
   onCloseSession,
-  onOpenPicker,
-  onOpenCreate,
   onReorder
 }: SessionSidebarProps) {
   const { t } = useI18n();
@@ -112,25 +108,6 @@ export function SessionSidebar({
 
   return (
     <aside className="session-sidebar">
-      <div className="sidebar-header">
-        <div>
-          <h1>{t("sidebar.title")}</h1>
-          <span>
-            {isFiltering
-              ? t("sidebar.countFiltered", { count: sessions.length, filtered: filteredSessions.length })
-              : t("sidebar.count", { count: sessions.length })}
-          </span>
-        </div>
-        <div className="sidebar-actions">
-          <button className="icon-button" type="button" title={t("sidebar.openLibrary")} aria-label={t("sidebar.openLibrary")} onClick={onOpenPicker}>
-            <Library aria-hidden="true" />
-          </button>
-          <button className="icon-button primary" type="button" title={t("sidebar.newSession")} aria-label={t("sidebar.newSession")} onClick={onOpenCreate}>
-            <Plus aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
       <div className="sidebar-search">
         <Search className="sidebar-search-icon" aria-hidden="true" />
         <input

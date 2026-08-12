@@ -10,6 +10,8 @@ input,
 }
 
 .titlebar-settings-btn,
+.titlebar-actions,
+.titlebar-action-btn,
 .window-controls,
 .window-control {
   -webkit-app-region: no-drag;
