@@ -381,6 +381,15 @@ export type TranslationKey =
   | "git.pop"
   | "git.changesTab"
   | "git.historyTab"
+  | "git.repositorySection"
+  | "git.syncSection"
+  | "git.commitSection"
+  | "git.changesSection"
+  | "git.expandSection"
+  | "git.collapseSection"
+  | "git.stagedCount"
+  | "git.commitDraftPresent"
+  | "git.changeCount"
   | "git.discoverRepository"
   | "git.browseDirectory"
   | "git.diffTruncated"
@@ -826,6 +835,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.pop": "弹出",
     "git.changesTab": "更改",
     "git.historyTab": "历史",
+    "git.repositorySection": "仓库与分支",
+    "git.syncSection": "同步",
+    "git.commitSection": "提交",
+    "git.changesSection": "变更",
+    "git.expandSection": "展开{section}",
+    "git.collapseSection": "收起{section}",
+    "git.stagedCount": "{count} 个已暂存",
+    "git.commitDraftPresent": "有草稿",
+    "git.changeCount": "{count} 个文件",
     "git.discoverRepository": "从会话目录发现仓库",
     "git.browseDirectory": "浏览 Windows 仓库目录",
     "git.diffTruncated": "差异过大，已显示安全范围内的预览。请在终端中审阅完整差异。",
@@ -1263,6 +1281,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.pop": "Pop",
     "git.changesTab": "Changes",
     "git.historyTab": "History",
+    "git.repositorySection": "Repository and branch",
+    "git.syncSection": "Sync",
+    "git.commitSection": "Commit",
+    "git.changesSection": "Changes",
+    "git.expandSection": "Expand {section}",
+    "git.collapseSection": "Collapse {section}",
+    "git.stagedCount": "{count} staged",
+    "git.commitDraftPresent": "Draft",
+    "git.changeCount": "{count} files",
     "git.discoverRepository": "Discover repository from session directory",
     "git.browseDirectory": "Browse for a Windows repository",
     "git.diffTruncated": "This diff is too large. A safe preview is shown; review the complete diff in the terminal.",

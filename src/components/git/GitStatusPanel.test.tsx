@@ -19,7 +19,7 @@ function createSession(id: string): TerminalSession {
   };
 }
 
-function createSnapshot(cwd: string, mode: "mixed" | "staged" | "working" | "clean" = "mixed"): GitRepositorySnapshot {
+function createSnapshot(cwd: string, mode: "mixed" | "staged" | "working" | "conflict" | "clean" = "mixed"): GitRepositorySnapshot {
   const files = mode === "clean" ? [] : mode === "staged" ? [{
     status: "M",
     label: "M",
@@ -34,6 +34,13 @@ function createSnapshot(cwd: string, mode: "mixed" | "staged" | "working" | "cle
     worktreeStatus: "M",
     conflicted: false,
     path: "working.ts"
+  }] : mode === "conflict" ? [{
+    status: "U",
+    label: "U",
+    indexStatus: "U",
+    worktreeStatus: "U",
+    conflicted: true,
+    path: "conflict.ts"
   }] : [{
     status: "M",
     label: "M",
@@ -189,12 +196,67 @@ describe("GitStatusPanel", () => {
   it("does not treat porcelain-v2 dots as staged changes", async () => {
     const session = createSession("working-only");
     window.gitApi = createGitApi({ [session.id]: createSnapshot(session.cwd, "working") });
+    const user = userEvent.setup();
     renderPanel(session);
 
     await screen.findByText("working.ts");
+    const commitDisclosure = screen.getByRole("button", { name: "展开提交" });
+    expect(commitDisclosure.getAttribute("aria-expanded")).toBe("false");
+    await user.click(commitDisclosure);
     const commitButton = screen.getByRole("button", { name: /提交已暂存更改/ });
     expect((commitButton as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelectorAll(".git-change-group")).toHaveLength(1);
+  });
+
+  it("smart-opens exceptional repository, sync, and commit sections", async () => {
+    const session = createSession("smart-sections");
+    const snapshot = createSnapshot(session.cwd, "staged");
+    snapshot.status.branch.detached = true;
+    snapshot.status.branch.upstream = undefined;
+    window.gitApi = createGitApi({ [session.id]: snapshot });
+    renderPanel(session);
+
+    expect(await screen.findByRole("button", { name: "收起仓库与分支" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "收起同步" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "收起提交" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("输入 Git 仓库绝对路径")).toBeTruthy();
+    expect(screen.getByPlaceholderText("提交标题")).toBeTruthy();
+  });
+
+  it("remembers manual section choices per repository for the current process", async () => {
+    const session = createSession("remember-sections");
+    const snapshots: Record<string, GitRepositorySnapshot> = { [session.id]: createSnapshot(session.cwd, "working") };
+    snapshots[session.id].status.branch.ahead = 0;
+    snapshots[session.id].status.branch.behind = 0;
+    window.gitApi = createGitApi(snapshots);
+    const user = userEvent.setup();
+
+    const firstView = renderPanel(session);
+    await user.click(await screen.findByRole("button", { name: "展开提交" }));
+    expect(screen.getByPlaceholderText("提交标题")).toBeTruthy();
+    firstView.unmount();
+
+    const rememberedView = renderPanel(session);
+    expect(await screen.findByRole("button", { name: "收起提交" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("提交标题")).toBeTruthy();
+    rememberedView.unmount();
+
+    const alternate = { ...session, gitCwd: `${session.cwd}-alternate` };
+    snapshots[session.id] = createSnapshot(alternate.gitCwd, "working");
+    snapshots[session.id].status.branch.ahead = 0;
+    snapshots[session.id].status.branch.behind = 0;
+    renderPanel(alternate);
+    expect(await screen.findByRole("button", { name: "展开提交" })).toBeTruthy();
+  });
+
+  it("keeps conflicts in the primary changes list", async () => {
+    const session = createSession("conflict-panel");
+    window.gitApi = createGitApi({ [session.id]: createSnapshot(session.cwd, "conflict") });
+    renderPanel(session);
+
+    expect(await screen.findByText("conflict.ts")).toBeTruthy();
+    expect(screen.getByText("冲突")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "展开提交" })).toBeTruthy();
   });
 
   it("loads current-HEAD history and opens a commit diff", async () => {

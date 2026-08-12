@@ -33,7 +33,7 @@ export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCo
           lineNumbers(),
           highlightActiveLineGutter(),
           history(),
-          drawSelection(),
+          drawSelection({ cursorBlinkRate: 900 }),
           dropCursor(),
           indentOnInput(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -43,9 +43,17 @@ export function RemoteCodeEditor({ value, fileName, onChange, onSave }: RemoteCo
           EditorView.theme({
             "&": { height: "100%", backgroundColor: "transparent", color: "var(--color-text)" },
             ".cm-content": { caretColor: "var(--color-accent)", fontFamily: "Consolas, monospace", fontSize: "12px" },
+            ".cm-cursor, .cm-dropCursor": {
+              borderLeft: "2px solid var(--color-text)",
+              marginLeft: "-1px",
+              filter: "drop-shadow(0 0 2px var(--color-accent))"
+            },
             ".cm-gutters": { backgroundColor: "var(--color-bg-control)", color: "var(--color-text-muted)", border: "0" },
             ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--color-accent) 8%, transparent)" },
-            ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--color-accent) 28%, transparent)" },
+            ".cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--color-accent) 18%, transparent)" },
+            "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+              backgroundColor: "color-mix(in srgb, var(--color-accent) 18%, transparent)"
+            },
             ".cm-scroller": { overflow: "auto" }
           }),
           keymap.of([

@@ -50,7 +50,10 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSe
       </div>
       {mobileAccessState?.running && (
         <button className={`titlebar-mobile-status${mobileAccessState.activeDevice?.connected ? " connected" : ""}`} type="button" title={mobileAccessState.activeDevice?.name || "局域网移动终端已启用"} onClick={onOpenSettings}>
-          <span />{mobileAccessState.activeDevice?.connected ? mobileAccessState.activeDevice.name : "移动访问"}
+          <span className="titlebar-mobile-dot" aria-hidden="true" />
+          <span className="titlebar-mobile-label">
+            {mobileAccessState.activeDevice?.connected ? mobileAccessState.activeDevice.name : "移动访问"}
+          </span>
         </button>
       )}
       <div className="titlebar-session">{activeTitle || t("app.noActiveSession")}</div>

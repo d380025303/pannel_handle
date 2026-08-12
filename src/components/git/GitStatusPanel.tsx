@@ -60,6 +60,8 @@ type OperationState =
   | { status: "success" | "error"; label: string; message: string; details: string; canceled?: boolean };
 
 type CommitDraft = { subject: string; body: string };
+type GitPanelSection = "repository" | "sync" | "commit";
+type GitPanelSectionOverrides = Partial<Record<GitPanelSection, boolean>>;
 
 type ConfirmState = {
   title: string;
@@ -79,6 +81,7 @@ type DiffSearchMatch = {
 
 const commitDrafts = new Map<string, CommitDraft>();
 const repositoryOperations = new Map<string, OperationState>();
+const repositorySectionOverrides = new Map<string, GitPanelSectionOverrides>();
 
 function createOperationId() {
   return globalThis.crypto?.randomUUID?.() || `git-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -94,6 +97,11 @@ function formatFilePath(file: Pick<GitStatusEntry, "path" | "oldPath">) {
 
 function formatLineNumber(value?: number) {
   return typeof value === "number" ? String(value) : "";
+}
+
+function repositoryName(cwd: string) {
+  const segments = cwd.split(/[\\/]/).filter(Boolean);
+  return segments.at(-1) || cwd;
 }
 
 function branchKey(branch: Pick<GitBranchEntry, "kind" | "name">) {
@@ -382,6 +390,47 @@ function FileGroup({ title, files, scope, busy, onDiff, onPrimary, onDiscard, pr
   );
 }
 
+function GitDisclosureSection({
+  section,
+  title,
+  summary,
+  open,
+  onToggle,
+  children
+}: {
+  section: GitPanelSection;
+  title: string;
+  summary: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const { t } = useI18n();
+  const contentId = `git-${section}-section`;
+  const toggleLabel = open
+    ? t("git.collapseSection", { section: title })
+    : t("git.expandSection", { section: title });
+
+  return (
+    <section className={`git-disclosure-section git-${section}-section ${open ? "open" : "collapsed"}`}>
+      <button
+        className="git-disclosure-trigger"
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+        onClick={onToggle}
+      >
+        <ChevronDown className="git-disclosure-chevron" aria-hidden="true" />
+        <strong>{title}</strong>
+        <span className="git-disclosure-summary">{summary}</span>
+      </button>
+      {open && <div className="git-disclosure-content" id={contentId}>{children}</div>}
+    </section>
+  );
+}
+
 export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps) {
   const { locale, t } = useI18n();
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
@@ -398,6 +447,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [commitDraft, setCommitDraft] = useState<CommitDraft>({ subject: "", body: "" });
   const [operation, setOperation] = useState<OperationState>({ status: "idle" });
+  const [sectionOverrides, setSectionOverrides] = useState<GitPanelSectionOverrides>({});
   const requestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const mountedRef = useRef(true);
@@ -419,6 +469,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
     setDirectoryError("");
     setOperation(repositoryOperations.get(repositoryKey) || { status: "idle" });
     setCommitDraft(commitDrafts.get(repositoryKey) || { subject: "", body: "" });
+    setSectionOverrides(repositorySectionOverrides.get(repositoryKey) || {});
   }, [currentGitCwd, repositoryKey, sessionId]);
 
   const updateDraft = useCallback((next: CommitDraft) => {
@@ -601,14 +652,34 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
   const hasStaged = staged.length > 0;
   const operationBlocked = Boolean(snapshot?.operationState);
   const directoryOptions = [...new Set([currentGitCwd, ...(session.gitCwdHistory || []), session.cwd].filter(Boolean))];
+  const repositoryLabel = repositoryName(snapshot?.cwd || currentGitCwd);
+  const branchLabel = branch?.detached
+    ? t("git.detachedHead")
+    : branch?.unborn
+      ? t("git.unbornBranch")
+      : branch?.name || t("git.noBranch");
+  const hasCommitDraft = Boolean(commitDraft.subject.trim() || commitDraft.body.trim());
+  const repositorySmartOpen = loadState.status === "error" || Boolean(directoryError) || Boolean(branch?.detached || branch?.unborn);
+  const syncSmartOpen = Boolean(branch && (!branch.upstream || branch.ahead > 0 || branch.behind > 0));
+  const commitSmartOpen = hasStaged || hasCommitDraft;
+  const repositoryOpen = sectionOverrides.repository ?? repositorySmartOpen;
+  const syncOpen = sectionOverrides.sync ?? syncSmartOpen;
+  const commitOpen = sectionOverrides.commit ?? commitSmartOpen;
+  const toggleSection = (section: GitPanelSection, currentlyOpen: boolean) => {
+    setSectionOverrides((current) => {
+      const next = { ...current, [section]: !currentlyOpen };
+      if (repositoryKey) repositorySectionOverrides.set(repositoryKey, next);
+      return next;
+    });
+  };
 
   return (
     <>
       <aside className="git-status-panel">
         <div className="git-status-header">
-          <div>
+          <div className="git-status-heading">
             <h2>Git</h2>
-            <span title={currentGitCwd}>{currentGitCwd}</span>
+            <span title={snapshot?.cwd || currentGitCwd}>{repositoryLabel}</span>
           </div>
           <button className="icon-button" type="button" title={t("git.refreshStatus")} disabled={busy} onClick={() => void loadSnapshot()}><RefreshCw aria-hidden="true" /></button>
         </div>
@@ -618,14 +689,50 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
           <button className={view === "history" ? "active" : ""} type="button" role="tab" aria-selected={view === "history"} onClick={() => setView("history")}><HistoryIcon aria-hidden="true" />{t("git.historyTab")}</button>
         </div>
 
-        <div className="git-directory-control">
-          <input list={`git-directories-${sessionId}`} value={directoryInput} title={directoryInput} placeholder={t("git.directoryPlaceholder")} disabled={busy} onChange={(event) => setDirectoryInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void changeDirectory(directoryInput); }} />
-          <datalist id={`git-directories-${sessionId}`}>{directoryOptions.map((value) => <option value={value} key={value} />)}</datalist>
-          <button className="icon-button" type="button" title={t("git.changeDirectory")} disabled={busy || !directoryInput.trim()} onClick={() => void changeDirectory(directoryInput)}><FolderInput aria-hidden="true" /></button>
-          <button className="icon-button" type="button" title={t("git.discoverRepository")} disabled={busy} onClick={() => void discoverRepository()}><Search aria-hidden="true" /></button>
-          {session.type === "windows" && <button className="icon-button" type="button" title={t("git.browseDirectory")} disabled={busy} onClick={() => void browseDirectory()}><ChevronDown aria-hidden="true" /></button>}
-        </div>
-        {directoryError && <div className="git-status-error"><span>{directoryError}</span><button type="button" onClick={() => setDirectoryError("")}>{t("git.dismiss")}</button></div>}
+        <GitDisclosureSection
+          section="repository"
+          title={t("git.repositorySection")}
+          summary={<><span title={snapshot?.cwd || currentGitCwd}>{repositoryLabel}</span><span className="git-summary-separator">·</span><span>{branchLabel}</span></>}
+          open={repositoryOpen}
+          onToggle={() => toggleSection("repository", repositoryOpen)}
+        >
+          <div className="git-directory-control">
+            <input list={`git-directories-${sessionId}`} value={directoryInput} title={directoryInput} placeholder={t("git.directoryPlaceholder")} disabled={busy} onChange={(event) => setDirectoryInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void changeDirectory(directoryInput); }} />
+            <datalist id={`git-directories-${sessionId}`}>{directoryOptions.map((value) => <option value={value} key={value} />)}</datalist>
+            <button className="icon-button" type="button" title={t("git.changeDirectory")} disabled={busy || !directoryInput.trim()} onClick={() => void changeDirectory(directoryInput)}><FolderInput aria-hidden="true" /></button>
+            <button className="icon-button" type="button" title={t("git.discoverRepository")} disabled={busy} onClick={() => void discoverRepository()}><Search aria-hidden="true" /></button>
+            {session.type === "windows" && <button className="icon-button" type="button" title={t("git.browseDirectory")} disabled={busy} onClick={() => void browseDirectory()}><ChevronDown aria-hidden="true" /></button>}
+          </div>
+          {directoryError && <div className="git-status-error"><span>{directoryError}</span><button type="button" onClick={() => setDirectoryError("")}>{t("git.dismiss")}</button></div>}
+          {snapshot && (
+            <>
+              <div className="git-branch-sync">
+                <div className="git-branch-select">
+                  <GitBranch aria-hidden="true" />
+                  <SearchableSelect
+                    value={currentBranch ? branchKey(currentBranch) : ""}
+                    options={snapshot.branches.branches.map((item) => ({ value: branchKey(item), label: `${item.current ? "* " : ""}${item.name}${item.kind === "remote" ? t("git.remoteBranch") : ""}`, searchText: item.name }))}
+                    disabled={busy || operationBlocked}
+                    ariaLabel={t("git.checkoutBranch")}
+                    placeholder={branch?.detached ? t("git.detachedHead") : t("git.checkoutBranch")}
+                    menuMinWidth={280}
+                    onChange={(value) => {
+                      const target = snapshot.branches.branches.find((item) => branchKey(item) === value);
+                      if (target && !target.current) void runOperation(t("git.checkoutBranch"), (id) => window.gitApi.checkoutBranch(sessionId, target, id));
+                    }}
+                  />
+                </div>
+                <button className="git-compact-button" type="button" title={t("git.createBranch")} disabled={busy || operationBlocked} onClick={() => setShowCreateBranch((show) => !show)}><Plus aria-hidden="true" /></button>
+              </div>
+              {showCreateBranch && (
+                <div className="git-create-branch">
+                  <input value={branchName} placeholder={t("git.branchName")} disabled={busy} onChange={(event) => setBranchName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && branchName.trim()) { void runOperation(t("git.createBranch"), (id) => window.gitApi.createBranch(sessionId, branchName.trim(), id)); setBranchName(""); setShowCreateBranch(false); } }} />
+                  <button type="button" disabled={busy || !branchName.trim()} onClick={() => { void runOperation(t("git.createBranch"), (id) => window.gitApi.createBranch(sessionId, branchName.trim(), id)); setBranchName(""); setShowCreateBranch(false); }}>{t("git.createAndCheckout")}</button>
+                </div>
+              )}
+            </>
+          )}
+        </GitDisclosureSection>
 
         {operation.status !== "idle" && (
           <div className={`git-operation-banner ${operation.status}`}>
@@ -648,52 +755,42 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
           <div className="git-status-error"><span>{loadState.message}</span><button type="button" onClick={() => void loadSnapshot()}>{t("common.retry")}</button></div>
         ) : snapshot && view === "changes" ? (
           <div className="git-changes-view">
-            <div className="git-branch-sync">
-              <div className="git-branch-select">
-                <GitBranch aria-hidden="true" />
-                <SearchableSelect
-                  value={currentBranch ? branchKey(currentBranch) : ""}
-                  options={snapshot.branches.branches.map((item) => ({ value: branchKey(item), label: `${item.current ? "* " : ""}${item.name}${item.kind === "remote" ? t("git.remoteBranch") : ""}`, searchText: item.name }))}
-                  disabled={busy || operationBlocked}
-                  ariaLabel={t("git.checkoutBranch")}
-                  placeholder={branch?.detached ? t("git.detachedHead") : t("git.checkoutBranch")}
-                  menuMinWidth={280}
-                  onChange={(value) => {
-                    const target = snapshot.branches.branches.find((item) => branchKey(item) === value);
-                    if (target && !target.current) void runOperation(t("git.checkoutBranch"), (id) => window.gitApi.checkoutBranch(sessionId, target, id));
-                  }}
-                />
+            <GitDisclosureSection
+              section="sync"
+              title={t("git.syncSection")}
+              summary={branch?.upstream
+                ? <><span title={branch.upstream.name}>{branch.upstream.name}</span><span className="git-summary-separator">·</span><span>↑{branch.ahead} ↓{branch.behind}</span></>
+                : <span>{t("git.noUpstream")}</span>}
+              open={syncOpen}
+              onToggle={() => toggleSection("sync", syncOpen)}
+            >
+              <div className="git-sync-actions">
+                <select value={remoteSelection} aria-label={t("git.selectRemote")} disabled={busy || operationBlocked || remotes.length === 0} onChange={(event) => setRemoteSelection(event.target.value)}>
+                  {remotes.length === 0 ? <option value="">{t("git.noRemotes")}</option> : remotes.map((remote) => <option value={remote} key={remote}>{remote}</option>)}
+                </select>
+                <button type="button" disabled={busy || operationBlocked || !remoteSelection} onClick={() => void runOperation(t("git.fetch"), (id) => window.gitApi.fetch(sessionId, remoteSelection, id))}>{t("git.fetch")}</button>
+                <button type="button" disabled={busy || operationBlocked || branch?.detached || !branch?.upstream} onClick={() => void runOperation(t("git.pull"), (id) => window.gitApi.pull(sessionId, id))}>{t("git.pull")}</button>
+                <button type="button" disabled={busy || operationBlocked || branch?.detached || branch?.unborn || (!branch?.upstream && !remoteSelection)} onClick={() => void runOperation(t("git.push"), (id) => window.gitApi.push(sessionId, branch?.upstream ? undefined : remoteSelection, id))}><Send aria-hidden="true" />{t("git.push")}</button>
               </div>
-              <button className="git-compact-button" type="button" title={t("git.createBranch")} disabled={busy || operationBlocked} onClick={() => setShowCreateBranch((show) => !show)}><Plus aria-hidden="true" /></button>
-            </div>
-            {showCreateBranch && (
-              <div className="git-create-branch">
-                <input value={branchName} placeholder={t("git.branchName")} disabled={busy} onChange={(event) => setBranchName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && branchName.trim()) { void runOperation(t("git.createBranch"), (id) => window.gitApi.createBranch(sessionId, branchName.trim(), id)); setBranchName(""); setShowCreateBranch(false); } }} />
-                <button type="button" disabled={busy || !branchName.trim()} onClick={() => { void runOperation(t("git.createBranch"), (id) => window.gitApi.createBranch(sessionId, branchName.trim(), id)); setBranchName(""); setShowCreateBranch(false); }}>{t("git.createAndCheckout")}</button>
+            </GitDisclosureSection>
+
+            <GitDisclosureSection
+              section="commit"
+              title={t("git.commitSection")}
+              summary={<><span>{t("git.stagedCount", { count: staged.length })}</span>{hasCommitDraft && <span className="git-draft-indicator">{t("git.commitDraftPresent")}</span>}</>}
+              open={commitOpen}
+              onToggle={() => toggleSection("commit", commitOpen)}
+            >
+              <div className="git-commit-editor">
+                <input value={commitDraft.subject} placeholder={t("git.commitSubject")} disabled={busy || operationBlocked} onChange={(event) => updateDraft({ ...commitDraft, subject: event.target.value })} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter" && hasStaged && commitDraft.subject.trim()) void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); }); }} />
+                <textarea value={commitDraft.body} placeholder={t("git.commitBody")} disabled={busy || operationBlocked} rows={3} onChange={(event) => updateDraft({ ...commitDraft, body: event.target.value })} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter" && hasStaged && commitDraft.subject.trim()) { event.preventDefault(); void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); }); } }} />
+                <div><span>{commitDraft.subject.length}{commitDraft.body ? ` + ${commitDraft.body.length}` : ""}</span><button className="git-primary-button" type="button" disabled={busy || operationBlocked || !hasStaged || !commitDraft.subject.trim()} onClick={() => void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); })}><GitCommit aria-hidden="true" />{t("git.commitChanges")}</button></div>
               </div>
-            )}
+            </GitDisclosureSection>
 
-            <div className="git-sync-summary">
-              <span>{branch?.detached ? t("git.detachedHead") : branch?.unborn ? t("git.unbornBranch") : branch?.name || t("git.noBranch")}</span>
-              {branch?.upstream ? <span title={branch.upstream.name}>↑{branch.ahead} ↓{branch.behind}</span> : <span>{t("git.noUpstream")}</span>}
-            </div>
-            <div className="git-sync-actions">
-              <select value={remoteSelection} aria-label={t("git.selectRemote")} disabled={busy || operationBlocked || remotes.length === 0} onChange={(event) => setRemoteSelection(event.target.value)}>
-                {remotes.length === 0 ? <option value="">{t("git.noRemotes")}</option> : remotes.map((remote) => <option value={remote} key={remote}>{remote}</option>)}
-              </select>
-              <button type="button" disabled={busy || operationBlocked || !remoteSelection} onClick={() => void runOperation(t("git.fetch"), (id) => window.gitApi.fetch(sessionId, remoteSelection, id))}>{t("git.fetch")}</button>
-              <button type="button" disabled={busy || operationBlocked || branch?.detached || !branch?.upstream} onClick={() => void runOperation(t("git.pull"), (id) => window.gitApi.pull(sessionId, id))}>{t("git.pull")}</button>
-              <button type="button" disabled={busy || operationBlocked || branch?.detached || branch?.unborn || (!branch?.upstream && !remoteSelection)} onClick={() => void runOperation(t("git.push"), (id) => window.gitApi.push(sessionId, branch?.upstream ? undefined : remoteSelection, id))}><Send aria-hidden="true" />{t("git.push")}</button>
-            </div>
-
-            <div className="git-commit-editor">
-              <input value={commitDraft.subject} placeholder={t("git.commitSubject")} disabled={busy || operationBlocked} onChange={(event) => updateDraft({ ...commitDraft, subject: event.target.value })} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter" && hasStaged && commitDraft.subject.trim()) void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); }); }} />
-              <textarea value={commitDraft.body} placeholder={t("git.commitBody")} disabled={busy || operationBlocked} rows={3} onChange={(event) => updateDraft({ ...commitDraft, body: event.target.value })} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter" && hasStaged && commitDraft.subject.trim()) { event.preventDefault(); void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); }); } }} />
-              <div><span>{commitDraft.subject.length}{commitDraft.body ? ` + ${commitDraft.body.length}` : ""}</span><button className="git-primary-button" type="button" disabled={busy || operationBlocked || !hasStaged || !commitDraft.subject.trim()} onClick={() => void runOperation(t("git.commitChanges"), (id) => window.gitApi.commit(sessionId, commitDraft, id)).then((success) => { if (success) updateDraft({ subject: "", body: "" }); })}><GitCommit aria-hidden="true" />{t("git.commitChanges")}</button></div>
-            </div>
-
-            <div className="git-status-actions">
-              <button className="git-action-button" type="button" disabled={busy} onClick={() => setShowStashes(true)}><Archive aria-hidden="true" />{t("git.stashes", { count: snapshot.stashes.stashes.length })}</button>
+            <div className="git-changes-header">
+              <div><strong>{t("git.changesSection")}</strong><span>{t("git.changeCount", { count: status?.files.length || 0 })}</span></div>
+              <button className="git-stash-button" type="button" disabled={busy} onClick={() => setShowStashes(true)}><Archive aria-hidden="true" />{t("git.stashes", { count: snapshot.stashes.stashes.length })}</button>
             </div>
 
             <div className="git-status-list">

@@ -1,6 +1,7 @@
 .custom-titlebar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: "brand mobile session controls";
   align-items: center;
   min-width: 0;
   height: var(--titlebar-height);
@@ -18,6 +19,7 @@
 }
 
 .titlebar-brand {
+  grid-area: brand;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -40,6 +42,8 @@
 }
 
 .titlebar-session {
+  grid-area: session;
+  min-width: 0;
   padding: 0 12px;
   color: var(--color-text-muted);
   font-size: 12px;
@@ -81,9 +85,11 @@
 
 .titlebar-mobile-status {
   -webkit-app-region: no-drag;
+  grid-area: mobile;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   max-width: 180px;
   padding: 4px 8px;
   border: 1px solid var(--color-border-strong);
@@ -93,11 +99,13 @@
   font-size: 11px;
 }
 
-.titlebar-mobile-status span { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--color-text-subtle); }
+.titlebar-mobile-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--color-text-subtle); }
+.titlebar-mobile-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .titlebar-mobile-status.connected { color: var(--color-ok-text); border-color: var(--color-success); }
-.titlebar-mobile-status.connected span { background: var(--color-success); }
+.titlebar-mobile-status.connected .titlebar-mobile-dot { background: var(--color-success); }
 
 .window-controls {
+  grid-area: controls;
   display: flex;
   align-self: stretch;
 }
@@ -1717,28 +1725,39 @@ button.agent-usage-status[aria-expanded="true"] {
 .right-tool-tabs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: 6px;
-  padding: 8px;
+  gap: 0;
+  padding: 4px 8px 0;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
 
 .right-tool-tabs button {
   min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  min-height: 34px;
+  padding: 6px 8px 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: var(--color-text-muted);
-  background: var(--color-bg-control);
+  background: transparent;
   cursor: pointer;
   font-size: 12px;
 }
 
-.right-tool-tabs button:hover,
-.right-tool-tabs button.active {
-  border-color: var(--color-accent);
+.right-tool-tabs button:hover {
   color: var(--color-text);
-  background: var(--color-bg-selection);
+  background: var(--color-bg-hover);
+}
+
+.right-tool-tabs button.active {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+  background: transparent;
+}
+
+.right-tool-tabs button:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .workspace-tabs {
@@ -1829,6 +1848,8 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .remote-file-panel {
+  container-name: remote-files;
+  container-type: inline-size;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -1842,6 +1863,8 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .git-status-panel {
+  container-name: git-panel;
+  container-type: inline-size;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -1854,10 +1877,17 @@ button.agent-usage-status[aria-expanded="true"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 76px;
-  padding: 16px;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.git-status-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .git-status-header h2 {
@@ -1868,13 +1898,22 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .git-status-header span {
-  display: block;
+  display: inline-block;
   overflow: hidden;
-  max-width: 260px;
+  min-width: 0;
+  max-width: none;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-status-header .icon-button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-color: transparent;
+  background: transparent;
 }
 
 .git-directory-control {
@@ -2357,15 +2396,15 @@ button.agent-usage-status[aria-expanded="true"] {
 .git-subtabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 2px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
 
 .git-subtabs button {
   display: inline-flex;
-  min-height: 30px;
+  min-height: 28px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -2387,8 +2426,102 @@ button.agent-usage-status[aria-expanded="true"] {
   height: 14px;
 }
 
+.git-disclosure-section {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.git-disclosure-trigger {
+  display: grid;
+  grid-template-columns: 16px max-content minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  color: var(--color-text-secondary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-disclosure-trigger:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.git-disclosure-trigger:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.git-disclosure-trigger strong {
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.git-disclosure-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.git-disclosure-section.open .git-disclosure-chevron {
+  transform: rotate(0deg);
+}
+
+.git-disclosure-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.git-disclosure-summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-disclosure-summary > span:last-child {
+  flex: 0 0 auto;
+}
+
+.git-summary-separator {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+}
+
+.git-draft-indicator {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
+}
+
+.git-disclosure-content {
+  min-width: 0;
+  padding-bottom: 6px;
+  background: var(--color-bg-app);
+}
+
 .git-directory-control {
   grid-template-columns: minmax(0, 1fr) repeat(3, 30px);
+  padding: 6px 10px;
+  border-bottom: 0;
+  background: transparent;
 }
 
 .git-directory-control > input {
@@ -2421,7 +2554,7 @@ button.agent-usage-status[aria-expanded="true"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 30px;
   gap: 6px;
-  padding: 8px 10px 4px;
+  padding: 6px 10px 2px;
 }
 
 .git-compact-button,
@@ -2460,7 +2593,7 @@ button.agent-usage-status[aria-expanded="true"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
-  padding: 4px 10px 8px;
+  padding: 4px 10px 2px;
 }
 
 .git-create-branch input,
@@ -2499,8 +2632,7 @@ button.agent-usage-status[aria-expanded="true"] {
   display: grid;
   grid-template-columns: minmax(72px, 1fr) repeat(3, auto);
   gap: 5px;
-  padding: 4px 10px 8px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 6px 10px 0;
 }
 
 .git-sync-actions select {
@@ -2531,9 +2663,8 @@ button.agent-usage-status[aria-expanded="true"] {
 .git-commit-editor {
   display: grid;
   gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-app);
+  padding: 6px 10px 0;
+  background: transparent;
 }
 
 .git-commit-editor input,
@@ -2599,7 +2730,135 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .git-status-list {
-  gap: 10px;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.git-changes-header {
+  display: flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.git-changes-header > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.git-changes-header strong {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.git-changes-header > div > span {
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-stash-button {
+  display: inline-flex;
+  min-height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.git-stash-button:hover:not(:disabled),
+.git-stash-button:focus-visible {
+  border-color: var(--color-border-strong);
+  outline: none;
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.git-stash-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-stash-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+@container git-panel (max-width: 340px) {
+  .git-disclosure-trigger {
+    grid-template-columns: 14px max-content minmax(0, 1fr);
+    gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .git-directory-control {
+    grid-template-columns: minmax(0, 1fr) repeat(3, 28px);
+    gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .git-directory-control .icon-button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .git-branch-sync,
+  .git-create-branch,
+  .git-commit-editor {
+    padding-inline: 8px;
+  }
+
+  .git-create-branch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .git-create-branch button {
+    min-height: 28px;
+  }
+
+  .git-sync-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline: 8px;
+  }
+
+  .git-sync-actions select {
+    grid-column: 1 / -1;
+  }
+
+  .git-sync-actions button {
+    padding-inline: 4px;
+  }
+
+  .git-commit-editor > div {
+    align-items: flex-end;
+  }
+
+  .git-primary-button {
+    max-width: 190px;
+    padding-inline: 8px;
+  }
+
+  .git-changes-header,
+  .git-status-list {
+    padding-inline: 8px;
+  }
 }
 
 .git-change-group {
@@ -3154,12 +3413,17 @@ button.agent-usage-status[aria-expanded="true"] {
 
 .remote-file-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 76px;
-  padding: 16px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.remote-file-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .remote-file-header h2 {
@@ -3170,9 +3434,9 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .remote-file-header span {
-  display: block;
+  display: inline-block;
   overflow: hidden;
-  max-width: 230px;
+  min-width: 0;
   color: var(--color-text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
@@ -3183,11 +3447,42 @@ button.agent-usage-status[aria-expanded="true"] {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
+}
+
+.remote-file-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+.remote-file-actions .icon-button:hover:not(:disabled),
+.remote-file-actions .icon-button:focus-visible {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+}
+
+.remote-file-actions .icon-button:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.remote-file-actions .icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.remote-file-actions .icon-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .remote-file-path {
-  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: 26px 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-app);
 }
@@ -3195,19 +3490,20 @@ button.agent-usage-status[aria-expanded="true"] {
 .remote-file-path input {
   width: 100%;
   min-width: 0;
-  padding: 5px 7px;
-  border: 1px solid transparent;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   outline: none;
   color: var(--color-text-secondary);
-  background: transparent;
+  background: var(--color-bg-panel);
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 11px;
 }
 
 .remote-file-path input:hover {
   border-color: var(--color-border-strong);
-  background: var(--color-bg-control);
 }
 
 .remote-file-path input:focus {
@@ -3215,11 +3511,34 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-bg-control);
 }
 
+.remote-file-sort {
+  width: 82px;
+  height: 28px;
+  min-width: 0;
+  padding: 0 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-panel);
+  font-size: 11px;
+}
+
+.remote-file-sort:hover {
+  border-color: var(--color-border-strong);
+}
+
+.remote-file-sort:focus-visible {
+  border-color: var(--color-accent);
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 .remote-file-search {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
@@ -3235,8 +3554,10 @@ button.agent-usage-status[aria-expanded="true"] {
 .remote-file-search input {
   min-width: 0;
   flex: 1;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border-strong);
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   outline: none;
   color: var(--color-text);
@@ -3246,6 +3567,8 @@ button.agent-usage-status[aria-expanded="true"] {
 
 .remote-file-search input:focus {
   border-color: var(--color-accent);
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .remote-file-search button,
@@ -3370,19 +3693,19 @@ button.agent-usage-status[aria-expanded="true"] {
   min-height: 180px;
   flex: 1;
   flex-direction: column;
-  gap: 3px;
-  padding: 8px;
+  gap: 1px;
+  padding: 6px;
   overflow-y: auto;
 }
 
 .remote-file-row {
   display: grid;
-  grid-template-columns: 14px 18px minmax(0, 1fr) 68px 74px;
+  grid-template-columns: 14px 17px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  min-height: 34px;
+  gap: 6px;
+  min-height: 30px;
   width: 100%;
-  padding: 5px 6px 5px calc(6px + var(--remote-file-depth, 0) * 16px);
+  padding: 4px 6px 4px calc(5px + var(--remote-file-depth, 0) * 14px);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--color-text);
@@ -3449,6 +3772,11 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-bg-hover);
 }
 
+.remote-file-row:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
 .remote-file-row.drop-target {
   border-color: var(--color-accent);
   background: var(--color-bg-selection);
@@ -3460,8 +3788,9 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .remote-file-row.selected {
-  border-color: var(--color-accent);
+  border-color: transparent;
   background: var(--color-bg-selection);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .remote-file-icon {
@@ -3486,17 +3815,43 @@ button.agent-usage-status[aria-expanded="true"] {
 .remote-file-name {
   overflow: hidden;
   font-size: 12px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .remote-file-meta {
+  display: none;
   overflow: hidden;
   color: var(--color-text-subtle);
   font-size: 10px;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@container remote-files (min-width: 420px) {
+  .remote-file-row.file-entry,
+  .remote-file-row.directory-entry {
+    grid-template-columns: 14px 17px minmax(0, 1fr) 74px;
+  }
+
+  .remote-file-row.file-entry .remote-file-meta-detail,
+  .remote-file-row.directory-entry .remote-file-meta-modified {
+    display: block;
+  }
+}
+
+@container remote-files (min-width: 520px) {
+  .remote-file-row.file-entry,
+  .remote-file-row.directory-entry {
+    grid-template-columns: 14px 17px minmax(0, 1fr) 68px 74px;
+  }
+
+  .remote-file-row.file-entry .remote-file-meta,
+  .remote-file-row.directory-entry .remote-file-meta {
+    display: block;
+  }
 }
 
 .remote-file-context-menu {
@@ -4474,53 +4829,23 @@ button.agent-usage-status[aria-expanded="true"] {
   vertical-align: middle;
 }
 
-.remote-file-path {
-  gap: 4px;
-}
-
 .remote-file-history {
   display: grid;
   place-items: center;
   width: 26px;
+  height: 26px;
   min-width: 26px;
   border: 0;
   border-radius: 5px;
   color: var(--color-text-secondary);
   background: transparent;
+  cursor: pointer;
 }
 
 .remote-file-history:hover:not(:disabled) { background: var(--color-bg-hover); }
-.remote-file-history:disabled { opacity: .35; }
+.remote-file-history:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
+.remote-file-history:disabled { opacity: .35; cursor: not-allowed; }
 .remote-file-history svg { width: 14px; height: 14px; }
-
-.remote-file-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-height: 28px;
-  padding: 0 10px 7px;
-  overflow-x: auto;
-}
-
-.remote-file-breadcrumbs button {
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 4px;
-  padding: 3px 5px;
-  color: var(--color-text-secondary);
-  background: transparent;
-}
-
-.remote-file-breadcrumbs button:hover { color: var(--color-text); background: var(--color-bg-hover); }
-.remote-file-breadcrumbs select {
-  margin-left: auto;
-  max-width: 94px;
-  border: 1px solid var(--color-border);
-  border-radius: 5px;
-  padding: 3px;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-control);
-}
 
 .remote-file-inline-row { border: 1px solid var(--color-accent); }
 .remote-file-inline-input {
