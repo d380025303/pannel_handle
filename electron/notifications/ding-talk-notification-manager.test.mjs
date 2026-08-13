@@ -95,7 +95,7 @@ describe("ding-talk-notification-manager", () => {
 
   it("ignores non-actionable and repeated statuses, then allows a later transition back", () => {
     const { manager, fetchImpl } = createHarness();
-    for (const statusName of ["running", "completed", "ended", "exited"]) {
+    for (const statusName of ["cleared", "running", "completed", "ended", "exited"]) {
       manager.handleStatus(status(statusName));
     }
     manager.handleStatus(status("failed"));

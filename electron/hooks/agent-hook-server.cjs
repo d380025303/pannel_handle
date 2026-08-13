@@ -311,6 +311,9 @@ function createAgentHookServer({ terminalManager }) {
   function mapCodexHookStatus(input) {
     const eventName = getEventName(input);
 
+    if (eventName === "SessionStart" && input.source === "clear") {
+      return "cleared";
+    }
     if (eventName === "PermissionRequest") {
       return "waiting_for_permission";
     }
@@ -438,7 +441,7 @@ function createAgentHookServer({ terminalManager }) {
     }
     const toolName = getToolName(input);
     const message = input.message || input.title || input.notification_type || input.reason;
-    const activitySummary = getActivitySummary(input);
+    const activitySummary = status === "cleared" ? undefined : getActivitySummary(input);
     registerAgentSession(provider, getAgentSessionId(input), session.id);
     const resolution = getClaudeHookResolution(input);
     session.agentStatus = status;

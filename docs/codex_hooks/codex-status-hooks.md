@@ -13,7 +13,8 @@
 3. Codex 触发 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop` 等 hook。
 4. `.codex/pannel-handle-hook.ps1` 从 stdin 读取 Codex hook JSON，并 POST 到本工具的 `/codex-hook`。
 5. Electron 将 hook 映射为前端状态：
-   - `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse` -> `running`
+   - 普通 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse` -> `running`
+   - `/clear` 触发的 `SessionStart(source="clear")` -> 清空当前状态和摘要
    - `PreToolUse` + `request_user_input` -> `waiting_for_permission`
    - `PermissionRequest` -> `waiting_for_permission`
    - `Stop` -> `completed`
@@ -49,7 +50,8 @@ codex
 3. 发送一个普通任务，确认会话列表显示 `Codex 运行中`。
 4. 触发一次需要确认的工具操作，确认会话列表显示 `Codex 等待确认` 或 `Codex 等待确认: <tool>`。
 5. 等 Codex 完成回复，确认状态变为 `Codex 已完成`。
-6. 退出 Codex 或关闭会话，确认状态变为 `进程已退出`。
+6. 输入 `/clear`，确认当前会话的 Agent 状态和摘要立即清空。
+7. 退出 Codex 或关闭会话，确认状态变为 `进程已退出`。
 
 ## 新 Codex 项目配置
 
@@ -68,7 +70,7 @@ codex
 
 ## 左侧会话动态摘要
 
-左侧会话栏不再只依赖 `Stop.last_assistant_message`。它会根据当前 Hook 展示对应的有效内容：`UserPromptSubmit` 展示提示词，`PreToolUse` 和 `PermissionRequest` 展示工具及参数，`PostToolUse` 展示工具结果，`Stop` 展示最后一条 Agent 回复，失败和结束事件展示错误或原因。没有有效内容的后续事件会保留当前摘要。
+左侧会话栏不再只依赖 `Stop.last_assistant_message`。它会根据当前 Hook 展示对应的有效内容：`UserPromptSubmit` 展示提示词，`PreToolUse` 和 `PermissionRequest` 展示工具及参数，`PostToolUse` 展示工具结果，`Stop` 展示最后一条 Agent 回复，失败和结束事件展示错误或原因。没有有效内容的后续事件会清空当前摘要；Codex 执行 `/clear` 时会同时清空状态和摘要。
 
 工具参数、结果和提示词按 Hook 原文展示，不做敏感字段脱敏；超出 500 个字符时会截断。摘要只保存在当前应用运行期，应用重启后等待新的 Hook 事件更新。
 

@@ -446,7 +446,7 @@ export type HookInspectionResult = {
   providers: Partial<Record<HookProvider, HookProviderInspection>>;
 };
 
-export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited";
+export type AgentRunStatus = "running" | "waiting_for_permission" | "e_prompt" | "completed" | "failed" | "ended" | "exited" | "cleared";
 
 export type AgentStatusPayload = {
   id: string;

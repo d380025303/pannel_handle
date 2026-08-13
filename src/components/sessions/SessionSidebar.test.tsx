@@ -68,6 +68,19 @@ describe("SessionSidebar Agent summary", () => {
     expect(container.querySelector(".agent-status-summary")).toBeNull();
   });
 
+  it("does not render status or summary for a cleared event", () => {
+    const { container } = renderSidebar({
+      id: session.id,
+      provider: "codex",
+      status: "cleared",
+      eventName: "SessionStart",
+      timestamp: 1
+    });
+
+    expect(container.querySelector(".agent-status-badge")).toBeNull();
+    expect(container.querySelector(".agent-status-summary")).toBeNull();
+  });
+
   it("clamps long summaries to two lines", () => {
     expect(componentStyles).toMatch(/\.agent-status-summary\s*{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*overflow:\s*hidden;/s);
   });

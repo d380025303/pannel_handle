@@ -99,6 +99,31 @@ describe("agent-hook-server", () => {
     }));
   });
 
+  it("maps Codex clear SessionStart to cleared without an activity summary", () => {
+    const { server, session, terminalManager } = createServer();
+
+    const handled = server.handleAgentHook("codex", {
+      hook_event_name: "SessionStart",
+      source: "clear",
+      model: "gpt-5.6",
+      session_id: "codex-2",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(handled).toBe(true);
+    expect(session.agentStatus).toBe("cleared");
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith({
+      id: "run-1",
+      provider: "codex",
+      status: "cleared",
+      eventName: "SessionStart",
+      message: undefined,
+      toolName: undefined,
+      toolInput: undefined,
+      activitySummary: undefined
+    });
+  });
+
   it.each([
     ["UserPromptSubmit", { prompt: "分析登录失败原因" }, "分析登录失败原因"],
     ["PreToolUse", { tool_name: "shell_command", tool_input: { command: "pnpm test" } }, "shell_command: {\"command\":\"pnpm test\"}"],

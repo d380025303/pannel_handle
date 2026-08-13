@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentProvider, AgentStatusPayload, AppConfig, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
-import { mergeAgentStatus } from "../utils/agentStatus";
+import { updateAgentStatuses } from "../utils/agentStatus";
 import { generateId } from "../utils/id";
 
 type CreateSessionOptions = {
@@ -102,10 +102,7 @@ export function useTerminalSessions() {
     });
 
     const removeAgentStatusListener = window.terminalApi.onAgentStatus((payload) => {
-      setAgentStatusesBySessionId((current) => ({
-        ...current,
-        [payload.id]: mergeAgentStatus(current[payload.id], payload)
-      }));
+      setAgentStatusesBySessionId((current) => updateAgentStatuses(current, payload));
     });
 
     return () => {

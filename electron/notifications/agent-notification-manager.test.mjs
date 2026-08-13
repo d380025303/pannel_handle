@@ -107,6 +107,7 @@ describe("agent-notification-manager", () => {
   it("does not notify for other statuses or while the window is focused", () => {
     const { manager, notifications, windowManager } = createHarness();
 
+    manager.handleStatus(status("cleared"));
     manager.handleStatus(status("running"));
     windowManager.isMainWindowFocused.mockReturnValue(true);
     manager.handleStatus(status("completed"));

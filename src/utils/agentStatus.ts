@@ -6,7 +6,11 @@ type Translate = (key: TranslationKey, params?: TranslationParams) => string;
 export function mergeAgentStatus(
   _current: AgentStatusPayload | undefined,
   incoming: AgentStatusPayload
-): AgentStatusPayload {
+): AgentStatusPayload | undefined {
+  if (incoming.status === "cleared") {
+    return undefined;
+  }
+
   const incomingSummary = incoming.activitySummary?.trim();
 
   if (!incomingSummary) {
@@ -19,6 +23,23 @@ export function mergeAgentStatus(
     ...incoming,
     activitySummary: incomingSummary
   };
+}
+
+export function updateAgentStatuses(
+  current: Record<string, AgentStatusPayload>,
+  incoming: AgentStatusPayload
+): Record<string, AgentStatusPayload> {
+  const nextStatus = mergeAgentStatus(current[incoming.id], incoming);
+  if (nextStatus) {
+    return {
+      ...current,
+      [incoming.id]: nextStatus
+    };
+  }
+
+  const next = { ...current };
+  delete next[incoming.id];
+  return next;
 }
 
 function getAgentName(status: AgentStatusPayload) {
