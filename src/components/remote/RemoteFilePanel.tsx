@@ -755,6 +755,10 @@ export function RemoteFilePanel({
     }
 
     resetPanelState(".");
+    setPreviewTabs([]);
+    if (previewTabsRef.current.length > 0 || activePreviewTabIdRef.current) {
+      onActivePreviewTabChange?.(null, true);
+    }
 
     let disposed = false;
     const initialRequestId = requestRef.current;

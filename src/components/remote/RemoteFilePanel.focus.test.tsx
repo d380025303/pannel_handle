@@ -56,6 +56,101 @@ describe("RemoteFilePanel file activation", () => {
     expect(previewFile).toHaveBeenCalledTimes(1);
   });
 
+  it("scopes preview tabs to the active session and restores them when switching back", async () => {
+    const secondRootPath = "C:\\workspace-2";
+    const secondFilePath = `${secondRootPath}\\todo.txt`;
+    const previewFile = vi.fn(async (_sessionId: string, path: string) => ({
+      kind: "text" as const,
+      path,
+      content: "hello"
+    }));
+    window.remoteFileApi = {
+      getHome: vi.fn(async (sessionId: string) => sessionId === "session-1" ? rootPath : secondRootPath),
+      list: vi.fn(async (sessionId: string) => sessionId === "session-1"
+        ? [{ name: "notes.txt", path: filePath, type: "file", size: 5, modifiedAt: 0 }]
+        : [{ name: "todo.txt", path: secondFilePath, type: "file", size: 5, modifiedAt: 0 }]),
+      previewFile,
+      onDownloadProgress: vi.fn(() => () => undefined),
+      watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true),
+      onChanged: vi.fn(() => () => undefined),
+      onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const firstSession: TerminalSession = {
+      id: "session-1",
+      title: "Windows 1",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    const secondSession: TerminalSession = {
+      ...firstSession,
+      id: "session-2",
+      title: "Windows 2",
+      cwd: secondRootPath,
+      createdAt: 2
+    };
+    const onPreviewTabsChange = vi.fn();
+    const onActivePreviewTabChange = vi.fn();
+    const view = render(
+      <RemoteFilePanel
+        session={firstSession}
+        onPreviewTabsChange={onPreviewTabsChange}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    const notes = await screen.findByTitle(filePath);
+    fireEvent.click(notes.closest("button")!);
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ sessionId: firstSession.id, fileName: "notes.txt" })
+    ]));
+    const openedTabId = onActivePreviewTabChange.mock.calls.at(-1)?.[0];
+
+    view.rerender(
+      <RemoteFilePanel
+        session={secondSession}
+        onPreviewTabsChange={onPreviewTabsChange}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([]));
+    expect(onActivePreviewTabChange).toHaveBeenCalledWith(null, true);
+    fireEvent.click((await screen.findByTitle(secondFilePath)).closest("button")!);
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ sessionId: secondSession.id, fileName: "todo.txt" })
+    ]));
+
+    view.rerender(
+      <RemoteFilePanel
+        session={firstSession}
+        onPreviewTabsChange={onPreviewTabsChange}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ sessionId: firstSession.id, fileName: "notes.txt" })
+    ]));
+    expect(onActivePreviewTabChange).toHaveBeenCalledWith(openedTabId, true);
+    expect(previewFile).toHaveBeenCalledTimes(2);
+
+    view.rerender(
+      <RemoteFilePanel
+        session={secondSession}
+        onPreviewTabsChange={onPreviewTabsChange}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ sessionId: secondSession.id, fileName: "todo.txt" })
+    ]));
+    expect(previewFile).toHaveBeenCalledTimes(2);
+  });
+
   it("reports the full asynchronous native drag lifecycle", async () => {
     let finishDrag!: (result: { canceled: false; localPath: string }) => void;
     const startDownloadDrag = vi.fn(() => new Promise<{ canceled: false; localPath: string }>((resolve) => {
