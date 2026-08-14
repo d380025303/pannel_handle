@@ -30,6 +30,7 @@ export type TerminalSession = {
   createdAt: number;
   initialCommand?: string;
   agentProvider?: AgentProvider;
+  agentLocation?: AgentLocation;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
@@ -422,6 +423,7 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "opencode" | "qoder";
+export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
 export type HookInstallTarget =
@@ -491,10 +493,30 @@ export type AgentUsageApi = {
   cancel: (sessionId: string) => void;
 };
 
+export type RemoteAgentAuditEvent = {
+  sessionId: string;
+  timestamp: number;
+  operationId: string;
+  kind: "operation" | "output" | "approval";
+  tool: string;
+  status: string;
+  summary?: string;
+  stream?: "stdout" | "stderr";
+  output?: string;
+  exitCode?: number;
+  signal?: string;
+  error?: string;
+};
+
+export type RemoteAgentApi = {
+  listAudit: (sessionId: string) => Promise<RemoteAgentAuditEvent[]>;
+  onAudit: (callback: (payload: RemoteAgentAuditEvent) => void) => () => void;
+};
+
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; initialCommand?: string; agentProvider?: AgentProvider | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
@@ -652,6 +674,7 @@ declare global {
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     agentUsageApi: AgentUsageApi;
+    remoteAgentApi: RemoteAgentApi;
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;

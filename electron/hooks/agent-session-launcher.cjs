@@ -57,12 +57,30 @@ function buildSshCommandCheckWarningCommand(provider, error) {
   return `printf '%s\\n' ${shellQuote(`[Pannel Handle] Remote ${provider} command check failed: ${message}. Starting anyway.`)} >&2`;
 }
 
+function buildLocalCodexStartCommand(binding) {
+  const workspacePath = String(binding.workspacePath || "").replace(/"/g, '""');
+  return [
+    "codex",
+    "-C",
+    `"${workspacePath}"`,
+    "-s",
+    "read-only",
+    "-a",
+    "on-request",
+    "-c",
+    `mcp_servers.pannel_handle_remote.url="${binding.url}"`,
+    "-c",
+    `mcp_servers.pannel_handle_remote.bearer_token_env_var="${binding.tokenEnv}"`
+  ].join(" ");
+}
+
 function createAgentSessionLauncher({
   terminalManager,
   hookConfigManager,
   remoteHookConfigService,
   sshSessionRuntime,
   sshHookTunnelService,
+  remoteAgentBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
@@ -81,6 +99,9 @@ function createAgentSessionLauncher({
     }
     if ((session.type === "wsl" || session.type === "ssh") && !cwd.startsWith("/")) {
       throw new Error("WSL/SSH Agent 项目目录必须是绝对 Linux 路径。");
+    }
+    if (session.type === "ssh" && session.agentLocation === "local" && session.agentProvider !== "codex") {
+      throw new Error("SSH 本地桥接首期仅支持 Codex。");
     }
   }
 
@@ -114,6 +135,17 @@ function createAgentSessionLauncher({
     if (inspection.providers[session.agentProvider]?.status === "installed") return;
     const installed = hookConfigManager.install(target, [session.agentProvider]);
     if (!installed.ok || installed.providers[session.agentProvider]?.status !== "installed") {
+      throw new Error(`安装通知 Hook 失败：${installed.error || "安装后校验未通过"}`);
+    }
+  }
+
+  async function ensureLocalHookAt(projectPath, provider) {
+    const target = { type: "windows", path: projectPath };
+    const inspection = hookConfigManager.inspect(target, [provider]);
+    if (!inspection.ok) throw new Error(`检测通知 Hook 失败：${inspection.error}`);
+    if (inspection.providers[provider]?.status === "installed") return;
+    const installed = hookConfigManager.install(target, [provider]);
+    if (!installed.ok || installed.providers[provider]?.status !== "installed") {
       throw new Error(`安装通知 Hook 失败：${installed.error || "安装后校验未通过"}`);
     }
   }
@@ -181,6 +213,32 @@ function createAgentSessionLauncher({
     return buildAgentStartCommand(session);
   }
 
+  async function finishLocalSsh(session) {
+    let binding;
+    try {
+      validateAgentSession(session);
+      if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
+      assertLocalCommand({ ...session, type: "windows", shell: getDefaultShell() });
+      binding = await remoteAgentBridgeService.createBinding(session.id);
+      const preCommand = String(session.initialCommand || "").trim();
+      if (preCommand) {
+        await remoteAgentBridgeService.runConfiguredCommand(session.id, preCommand);
+      }
+      await ensureLocalHookAt(binding.workspacePath, "codex");
+      return terminalManager.startDeferredSession(session.id, {
+        terminalTransport: "local-agent",
+        runtimeShell: getDefaultShell(),
+        runtimeCwd: binding.workspacePath,
+        runtimeEnv: { [binding.tokenEnv]: binding.token },
+        runtimeInitialCommand: buildLocalCodexStartCommand(binding)
+      });
+    } catch (err) {
+      if (binding) await remoteAgentBridgeService.closeBinding(session.id);
+      terminalManager.closeSession(session.id);
+      throw err;
+    }
+  }
+
   async function finishSsh(session) {
     try {
       validateAgentSession(session);
@@ -206,9 +264,13 @@ function createAgentSessionLauncher({
     request = resolveLocalShell(request);
     validateAgentSession(request);
     if (request.type === "ssh") {
-      const session = terminalManager.createSession({ ...request, runtimeInitialCommand: "" });
+      const localBridge = request.agentLocation === "local";
+      const session = terminalManager.createSession({
+        ...request,
+        ...(localBridge ? { deferTerminalStart: true } : { runtimeInitialCommand: "" })
+      });
       try {
-        return await finishSsh(session);
+        return localBridge ? await finishLocalSsh(session) : await finishSsh(session);
       } catch (err) {
         terminalManager.deleteSavedSession(session.templateId);
         throw err;
@@ -227,8 +289,12 @@ function createAgentSessionLauncher({
     } else {
       validateAgentSession(launchTemplate);
       if (launchTemplate.type === "ssh") {
-        const pendingSession = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand: "" });
-        session = await finishSsh(pendingSession);
+        const localBridge = launchTemplate.agentLocation === "local";
+        const pendingSession = terminalManager.launchSession(launchTemplate, {
+          ...launchOptions,
+          ...(localBridge ? { deferTerminalStart: true } : { runtimeInitialCommand: "" })
+        });
+        session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
         const runtimeInitialCommand = await prepareLocal(launchTemplate);
         session = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand });
@@ -251,6 +317,7 @@ function createAgentSessionLauncher({
 module.exports = {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  buildLocalCodexStartCommand,
   createAgentSessionLauncher,
   getAgentCommand
 };

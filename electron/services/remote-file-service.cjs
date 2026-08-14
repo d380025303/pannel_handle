@@ -846,7 +846,6 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       await fsApi.promises.rm(hostPath, { recursive: true, force: true });
       return { mode: "permanent" };
     }
-    return { mode: "permanent" };
     const normalizedPath = normalizeRemotePath(remotePath);
     const client = await getClient(sessionId);
     try {
@@ -854,6 +853,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     } catch {
       await client.delete(normalizedPath);
     }
+    return { mode: "permanent" };
   }
 
   async function disconnect(sessionId) {

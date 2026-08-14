@@ -186,6 +186,7 @@ function createTerminalManager({
       createdAt: session.createdAt,
       initialCommand: session.initialCommand,
       agentProvider: session.agentProvider,
+      agentLocation: session.agentLocation,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -250,7 +251,7 @@ function createTerminalManager({
   }
 
   function maybeAutofillTerminalSecretPrompt(session) {
-    if (session.type !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
+    if (session.terminalTransport !== "ssh" || !session.sshSecret || session.sshSecretAttempts >= 2) {
       return;
     }
     const promptSignature = getSshSecretPromptSignature(session);
@@ -295,7 +296,7 @@ function createTerminalManager({
     session.buffer = [];
     session.cols = Math.max(2, Math.floor(Number(options.cols || term.cols || 100)));
     session.rows = Math.max(1, Math.floor(Number(options.rows || term.rows || 30)));
-    session.sshSecret = session.type === "ssh" ? getSshSecret(session) : undefined;
+    session.sshSecret = session.terminalTransport === "ssh" ? getSshSecret(session) : undefined;
     session.sshSecretAttempts = 0;
     session.lastSshSecretPromptSignature = undefined;
     agentOutputHistoryStore?.start(session);
@@ -319,7 +320,7 @@ function createTerminalManager({
       broadcastAgentStatus({
         id: session.id,
         status: "exited",
-        eventName: session.type === "ssh" ? "SshExit" : "PtyExit",
+        eventName: session.terminalTransport === "ssh" ? "SshExit" : "PtyExit",
         message: `Exit code ${exitCode}`
       });
       sessions.delete(session.id);
@@ -344,6 +345,7 @@ function createTerminalManager({
   }
 
   function spawnSsh2(session, options = {}) {
+    session.terminalTransport = "ssh";
     validateSsh2Config(session.sshConfig);
     const term = ssh2TerminalFactory({
       connectionConfig: buildSsh2ConnectionConfig({
@@ -371,10 +373,12 @@ function createTerminalManager({
   }
 
   function spawnPty(session, options = {}) {
-    if (session.type === "ssh") {
+    if (session.type === "ssh" && options.terminalTransport !== "local-agent") {
       spawnSsh2(session, options);
       return;
     }
+
+    session.terminalTransport = options.terminalTransport === "local-agent" ? "local-agent" : "local";
 
     const args = session.type === "wsl" && session.wslDistro
         ? ["-d", session.wslDistro, ...(session.cwd && session.cwd !== "~" ? ["--cd", session.cwd] : [])]
@@ -393,12 +397,12 @@ function createTerminalManager({
       ]);
     }
 
-    const term = pty.spawn(session.shell, args, {
+    const term = pty.spawn(options.runtimeShell || session.shell, args, {
       name: "xterm-256color",
       cols: options.cols || 100,
       rows: options.rows || 30,
-      cwd: session.type === "wsl" ? os.homedir() : session.cwd,
-      env
+      cwd: options.runtimeCwd || (session.type === "wsl" ? os.homedir() : session.cwd),
+      env: { ...env, ...(options.runtimeEnv || {}) }
     });
 
     attachTerminal(session, term, options);
@@ -422,7 +426,9 @@ function createTerminalManager({
     sessions.set(id, session);
     sessionOrder.push(id);
     try {
-      spawnPty(session, options);
+      if (!options.deferTerminalStart) {
+        spawnPty(session, options);
+      }
     } catch (err) {
       sessions.delete(id);
       const orderIndex = sessionOrder.indexOf(id);
@@ -431,6 +437,22 @@ function createTerminalManager({
       }
       throw err;
     }
+    return serializeSession(session);
+  }
+
+  function startDeferredSession(id, options = {}) {
+    const session = sessions.get(id);
+    if (!session) throw new Error("Session is not running.");
+    if (session.term) throw new Error("Session terminal has already started.");
+    try {
+      spawnPty(session, options);
+    } catch (err) {
+      sessions.delete(id);
+      const orderIndex = sessionOrder.indexOf(id);
+      if (orderIndex >= 0) sessionOrder.splice(orderIndex, 1);
+      throw err;
+    }
+    broadcast("sessions:changed", listSessions());
     return serializeSession(session);
   }
 
@@ -461,6 +483,7 @@ function createTerminalManager({
       createdAt: Date.now(),
       initialCommand: options.initialCommand,
       agentProvider: options.agentProvider,
+      agentLocation: options.agentLocation,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -513,10 +536,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -545,6 +568,10 @@ function createTerminalManager({
     if (typeof agentProvider !== "undefined") {
       session.agentProvider = agentProvider || undefined;
       libraryUpdates.agentProvider = agentProvider || null;
+    }
+    if (typeof agentLocation !== "undefined") {
+      session.agentLocation = agentLocation || undefined;
+      libraryUpdates.agentLocation = agentLocation || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();
@@ -720,6 +747,7 @@ function createTerminalManager({
 
   return {
     createSession,
+    startDeferredSession,
     launchSession,
     launchSessions,
     deleteSavedSession,

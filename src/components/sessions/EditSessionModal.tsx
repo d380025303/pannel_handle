@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentProvider, QuickCommand, SshConfig, TerminalSession } from "../../vite-env";
+import type { AgentLocation, AgentProvider, QuickCommand, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
+import { AgentLocationSelect } from "./AgentLocationSelect";
 import { TagInput } from "../shared/TagInput";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { generateId } from "../../utils/id";
@@ -10,7 +11,7 @@ import { generateId } from "../../utils/id";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -20,6 +21,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>(session.agentProvider);
+  const [agentLocation, setAgentLocation] = useState<AgentLocation>(session.agentLocation || "remote");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
@@ -51,6 +53,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       editCwd,
       editCommand,
       agentProvider,
+      isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
       quickCommands.filter((qc) => qc.command.trim().length > 0),
       isSsh ? {
         host: sshHost.trim(),
@@ -112,7 +115,13 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
-          <AgentProviderSelect value={agentProvider} onChange={setAgentProvider} />
+          <AgentProviderSelect value={agentProvider} onChange={(provider) => {
+            setAgentProvider(provider);
+            if (provider && provider !== "codex") setAgentLocation("remote");
+          }} />
+          {isSsh && agentProvider && (
+            <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />
+          )}
           {isSsh ? (
             <div className="ssh-form">
               <div className="modal-grid two">

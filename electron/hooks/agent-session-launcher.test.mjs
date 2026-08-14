@@ -29,6 +29,7 @@ function createMocks(overrides = {}) {
       sessions.push(session);
       return session;
     }),
+    startDeferredSession: vi.fn((id, options) => ({ id, type: "ssh", agentProvider: "codex", agentLocation: "local", ...options })),
     listSessions: vi.fn(() => sessions),
     write: vi.fn(),
     closeSession: vi.fn(),
@@ -185,6 +186,41 @@ describe("agent-session-launcher", () => {
       expect.stringContaining("Remote codex command check failed:")
     );
     expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex\r"));
+  });
+
+  it("runs Codex locally and binds it to an SSH workspace without checking a remote CLI", async () => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({
+        workspacePath: "C:\\runtime\\run-1",
+        url: "http://127.0.0.1:4568/mcp",
+        token: "secret-token",
+        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+      })),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const mocks = createMocks({ remoteAgentBridgeService });
+
+    await mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      initialCommand: "git status --short",
+      agentProvider: "codex",
+      agentLocation: "local",
+      sshConfig: { host: "example.com" }
+    });
+
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({ deferTerminalStart: true }));
+    expect(mocks.sshSessionRuntime.exec).not.toHaveBeenCalled();
+    expect(mocks.remoteHookConfigService.inspect).not.toHaveBeenCalled();
+    expect(remoteAgentBridgeService.createBinding).toHaveBeenCalledWith("run-1");
+    expect(remoteAgentBridgeService.runConfiguredCommand).toHaveBeenCalledWith("run-1", "git status --short");
+    expect(mocks.terminalManager.startDeferredSession).toHaveBeenCalledWith("run-1", expect.objectContaining({
+      terminalTransport: "local-agent",
+      runtimeCwd: "C:\\runtime\\run-1",
+      runtimeEnv: { PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "secret-token" },
+      runtimeInitialCommand: expect.stringContaining("mcp_servers.pannel_handle_remote.url")
+    }));
   });
 
   it("cleans up a failed new SSH session and its saved template", async () => {

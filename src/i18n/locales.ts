@@ -119,6 +119,14 @@ export type TranslationKey =
   | "session.normalTerminal"
   | "session.agentCwdRequired"
   | "session.preLaunchCommand"
+  | "session.agentLocation"
+  | "session.agentLocationLocal"
+  | "session.agentLocationRemote"
+  | "session.agentLocationLocalHint"
+  | "session.agentLocationCodexOnly"
+  | "remoteAgent.auditTitle"
+  | "remoteAgent.auditEphemeral"
+  | "remoteAgent.auditWaiting"
   | "session.saving"
   | "session.updateFailed"
   | "session.sshArgs"
@@ -577,6 +585,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.normalTerminal": "普通终端",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
+    "session.agentLocation": "Agent 运行位置",
+    "session.agentLocationLocal": "本地桥接",
+    "session.agentLocationRemote": "远端运行",
+    "session.agentLocationLocalHint": "本机运行 Codex，通过安全桥接操作远程工作区",
+    "session.agentLocationCodexOnly": "本地桥接首期仅支持 Codex",
+    "remoteAgent.auditTitle": "远程操作",
+    "remoteAgent.auditEphemeral": "仅保留当前会话",
+    "remoteAgent.auditWaiting": "等待 Codex 调用远程工具…",
     "session.saving": "保存中...",
     "session.updateFailed": "保存会话失败",
     "session.sshArgs": "额外 SSH 参数",
@@ -1027,6 +1043,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.normalTerminal": "Terminal",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
+    "session.agentLocation": "Agent location",
+    "session.agentLocationLocal": "Local bridge",
+    "session.agentLocationRemote": "Run remotely",
+    "session.agentLocationLocalHint": "Run Codex locally and operate the SSH workspace through a scoped bridge",
+    "session.agentLocationCodexOnly": "The local bridge currently supports Codex only",
+    "remoteAgent.auditTitle": "Remote operations",
+    "remoteAgent.auditEphemeral": "Current session only",
+    "remoteAgent.auditWaiting": "Waiting for Codex to call a remote tool…",
     "session.saving": "Saving...",
     "session.updateFailed": "Failed to save session",
     "session.sshArgs": "Extra SSH arguments",

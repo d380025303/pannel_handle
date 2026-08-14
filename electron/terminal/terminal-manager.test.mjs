@@ -74,6 +74,7 @@ function createManager(overrides = {}) {
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
       agentProvider: template.agentProvider,
+      agentLocation: template.agentLocation,
       type: template.type || "windows",
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -587,6 +588,30 @@ describe("terminal-manager", () => {
       })
     }));
     expect(term.writes).toEqual(["plain-secret\r"]);
+  });
+
+  it("never writes an SSH secret into a deferred local Agent terminal", () => {
+    const { manager, term, pty, ssh2TerminalFactory } = createManager();
+    const session = manager.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "codex",
+      agentLocation: "local",
+      deferTerminalStart: true,
+      sshConfig: { host: "example.com", encryptedSecret: "ciphertext" }
+    });
+
+    manager.startDeferredSession(session.id, {
+      terminalTransport: "local-agent",
+      runtimeShell: "cmd.exe",
+      runtimeCwd: "C:\\runtime\\run-1",
+      runtimeInitialCommand: ""
+    });
+    term.emitData("password: ");
+
+    expect(pty.spawn).toHaveBeenCalledWith("cmd.exe", [], expect.objectContaining({ cwd: "C:\\runtime\\run-1" }));
+    expect(ssh2TerminalFactory).not.toHaveBeenCalled();
+    expect(term.writes).toEqual([]);
   });
 
   it("writes a saved SSH secret for root password prompts with terminal control sequences", () => {

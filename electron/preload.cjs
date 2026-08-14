@@ -157,6 +157,15 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
   cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("remoteAgentApi", {
+  listAudit: (sessionId) => ipcRenderer.invoke("remote-agent:audit-list", { sessionId }),
+  onAudit: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-agent:audit", listener);
+    return () => ipcRenderer.removeListener("remote-agent:audit", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("fileTransferApi", {
   list: () => ipcRenderer.invoke("file-transfers:list"),
   chooseUpload: (sessionId, remoteDir) => ipcRenderer.invoke("file-transfers:choose-upload", { sessionId, remoteDir }),

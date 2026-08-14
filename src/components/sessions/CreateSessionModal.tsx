@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentProvider, SshConfig } from "../../vite-env";
+import type { AgentLocation, AgentProvider, SshConfig } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
+import { AgentLocationSelect } from "./AgentLocationSelect";
 import { TagInput } from "../shared/TagInput";
 
 export type CreateSessionRequest = {
@@ -11,6 +12,7 @@ export type CreateSessionRequest = {
   cwd?: string;
   initialCommand?: string;
   agentProvider?: AgentProvider;
+  agentLocation?: AgentLocation;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -28,6 +30,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [cwd, setCwd] = useState("");
   const [commandInput, setCommandInput] = useState("");
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>();
+  const [agentLocation, setAgentLocation] = useState<AgentLocation>("local");
   const [selectedShellId, setSelectedShellId] = useState("powershell");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
@@ -58,6 +61,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         cwd: cwd.trim() || undefined,
         initialCommand: commandInput.trim() || undefined,
         agentProvider,
+        agentLocation: isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
@@ -122,7 +126,14 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
               SSH
             </button>
           </div>
-          <AgentProviderSelect value={agentProvider} onChange={setAgentProvider} />
+          <AgentProviderSelect value={agentProvider} onChange={(provider) => {
+            setAgentProvider(provider);
+            if (provider && provider !== "codex") setAgentLocation("remote");
+            if (provider === "codex" && isSsh) setAgentLocation("local");
+          }} />
+          {isSsh && agentProvider && (
+            <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />
+          )}
           {agentProvider && !cwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}
           {isSsh ? (
             <div className="ssh-form">

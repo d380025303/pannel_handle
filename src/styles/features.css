@@ -4964,6 +4964,60 @@ button.agent-usage-status[aria-expanded="true"] {
   border-color: var(--color-accent);
 }
 
+.remote-agent-audit-toggle {
+  position: absolute;
+  top: 10px;
+  right: 86px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg-panel) 88%, transparent);
+  font-size: 11px;
+}
+
+.remote-agent-audit-toggle svg { width: 13px; height: 13px; }
+.remote-agent-audit-toggle.active { color: var(--color-accent); border-color: var(--color-accent); }
+
+.remote-agent-audit {
+  position: absolute;
+  z-index: 5;
+  top: 44px;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(430px, calc(100% - 24px));
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg-panel) 96%, transparent);
+  box-shadow: var(--shadow-dialog);
+}
+
+.remote-agent-audit > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.remote-agent-audit > header span { color: var(--color-text-muted); font-size: 11px; }
+.remote-agent-audit-list { overflow: auto; padding: 8px; }
+.remote-agent-audit-empty { color: var(--color-text-muted); font-size: 12px; text-align: center; }
+.remote-agent-audit-event { display: grid; gap: 5px; padding: 8px; border-bottom: 1px solid var(--color-border); font-size: 11px; }
+.remote-agent-audit-event > div { display: flex; gap: 8px; align-items: center; }
+.remote-agent-audit-event > div span { color: var(--color-text-muted); }
+.remote-agent-audit-event time { margin-left: auto; color: var(--color-text-muted); }
+.remote-agent-audit-event code { overflow-wrap: anywhere; color: var(--color-text-secondary); white-space: pre-wrap; }
+.remote-agent-audit-event pre { max-height: 180px; margin: 0; overflow: auto; color: var(--color-text-primary); white-space: pre-wrap; }
+.remote-agent-audit-event pre.stderr, .remote-agent-audit-event.failed p { color: var(--color-danger-text); }
+
 .mobile-access-settings h5 { margin: 12px 0 6px; }
 .mobile-access-warning { padding: 9px 10px; border: 1px solid var(--color-warning-text); border-radius: var(--radius-md); color: var(--color-warning-text); background: var(--color-warning-bg); font-size: 12px; line-height: 1.5; }
 .mobile-access-grid { display: grid; grid-template-columns: 1fr 140px; gap: 10px; }

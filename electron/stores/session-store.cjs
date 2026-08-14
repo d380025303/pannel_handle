@@ -109,6 +109,10 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     const fileSort = template.fileSort && fileSortKeys.has(template.fileSort.key)
       ? { key: template.fileSort.key, direction: template.fileSort.direction === "desc" ? "desc" : "asc" }
       : { key: "name", direction: "asc" };
+    const agentProvider = AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined;
+    const agentLocation = template.type === "ssh" && agentProvider
+      ? (template.agentLocation === "local" && agentProvider === "codex" ? "local" : "remote")
+      : undefined;
     return {
       id: template.id,
       title: template.title,
@@ -118,7 +122,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       fileSort,
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
-      agentProvider: AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined,
+      agentProvider,
+      agentLocation,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

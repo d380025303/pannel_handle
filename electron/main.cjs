@@ -19,6 +19,7 @@ const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-f
 const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
 const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
+const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
@@ -47,6 +48,7 @@ let remoteFileService = null;
 let fileTransferManager = null;
 let fileWatchManager = null;
 let remoteSystemService = null;
+let remoteAgentBridgeService = null;
 let agentUsageService = null;
 let sshHookTunnelService = null;
 let sshSessionRuntime = null;
@@ -198,6 +200,9 @@ if (!gotSingleInstanceLock) {
         if (sshHookTunnelService) {
           void sshHookTunnelService.disconnect(id);
         }
+        if (remoteAgentBridgeService) {
+          void remoteAgentBridgeService.closeBinding(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -224,6 +229,15 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime,
       shellApi: shell
+    });
+    remoteAgentBridgeService = createRemoteAgentBridgeService({
+      terminalManager,
+      sshSessionRuntime,
+      remoteFileService,
+      dialog,
+      windowManager,
+      workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
+      broadcast: windowManager.broadcast
     });
     fileTransferManager = createFileTransferManager({
       remoteFileService,
@@ -263,6 +277,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       sshSessionRuntime,
       sshHookTunnelService,
+      remoteAgentBridgeService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
@@ -315,6 +330,7 @@ if (!gotSingleInstanceLock) {
     });
     sessionStore.loadLibrary();
     await agentHookServer.start();
+    await remoteAgentBridgeService.start();
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
       terminalManager,
@@ -338,7 +354,8 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       gitStatusService,
       projectSearchService,
-      mobileRemoteService
+      mobileRemoteService,
+      remoteAgentBridgeService
     });
     windowManager.createWindow();
 
@@ -371,6 +388,9 @@ app.on("window-all-closed", () => {
   }
   if (remoteSystemService) {
     void remoteSystemService.shutdown();
+  }
+  if (remoteAgentBridgeService) {
+    void remoteAgentBridgeService.shutdown();
   }
   if (agentUsageService) {
     agentUsageService.shutdown();

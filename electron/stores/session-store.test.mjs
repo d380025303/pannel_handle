@@ -132,6 +132,21 @@ describe("session-store", () => {
     expect(sessions[2].agentProvider).toBeUndefined();
   });
 
+  it("keeps old SSH Agent templates remote and accepts local Codex bridge templates", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", title: "Old", type: "ssh", cwd: "/srv/old", agentProvider: "codex", sshConfig: { host: "old.example.com" } },
+      { id: "2", title: "Local", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "new.example.com" } },
+      { id: "3", title: "Unsupported", type: "ssh", cwd: "/srv/app", agentProvider: "claude", agentLocation: "local", sshConfig: { host: "new.example.com" } }
+    ]), "utf-8");
+
+    const sessions = createStore(sessionsFile).loadLibrary();
+
+    expect(sessions[0].agentLocation).toBe("remote");
+    expect(sessions[1].agentLocation).toBe("local");
+    expect(sessions[2].agentLocation).toBe("remote");
+  });
+
   it("adds, updates, removes, and persists library sessions", () => {
     vi.spyOn(Date, "now").mockReturnValue(12345);
     const sessionsFile = createTempSessionsFile();

@@ -49,7 +49,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -220,8 +220,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags }) => {
-    return terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, sshConfig, quickCommands, tags });
+  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) => {
+    return terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {
@@ -236,6 +236,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
+
+  ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
 
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     if (typeof text !== "string" || text.length === 0) {

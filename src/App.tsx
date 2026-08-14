@@ -28,7 +28,7 @@ import { useInputRecovery } from "./hooks/inputRecovery";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
-import type { AgentHookDebugPayload, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, AgentLocation, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 type RightTool = "files" | "git" | "debug";
@@ -341,8 +341,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, quickCommands, sshConfig, tags);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, quickCommands, sshConfig, tags);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
