@@ -4,6 +4,7 @@ if ([string]::IsNullOrWhiteSpace($hookUrl)) {
 }
 
 $codexHookUrl = $hookUrl -replace "/claude-hook$", "/codex-hook"
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 $stdin = [Console]::In.ReadToEnd()
 $payload = [ordered]@{}
 

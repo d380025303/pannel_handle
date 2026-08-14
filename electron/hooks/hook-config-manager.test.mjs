@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { buildConfig, createHookConfigManager, getProjectPath } = require("./hook-config-manager.cjs");
+const pty = require("node-pty");
 
 const assetsDir = path.join(import.meta.dirname, "hook-assets");
 const tempDirs = [];
@@ -87,6 +88,79 @@ async function runWindowsHook(scriptPath, expectedPath, input) {
   }
 }
 
+async function runWindowsHookInConpty(scriptPath, expectedPath, input) {
+  let term;
+  let termExited = false;
+  const server = http.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const address = server.address();
+    const requestPromise = new Promise((resolve, reject) => {
+      server.once("request", (request, response) => {
+        const chunks = [];
+        request.on("data", chunk => chunks.push(chunk));
+        request.on("error", reject);
+        request.on("end", () => {
+          try {
+            response.writeHead(204);
+            response.end();
+            resolve({
+              path: request.url,
+              contentType: request.headers["content-type"],
+              payload: JSON.parse(Buffer.concat(chunks).toString("utf-8"))
+            });
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    });
+    const exitPromise = new Promise((resolve, reject) => {
+      term = pty.spawn(process.env.ComSpec || "cmd.exe", ["/d"], {
+        name: "xterm-256color",
+        cols: 100,
+        rows: 30,
+        cwd: path.dirname(scriptPath),
+        env: {
+          ...process.env,
+          PANNEL_HANDLE_HOOK_URL: `http://127.0.0.1:${address.port}/claude-hook`,
+          PANNEL_HANDLE_SESSION_ID: "run-conpty-unicode"
+        }
+      });
+      term.onExit(({ exitCode }) => {
+        termExited = true;
+        if (exitCode === 0) {
+          resolve();
+        } else {
+          reject(new Error(`ConPTY exited with code ${exitCode}.`));
+        }
+      });
+    });
+    const inputBase64 = Buffer.from(JSON.stringify(input), "utf-8").toString("base64");
+    term.write(
+      `chcp 936 >nul & node -e "process.stdout.write(Buffer.from('${inputBase64}','base64'))" | `
+      + `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" & exit\r`
+    );
+
+    const timeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Timed out waiting for ${expectedPath} through ConPTY.`)), 5000).unref();
+    });
+    const [request] = await Promise.race([
+      Promise.all([requestPromise, exitPromise]),
+      timeout
+    ]);
+    expect(request.path).toBe(expectedPath);
+    return request;
+  } finally {
+    if (term && !termExited) term.kill();
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -138,6 +212,30 @@ describe("hook-config-manager", () => {
       expect(request.payload.pannel_handle_session_id).toBe("run-unicode");
     }
   });
+
+  it.runIf(process.platform === "win32")("preserves UTF-8 input when Windows ConPTY uses code page 936", async () => {
+    const projectPath = createProject();
+    const manager = createHookConfigManager({ assetsDir });
+    const message = "中文测试：Nginx 配置已完成";
+    const cases = [
+      ["claude", ".claude", "/claude-hook"],
+      ["codex", ".codex", "/codex-hook"],
+      ["qoder", ".qoder", "/qoder-hook"]
+    ];
+
+    expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
+
+    for (const [, directory, requestPath] of cases) {
+      const request = await runWindowsHookInConpty(
+        path.join(projectPath, directory, "pannel-handle-hook.ps1"),
+        requestPath,
+        { hook_event_name: "Stop", last_assistant_message: message }
+      );
+      expect(request.contentType).toBe("application/json; charset=utf-8");
+      expect(request.payload.last_assistant_message).toBe(message);
+      expect(request.payload.pannel_handle_session_id).toBe("run-conpty-unicode");
+    }
+  }, 20000);
 
   it("reports and repairs an outdated managed Windows hook", () => {
     const projectPath = createProject();

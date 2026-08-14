@@ -3,6 +3,7 @@ if ([string]::IsNullOrWhiteSpace($hookUrl)) {
   exit 0
 }
 
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 $stdin = [Console]::In.ReadToEnd()
 $payload = [ordered]@{}
 
