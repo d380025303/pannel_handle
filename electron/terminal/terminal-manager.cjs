@@ -7,6 +7,83 @@ const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
 
 const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
 
+function consumeAgentCommandInput(currentState, data) {
+  let input = currentState?.input || "";
+  let overflow = currentState?.overflow === true;
+  let escapeMode = currentState?.escapeMode || "none";
+  let clearSubmissions = 0;
+
+  for (const character of String(data || "")) {
+    if (escapeMode === "escape") {
+      if (character === "[" || character === "]") {
+        escapeMode = character === "[" ? "csi" : "osc";
+        continue;
+      }
+      escapeMode = "none";
+      input = "";
+      overflow = false;
+    }
+    if (escapeMode === "csi") {
+      if (/[@-~]/.test(character)) {
+        escapeMode = "none";
+      }
+      continue;
+    }
+    if (escapeMode === "osc") {
+      if (character === "\x07") {
+        escapeMode = "none";
+      } else if (character === "\x1b") {
+        escapeMode = "osc-escape";
+      }
+      continue;
+    }
+    if (escapeMode === "osc-escape") {
+      escapeMode = character === "\\" ? "none" : "osc";
+      continue;
+    }
+    if (character === "\x1b") {
+      escapeMode = "escape";
+      continue;
+    }
+    if (character === "\b" || character === "\x7f") {
+      if (!overflow) {
+        input = Array.from(input).slice(0, -1).join("");
+      }
+      continue;
+    }
+    if (character === "\x15") {
+      input = "";
+      overflow = false;
+      continue;
+    }
+    if (character === "\r" || character === "\n") {
+      if (!overflow && /^[\t ]*\/clear[\t ]*$/.test(input)) {
+        clearSubmissions += 1;
+      }
+      input = "";
+      overflow = false;
+      continue;
+    }
+    if (character < " " && character !== "\t") {
+      input = "";
+      overflow = false;
+      continue;
+    }
+    if (!overflow) {
+      if (input.length + character.length <= MAX_AGENT_COMMAND_INPUT_LENGTH) {
+        input += character;
+      } else {
+        overflow = true;
+      }
+    }
+  }
+
+  return {
+    state: { input, overflow, escapeMode },
+    clearSubmissions
+  };
+}
+
 function getDefaultShell() {
   if (process.platform !== "win32") {
     return process.env.SHELL || "bash";
@@ -422,6 +499,7 @@ function createTerminalManager({
       id,
       templateId: template.id,
       title: getRuntimeTitle(template),
+      agentRuntimeProvider: template.agentProvider,
       createdAt: Date.now()
     };
 
@@ -569,6 +647,9 @@ function createTerminalManager({
     }
     if (typeof agentProvider !== "undefined") {
       session.agentProvider = agentProvider || undefined;
+      if (agentProvider) {
+        session.agentRuntimeProvider = agentProvider;
+      }
       libraryUpdates.agentProvider = agentProvider || null;
     }
     if (typeof agentLocation !== "undefined") {
@@ -693,56 +774,22 @@ function createTerminalManager({
   }
 
   function trackCodexTerminalCommand(session, data) {
-    if (session.agentProvider !== "codex") {
-      session.agentCommandInput = "";
-      session.agentCommandInputOverflow = false;
+    if (session.agentRuntimeProvider !== "codex" && session.agentProvider !== "codex") {
+      session.agentCommandState = undefined;
       return;
     }
 
-    let input = session.agentCommandInput || "";
-    let overflow = session.agentCommandInputOverflow === true;
-    for (const character of String(data || "")) {
-      if (character === "\b" || character === "\x7f") {
-        if (!overflow) {
-          input = Array.from(input).slice(0, -1).join("");
-        }
-        continue;
-      }
-      if (character === "\x15") {
-        input = "";
-        overflow = false;
-        continue;
-      }
-      if (character === "\n") {
-        if (input || overflow) {
-          overflow = true;
-        }
-        continue;
-      }
-      if (character === "\r") {
-        if (!overflow && /^[\t ]*\/clear[\t ]*$/.test(input)) {
-          session.agentStatus = "cleared";
-          broadcastAgentStatus({
-            id: session.id,
-            provider: "codex",
-            status: "cleared",
-            eventName: "TerminalCommand"
-          });
-        }
-        input = "";
-        overflow = false;
-        continue;
-      }
-      if (!overflow) {
-        if (input.length + character.length <= MAX_AGENT_COMMAND_INPUT_LENGTH) {
-          input += character;
-        } else {
-          overflow = true;
-        }
-      }
+    const result = consumeAgentCommandInput(session.agentCommandState, data);
+    session.agentCommandState = result.state;
+    for (let index = 0; index < result.clearSubmissions; index += 1) {
+      session.agentStatus = "cleared";
+      broadcastAgentStatus({
+        id: session.id,
+        provider: "codex",
+        status: "cleared",
+        eventName: "TerminalCommand"
+      });
     }
-    session.agentCommandInput = input;
-    session.agentCommandInputOverflow = overflow;
   }
 
   function write(id, data) {

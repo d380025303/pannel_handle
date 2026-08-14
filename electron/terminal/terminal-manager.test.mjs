@@ -250,6 +250,41 @@ describe("terminal-manager", () => {
     }));
   });
 
+  it("clears a Codex session when Enter submits /clear with a line feed", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+    manager.getSession(session.id).agentStatus = "completed";
+
+    manager.write(session.id, "/clear\n\r");
+
+    expect(manager.getSession(session.id).agentStatus).toBe("cleared");
+    const clearEvents = broadcast.mock.calls.filter(([channel, payload]) => (
+      channel === "agent:status" && payload.status === "cleared"
+    ));
+    expect(clearEvents).toEqual([["agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared",
+      eventName: "TerminalCommand"
+    })]]);
+  });
+
+  it("keeps terminal clear detection after the configured provider is edited", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+    manager.getSession(session.id).agentStatus = "completed";
+    manager.updateSession(session.id, { agentProvider: null });
+
+    manager.write(session.id, "/clear\r");
+
+    expect(manager.getSession(session.id).agentStatus).toBe("cleared");
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared"
+    }));
+  });
+
   it("recognizes /clear after common terminal line editing", () => {
     const { manager, broadcast } = createManager();
     const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
@@ -264,6 +299,36 @@ describe("terminal-manager", () => {
     expect(clearEvents).toHaveLength(2);
   });
 
+  it("recognizes /clear through terminal control sequences", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    manager.write(session.id, "\x1b[A");
+    manager.write(session.id, "\x1b[20");
+    manager.write(session.id, "0~/clear");
+    manager.write(session.id, "\x1b[201~\r");
+
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared"
+    }));
+  });
+
+  it("recognizes /clear after a standalone Escape key", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    manager.write(session.id, "\x1b");
+    manager.write(session.id, "/clear\r");
+
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared"
+    }));
+  });
+
   it("does not clear status for unsubmitted, similar, or non-Codex commands", () => {
     const { manager, broadcast } = createManager();
     const codexSession = manager.createSession({ title: "Codex", agentProvider: "codex" });
@@ -273,7 +338,6 @@ describe("terminal-manager", () => {
     manager.write(codexSession.id, "/clear");
     manager.write(codexSession.id, "x\r");
     manager.write(codexSession.id, "/clear-all\r");
-    manager.write(codexSession.id, "/clear\n\r");
     manager.write(claudeSession.id, "/clear\r");
 
     expect(broadcast.mock.calls.filter(([channel, payload]) => (

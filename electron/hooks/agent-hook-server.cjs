@@ -445,6 +445,7 @@ function createAgentHookServer({ terminalManager }) {
     registerAgentSession(provider, getAgentSessionId(input), session.id);
     const resolution = getClaudeHookResolution(input);
     session.agentStatus = status;
+    session.agentRuntimeProvider = provider;
     session.agentProvider = provider;
 
     terminalManager.broadcastAgentStatus({

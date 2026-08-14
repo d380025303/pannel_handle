@@ -112,6 +112,7 @@ describe("agent-hook-server", () => {
 
     expect(handled).toBe(true);
     expect(session.agentStatus).toBe("cleared");
+    expect(session.agentRuntimeProvider).toBe("codex");
     expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith({
       id: "run-1",
       provider: "codex",
