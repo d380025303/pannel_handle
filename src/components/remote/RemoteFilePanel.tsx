@@ -4,7 +4,7 @@ import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, Mou
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Copy, Download, Eye, File, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, LoaderCircle, Move, Pencil, RefreshCw, Save, Search, SquarePen, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
-import { RemoteCodeEditor, type RemoteCodeLanguageMode } from "./RemoteCodeEditor";
+import { RemoteCodeEditor, type RemoteCodeEditorViewport, type RemoteCodeLanguageMode } from "./RemoteCodeEditor";
 import { beginInputInterruption, endInputInterruption, INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
@@ -93,6 +93,7 @@ type PreviewTabState = {
   state: Exclude<PreviewState, { status: "idle" }>;
   originalContent: string;
   editorContent: string;
+  editorViewport: RemoteCodeEditorViewport;
   languageMode: RemoteCodeLanguageMode;
   saveState: SaveState;
   viewMode: "edit" | "preview";
@@ -878,6 +879,7 @@ export function RemoteFilePanel({
       state: { status: "loading", path: entry.path },
       originalContent: "",
       editorContent: "",
+      editorViewport: { scrollTop: 0, scrollLeft: 0 },
       languageMode: "auto",
       saveState: { status: "idle" },
       viewMode: isMarkdownFile(entry.name) ? "preview" : "edit",
@@ -2006,9 +2008,11 @@ export function RemoteFilePanel({
                   )}
                   <div className="remote-preview-editor-shell">
                     <RemoteCodeEditor
+                      documentId={activePreviewTab.id}
                       value={editorContent}
                       fileName={activePreview.fileName}
                       languageMode={activePreviewTab.languageMode}
+                      viewport={activePreviewTab.editorViewport}
                       onChange={(nextContent) => {
                         updatePreviewTab(activePreviewTab.id, (tab) => ({
                           ...tab,
@@ -2020,6 +2024,9 @@ export function RemoteFilePanel({
                         updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, languageMode }));
                       }}
                       onSave={() => void handleSavePreview()}
+                      onViewportChange={(tabId, editorViewport) => {
+                        updatePreviewTab(tabId, (tab) => ({ ...tab, editorViewport }));
+                      }}
                     />
                   </div>
                   <div className="remote-preview-status">

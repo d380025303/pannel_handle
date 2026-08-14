@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { RemoteCodeEditor } from "./RemoteCodeEditor";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { RemoteCodeEditor, type RemoteCodeEditorViewport } from "./RemoteCodeEditor";
 
 const baseProps = {
+  documentId: "example.txt",
   languageMode: "auto" as const,
+  viewport: { scrollTop: 0, scrollLeft: 0 },
   onChange: () => undefined,
   onLanguageModeChange: () => undefined,
-  onSave: () => undefined
+  onSave: () => undefined,
+  onViewportChange: () => undefined
 };
 
 describe("RemoteCodeEditor theme", () => {
@@ -82,5 +85,33 @@ describe("RemoteCodeEditor theme", () => {
     fireEvent.change(select, { target: { value: "plain" } });
 
     expect(changes).toEqual(["language:Nginx", "plain"]);
+  });
+
+  it("restores the independent scroll position for each document", async () => {
+    const viewports = new Map<string, RemoteCodeEditorViewport>();
+    const onViewportChange = vi.fn((documentId: string, viewport: RemoteCodeEditorViewport) => {
+      viewports.set(documentId, viewport);
+    });
+    const content = (name: string) => Array.from({ length: 200 }, (_, index) => `${name} ${index}`).join("\n");
+    const renderEditor = (documentId: string) => (
+      <RemoteCodeEditor
+        {...baseProps}
+        documentId={documentId}
+        fileName={`${documentId}.txt`}
+        value={content(documentId)}
+        viewport={viewports.get(documentId) ?? { scrollTop: 0, scrollLeft: 0 }}
+        onViewportChange={onViewportChange}
+      />
+    );
+    const { container, rerender } = render(renderEditor("a"));
+    const scroller = container.querySelector<HTMLElement>(".cm-scroller")!;
+
+    scroller.scrollTop = 480;
+    rerender(renderEditor("b"));
+    await waitFor(() => expect(scroller.scrollTop).toBe(0));
+
+    rerender(renderEditor("a"));
+    await waitFor(() => expect(scroller.scrollTop).toBe(480));
+    expect(viewports.get("b")?.scrollTop).toBe(0);
   });
 });

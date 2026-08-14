@@ -4,7 +4,7 @@
 
 ## 工作方式
 
-本工具不解析终端文本，而是使用 Codex hooks 获取结构化事件。
+本工具主要使用 Codex hooks 获取结构化事件。部分 Codex 版本执行 `/clear` 时不会发送 hook，因此本工具还会在终端输入入口识别已提交的 `/clear` 命令。
 
 1. Electron 主进程启动本地 HTTP hook 接收器。
 2. 每个 PTY 会话启动时会注入环境变量：
@@ -14,7 +14,7 @@
 4. `.codex/pannel-handle-hook.ps1` 从 stdin 读取 Codex hook JSON，并 POST 到本工具的 `/codex-hook`。
 5. Electron 将 hook 映射为前端状态：
    - 普通 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse` -> `running`
-   - `/clear` 触发的 `SessionStart(source="clear")` -> 清空当前状态和摘要
+   - 终端提交 `/clear` -> 清空当前状态和摘要；若 Codex 同时发送 `SessionStart(source="clear")`，也执行相同清理
    - `PreToolUse` + `request_user_input` -> `waiting_for_permission`
    - `PermissionRequest` -> `waiting_for_permission`
    - `Stop` -> `completed`

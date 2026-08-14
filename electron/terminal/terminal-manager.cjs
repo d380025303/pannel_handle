@@ -5,6 +5,8 @@ const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
 const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
 
+const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
+
 function getDefaultShell() {
   if (process.platform !== "win32") {
     return process.env.SHELL || "bash";
@@ -690,9 +692,63 @@ function createTerminalManager({
     return session ? session.buffer.join("") : "";
   }
 
+  function trackCodexTerminalCommand(session, data) {
+    if (session.agentProvider !== "codex") {
+      session.agentCommandInput = "";
+      session.agentCommandInputOverflow = false;
+      return;
+    }
+
+    let input = session.agentCommandInput || "";
+    let overflow = session.agentCommandInputOverflow === true;
+    for (const character of String(data || "")) {
+      if (character === "\b" || character === "\x7f") {
+        if (!overflow) {
+          input = Array.from(input).slice(0, -1).join("");
+        }
+        continue;
+      }
+      if (character === "\x15") {
+        input = "";
+        overflow = false;
+        continue;
+      }
+      if (character === "\n") {
+        if (input || overflow) {
+          overflow = true;
+        }
+        continue;
+      }
+      if (character === "\r") {
+        if (!overflow && /^[\t ]*\/clear[\t ]*$/.test(input)) {
+          session.agentStatus = "cleared";
+          broadcastAgentStatus({
+            id: session.id,
+            provider: "codex",
+            status: "cleared",
+            eventName: "TerminalCommand"
+          });
+        }
+        input = "";
+        overflow = false;
+        continue;
+      }
+      if (!overflow) {
+        if (input.length + character.length <= MAX_AGENT_COMMAND_INPUT_LENGTH) {
+          input += character;
+        } else {
+          overflow = true;
+        }
+      }
+    }
+    session.agentCommandInput = input;
+    session.agentCommandInputOverflow = overflow;
+  }
+
   function write(id, data) {
     const session = sessions.get(id);
     if (typeof session?.term?.write === "function") {
+      trackCodexTerminalCommand(session, data);
       session.term.write(data);
     }
   }

@@ -10,13 +10,21 @@ import { useI18n } from "../../i18n";
 
 export type RemoteCodeLanguageMode = "auto" | "plain" | `language:${string}`;
 
+export type RemoteCodeEditorViewport = {
+  scrollTop: number;
+  scrollLeft: number;
+};
+
 type RemoteCodeEditorProps = {
+  documentId: string;
   value: string;
   fileName: string;
   languageMode: RemoteCodeLanguageMode;
+  viewport: RemoteCodeEditorViewport;
   onChange: (value: string) => void;
   onLanguageModeChange: (mode: RemoteCodeLanguageMode) => void;
   onSave: () => void;
+  onViewportChange: (documentId: string, viewport: RemoteCodeEditorViewport) => void;
 };
 
 const remoteCodeHighlightStyle = HighlightStyle.define([
@@ -48,16 +56,43 @@ function getLanguageForMode(fileName: string, mode: RemoteCodeLanguageMode): Lan
   return languages.find((language) => language.name === languageName) ?? null;
 }
 
-export function RemoteCodeEditor({ value, fileName, languageMode, onChange, onLanguageModeChange, onSave }: RemoteCodeEditorProps) {
+function readViewport(view: EditorView): RemoteCodeEditorViewport {
+  return {
+    scrollTop: view.scrollDOM.scrollTop,
+    scrollLeft: view.scrollDOM.scrollLeft
+  };
+}
+
+function restoreViewport(view: EditorView, viewport: RemoteCodeEditorViewport) {
+  view.scrollDOM.scrollTop = viewport.scrollTop;
+  view.scrollDOM.scrollLeft = viewport.scrollLeft;
+}
+
+export function RemoteCodeEditor({
+  documentId,
+  value,
+  fileName,
+  languageMode,
+  viewport,
+  onChange,
+  onLanguageModeChange,
+  onSave,
+  onViewportChange
+}: RemoteCodeEditorProps) {
   const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onViewportChangeRef = useRef(onViewportChange);
+  const documentIdRef = useRef(documentId);
+  const viewportRef = useRef(viewport);
   const languageRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  onViewportChangeRef.current = onViewportChange;
+  viewportRef.current = viewport;
 
   useEffect(() => {
     if (!hostRef.current) return undefined;
@@ -107,11 +142,24 @@ export function RemoteCodeEditor({ value, fileName, languageMode, onChange, onLa
       })
     });
     viewRef.current = view;
+    restoreViewport(view, viewportRef.current);
     return () => {
+      onViewportChangeRef.current(documentIdRef.current, readViewport(view));
       view.destroy();
       viewRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || documentIdRef.current === documentId) return;
+    onViewportChangeRef.current(documentIdRef.current, readViewport(view));
+    documentIdRef.current = documentId;
+    if (view.state.doc.toString() !== value) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    }
+    restoreViewport(view, viewportRef.current);
+  }, [documentId, value]);
 
   useEffect(() => {
     const view = viewRef.current;

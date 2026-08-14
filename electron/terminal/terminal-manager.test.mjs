@@ -223,6 +223,64 @@ describe("terminal-manager", () => {
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
   });
 
+  it("clears a Codex session when the submitted terminal command is /clear", () => {
+    vi.spyOn(Date, "now").mockReturnValue(555);
+    const onAgentStatusChanged = vi.fn();
+    const { manager, term, broadcast } = createManager({ onAgentStatusChanged });
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+    manager.getSession(session.id).agentStatus = "completed";
+
+    manager.write(session.id, "/");
+    manager.write(session.id, "clear");
+    manager.write(session.id, "\r");
+
+    expect(term.writes).toEqual(["/", "clear", "\r"]);
+    expect(manager.getSession(session.id).agentStatus).toBe("cleared");
+    expect(broadcast).toHaveBeenCalledWith("agent:status", {
+      provider: "codex",
+      timestamp: 555,
+      id: session.id,
+      status: "cleared",
+      eventName: "TerminalCommand"
+    });
+    expect(onAgentStatusChanged).toHaveBeenCalledWith(expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared"
+    }));
+  });
+
+  it("recognizes /clear after common terminal line editing", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    manager.write(session.id, "  /cleax");
+    manager.write(session.id, "\x7fr  \r");
+    manager.write(session.id, "discarded\x15 /clear \r");
+
+    const clearEvents = broadcast.mock.calls.filter(([channel, payload]) => (
+      channel === "agent:status" && payload.status === "cleared"
+    ));
+    expect(clearEvents).toHaveLength(2);
+  });
+
+  it("does not clear status for unsubmitted, similar, or non-Codex commands", () => {
+    const { manager, broadcast } = createManager();
+    const codexSession = manager.createSession({ title: "Codex", agentProvider: "codex" });
+    const claudeSession = manager.createSession({ title: "Claude", agentProvider: "claude" });
+    manager.updateSession(claudeSession.id, { agentProvider: "claude" });
+
+    manager.write(codexSession.id, "/clear");
+    manager.write(codexSession.id, "x\r");
+    manager.write(codexSession.id, "/clear-all\r");
+    manager.write(codexSession.id, "/clear\n\r");
+    manager.write(claudeSession.id, "/clear\r");
+
+    expect(broadcast.mock.calls.filter(([channel, payload]) => (
+      channel === "agent:status" && payload.status === "cleared"
+    ))).toEqual([]);
+  });
+
   it("can close a legacy runtime session that has no terminal instance", () => {
     const { manager, broadcast } = createManager();
     const session = manager.createSession({ title: "Broken" });
