@@ -6,6 +6,7 @@ import { submitTerminalInput } from "./terminalComposerInput";
 
 type TerminalComposerProps = {
   session?: TerminalSession;
+  onFocusTerminal: () => void;
 };
 
 type Mention = {
@@ -41,7 +42,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
 
-export function TerminalComposer({ session }: TerminalComposerProps) {
+export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerProps) {
   const { t } = useI18n();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [mention, setMention] = useState<Mention | null>(null);
@@ -276,6 +277,13 @@ export function TerminalComposer({ session }: TerminalComposerProps) {
               const hasPrimaryModifier = event.ctrlKey || event.altKey || event.metaKey;
               const isPlainKey = !event.shiftKey && !hasPrimaryModifier;
 
+              if (session?.agentProvider && !value && event.key === "/" && isPlainKey) {
+                event.preventDefault();
+                clearMention();
+                window.terminalApi.write(session.id, "/");
+                onFocusTerminal();
+                return;
+              }
               if (event.key === "Enter" && hasPrimaryModifier && !event.shiftKey) {
                 event.preventDefault();
                 insertText("\n");

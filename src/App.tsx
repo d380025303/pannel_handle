@@ -562,7 +562,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
                 />
-                <TerminalComposer session={terminalSessions.activeSession} />
+                <TerminalComposer
+                  session={terminalSessions.activeSession}
+                  onFocusTerminal={terminalInstances.focusActiveTerminal}
+                />
                 {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
                   <footer className="terminal-footer">
                     <QuickCommandBar

@@ -24,10 +24,12 @@ const secondSession: TerminalSession = {
 function renderComposer(session: TerminalSession | undefined = firstSession) {
   return render(
     <I18nProvider locale="zh-CN">
-      <TerminalComposer session={session} />
+      <TerminalComposer session={session} onFocusTerminal={focusTerminal} />
     </I18nProvider>
   );
 }
+
+const focusTerminal = vi.fn();
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -89,6 +91,45 @@ describe("TerminalComposer", () => {
     expect(textarea.value).toBe("");
   });
 
+  it("hands an initial slash in an Agent session to the native terminal input", () => {
+    renderComposer({ ...firstSession, agentProvider: "codex" });
+    const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
+
+    const accepted = fireEvent.keyDown(textarea, { key: "/" });
+
+    expect(accepted).toBe(false);
+    expect(write).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledWith("session-1", "/");
+    expect(focusTerminal).toHaveBeenCalledOnce();
+    expect(textarea.value).toBe("");
+  });
+
+  it("keeps slash in the composer when native Agent completion does not apply", () => {
+    const view = renderComposer();
+    const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
+
+    expect(fireEvent.keyDown(textarea, { key: "/" })).toBe(true);
+
+    view.rerender(
+      <I18nProvider locale="zh-CN">
+        <TerminalComposer
+          session={{ ...firstSession, agentProvider: "codex" }}
+          onFocusTerminal={focusTerminal}
+        />
+      </I18nProvider>
+    );
+    expect(fireEvent.keyDown(textarea, { key: "/", ctrlKey: true })).toBe(true);
+    fireEvent.compositionStart(textarea);
+    expect(fireEvent.keyDown(textarea, { key: "/", isComposing: true })).toBe(true);
+    fireEvent.compositionEnd(textarea);
+
+    fireEvent.change(textarea, { target: { value: "explain ", selectionStart: 8 } });
+    expect(fireEvent.keyDown(textarea, { key: "/" })).toBe(true);
+
+    expect(write).not.toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
+  });
+
   it("keeps Shift+Enter available for multiline input", () => {
     renderComposer();
     const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
@@ -118,13 +159,13 @@ describe("TerminalComposer", () => {
     const firstTextarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
     fireEvent.change(firstTextarea, { target: { value: "first draft", selectionStart: 11 } });
 
-    view.rerender(<I18nProvider locale="zh-CN"><TerminalComposer session={secondSession} /></I18nProvider>);
+    view.rerender(<I18nProvider locale="zh-CN"><TerminalComposer session={secondSession} onFocusTerminal={focusTerminal} /></I18nProvider>);
     const secondTextarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
     expect(secondTextarea.value).toBe("");
     expect(document.activeElement).not.toBe(secondTextarea);
 
     fireEvent.change(secondTextarea, { target: { value: "second draft", selectionStart: 12 } });
-    view.rerender(<I18nProvider locale="zh-CN"><TerminalComposer session={firstSession} /></I18nProvider>);
+    view.rerender(<I18nProvider locale="zh-CN"><TerminalComposer session={firstSession} onFocusTerminal={focusTerminal} /></I18nProvider>);
 
     expect((screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement).value).toBe("first draft");
   });
