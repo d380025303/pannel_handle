@@ -17,9 +17,17 @@
 }
 
 .splitter {
+  position: relative;
+  z-index: 1;
   cursor: col-resize;
   background: var(--color-border);
   transition: background 0.15s;
+}
+
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
 }
 
 .splitter:hover {

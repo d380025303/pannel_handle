@@ -6,6 +6,7 @@ const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-c
 const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
 
 const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
+const CODEX_CLEAR_COMPLETION_PREFIXES = new Set(["/cl", "/cle", "/clea", "/clear"]);
 
 function consumeAgentCommandInput(currentState, data) {
   let input = currentState?.input || "";
@@ -54,6 +55,10 @@ function consumeAgentCommandInput(currentState, data) {
     if (character === "\x15") {
       input = "";
       overflow = false;
+      continue;
+    }
+    if (character === "\t" && !overflow && CODEX_CLEAR_COMPLETION_PREFIXES.has(input.trim())) {
+      input = "/clear";
       continue;
     }
     if (character === "\r" || character === "\n") {

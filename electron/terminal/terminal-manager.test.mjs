@@ -299,6 +299,21 @@ describe("terminal-manager", () => {
     expect(clearEvents).toHaveLength(2);
   });
 
+  it("recognizes /clear selected by Codex tab completion", () => {
+    const { manager, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    manager.write(session.id, "/cl");
+    manager.write(session.id, "\t");
+    manager.write(session.id, "\r");
+
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "cleared"
+    }));
+  });
+
   it("recognizes /clear through terminal control sequences", () => {
     const { manager, broadcast } = createManager();
     const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
@@ -338,6 +353,7 @@ describe("terminal-manager", () => {
     manager.write(codexSession.id, "/clear");
     manager.write(codexSession.id, "x\r");
     manager.write(codexSession.id, "/clear-all\r");
+    manager.write(codexSession.id, "/c\t\r");
     manager.write(claudeSession.id, "/clear\r");
 
     expect(broadcast.mock.calls.filter(([channel, payload]) => (
