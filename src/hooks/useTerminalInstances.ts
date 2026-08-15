@@ -32,6 +32,19 @@ function createTerminalEntry(terminalTheme: ITheme) {
     fontFamily: "Cascadia Mono, Consolas, monospace",
     fontSize: 13,
     lineHeight: 1.2,
+    linkHandler: {
+      activate: (_event, text) => {
+        const confirmed = window.confirm(
+          `Do you want to navigate to ${text}?\n\nWARNING: This link could potentially be dangerous`
+        );
+        if (!confirmed) {
+          return;
+        }
+        window.externalLinkApi.open(text).catch((err) => {
+          console.error("Failed to open terminal link:", err);
+        });
+      }
+    },
     theme: terminalTheme
   });
   const fitAddon = new FitAddon();

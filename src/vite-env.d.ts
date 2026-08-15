@@ -570,6 +570,10 @@ export type ClipboardApi = {
   >;
 };
 
+export type ExternalLinkApi = {
+  open: (url: string) => Promise<void>;
+};
+
 export type RemoteFileApi = {
   getHome: (sessionId: string) => Promise<string>;
   list: (sessionId: string, remotePath: string) => Promise<RemoteFileEntry[]>;
@@ -671,6 +675,7 @@ declare global {
     launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;
+    externalLinkApi: ExternalLinkApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     agentUsageApi: AgentUsageApi;

@@ -345,6 +345,7 @@ if (!gotSingleInstanceLock) {
       clipboard,
       clipboardImageService,
       dialog,
+      shellApi: shell,
       remoteFileService,
       fileTransferManager,
       fileWatchManager,

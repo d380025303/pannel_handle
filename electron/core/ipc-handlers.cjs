@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { startNativeFileDrag } = require("./native-file-drag.cjs");
+const { openExternalHttpUrl } = require("./external-link.cjs");
 const {
   MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
   MAX_AGENT_OUTPUT_MAX_BYTES,
@@ -49,7 +50,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -254,6 +255,15 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("clipboard:paste-image-to-session", (_event, sessionId) => {
     return clipboardImageService.pasteImageToSession(sessionId);
+  });
+
+  ipcMain.handle("external-link:open", async (_event, url) => {
+    try {
+      await openExternalHttpUrl(shellApi, url);
+    } catch (err) {
+      console.error("Failed to open external link:", err);
+      throw err;
+    }
   });
 
   ipcMain.on("terminal:write", (_event, { id, data }) => {

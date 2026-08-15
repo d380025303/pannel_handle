@@ -109,6 +109,10 @@ contextBridge.exposeInMainWorld("clipboardApi", {
   pasteImageToSession: (sessionId) => ipcRenderer.invoke("clipboard:paste-image-to-session", sessionId)
 });
 
+contextBridge.exposeInMainWorld("externalLinkApi", {
+  open: (url) => ipcRenderer.invoke("external-link:open", url)
+});
+
 contextBridge.exposeInMainWorld("remoteFileApi", {
   getHome: (sessionId) => ipcRenderer.invoke("remote-files:home", { sessionId }),
   list: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:list", { sessionId, remotePath }),
