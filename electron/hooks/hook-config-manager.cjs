@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 
-const PROVIDERS = ["claude", "codex", "opencode", "qoder"];
+const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -42,6 +42,28 @@ const PROVIDER_CONFIG = {
       ["SessionEnd", "*"]
     ]
   },
+  codebuddy: {
+    configPath: [".codebuddy", "settings.local.json"],
+    windowsScriptPath: [".codebuddy", "pannel-handle-codebuddy-hook.ps1"],
+    wslScriptPath: [".codebuddy", "pannel-handle-codebuddy-hook.sh"],
+    windowsAsset: "pannel-handle-codebuddy-hook.ps1",
+    wslAsset: "pannel-handle-codebuddy-hook.sh",
+    windowsCommand: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .codebuddy/pannel-handle-codebuddy-hook.ps1",
+    wslCommand: "bash .codebuddy/pannel-handle-codebuddy-hook.sh",
+    events: [
+      ["SessionStart", ""],
+      ["UserPromptSubmit", ""],
+      ["PreToolUse", ""],
+      ["PermissionRequest", ""],
+      ["PostToolUse", ""],
+      ["PostToolUseFailure", ""],
+      ["Notification", "permission_prompt"],
+      ["Notification", "idle_prompt"],
+      ["Stop", ""],
+      ["StopFailure", ""],
+      ["SessionEnd", ""]
+    ]
+  },
   qoder: {
     configPath: [".qoder", "settings.json"],
     windowsScriptPath: [".qoder", "pannel-handle-hook.ps1"],
@@ -70,7 +92,7 @@ const PROVIDER_CONFIG = {
 };
 
 function isManagedCommand(command) {
-  return typeof command === "string" && /pannel-handle-(?:codex-|qoder-)?hook\.(?:ps1|sh)/i.test(command);
+  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-)?hook\.(?:ps1|sh)/i.test(command);
 }
 
 function normalizeProviders(providers) {

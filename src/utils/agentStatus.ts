@@ -44,6 +44,7 @@ export function updateAgentStatuses(
 
 function getAgentName(status: AgentStatusPayload) {
   if (status.provider === "codex") return "Codex";
+  if (status.provider === "codebuddy") return "CodeBuddy";
   if (status.provider === "opencode") return "OpenCode";
   if (status.provider === "qoder") return "Qoder";
   return "Claude";

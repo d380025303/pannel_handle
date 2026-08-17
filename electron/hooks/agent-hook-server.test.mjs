@@ -437,6 +437,58 @@ describe("agent-hook-server", () => {
     });
   });
 
+  it.each([
+    ["SessionStart", {}, "running"],
+    ["UserPromptSubmit", { prompt: "检查构建" }, "running"],
+    ["PreToolUse", { tool_name: "Bash" }, "running"],
+    ["PermissionRequest", { tool_name: "Bash" }, "waiting_for_permission"],
+    ["Notification", { notification_type: "permission_prompt" }, "waiting_for_permission"],
+    ["Notification", { notification_type: "idle_prompt" }, "e_prompt"],
+    ["PostToolUse", {}, "running"],
+    ["PostToolUse", { is_error: true }, "failed"],
+    ["PostToolUseFailure", {}, "failed"],
+    ["StopFailure", {}, "failed"],
+    ["Stop", { last_assistant_message: "处理完成" }, "completed"],
+    ["SessionEnd", {}, "ended"]
+  ])("maps CodeBuddy %s to %s", (eventName, extra, expectedStatus) => {
+    const { server, terminalManager } = createServer();
+
+    const handled = server.handleAgentHook("codebuddy", {
+      hook_event_name: eventName,
+      session_id: "codebuddy-1",
+      pannel_handle_session_id: "run-1",
+      ...extra
+    });
+
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "codebuddy",
+      status: expectedStatus,
+      eventName
+    }));
+  });
+
+  it("maps a CodeBuddy clear SessionStart to cleared without a stale summary", () => {
+    const { server, session, terminalManager } = createServer();
+
+    const handled = server.handleAgentHook("codebuddy", {
+      hook_event_name: "SessionStart",
+      source: "clear",
+      session_id: "codebuddy-2",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(handled).toBe(true);
+    expect(session.agentStatus).toBe("cleared");
+    expect(session.agentRuntimeProvider).toBe("codebuddy");
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codebuddy",
+      status: "cleared",
+      activitySummary: undefined
+    }));
+  });
+
   it("maps Claude Notification+idle_prompt to e_prompt", () => {
     const { server, terminalManager } = createServer();
 

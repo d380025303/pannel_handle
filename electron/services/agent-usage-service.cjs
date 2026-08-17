@@ -1,7 +1,9 @@
-const { spawn: defaultSpawn } = require("node:child_process");
+const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
+const { readCodeBuddyUsage } = require("./codebuddy-usage-client.cjs");
 
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
+const CODEBUDDY_CACHE_TTL_MS = 30 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 1000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const STDERR_LIMIT_BYTES = 64 * 1024;
@@ -114,6 +116,53 @@ function createProcessTransport(session, spawn = defaultSpawn) {
       closed = true;
       try { child.stdin?.end(); } catch { /* best effort */ }
       try { child.kill(); } catch { /* best effort */ }
+    }
+  };
+}
+
+function terminateWindowsProcessTree(child, spawnSync = defaultSpawnSync) {
+  if (!Number.isInteger(child?.pid) || child.pid <= 0) return;
+  try {
+    spawnSync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
+      windowsHide: true,
+      stdio: "ignore"
+    });
+  } catch {
+    try { child.kill(); } catch { /* best effort */ }
+  }
+}
+
+function createCodeBuddyProcessTransport(session, spawn = defaultSpawn, terminateProcessTree = terminateWindowsProcessTree) {
+  if (session.type !== "windows") {
+    throw new Error(`Unsupported CodeBuddy session type: ${session.type}.`);
+  }
+  const invocation = {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", "codebuddy --acp"]
+  };
+  const child = spawn(invocation.command, invocation.args, {
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  const events = new EventEmitter();
+  let closed = false;
+
+  child.stdout?.on("data", data => events.emit("stdout", data));
+  child.stderr?.on("data", data => events.emit("stderr", data));
+  child.once("error", error => events.emit("error", error));
+  child.once("exit", (code, signal) => events.emit("close", code, signal));
+
+  return {
+    invocation,
+    on: (eventName, listener) => events.on(eventName, listener),
+    write(data) {
+      if (!closed && child.stdin?.writable) child.stdin.write(data);
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      try { child.stdin?.end(); } catch { /* best effort */ }
+      terminateProcessTree(child);
     }
   };
 }
@@ -265,9 +314,10 @@ function runCodexRateLimitRequest(transport, {
 }
 
 function getCacheKey(session) {
-  if (session.type === "windows") return "windows";
-  if (session.type === "wsl") return `wsl:${String(session.wslDistro || "").trim()}`;
-  return `ssh:${session.id}`;
+  const provider = session.agentProvider || "unknown";
+  if (session.type === "windows") return `${provider}:windows`;
+  if (session.type === "wsl") return `${provider}:wsl:${String(session.wslDistro || "").trim()}`;
+  return `${provider}:ssh:${session.id}`;
 }
 
 function createAgentUsageService({
@@ -278,7 +328,8 @@ function createAgentUsageService({
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
-  transportFactory
+  transportFactory,
+  httpsRequest
 }) {
   const cache = new Map();
   const pending = new Map();
@@ -287,6 +338,7 @@ function createAgentUsageService({
 
   async function createTransport(session) {
     if (transportFactory) return transportFactory(session);
+    if (session.agentProvider === "codebuddy") return createCodeBuddyProcessTransport(session, spawn);
     return session.type === "ssh"
       ? createSshTransport(session, sshSessionRuntime, { timeoutMs })
       : createProcessTransport(session, spawn);
@@ -296,9 +348,11 @@ function createAgentUsageService({
     const startedAt = Date.now();
     let transport;
     let canceled = false;
+    const abortController = new AbortController();
     const request = {
       cancel() {
         canceled = true;
+        abortController.abort();
         transport?.close();
       }
     };
@@ -312,7 +366,17 @@ function createAgentUsageService({
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
         transport.close();
-        throw new Error("Reading Codex usage timed out.");
+        throw new Error(`Reading ${session.agentProvider === "codebuddy" ? "CodeBuddy quota" : "Codex usage"} timed out.`);
+      }
+      if (session.agentProvider === "codebuddy") {
+        return await readCodeBuddyUsage({
+          transport,
+          signal: abortController.signal,
+          timeoutMs: remainingTimeoutMs,
+          maxOutputBytes,
+          httpsRequest,
+          now
+        });
       }
       const result = await runCodexRateLimitRequest(transport, {
         timeoutMs: remainingTimeoutMs,
@@ -327,14 +391,20 @@ function createAgentUsageService({
   function getUsage(sessionId, options = {}) {
     const session = terminalManager.getSession(sessionId);
     if (!session) return Promise.reject(new Error("Session is not running."));
-    if (session.agentProvider !== "codex") {
-      return Promise.reject(new Error("Usage is only available for Codex sessions."));
+    if (session.agentProvider !== "codex" && session.agentProvider !== "codebuddy") {
+      return Promise.reject(new Error("Usage is only available for Codex and CodeBuddy sessions."));
+    }
+    if (session.agentProvider === "codebuddy" && session.type !== "windows") {
+      return Promise.reject(new Error("CodeBuddy quota is only available for Windows sessions."));
     }
 
     const key = getCacheKey(session);
     cacheKeysBySessionId.set(session.id, key);
     const cached = cache.get(key);
-    if (!options.force && cached && now() - cached.fetchedAt < cacheTtlMs) {
+    const effectiveCacheTtlMs = session.agentProvider === "codebuddy"
+      ? Math.min(cacheTtlMs, CODEBUDDY_CACHE_TTL_MS)
+      : cacheTtlMs;
+    if (!options.force && cached && now() - cached.fetchedAt < effectiveCacheTtlMs) {
       return Promise.resolve(cached.snapshot);
     }
     if (pending.has(key)) return pending.get(key);
@@ -358,7 +428,7 @@ function createAgentUsageService({
     cacheKeysBySessionId.delete(sessionId);
     if (key) {
       pending.delete(key);
-      if (key.startsWith("ssh:")) cache.delete(key);
+      if (key.includes(":ssh:")) cache.delete(key);
     }
   }
 
@@ -375,12 +445,15 @@ function createAgentUsageService({
 
 module.exports = {
   DEFAULT_CACHE_TTL_MS,
+  CODEBUDDY_CACHE_TTL_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DEFAULT_REQUEST_TIMEOUT_MS,
   createAgentUsageService,
+  createCodeBuddyProcessTransport,
   createProcessTransport,
   createSshTransport,
   getProcessInvocation,
   normalizeRateLimitResponse,
-  runCodexRateLimitRequest
+  runCodexRateLimitRequest,
+  terminateWindowsProcessTree
 };

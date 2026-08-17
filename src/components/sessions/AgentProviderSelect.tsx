@@ -10,6 +10,7 @@ const providers: Array<{ value?: AgentProvider; label: string }> = [
   { label: "Terminal" },
   { value: "claude", label: "Claude" },
   { value: "codex", label: "Codex" },
+  { value: "codebuddy", label: "CodeBuddy" },
   { value: "opencode", label: "OpenCode" },
   { value: "qoder", label: "Qoder" }
 ];

@@ -74,7 +74,7 @@ export function DebugSidebar({ events, sessions, onClear }: DebugSidebarProps) {
       </div>
 
       <div className="debug-filter" role="group" aria-label={t("debug.providerFilter")}>
-        {(["all", "claude", "codex", "opencode", "qoder"] as ProviderFilter[]).map((provider) => (
+        {(["all", "claude", "codex", "codebuddy", "opencode", "qoder"] as ProviderFilter[]).map((provider) => (
           <button
             key={provider}
             className={providerFilter === provider ? "active" : ""}

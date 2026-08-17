@@ -166,6 +166,21 @@ export type TranslationKey =
   | "usage.resetsAt"
   | "usage.resetUnavailable"
   | "usage.updatedAt"
+  | "usage.codebuddyLoading"
+  | "usage.codebuddyUnavailable"
+  | "usage.codebuddyRetry"
+  | "usage.codebuddyRemaining"
+  | "usage.codebuddyTitle"
+  | "usage.codebuddyTotal"
+  | "usage.creditRemaining"
+  | "usage.creditUsed"
+  | "usage.expiresAt"
+  | "usage.expirationUnavailable"
+  | "usage.noCreditResources"
+  | "usage.category.base"
+  | "usage.category.extra"
+  | "usage.category.bonus"
+  | "usage.category.other"
   | "tokenStats.title"
   | "tokenStats.open"
   | "tokenStats.description"
@@ -368,6 +383,7 @@ export type TranslationKey =
   | "hooks.needsRepair"
   | "hooks.pendingCheck"
   | "hooks.codexTrustNote"
+  | "hooks.codebuddyTrustNote"
   | "hooks.installing"
   | "hooks.installOrRepair"
   | "hooks.install"
@@ -539,7 +555,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.agentLogTitle": "Agent 输出日志",
-    "settings.agentLogDescription": "仅持久化 Claude、Codex、OpenCode 和 Qoder Agent 终端会话的输出。配置在新会话启动时生效。",
+    "settings.agentLogDescription": "仅持久化 Claude、Codex、CodeBuddy、OpenCode 和 Qoder Agent 终端会话的输出。配置在新会话启动时生效。",
     "settings.agentLogHistoryMaxEntries": "每个 Agent 会话模板保留次数",
     "settings.agentLogOutputMaxKiB": "每次会话输出上限（KiB）",
     "settings.agentLogRange": "保留 1–1000 次；每次输出 16 KiB–16 MiB。",
@@ -672,6 +688,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetsAt": "{time} 重置",
     "usage.resetUnavailable": "重置时间未知",
     "usage.updatedAt": "更新于 {time}",
+    "usage.codebuddyLoading": "正在读取 CodeBuddy 额度...",
+    "usage.codebuddyUnavailable": "CodeBuddy 额度暂不可用",
+    "usage.codebuddyRetry": "重试读取 CodeBuddy 额度",
+    "usage.codebuddyRemaining": "CodeBuddy 剩余 {remaining} Credits",
+    "usage.codebuddyTitle": "CodeBuddy 额度",
+    "usage.codebuddyTotal": "全部可用额度",
+    "usage.creditRemaining": "剩余 {remaining} / {total} Credits",
+    "usage.creditUsed": "已用 {used} / {total} Credits",
+    "usage.expiresAt": "{time} 到期",
+    "usage.expirationUnavailable": "到期时间未知",
+    "usage.noCreditResources": "当前没有可用额度包",
+    "usage.category.base": "基础套餐",
+    "usage.category.extra": "加量包",
+    "usage.category.bonus": "奖励额度",
+    "usage.category.other": "其他额度",
     "tokenStats.title": "Token 统计",
     "tokenStats.open": "打开 Token 统计",
     "tokenStats.description": "查看 Codex 与 Claude 的会话消耗趋势和明细",
@@ -874,6 +905,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "hooks.needsRepair": "需要修复",
     "hooks.pendingCheck": "待检查",
     "hooks.codexTrustNote": "Codex 首次使用项目 Hook 时，仍需在 Codex 的 /hooks 中确认信任。",
+    "hooks.codebuddyTrustNote": "CodeBuddy 首次使用项目 Hook 时，仍需在 CodeBuddy 的 /hooks 中审核并确认。Hook 功能目前为 Beta。",
     "hooks.installing": "安装中...",
     "hooks.installOrRepair": "安装或修复",
     "hooks.install": "安装",
@@ -1037,7 +1069,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.agentLogTitle": "Agent output logs",
-    "settings.agentLogDescription": "Persist output only for Claude, Codex, OpenCode, and Qoder terminal sessions. Changes apply when a new session starts.",
+    "settings.agentLogDescription": "Persist output only for Claude, Codex, CodeBuddy, OpenCode, and Qoder terminal sessions. Changes apply when a new session starts.",
     "settings.agentLogHistoryMaxEntries": "Runs kept per Agent session template",
     "settings.agentLogOutputMaxKiB": "Output limit per run (KiB)",
     "settings.agentLogRange": "Keep 1–1000 runs; limit each run to 16 KiB–16 MiB.",
@@ -1170,6 +1202,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetsAt": "Resets {time}",
     "usage.resetUnavailable": "Reset time unavailable",
     "usage.updatedAt": "Updated {time}",
+    "usage.codebuddyLoading": "Reading CodeBuddy quota...",
+    "usage.codebuddyUnavailable": "CodeBuddy quota unavailable",
+    "usage.codebuddyRetry": "Retry CodeBuddy quota",
+    "usage.codebuddyRemaining": "CodeBuddy {remaining} Credits left",
+    "usage.codebuddyTitle": "CodeBuddy quota",
+    "usage.codebuddyTotal": "Total available quota",
+    "usage.creditRemaining": "{remaining} / {total} Credits left",
+    "usage.creditUsed": "{used} / {total} Credits used",
+    "usage.expiresAt": "Expires {time}",
+    "usage.expirationUnavailable": "Expiration unavailable",
+    "usage.noCreditResources": "No available credit packages",
+    "usage.category.base": "Base plan",
+    "usage.category.extra": "Add-on packages",
+    "usage.category.bonus": "Bonus credits",
+    "usage.category.other": "Other credits",
     "tokenStats.title": "Token statistics",
     "tokenStats.open": "Open token statistics",
     "tokenStats.description": "Review Codex and Claude session usage, trends, and details",
@@ -1372,6 +1419,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "hooks.needsRepair": "Needs repair",
     "hooks.pendingCheck": "Pending check",
     "hooks.codexTrustNote": "When Codex uses project hooks for the first time, you still need to trust them in Codex /hooks.",
+    "hooks.codebuddyTrustNote": "When CodeBuddy uses project hooks for the first time, review and approve them in CodeBuddy /hooks. Hooks are currently Beta.",
     "hooks.installing": "Installing...",
     "hooks.installOrRepair": "Install or repair",
     "hooks.install": "Install",

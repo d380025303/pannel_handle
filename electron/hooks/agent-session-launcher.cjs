@@ -3,11 +3,12 @@ const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const AGENT_COMMANDS = Object.freeze({
   claude: "claude",
   codex: "codex",
+  codebuddy: "codebuddy",
   opencode: "opencode",
   qoder: "qoderclicn"
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
-const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "qoder"]);
+const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -17,6 +18,12 @@ function getAgentCommand(provider) {
   const command = AGENT_COMMANDS[provider];
   if (!command) throw new Error(`Unsupported Agent provider: ${provider}.`);
   return command;
+}
+
+function getAgentInstallHint(provider) {
+  return provider === "codebuddy"
+    ? " 请先运行 npm install -g @tencent-ai/codebuddy-code。"
+    : "";
 }
 
 function isPowerShell(shell) {
@@ -111,7 +118,7 @@ function createAgentSessionLauncher({
       ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", `command -v ${shellQuote(command)}`], { encoding: "utf-8", windowsHide: true })
       : spawnSync("where.exe", [command], { encoding: "utf-8", windowsHide: true });
     if (result.error || result.status !== 0) {
-      throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}`);
+      throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
     }
   }
 
@@ -122,7 +129,7 @@ function createAgentSessionLauncher({
         actionName: `检测远程命令 ${command}`
       });
     } catch {
-      throw new Error(`未在远程 SSH 环境中找到命令：${command}`);
+      throw new Error(`未在远程 SSH 环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
     }
   }
 

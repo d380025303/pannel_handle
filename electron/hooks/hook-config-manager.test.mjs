@@ -168,21 +168,24 @@ afterEach(() => {
 });
 
 describe("hook-config-manager", () => {
-  it("installs Claude, Codex, OpenCode, and Qoder hooks into an empty Windows project", () => {
+  it("installs all supported hooks into an empty Windows project", () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });
 
-    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "opencode", "qoder"]);
+    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "codebuddy", "opencode", "qoder"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.claude.status).toBe("installed");
     expect(result.providers.codex.status).toBe("installed");
+    expect(result.providers.codebuddy.status).toBe("installed");
     expect(result.providers.opencode.status).toBe("installed");
     expect(result.providers.qoder.status).toBe("installed");
     expect(result.providers.opencode.configPath).toBeUndefined();
     expect(result.providers.opencode.managedHookCount).toBe(1);
     expect(fs.existsSync(path.join(projectPath, ".claude", "pannel-handle-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".codex", "pannel-handle-hook.ps1"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".codebuddy", "settings.local.json"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".codebuddy", "pannel-handle-codebuddy-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "pannel-handle-hook.ps1"))).toBe(true);
@@ -194,16 +197,17 @@ describe("hook-config-manager", () => {
     const manager = createHookConfigManager({ assetsDir });
     const message = "中文测试";
     const cases = [
-      ["claude", ".claude", "/claude-hook"],
-      ["codex", ".codex", "/codex-hook"],
-      ["qoder", ".qoder", "/qoder-hook"]
+      ["claude", ".claude", "pannel-handle-hook.ps1", "/claude-hook"],
+      ["codex", ".codex", "pannel-handle-hook.ps1", "/codex-hook"],
+      ["codebuddy", ".codebuddy", "pannel-handle-codebuddy-hook.ps1", "/codebuddy-hook"],
+      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"]
     ];
 
     expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
 
-    for (const [, directory, requestPath] of cases) {
+    for (const [, directory, scriptName, requestPath] of cases) {
       const request = await runWindowsHook(
-        path.join(projectPath, directory, "pannel-handle-hook.ps1"),
+        path.join(projectPath, directory, scriptName),
         requestPath,
         { hook_event_name: "Stop", last_assistant_message: message }
       );
@@ -218,16 +222,17 @@ describe("hook-config-manager", () => {
     const manager = createHookConfigManager({ assetsDir });
     const message = "中文测试：Nginx 配置已完成";
     const cases = [
-      ["claude", ".claude", "/claude-hook"],
-      ["codex", ".codex", "/codex-hook"],
-      ["qoder", ".qoder", "/qoder-hook"]
+      ["claude", ".claude", "pannel-handle-hook.ps1", "/claude-hook"],
+      ["codex", ".codex", "pannel-handle-hook.ps1", "/codex-hook"],
+      ["codebuddy", ".codebuddy", "pannel-handle-codebuddy-hook.ps1", "/codebuddy-hook"],
+      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"]
     ];
 
     expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
 
-    for (const [, directory, requestPath] of cases) {
+    for (const [, directory, scriptName, requestPath] of cases) {
       const request = await runWindowsHookInConpty(
-        path.join(projectPath, directory, "pannel-handle-hook.ps1"),
+        path.join(projectPath, directory, scriptName),
         requestPath,
         { hook_event_name: "Stop", last_assistant_message: message }
       );
@@ -487,7 +492,7 @@ describe("hook-config-manager", () => {
     expect(files.has(path.posix.join(projectPath, ".codex", "pannel-handle-hook.sh"))).toBe(true);
   });
 
-  it("installs Qoder hooks into WSL projects", () => {
+  it("installs Qoder and CodeBuddy hooks into WSL projects", () => {
     const projectPath = "/home/me/project";
     const dirs = new Set([
       "/",
@@ -542,12 +547,15 @@ describe("hook-config-manager", () => {
     };
     const manager = createHookConfigManager({ assetsDir, spawnSync });
 
-    const result = manager.install({ type: "wsl", path: projectPath, wslDistro: "Ubuntu" }, ["qoder"]);
+    const result = manager.install({ type: "wsl", path: projectPath, wslDistro: "Ubuntu" }, ["qoder", "codebuddy"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.qoder.status).toBe("installed");
+    expect(result.providers.codebuddy.status).toBe("installed");
     expect(files.has(path.posix.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".qoder", "pannel-handle-hook.sh"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".codebuddy", "settings.local.json"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".codebuddy", "pannel-handle-codebuddy-hook.sh"))).toBe(true);
   });
 
   it("builds SSH Linux hook config with a session tunnel command", () => {

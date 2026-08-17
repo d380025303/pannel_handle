@@ -95,6 +95,9 @@ describe("remote-hook-config-service", () => {
     expect(buildRemoteHookCommand("qoder", "http://127.0.0.1:31847/claude-hook", "run-1")).toBe(
       "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:31847/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .qoder/pannel-handle-hook.sh"
     );
+    expect(buildRemoteHookCommand("codebuddy", "http://127.0.0.1:31847/claude-hook", "run-1")).toBe(
+      "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:31847/claude-hook' PANNEL_HANDLE_SESSION_ID='run-1' bash .codebuddy/pannel-handle-codebuddy-hook.sh"
+    );
   });
 
   it("installs Claude and Codex hooks into a remote Linux project", async () => {
@@ -150,6 +153,25 @@ describe("remote-hook-config-service", () => {
     expect(qoderConfig.hooks.SessionStart[0].hooks[0].command).toContain("PANNEL_HANDLE_SESSION_ID='run-1'");
     expect(qoderConfig.hooks.SessionStart[0].hooks[0].command).toContain("127.0.0.1:31847");
     expect(qoderConfig.hooks.Stop[0].hooks[0].command).toContain(".qoder/pannel-handle-hook.sh");
+  });
+
+  it("installs CodeBuddy hooks while preserving remote settings", async () => {
+    const sftp = createMemorySftp({
+      "/srv/app/.codebuddy/settings.local.json": JSON.stringify({ language: "简体中文" })
+    });
+    const service = createService(sftp);
+
+    const result = await service.install(
+      { type: "ssh", sessionId: "run-1", path: "/srv/app" },
+      ["codebuddy"]
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.codebuddy.status).toBe("installed");
+    expect(sftp.read("/srv/app/.codebuddy/pannel-handle-codebuddy-hook.sh")).toContain("codebuddy_hook_url");
+    const config = JSON.parse(sftp.read("/srv/app/.codebuddy/settings.local.json"));
+    expect(config.language).toBe("简体中文");
+    expect(config.hooks.SessionStart[0].hooks[0].command).toContain(".codebuddy/pannel-handle-codebuddy-hook.sh");
   });
 
   it("installs the OpenCode notification plugin without creating a config file", async () => {

@@ -104,6 +104,14 @@ describe("agent-notification-manager", () => {
     expect(notifications[0].options.title).toMatch(/^Qoder /);
   });
 
+  it("uses the CodeBuddy provider name", () => {
+    const { manager, notifications } = createHarness();
+
+    manager.handleStatus(status("completed", "codebuddy"));
+
+    expect(notifications[0].options.title).toMatch(/^CodeBuddy /);
+  });
+
   it("does not notify for other statuses or while the window is focused", () => {
     const { manager, notifications, windowManager } = createHarness();
 

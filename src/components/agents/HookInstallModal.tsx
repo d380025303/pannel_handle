@@ -12,12 +12,13 @@ type HookInstallModalProps = {
   onCancel: () => void;
 };
 
-const localProviders: HookProvider[] = ["claude", "codex", "opencode", "qoder"];
-const sshProviders: HookProvider[] = ["claude", "codex", "opencode", "qoder"];
+const localProviders: HookProvider[] = ["claude", "codex", "codebuddy", "opencode", "qoder"];
+const sshProviders: HookProvider[] = ["claude", "codex", "codebuddy", "opencode", "qoder"];
 
 const providerNames: Record<HookProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  codebuddy: "CodeBuddy",
   opencode: "OpenCode",
   qoder: "Qoder"
 };
@@ -178,6 +179,9 @@ export function HookInstallModal({ session, onCancel }: HookInstallModalProps) {
           {result && !result.ok && <div className="hook-install-error">{result.error}</div>}
           {result?.ok && result.providers.codex?.status === "installed" && (
             <div className="hook-install-note">{t("hooks.codexTrustNote")}</div>
+          )}
+          {result?.ok && result.providers.codebuddy?.status === "installed" && (
+            <div className="hook-install-note">{t("hooks.codebuddyTrustNote")}</div>
           )}
         </div>
         <div className="modal-footer">

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const {
   createAgentUsageService,
+  createCodeBuddyProcessTransport,
   createSshTransport,
   getProcessInvocation,
   normalizeRateLimitResponse,
@@ -114,6 +115,32 @@ describe("agent-usage-service", () => {
     });
   });
 
+  it("starts Windows CodeBuddy ACP and terminates its complete process tree", () => {
+    const child = new EventEmitter();
+    child.pid = 1234;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { writable: true, write: vi.fn(), end: vi.fn() };
+    const spawn = vi.fn(() => child);
+    const terminateProcessTree = vi.fn();
+
+    const transport = createCodeBuddyProcessTransport(
+      { type: "windows" },
+      spawn,
+      terminateProcessTree
+    );
+    transport.write("hello\n");
+    transport.close();
+
+    expect(spawn).toHaveBeenCalledWith("cmd.exe", ["/d", "/s", "/c", "codebuddy --acp"], {
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    expect(child.stdin.write).toHaveBeenCalledWith("hello\n");
+    expect(child.stdin.end).toHaveBeenCalledTimes(1);
+    expect(terminateProcessTree).toHaveBeenCalledWith(child);
+  });
+
   it("waits for initialization before requesting account rate limits", async () => {
     const transport = createProtocolTransport(rateLimitResult(36));
     await expect(runCodexRateLimitRequest(transport)).resolves.toEqual(rateLimitResult(36));
@@ -210,5 +237,17 @@ describe("agent-usage-service", () => {
     await expect(request).rejects.toThrow("exited before returning usage");
     expect(hanging.close).toHaveBeenCalled();
     await expect(service.getUsage("missing")).rejects.toThrow("Session is not running");
+  });
+
+  it("rejects CodeBuddy quota outside Windows without starting a transport", async () => {
+    const session = { id: "wsl-1", type: "wsl", wslDistro: "Ubuntu", agentProvider: "codebuddy" };
+    const transportFactory = vi.fn();
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      transportFactory
+    });
+
+    await expect(service.getUsage(session.id)).rejects.toThrow("only available for Windows");
+    expect(transportFactory).not.toHaveBeenCalled();
   });
 });

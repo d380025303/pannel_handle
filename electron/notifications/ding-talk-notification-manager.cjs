@@ -9,6 +9,7 @@ const STATUS_LABELS = {
 
 function getProviderName(provider) {
   if (provider === "codex") return "Codex";
+  if (provider === "codebuddy") return "CodeBuddy";
   if (provider === "opencode") return "OpenCode";
   if (provider === "qoder") return "Qoder";
   return "Claude";

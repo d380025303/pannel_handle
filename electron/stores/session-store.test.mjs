@@ -123,13 +123,15 @@ describe("session-store", () => {
     writeFileSync(sessionsFile, JSON.stringify([
       { id: "1", title: "Legacy", initialCommand: "claude" },
       { id: "2", title: "Agent", agentProvider: "codex", initialCommand: "pnpm install" },
-      { id: "3", title: "Invalid", agentProvider: "unknown" }
+      { id: "3", title: "CodeBuddy", agentProvider: "codebuddy" },
+      { id: "4", title: "Invalid", agentProvider: "unknown" }
     ]), "utf-8");
 
     const sessions = createStore(sessionsFile).loadLibrary();
     expect(sessions[0].agentProvider).toBeUndefined();
     expect(sessions[1]).toMatchObject({ agentProvider: "codex", initialCommand: "pnpm install" });
-    expect(sessions[2].agentProvider).toBeUndefined();
+    expect(sessions[2].agentProvider).toBe("codebuddy");
+    expect(sessions[3].agentProvider).toBeUndefined();
   });
 
   it("keeps old SSH Agent templates remote and accepts local Codex bridge templates", () => {

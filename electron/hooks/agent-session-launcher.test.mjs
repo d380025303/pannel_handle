@@ -67,6 +67,7 @@ describe("agent-session-launcher", () => {
     expect(AGENT_COMMANDS).toEqual({
       claude: "claude",
       codex: "codex",
+      codebuddy: "codebuddy",
       opencode: "opencode",
       qoder: "qoderclicn"
     });
@@ -102,6 +103,11 @@ describe("agent-session-launcher", () => {
       .toBe("codex");
   });
 
+  it("starts CodeBuddy with its canonical command", () => {
+    expect(buildAgentStartCommand({ type: "windows", shell: "cmd.exe", agentProvider: "codebuddy" }))
+      .toBe("codebuddy");
+  });
+
   it("checks and repairs a local hook before creating the terminal", async () => {
     const mocks = createMocks();
     mocks.hookConfigManager.inspect.mockReturnValue({ ok: true, providers: { claude: { status: "needs_repair" } } });
@@ -123,6 +129,15 @@ describe("agent-session-launcher", () => {
 
     await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "codex" }))
       .rejects.toThrow("codex");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
+  it("shows the official install command when CodeBuddy is missing", async () => {
+    const mocks = createMocks();
+    mocks.spawnSync.mockReturnValue({ status: 1 });
+
+    await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy" }))
+      .rejects.toThrow("npm install -g @tencent-ai/codebuddy-code");
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
 

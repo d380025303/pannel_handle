@@ -1517,6 +1517,40 @@ button.agent-usage-status[aria-expanded="true"] {
   gap: 10px;
 }
 
+.agent-usage-credit-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+}
+
+.agent-usage-credit-summary.normal span { color: var(--color-ok-text); }
+.agent-usage-credit-summary.warning span { color: var(--color-warning-text); }
+.agent-usage-credit-summary.danger span { color: var(--color-danger-text); }
+
+.agent-usage-limit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-usage-limit-group h4 {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.agent-usage-empty {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
 .agent-usage-limit {
   display: flex;
   flex-direction: column;
@@ -4753,6 +4787,11 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .debug-provider.codex {
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
+}
+
+.debug-provider.codebuddy {
   color: var(--color-info-text);
   background: var(--color-info-bg);
 }

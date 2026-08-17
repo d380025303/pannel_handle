@@ -422,7 +422,7 @@ export type ProjectSearchOptions = {
   includeIgnored?: boolean;
 };
 
-export type AgentProvider = "claude" | "codex" | "opencode" | "qoder";
+export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder";
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -479,12 +479,29 @@ export type AgentUsageLimit = {
   remainingPercent: number;
   windowDurationMins?: number;
   resetsAt?: number;
+  category?: "base" | "extra" | "bonus" | "other";
+  totalAmount?: number;
+  usedAmount?: number;
+  remainingAmount?: number;
+  unit?: "Credits";
+  expiresAt?: number;
+};
+
+export type AgentUsageCreditSummary = {
+  kind: "credits";
+  total: number;
+  used: number;
+  remaining: number;
+  usedPercent: number;
+  remainingPercent: number;
+  unit: "Credits";
 };
 
 export type AgentUsageSnapshot = {
-  provider: "codex";
+  provider: "codex" | "codebuddy";
   fetchedAt: number;
   primaryLimitId: string;
+  summary?: AgentUsageCreditSummary;
   limits: AgentUsageLimit[];
 };
 

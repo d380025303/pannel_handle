@@ -9,7 +9,7 @@ const {
 } = require("./hook-config-manager.cjs");
 const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
 
-const SSH_PROVIDERS = ["claude", "codex", "opencode", "qoder"];
+const SSH_PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder"];
 
 function normalizeRemotePath(value) {
   const remotePath = String(value || "").trim().replace(/\\/g, "/");

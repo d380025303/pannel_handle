@@ -24,6 +24,10 @@ function formatTimestamp(locale: string, timestamp: number) {
   }).format(timestamp);
 }
 
+function formatAmount(locale: string, amount: number) {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(amount);
+}
+
 function getPrimaryLimit(state: AgentUsageViewState): AgentUsageLimit | undefined {
   if (state.status !== "ready") return undefined;
   return state.snapshot.limits.find(limit => limit.id === state.snapshot.primaryLimitId)
@@ -36,6 +40,11 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const primaryLimit = useMemo(() => getPrimaryLimit(state), [state]);
+  const provider = state.status === "ready" ? state.snapshot.provider : state.status === "hidden" ? undefined : state.provider;
+  const isCodeBuddy = provider === "codebuddy";
+  const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
+    ? state.snapshot.summary
+    : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -66,24 +75,39 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
     return (
       <div className="agent-usage-status loading" role="status">
         <LoaderCircle className="spin" aria-hidden="true" />
-        <span>{t("usage.loading")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : "usage.loading")}</span>
       </div>
     );
   }
 
-  if (state.status === "error" || !primaryLimit) {
+  if (state.status === "error" || (!isCodeBuddy && !primaryLimit)) {
     return (
-      <button className="agent-usage-status error" type="button" title={t("usage.retry")} onClick={onRefresh}>
+      <button
+        className="agent-usage-status error"
+        type="button"
+        title={t(isCodeBuddy ? "usage.codebuddyRetry" : "usage.retry")}
+        onClick={onRefresh}
+      >
         <Gauge aria-hidden="true" />
-        <span>{t("usage.unavailable")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }
 
-  const primaryClass = getRemainingClass(primaryLimit.remainingPercent);
-  const resetLabel = primaryLimit.resetsAt
+  const remainingPercent = creditSummary?.remainingPercent ?? primaryLimit?.remainingPercent ?? 0;
+  const primaryClass = getRemainingClass(remainingPercent);
+  const resetLabel = primaryLimit?.resetsAt
     ? t("usage.resetsAt", { time: formatTimestamp(locale, primaryLimit.resetsAt) })
     : t("usage.resetUnavailable");
+  const triggerLabel = creditSummary
+    ? t("usage.codebuddyRemaining", { remaining: formatAmount(locale, creditSummary.remaining) })
+    : t("usage.remaining", { remaining: primaryLimit?.remainingPercent ?? 0 });
+  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : "usage.title");
+  const groupedLimits = state.status === "ready" && isCodeBuddy
+    ? (["base", "extra", "bonus", "other"] as const)
+      .map(category => ({ category, limits: state.snapshot.limits.filter(limit => limit.category === category) }))
+      .filter(group => group.limits.length > 0)
+    : [];
 
   return (
     <div className="agent-usage" ref={rootRef}>
@@ -93,18 +117,18 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
         type="button"
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`${t("usage.remaining", { remaining: primaryLimit.remainingPercent })} · ${resetLabel}`}
+        title={creditSummary ? triggerLabel : `${triggerLabel} · ${resetLabel}`}
         onClick={() => setOpen(value => !value)}
       >
         <Gauge aria-hidden="true" />
-        <span>{t("usage.remaining", { remaining: primaryLimit.remainingPercent })}</span>
+        <span>{triggerLabel}</span>
         {state.refreshing && <LoaderCircle className="spin agent-usage-refreshing" aria-label={t("usage.refreshing")} />}
       </button>
 
       {open && (
-        <div className="agent-usage-popover" role="dialog" aria-label={t("usage.title")}>
+        <div className="agent-usage-popover" role="dialog" aria-label={dialogTitle}>
           <div className="agent-usage-popover-header">
-            <strong>{t("usage.title")}</strong>
+            <strong>{dialogTitle}</strong>
             <span>
               <button type="button" title={t("usage.refresh")} aria-label={t("usage.refresh")} onClick={onRefresh} disabled={state.refreshing}>
                 <RefreshCw className={state.refreshing ? "spin" : ""} aria-hidden="true" />
@@ -115,7 +139,57 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
             </span>
           </div>
           <div className="agent-usage-limit-list">
-            {state.snapshot.limits.map(limit => (
+            {isCodeBuddy && creditSummary && (
+              <div className={`agent-usage-credit-summary ${primaryClass}`}>
+                <strong>{t("usage.codebuddyTotal")}</strong>
+                <span>{t("usage.creditRemaining", {
+                  remaining: formatAmount(locale, creditSummary.remaining),
+                  total: formatAmount(locale, creditSummary.total)
+                })}</span>
+              </div>
+            )}
+            {isCodeBuddy && groupedLimits.length === 0 && (
+              <div className="agent-usage-empty">{t("usage.noCreditResources")}</div>
+            )}
+            {isCodeBuddy ? groupedLimits.map(group => (
+              <section className="agent-usage-limit-group" key={group.category}>
+                <h4>{t(`usage.category.${group.category}`)}</h4>
+                {group.limits.map(limit => (
+                  <div className={`agent-usage-limit ${getRemainingClass(limit.remainingPercent)}`} key={limit.id}>
+                    <div className="agent-usage-limit-heading">
+                      <strong>{limit.name}</strong>
+                      <span>{t("usage.creditRemaining", {
+                        remaining: formatAmount(locale, limit.remainingAmount ?? 0),
+                        total: formatAmount(locale, limit.totalAmount ?? 0)
+                      })}</span>
+                    </div>
+                    <div
+                      className="agent-usage-progress"
+                      role="progressbar"
+                      aria-label={limit.name}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={limit.usedPercent}
+                      aria-valuetext={t("usage.creditUsed", {
+                        used: formatAmount(locale, limit.usedAmount ?? 0),
+                        total: formatAmount(locale, limit.totalAmount ?? 0)
+                      })}
+                    >
+                      <span style={{ width: `${limit.usedPercent}%` }} />
+                    </div>
+                    <div className="agent-usage-limit-meta">
+                      <span>{t("usage.creditUsed", {
+                        used: formatAmount(locale, limit.usedAmount ?? 0),
+                        total: formatAmount(locale, limit.totalAmount ?? 0)
+                      })}</span>
+                      <span>{limit.expiresAt
+                        ? t("usage.expiresAt", { time: formatTimestamp(locale, limit.expiresAt) })
+                        : t("usage.expirationUnavailable")}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+            )) : state.snapshot.limits.map(limit => (
               <div className={`agent-usage-limit ${getRemainingClass(limit.remainingPercent)}`} key={limit.id}>
                 <div className="agent-usage-limit-heading">
                   <strong>{limit.name}</strong>

@@ -3,7 +3,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentStatusPayload, AgentUsageSnapshot, TerminalSession } from "../vite-env";
-import { AGENT_USAGE_POLL_INTERVAL_MS, useAgentUsage } from "./useAgentUsage";
+import { AGENT_USAGE_POLL_INTERVAL_MS, CODEBUDDY_USAGE_POLL_INTERVAL_MS, useAgentUsage } from "./useAgentUsage";
 
 function session(id: string, agentProvider?: TerminalSession["agentProvider"]): TerminalSession {
   return {
@@ -17,9 +17,9 @@ function session(id: string, agentProvider?: TerminalSession["agentProvider"]): 
   };
 }
 
-function snapshot(id: string): AgentUsageSnapshot {
+function snapshot(id: string, provider: AgentUsageSnapshot["provider"] = "codex"): AgentUsageSnapshot {
   return {
-    provider: "codex",
+    provider,
     fetchedAt: 1,
     primaryLimitId: id,
     limits: [{ id, name: id, usedPercent: 10, remainingPercent: 90 }]
@@ -37,6 +37,15 @@ describe("useAgentUsage", () => {
     const getUsage = vi.fn();
     window.agentUsageApi = { getUsage, cancel: vi.fn() };
     const { result } = renderHook(() => useAgentUsage(session("plain")));
+    expect(result.current.state).toEqual({ status: "hidden" });
+    expect(getUsage).not.toHaveBeenCalled();
+  });
+
+  it("stays hidden for non-Windows CodeBuddy sessions", () => {
+    const getUsage = vi.fn();
+    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    const codeBuddyWsl = { ...session("codebuddy-wsl", "codebuddy"), type: "wsl" as const, wslDistro: "Ubuntu" };
+    const { result } = renderHook(() => useAgentUsage(codeBuddyWsl));
     expect(result.current.state).toEqual({ status: "hidden" });
     expect(getUsage).not.toHaveBeenCalled();
   });
@@ -95,5 +104,37 @@ describe("useAgentUsage", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(AGENT_USAGE_POLL_INTERVAL_MS));
     expect(getUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("polls an active Windows CodeBuddy session every minute", async () => {
+    vi.useFakeTimers();
+    const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
+    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    renderHook(() => useAgentUsage(session("run-1", "codebuddy")));
+    await act(async () => Promise.resolve());
+    expect(getUsage).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(CODEBUDDY_USAGE_POLL_INTERVAL_MS));
+    expect(getUsage).toHaveBeenCalledTimes(2);
+    expect(getUsage).toHaveBeenLastCalledWith("run-1", { force: false });
+  });
+
+  it("force refreshes CodeBuddy quota after its completed hook event", async () => {
+    const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
+    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    let agentStatus: AgentStatusPayload | undefined;
+    const activeSession = session("run-1", "codebuddy");
+    const { rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));
+    await waitFor(() => expect(getUsage).toHaveBeenCalledWith("run-1", { force: false }));
+
+    agentStatus = {
+      id: "run-1",
+      provider: "codebuddy",
+      status: "completed",
+      eventName: "Stop",
+      timestamp: 2
+    };
+    rerender();
+    await waitFor(() => expect(getUsage).toHaveBeenCalledWith("run-1", { force: true }));
   });
 });

@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 
-const AGENT_PROVIDERS = new Set(["claude", "codex", "opencode", "qoder"]);
+const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {

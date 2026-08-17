@@ -70,6 +70,7 @@ describe("DingTalk webhook", () => {
   it.each([
     ["claude", "Claude"],
     ["codex", "Codex"],
+    ["codebuddy", "CodeBuddy"],
     ["opencode", "OpenCode"],
     ["qoder", "Qoder"]
   ])("builds minimal markdown for %s", (provider, providerName) => {

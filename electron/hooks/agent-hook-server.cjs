@@ -7,6 +7,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   const agentSessions = {
     claude: new Map(),
     codex: new Map(),
+    codebuddy: new Map(),
     opencode: new Map(),
     qoder: new Map()
   };
@@ -397,6 +398,45 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return null;
   }
 
+  function mapCodeBuddyHookStatus(input) {
+    const eventName = getEventName(input);
+    const notificationType = input.notification_type || input.notificationType;
+
+    if (eventName === "SessionStart" && input.source === "clear") {
+      return "cleared";
+    }
+    if (eventName === "PermissionRequest") {
+      return "waiting_for_permission";
+    }
+    if (eventName === "Notification" && notificationType === "permission_prompt") {
+      return "waiting_for_permission";
+    }
+    if (eventName === "PostToolUseFailure" || eventName === "StopFailure") {
+      return "failed";
+    }
+    if (eventName === "PostToolUse" && isToolFailure(input)) {
+      return "failed";
+    }
+    if (
+      eventName === "SessionStart" ||
+      eventName === "UserPromptSubmit" ||
+      eventName === "PreToolUse" ||
+      eventName === "PostToolUse"
+    ) {
+      return "running";
+    }
+    if (eventName === "Notification" && notificationType === "idle_prompt") {
+      return "e_prompt";
+    }
+    if (eventName === "Stop") {
+      return "completed";
+    }
+    if (eventName === "SessionEnd") {
+      return "ended";
+    }
+    return null;
+  }
+
   function getHookStatus(provider, input) {
     if (provider === "codex") {
       return mapCodexHookStatus(input);
@@ -406,6 +446,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     }
     if (provider === "qoder") {
       return mapQoderHookStatus(input);
+    }
+    if (provider === "codebuddy") {
+      return mapCodeBuddyHookStatus(input);
     }
     return mapClaudeHookStatus(input);
   }
@@ -504,6 +547,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/codex-hook") {
         handleRequest("codex", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/codebuddy-hook") {
+        handleRequest("codebuddy", req, res);
         return;
       }
       if (req.method === "POST" && req.url === "/opencode-hook") {
