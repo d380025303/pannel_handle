@@ -1552,7 +1552,7 @@ button.agent-usage-status[aria-expanded="true"] {
   min-height: 0;
   overflow: auto;
   padding: 24px 28px 36px;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   background:
     radial-gradient(circle at 82% 0%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 34%),
     var(--color-bg-app);
@@ -1587,10 +1587,14 @@ button.agent-usage-status[aria-expanded="true"] {
   min-height: 34px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  color: var(--color-text-primary);
-  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  background: var(--color-bg-panel);
 }
 .token-stats-actions select { padding: 0 28px 0 10px; }
+.token-stats-actions select option {
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+}
 .token-stats-clear { display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; }
 .token-stats-clear svg { width: 14px; height: 14px; }
 .token-stats-clear.confirm { color: var(--color-danger); border-color: var(--color-danger); }
@@ -1601,7 +1605,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-stats-panel {
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-bg-elevated) 94%, transparent);
+  background: color-mix(in srgb, var(--color-bg-panel) 94%, transparent);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
 }
 .token-stats-cards article { display: flex; flex-direction: column; gap: 7px; min-height: 116px; padding: 18px; }
@@ -1623,7 +1627,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-stats-provider-bars { display: flex; flex-direction: column; gap: 22px; margin-top: 30px; }
 .token-stats-provider-bars > div > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .token-stats-provider-bars span { color: var(--color-text-muted); font-size: 12px; }
-.token-provider-bar { height: 9px; overflow: hidden; border-radius: 999px; background: var(--color-bg-input); }
+.token-provider-bar { height: 9px; overflow: hidden; border-radius: 999px; background: var(--color-bg-control); }
 .token-provider-bar span { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--color-accent); }
 .token-provider-bar.claude span { background: #d97745; }
 
@@ -1632,7 +1636,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-stats-table-heading span { color: var(--color-text-muted); font-size: 12px; }
 .token-stats-table-wrap { overflow: auto; }
 .token-stats-table-panel table { width: 100%; min-width: 1000px; border-collapse: collapse; font-size: 12px; }
-.token-stats-table-panel th { color: var(--color-text-muted); text-align: left; font-weight: 500; background: var(--color-bg-input); }
+.token-stats-table-panel th { color: var(--color-text-muted); text-align: left; font-weight: 500; background: var(--color-bg-control); }
 .token-stats-table-panel th,
 .token-stats-table-panel td { padding: 11px 14px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
 .token-stats-table-panel td:nth-child(3) { max-width: 270px; }
@@ -1644,7 +1648,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-pill { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
 .token-provider-pill.claude { color: #e08a5b; background: rgba(217, 119, 69, 0.14); }
 .token-session-status.active { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
-.token-session-status.ended { color: var(--color-text-muted); background: var(--color-bg-input); }
+.token-session-status.ended { color: var(--color-text-muted); background: var(--color-bg-control); }
 .token-stats-breakdown { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
 .token-stats-breakdown small { color: var(--color-text-muted); }
 .token-stats-empty,
