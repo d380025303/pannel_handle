@@ -3,7 +3,7 @@ const path = require("node:path");
 
 const MAX_ACTIVITY_SUMMARY_LENGTH = 500;
 
-function createAgentHookServer({ terminalManager }) {
+function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   const agentSessions = {
     claude: new Map(),
     codex: new Map(),
@@ -224,6 +224,7 @@ function createAgentHookServer({ terminalManager }) {
     for (const fieldName of [
       "hook_event_name",
       "session_id",
+      "transcript_path",
       "cwd",
       "last_assistant_message",
       "tool_name",
@@ -459,6 +460,7 @@ function createAgentHookServer({ terminalManager }) {
       activitySummary,
       ...(resolution !== undefined ? { resolution } : {})
     });
+    agentTokenStatsService?.handleHook({ provider, input, session });
     return true;
   }
 

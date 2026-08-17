@@ -161,6 +161,16 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
   cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("agentTokenStatsApi", {
+  getDashboard: (options) => ipcRenderer.invoke("agent-token-stats:get", options),
+  clear: () => ipcRenderer.invoke("agent-token-stats:clear"),
+  onChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("agent-token-stats:changed", listener);
+    return () => ipcRenderer.removeListener("agent-token-stats:changed", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("remoteAgentApi", {
   listAudit: (sessionId) => ipcRenderer.invoke("remote-agent:audit-list", { sessionId }),
   onAudit: (callback) => {

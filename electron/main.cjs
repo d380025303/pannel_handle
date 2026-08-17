@@ -21,10 +21,12 @@ const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
+const { createAgentTokenStatsService } = require("./services/agent-token-stats-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
 const { createAgentOutputHistoryStore } = require("./stores/agent-output-history-store.cjs");
+const { createAgentTokenStatsStore } = require("./stores/agent-token-stats-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
@@ -50,6 +52,8 @@ let fileWatchManager = null;
 let remoteSystemService = null;
 let remoteAgentBridgeService = null;
 let agentUsageService = null;
+let agentTokenStatsStore = null;
+let agentTokenStatsService = null;
 let sshHookTunnelService = null;
 let sshSessionRuntime = null;
 let remoteHookConfigService = null;
@@ -159,6 +163,11 @@ if (!gotSingleInstanceLock) {
       }
     });
     agentOutputHistoryStore.load();
+    agentTokenStatsStore = createAgentTokenStatsStore({
+      statsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
+      onChanged: () => windowManager.broadcast("agent-token-stats:changed", { timestamp: Date.now() })
+    });
+    agentTokenStatsStore.load();
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
     const broadcast = (channel, payload) => {
       windowManager.broadcast(channel, payload);
@@ -197,6 +206,9 @@ if (!gotSingleInstanceLock) {
         if (agentUsageService) {
           agentUsageService.disconnect(id);
         }
+        if (agentTokenStatsService) {
+          agentTokenStatsService.markEnded(id);
+        }
         if (sshHookTunnelService) {
           void sshHookTunnelService.disconnect(id);
         }
@@ -221,6 +233,11 @@ if (!gotSingleInstanceLock) {
     });
     agentUsageService = createAgentUsageService({
       terminalManager,
+      sshSessionRuntime
+    });
+    agentTokenStatsService = createAgentTokenStatsService({
+      terminalManager,
+      statsStore: agentTokenStatsStore,
       sshSessionRuntime
     });
     remoteFileService = createRemoteFileService({
@@ -256,7 +273,7 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime
     });
-    agentHookServer = createAgentHookServer({ terminalManager });
+    agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
       sessionStore,
@@ -351,6 +368,7 @@ if (!gotSingleInstanceLock) {
       fileWatchManager,
       remoteSystemService,
       agentUsageService,
+      agentTokenStatsStore,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,

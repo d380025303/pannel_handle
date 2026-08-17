@@ -1,4 +1,4 @@
-import { Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
+import { BarChart3, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { MobileAccessState } from "../../vite-env";
 
@@ -8,10 +8,11 @@ type TitleBarProps = {
   onOpenSettings: () => void;
   onOpenPicker: () => void;
   onOpenCreate: () => void;
+  onOpenStats?: () => void;
   mobileAccessState: MobileAccessState | null;
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onOpenStats }: TitleBarProps) {
   const { t } = useI18n();
 
   return (
@@ -19,6 +20,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSe
       <div className="titlebar-brand">
         <span className="titlebar-brand-label">Pannel Handle</span>
         <div className="titlebar-actions" onDoubleClick={(event) => event.stopPropagation()}>
+          <button className="titlebar-settings-btn" type="button" title={t("tokenStats.title")} aria-label={t("tokenStats.open")} onClick={() => onOpenStats?.()}><BarChart3 aria-hidden="true" /></button>
           <button
             className="titlebar-settings-btn"
             type="button"

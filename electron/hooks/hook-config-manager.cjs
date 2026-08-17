@@ -38,7 +38,8 @@ const PROVIDER_CONFIG = {
       ["PreToolUse", "*"],
       ["PermissionRequest", "*"],
       ["PostToolUse", "*"],
-      ["Stop", "*"]
+      ["Stop", "*"],
+      ["SessionEnd", "*"]
     ]
   },
   qoder: {

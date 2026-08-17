@@ -166,6 +166,46 @@ export type TranslationKey =
   | "usage.resetsAt"
   | "usage.resetUnavailable"
   | "usage.updatedAt"
+  | "tokenStats.title"
+  | "tokenStats.open"
+  | "tokenStats.description"
+  | "tokenStats.back"
+  | "tokenStats.range"
+  | "tokenStats.last7Days"
+  | "tokenStats.last30Days"
+  | "tokenStats.allTime"
+  | "tokenStats.provider"
+  | "tokenStats.allProviders"
+  | "tokenStats.clear"
+  | "tokenStats.confirmClear"
+  | "tokenStats.total"
+  | "tokenStats.sessions"
+  | "tokenStats.trackedSessions"
+  | "tokenStats.average"
+  | "tokenStats.perSession"
+  | "tokenStats.inputOutput"
+  | "tokenStats.inputOutputHint"
+  | "tokenStats.input"
+  | "tokenStats.cached"
+  | "tokenStats.output"
+  | "tokenStats.dailyTrend"
+  | "tokenStats.noTrend"
+  | "tokenStats.providerCompare"
+  | "tokenStats.sessionsUnit"
+  | "tokenStats.sessionDetails"
+  | "tokenStats.totalRecords"
+  | "tokenStats.noData"
+  | "tokenStats.noDataHint"
+  | "tokenStats.time"
+  | "tokenStats.session"
+  | "tokenStats.location"
+  | "tokenStats.model"
+  | "tokenStats.tokens"
+  | "tokenStats.status"
+  | "tokenStats.active"
+  | "tokenStats.ended"
+  | "tokenStats.previous"
+  | "tokenStats.next"
   | "terminal.exited"
   | "terminal.imagePasteFailed"
   | "composer.inputLabel"
@@ -632,6 +672,46 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetsAt": "{time} 重置",
     "usage.resetUnavailable": "重置时间未知",
     "usage.updatedAt": "更新于 {time}",
+    "tokenStats.title": "Token 统计",
+    "tokenStats.open": "打开 Token 统计",
+    "tokenStats.description": "查看 Codex 与 Claude 的会话消耗趋势和明细",
+    "tokenStats.back": "返回终端",
+    "tokenStats.range": "统计时间范围",
+    "tokenStats.last7Days": "最近 7 天",
+    "tokenStats.last30Days": "最近 30 天",
+    "tokenStats.allTime": "全部时间",
+    "tokenStats.provider": "Agent 类型",
+    "tokenStats.allProviders": "全部 Agent",
+    "tokenStats.clear": "清空统计",
+    "tokenStats.confirmClear": "再次点击确认清空",
+    "tokenStats.total": "总 Token",
+    "tokenStats.sessions": "会话数",
+    "tokenStats.trackedSessions": "已统计 Agent 会话",
+    "tokenStats.average": "平均消耗",
+    "tokenStats.perSession": "每个会话",
+    "tokenStats.inputOutput": "输入 / 输出",
+    "tokenStats.inputOutputHint": "Token 构成",
+    "tokenStats.input": "输入",
+    "tokenStats.cached": "缓存输入",
+    "tokenStats.output": "输出",
+    "tokenStats.dailyTrend": "每日 Token 趋势",
+    "tokenStats.noTrend": "暂无趋势数据",
+    "tokenStats.providerCompare": "Agent 对比",
+    "tokenStats.sessionsUnit": "个会话",
+    "tokenStats.sessionDetails": "会话明细",
+    "tokenStats.totalRecords": "共 {count} 条",
+    "tokenStats.noData": "还没有 Token 统计",
+    "tokenStats.noDataHint": "从 Pannel Handle 启动 Codex 或 Claude，完成回复后会自动记录。",
+    "tokenStats.time": "更新时间",
+    "tokenStats.session": "会话",
+    "tokenStats.location": "位置",
+    "tokenStats.model": "模型",
+    "tokenStats.tokens": "总计（输入 / 输出）",
+    "tokenStats.status": "状态",
+    "tokenStats.active": "进行中",
+    "tokenStats.ended": "已结束",
+    "tokenStats.previous": "上一页",
+    "tokenStats.next": "下一页",
     "terminal.exited": "[进程已退出，退出码 {exitCode}]",
     "terminal.imagePasteFailed": "[图片粘贴失败: {message}]",
     "composer.inputLabel": "终端输入",
@@ -1090,6 +1170,46 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetsAt": "Resets {time}",
     "usage.resetUnavailable": "Reset time unavailable",
     "usage.updatedAt": "Updated {time}",
+    "tokenStats.title": "Token statistics",
+    "tokenStats.open": "Open token statistics",
+    "tokenStats.description": "Review Codex and Claude session usage, trends, and details",
+    "tokenStats.back": "Back to terminals",
+    "tokenStats.range": "Statistics date range",
+    "tokenStats.last7Days": "Last 7 days",
+    "tokenStats.last30Days": "Last 30 days",
+    "tokenStats.allTime": "All time",
+    "tokenStats.provider": "Agent provider",
+    "tokenStats.allProviders": "All agents",
+    "tokenStats.clear": "Clear statistics",
+    "tokenStats.confirmClear": "Click again to clear",
+    "tokenStats.total": "Total tokens",
+    "tokenStats.sessions": "Sessions",
+    "tokenStats.trackedSessions": "Tracked Agent sessions",
+    "tokenStats.average": "Average usage",
+    "tokenStats.perSession": "Per session",
+    "tokenStats.inputOutput": "Input / output",
+    "tokenStats.inputOutputHint": "Token composition",
+    "tokenStats.input": "Input",
+    "tokenStats.cached": "Cached input",
+    "tokenStats.output": "Output",
+    "tokenStats.dailyTrend": "Daily token trend",
+    "tokenStats.noTrend": "No trend data yet",
+    "tokenStats.providerCompare": "Agent comparison",
+    "tokenStats.sessionsUnit": "sessions",
+    "tokenStats.sessionDetails": "Session details",
+    "tokenStats.totalRecords": "{count} records",
+    "tokenStats.noData": "No token statistics yet",
+    "tokenStats.noDataHint": "Start Codex or Claude from Pannel Handle. Usage appears after a response completes.",
+    "tokenStats.time": "Updated",
+    "tokenStats.session": "Session",
+    "tokenStats.location": "Location",
+    "tokenStats.model": "Model",
+    "tokenStats.tokens": "Total (input / output)",
+    "tokenStats.status": "Status",
+    "tokenStats.active": "Active",
+    "tokenStats.ended": "Ended",
+    "tokenStats.previous": "Previous",
+    "tokenStats.next": "Next",
     "terminal.exited": "[Process exited with code {exitCode}]",
     "terminal.imagePasteFailed": "[Image paste failed: {message}]",
     "composer.inputLabel": "Terminal input",

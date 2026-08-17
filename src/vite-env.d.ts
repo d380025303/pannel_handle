@@ -493,6 +493,51 @@ export type AgentUsageApi = {
   cancel: (sessionId: string) => void;
 };
 
+export type AgentTokenTotals = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+export type AgentTokenSessionRecord = {
+  id: string;
+  provider: "codex" | "claude";
+  agentSessionId: string;
+  panelSessionId: string;
+  templateId?: string;
+  title: string;
+  cwd: string;
+  location: "windows" | "wsl" | "ssh";
+  models: string[];
+  startedAt: number;
+  updatedAt: number;
+  endedAt: number | null;
+  status: "active" | "ended";
+  tokens: AgentTokenTotals;
+};
+
+export type AgentTokenDashboard = {
+  generatedAt: number;
+  range: "7d" | "30d" | "all";
+  provider: "all" | "codex" | "claude";
+  summary: { sessionCount: number; averageTokens: number; tokens: AgentTokenTotals };
+  dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude"; sessionCount: number; tokens: AgentTokenTotals }>;
+  sessions: AgentTokenSessionRecord[];
+  totalCount: number;
+  offset: number;
+  limit: number;
+};
+
+export type AgentTokenStatsApi = {
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  clear: () => Promise<boolean>;
+  onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
+};
+
 export type RemoteAgentAuditEvent = {
   sessionId: string;
   timestamp: number;
@@ -679,6 +724,7 @@ declare global {
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     agentUsageApi: AgentUsageApi;
+    agentTokenStatsApi: AgentTokenStatsApi;
     remoteAgentApi: RemoteAgentApi;
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;

@@ -4,6 +4,7 @@ import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
+import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
@@ -83,6 +84,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
   const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showTokenStats, setShowTokenStats] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [agentOutputHistoryMaxEntries, setAgentOutputHistoryMaxEntries] = useState(100);
@@ -455,12 +457,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={terminalSessions.activeSession?.title}
+          activeTitle={showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           onOpenSettings={() => setShowSettingsModal(true)}
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
+          onOpenStats={() => setShowTokenStats(true)}
         />
         {terminalSessions.startupError && (
           <div className="startup-error-banner" role="alert">
@@ -469,7 +472,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           </div>
         )}
 
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns }}>
+        {showTokenStats && <AgentTokenStatsDashboard onClose={() => setShowTokenStats(false)} />}
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
