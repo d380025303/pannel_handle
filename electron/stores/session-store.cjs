@@ -120,6 +120,9 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       cwd: template.cwd,
       fileRoot: typeof template.fileRoot === "string" && template.fileRoot.trim() ? template.fileRoot.trim() : undefined,
       fileSort,
+      preferredDiskMountPoint: template.type === "ssh" && typeof template.preferredDiskMountPoint === "string" && template.preferredDiskMountPoint.trim()
+        ? template.preferredDiskMountPoint.trim()
+        : undefined,
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
       agentProvider,

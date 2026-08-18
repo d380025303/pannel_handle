@@ -40,16 +40,23 @@ function createClient(outputs) {
 }
 
 describe("remote-system-service", () => {
-  it("parses Linux network, memory, and highest-use real disk metrics", () => {
+  it("parses Linux network, memory, and all real disk metrics", () => {
     expect(parseLinuxMetrics(SAMPLE)).toEqual({
       network: { receivedBytes: 3000, transmittedBytes: 1200 },
       memory: { totalBytes: 10240000, usedBytes: 6144000 },
-      disk: expect.objectContaining({
-        filesystem: "/dev/sdb1",
-        mountPoint: "/data",
-        usedPercent: 80,
-        availableBytes: 40960000
-      })
+      disks: [
+        expect.objectContaining({
+          filesystem: "/dev/sdb1",
+          mountPoint: "/data",
+          usedPercent: 80,
+          availableBytes: 40960000
+        }),
+        expect.objectContaining({
+          filesystem: "/dev/sda1",
+          mountPoint: "/",
+          usedPercent: 70
+        })
+      ]
     });
   });
 

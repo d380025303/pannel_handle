@@ -71,6 +71,7 @@ function createManager(overrides = {}) {
       title: template.title,
       shell: template.shell || "powershell.exe",
       cwd: template.cwd || (template.type === "wsl" || template.type === "ssh" ? "~" : "C:\\Users\\tester"),
+      preferredDiskMountPoint: template.preferredDiskMountPoint,
       createdAt: template.createdAt || 111,
       initialCommand: template.initialCommand,
       agentProvider: template.agentProvider,
@@ -181,6 +182,22 @@ describe("terminal-manager", () => {
     manager.closeSession(secondSession.id);
     expect(manager.listSessions()).toEqual([]);
     expect(configStore.getConfig().lastActiveSessionIds).toEqual([]);
+  });
+
+  it("persists and synchronizes the preferred SSH disk across template instances", () => {
+    const { manager, sessionStore } = createManager();
+    const first = manager.createSession({
+      title: "Server",
+      type: "ssh",
+      sshConfig: { host: "example.com" }
+    });
+    manager.launchSessions([{ id: first.templateId, title: "Server", type: "ssh", sshConfig: { host: "example.com" } }]);
+
+    manager.updateSession(first.id, { preferredDiskMountPoint: "/data" });
+
+    expect(manager.listSessions()).toHaveLength(2);
+    expect(manager.listSessions().every((session) => session.preferredDiskMountPoint === "/data")).toBe(true);
+    expect(sessionStore.updateLibrary).toHaveBeenCalledWith(first.templateId, { preferredDiskMountPoint: "/data" });
   });
 
   it("rolls back the runtime session when PTY startup fails", () => {

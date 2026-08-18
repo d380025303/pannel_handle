@@ -50,6 +50,23 @@ describe("session-store", () => {
     expect(session).toMatchObject({ cwd: "C:\\terminal", fileRoot: "C:\\repo", fileSort: { key: "modifiedAt", direction: "desc" } });
   });
 
+  it("persists the preferred disk mount point only for SSH sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", title: "SSH", type: "ssh", cwd: "/srv", sshConfig: { host: "example.com" }, preferredDiskMountPoint: " /data " },
+      { id: "2", title: "Local", type: "windows", cwd: "C:\\work", preferredDiskMountPoint: "/ignored" }
+    ]));
+
+    const sessions = createStore(sessionsFile).loadLibrary();
+    expect(sessions[0].preferredDiskMountPoint).toBe("/data");
+    expect(sessions[1].preferredDiskMountPoint).toBeUndefined();
+
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    store.updateLibrary("1", { preferredDiskMountPoint: "/backup" });
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].preferredDiskMountPoint).toBe("/backup");
+  });
+
   it("drops legacy Git directory overrides", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

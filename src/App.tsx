@@ -653,7 +653,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <div className="terminal-status-cluster">
                       <AgentTokenLiveStatus state={agentTokenLive} />
                       <AgentUsageStatus state={agentUsage.state} onRefresh={agentUsage.refresh} />
-                      <RemoteSystemStatus state={remoteSystemMetrics} />
+                      <RemoteSystemStatus
+                        state={remoteSystemMetrics}
+                        preferredDiskMountPoint={terminalSessions.activeSession?.preferredDiskMountPoint}
+                        onSelectDisk={(mountPoint) => { void terminalSessions.setActivePreferredDiskMountPoint(mountPoint); }}
+                      />
                     </div>
                   </footer>
                 )}

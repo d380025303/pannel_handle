@@ -463,6 +463,9 @@ export type TranslationKey =
   | "system.diskMissing"
   | "system.diskLabel"
   | "system.diskRemaining"
+  | "system.diskSelect"
+  | "system.diskListTitle"
+  | "system.diskUsage"
   | "system.memoryTitle"
   | "picker.libraryTitle"
   | "picker.restoreTitle"
@@ -1114,6 +1117,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskMissing": "未找到磁盘指标",
     "system.diskLabel": "磁盘 --",
     "system.diskRemaining": "余 {available}",
+    "system.diskSelect": "选择要展示的磁盘，当前为 {mountPoint}",
+    "system.diskListTitle": "全部磁盘目录",
+    "system.diskUsage": "已用 {used} / {total}，剩余 {available}",
     "system.memoryTitle": "内存：已用 {used} / {total}，{percent}",
     "picker.libraryTitle": "会话库",
     "picker.restoreTitle": "恢复会话",
@@ -1757,6 +1763,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskMissing": "No disk metrics found",
     "system.diskLabel": "Disk --",
     "system.diskRemaining": "{available} left",
+    "system.diskSelect": "Select the displayed disk, currently {mountPoint}",
+    "system.diskListTitle": "All disk mount points",
+    "system.diskUsage": "Used {used} / {total}, {available} available",
     "system.memoryTitle": "Memory: used {used} / {total}, {percent}",
     "picker.libraryTitle": "Session Library",
     "picker.restoreTitle": "Restore Sessions",

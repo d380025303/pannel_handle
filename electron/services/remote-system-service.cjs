@@ -76,7 +76,7 @@ function parseMemory(lines = []) {
   };
 }
 
-function parseDisk(lines = []) {
+function parseDisks(lines = []) {
   const disks = [];
   for (const line of lines.slice(1)) {
     const fields = line.trim().split(/\s+/);
@@ -98,7 +98,11 @@ function parseDisk(lines = []) {
       usedPercent
     });
   }
-  return disks.sort((a, b) => b.usedPercent - a.usedPercent)[0];
+  return disks.sort((a, b) => (
+    b.usedPercent - a.usedPercent
+    || a.mountPoint.localeCompare(b.mountPoint)
+    || a.filesystem.localeCompare(b.filesystem)
+  ));
 }
 
 function parseLinuxMetrics(output) {
@@ -106,7 +110,7 @@ function parseLinuxMetrics(output) {
   return {
     network: parseNetwork(sections.network),
     memory: parseMemory(sections.memory),
-    disk: parseDisk(sections.disk)
+    disks: parseDisks(sections.disk)
   };
 }
 
@@ -212,7 +216,7 @@ function createRemoteSystemService({
       sampledAt,
       network: { receivedBytesPerSecond, transmittedBytesPerSecond },
       memory: parsed.memory,
-      disk: parsed.disk
+      disks: parsed.disks
     };
   }
 

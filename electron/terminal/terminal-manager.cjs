@@ -266,6 +266,7 @@ function createTerminalManager({
       cwd: session.cwd,
       fileRoot: session.fileRoot,
       fileSort: session.fileSort,
+      preferredDiskMountPoint: session.preferredDiskMountPoint,
       createdAt: session.createdAt,
       initialCommand: session.initialCommand,
       agentProvider: session.agentProvider,
@@ -558,6 +559,7 @@ function createTerminalManager({
       cwd,
       fileRoot: options.fileRoot,
       fileSort: options.fileSort,
+      preferredDiskMountPoint: options.preferredDiskMountPoint,
       type,
       wslDistro: options.wslDistro,
       sshConfig,
@@ -621,10 +623,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -672,6 +674,18 @@ function createTerminalManager({
     if (fileSort && ["name", "modifiedAt", "size"].includes(fileSort.key)) {
       session.fileSort = { key: fileSort.key, direction: fileSort.direction === "desc" ? "desc" : "asc" };
       libraryUpdates.fileSort = session.fileSort;
+    }
+    if (typeof preferredDiskMountPoint === "string" && session.type === "ssh") {
+      const normalizedMountPoint = preferredDiskMountPoint.trim();
+      if (normalizedMountPoint) {
+        session.preferredDiskMountPoint = normalizedMountPoint;
+        libraryUpdates.preferredDiskMountPoint = normalizedMountPoint;
+        for (const [sid, runningSession] of sessions) {
+          if (templateId && sid !== id && runningSession.templateId === templateId) {
+            runningSession.preferredDiskMountPoint = normalizedMountPoint;
+          }
+        }
+      }
     }
     if (typeof quickCommands !== "undefined") {
       session.quickCommands = quickCommands;

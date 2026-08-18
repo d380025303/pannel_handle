@@ -170,6 +170,13 @@ export function useTerminalSessions() {
     await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
+  const setActivePreferredDiskMountPoint = useCallback(async (mountPoint: string) => {
+    const id = activeId;
+    if (!id || activeSession?.type !== "ssh") return;
+    await window.terminalApi.updateSession(id, { preferredDiskMountPoint: mountPoint });
+    setLibrarySessions(await window.terminalApi.loadSavedSessions());
+  }, [activeId, activeSession?.type]);
+
   const openPicker = useCallback(async () => {
     const [library, savedLaunchTemplates] = await Promise.all([
       window.terminalApi.loadSavedSessions(),
@@ -309,6 +316,7 @@ export function useTerminalSessions() {
     autoRestore,
     toggleAutoRestore,
     addQuickCommandToActiveSession,
-    removeQuickCommandFromActiveSession
+    removeQuickCommandFromActiveSession,
+    setActivePreferredDiskMountPoint
   };
 }

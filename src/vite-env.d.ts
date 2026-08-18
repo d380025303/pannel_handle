@@ -27,6 +27,7 @@ export type TerminalSession = {
   cwd: string;
   fileRoot?: string;
   fileSort?: FileSort;
+  preferredDiskMountPoint?: string;
   createdAt: number;
   initialCommand?: string;
   agentProvider?: AgentProvider;
@@ -210,6 +211,16 @@ export type FileTransferTask = {
   updatedAt: number;
 };
 
+export type RemoteDiskMetrics = {
+  filesystem: string;
+  type: string;
+  mountPoint: string;
+  usedBytes: number;
+  totalBytes: number;
+  availableBytes: number;
+  usedPercent: number;
+};
+
 export type RemoteSystemMetrics = {
   sampledAt: number;
   network: {
@@ -220,15 +231,7 @@ export type RemoteSystemMetrics = {
     usedBytes: number;
     totalBytes: number;
   };
-  disk?: {
-    filesystem: string;
-    type: string;
-    mountPoint: string;
-    usedBytes: number;
-    totalBytes: number;
-    availableBytes: number;
-    usedPercent: number;
-  };
+  disks: RemoteDiskMetrics[];
 };
 
 export type GitStatusEntry = {
@@ -655,7 +658,7 @@ export type RemoteAgentApi = {
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;

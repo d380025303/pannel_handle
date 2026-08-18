@@ -213,8 +213,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) => {
-    return terminalManager.updateSession(id, { title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
+  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) => {
+    return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {
