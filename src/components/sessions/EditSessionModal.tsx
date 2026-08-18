@@ -83,7 +83,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const handleAddCommand = () => {
     setQuickCommands((prev) => [
       ...prev,
-      { id: generateId(), command: "", mode: "one-time" }
+      { id: generateId(), command: "", mode: "auto-enter" }
     ]);
   };
 
