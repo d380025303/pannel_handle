@@ -1,8 +1,9 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentConversationSnapshot } from "../../vite-env";
+import { useI18n } from "../../i18n";
 
 function providerName(provider?: "codex" | "codebuddy") {
   return provider === "codebuddy" ? "CodeBuddy" : "Codex";
@@ -59,8 +60,8 @@ function highlightChildren(
   );
 }
 
-export function AgentConversationOverlay() {
-  const [snapshot, setSnapshot] = useState<AgentConversationSnapshot | null>(null);
+export function AgentConversationPanel({ snapshot }: { snapshot: AgentConversationSnapshot | null }) {
+  const { locale } = useI18n();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
@@ -70,30 +71,6 @@ export function AgentConversationOverlay() {
   const followBottomRef = useRef(true);
 
   useEffect(() => {
-    let disposed = false;
-    document.documentElement.classList.add("agent-conversation-window-root");
-    document.body.classList.add("agent-conversation-window-body");
-    void window.agentConversationApi.getSnapshot().then(value => {
-      if (!disposed) setSnapshot(value);
-    });
-    const removeListener = window.agentConversationApi.onSnapshot(value => {
-      if (!disposed) setSnapshot(value);
-    });
-    return () => {
-      disposed = true;
-      removeListener();
-      document.documentElement.classList.remove("agent-conversation-window-root");
-      document.body.classList.remove("agent-conversation-window-body");
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!snapshot) return;
-    document.documentElement.dataset.theme = snapshot.themeId;
-    document.documentElement.lang = snapshot.locale;
-  }, [snapshot]);
-
-  useEffect(() => {
     if (!followBottomRef.current || searchQuery.trim()) return;
     requestAnimationFrame(() => {
       const element = scrollRef.current;
@@ -101,7 +78,6 @@ export function AgentConversationOverlay() {
     });
   }, [searchQuery, snapshot?.turn?.messages.length]);
 
-  const locale = snapshot?.locale || "zh-CN";
   const isEnglish = locale === "en-US";
   const turn = snapshot?.turn;
   const normalizedSearchQuery = searchQuery.trim();
@@ -159,12 +135,12 @@ export function AgentConversationOverlay() {
       : (isEnglish ? "Running" : "进行中");
 
   return (
-    <section className={`agent-conversation-overlay${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
+    <section className={`agent-conversation-panel${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
       <header className="agent-conversation-header">
         <div className="agent-conversation-heading">
-          <span className={`agent-conversation-provider ${turn?.provider || "codex"}`}>{providerName(turn?.provider)}</span>
+          {turn && <span className={`agent-conversation-provider ${turn.provider}`}>{providerName(turn.provider)}</span>}
           <span className="agent-conversation-title">{turn?.sessionTitle || (isEnglish ? "Agent conversation" : "Agent 对话")}</span>
-          <span className={`agent-conversation-status ${turn?.status || "running"}`}>{statusText}</span>
+          {turn && <span className={`agent-conversation-status ${turn.status}`}>{statusText}</span>}
         </div>
         <button
           className="agent-conversation-search-toggle"
@@ -175,18 +151,6 @@ export function AgentConversationOverlay() {
         >
           <Search aria-hidden="true" />
         </button>
-        <button
-          className="agent-conversation-focus"
-          type="button"
-          title={isEnglish ? "Return to this session" : "返回当前会话"}
-          aria-label={isEnglish ? "Return to this session" : "返回当前会话"}
-          onClick={() => window.agentConversationApi.focusSession()}
-        >
-          <ExternalLink aria-hidden="true" />
-        </button>
-        <button className="agent-conversation-close" type="button" aria-label={isEnglish ? "Close" : "关闭"} onClick={() => window.agentConversationApi.hide()}>
-          <X aria-hidden="true" />
-        </button>
       </header>
 
       {searchOpen && (
@@ -196,7 +160,7 @@ export function AgentConversationOverlay() {
             ref={searchInputRef}
             type="search"
             value={searchQuery}
-            aria-label={isEnglish ? "Search overlay content" : "搜索浮窗内容"}
+            aria-label={isEnglish ? "Search conversation content" : "搜索对话内容"}
             placeholder={isEnglish ? "Search" : "搜索内容"}
             onChange={(event) => {
               setSearchQuery(event.target.value);
@@ -226,7 +190,11 @@ export function AgentConversationOverlay() {
           followBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
         }}
       >
-        {!turn?.supported ? (
+        {!turn ? (
+          <div className="agent-conversation-empty">
+            {isEnglish ? "No Agent conversation for this session yet." : "当前会话暂无 Agent 对话。"}
+          </div>
+        ) : !turn.supported ? (
           <div className="agent-conversation-empty">
             <strong>{isEnglish ? "Remote live replies are unavailable" : "纯远程 SSH 暂不支持实时回复"}</strong>
             <span>{isEnglish ? "Open the terminal session to view this Agent response." : "请返回终端会话查看本轮 Agent 回复。"}</span>

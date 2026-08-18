@@ -30,7 +30,6 @@ export type TranslationKey =
   | "settings.generalTitle"
   | "settings.autoRestore"
   | "settings.debugMode"
-  | "settings.agentConversationOverlay"
   | "settings.theme"
   | "settings.language"
   | "settings.close"
@@ -342,6 +341,27 @@ export type TranslationKey =
   | "tabs.terminal"
   | "tabs.workspace"
   | "tabs.debug"
+  | "tabs.conversation"
+  | "conversation.unread"
+  | "tabs.idea"
+  | "idea.subtitle"
+  | "idea.refresh"
+  | "idea.notConnected"
+  | "idea.installHint"
+  | "idea.noProjects"
+  | "idea.noConfigurations"
+  | "idea.temporary"
+  | "idea.run"
+  | "idea.debug"
+  | "idea.stop"
+  | "idea.stopAll"
+  | "idea.restart"
+  | "idea.all"
+  | "idea.parallelBlocked"
+  | "idea.status.starting"
+  | "idea.status.running"
+  | "idea.status.stopping"
+  | "idea.status.terminated"
   | "debug.eventsCount"
   | "debug.clearEvents"
   | "debug.providerFilter"
@@ -656,7 +676,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
     "settings.debugMode": "Debug 模式",
-    "settings.agentConversationOverlay": "显示 Agent 对话浮窗",
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
@@ -968,6 +987,27 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "终端",
     "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
+    "tabs.conversation": "对话",
+    "conversation.unread": "有新的 Agent 回复",
+    "tabs.idea": "IDEA",
+    "idea.subtitle": "运行与调试配置",
+    "idea.refresh": "刷新 IDEA 状态",
+    "idea.notConnected": "未连接到 IDEA",
+    "idea.installHint": "请构建并通过“从磁盘安装插件”安装 Pannel Handle Bridge，然后重启 IDEA。插件 ZIP 位于：",
+    "idea.noProjects": "当前 IDEA 中没有已打开的项目。",
+    "idea.noConfigurations": "项目中没有可运行的配置。",
+    "idea.temporary": "临时",
+    "idea.run": "运行",
+    "idea.debug": "调试",
+    "idea.stop": "停止",
+    "idea.stopAll": "全部停止",
+    "idea.restart": "重启",
+    "idea.all": "全部",
+    "idea.parallelBlocked": "此配置不允许并行运行，请先停止或重启现有实例。",
+    "idea.status.starting": "启动中",
+    "idea.status.running": "运行中",
+    "idea.status.stopping": "停止中",
+    "idea.status.terminated": "已结束",
     "debug.eventsCount": "{count} 个 hook 事件",
     "debug.clearEvents": "清除事件",
     "debug.providerFilter": "Provider 过滤",
@@ -1274,7 +1314,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
     "settings.debugMode": "Debug mode",
-    "settings.agentConversationOverlay": "Show Agent conversation overlay",
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",
@@ -1586,6 +1625,27 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "Terminal",
     "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
+    "tabs.conversation": "Conversation",
+    "conversation.unread": "New Agent reply",
+    "tabs.idea": "IDEA",
+    "idea.subtitle": "Run and debug configurations",
+    "idea.refresh": "Refresh IDEA state",
+    "idea.notConnected": "IDEA is not connected",
+    "idea.installHint": "Build and install Pannel Handle Bridge using Install Plugin from Disk, then restart IDEA. The plugin ZIP is in:",
+    "idea.noProjects": "No projects are open in this IDEA instance.",
+    "idea.noConfigurations": "This project has no runnable configurations.",
+    "idea.temporary": "Temporary",
+    "idea.run": "Run",
+    "idea.debug": "Debug",
+    "idea.stop": "Stop",
+    "idea.stopAll": "Stop all",
+    "idea.restart": "Restart",
+    "idea.all": "All",
+    "idea.parallelBlocked": "This configuration does not allow parallel execution. Stop or restart the existing instance first.",
+    "idea.status.starting": "Starting",
+    "idea.status.running": "Running",
+    "idea.status.stopping": "Stopping",
+    "idea.status.terminated": "Terminated",
     "debug.eventsCount": "{count} hook events",
     "debug.clearEvents": "Clear events",
     "debug.providerFilter": "Provider filter",

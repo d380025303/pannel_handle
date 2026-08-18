@@ -4,27 +4,12 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
-const DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED = true;
-const AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION = 2;
 function normalizeThemeId(themeId) {
   return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
 }
 
 function normalizeLocale(locale) {
   return VALID_LOCALES.has(locale) ? locale : DEFAULT_LOCALE;
-}
-
-function normalizeOverlayBounds(bounds) {
-  if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) return undefined;
-  const values = [bounds.x, bounds.y, bounds.width, bounds.height];
-  if (!values.every(Number.isFinite)) return undefined;
-  if (bounds.width < 320 || bounds.height < 220 || bounds.width > 1600 || bounds.height > 1200) return undefined;
-  return {
-    x: Math.round(bounds.x),
-    y: Math.round(bounds.y),
-    width: Math.round(bounds.width),
-    height: Math.round(bounds.height)
-  };
 }
 
 function createConfigStore({ configFile }) {
@@ -34,10 +19,7 @@ function createConfigStore({ configFile }) {
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
-    rightToolsWidth: 380,
-    agentConversationOverlayEnabled: DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
-    agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
-    agentConversationOverlayBounds: undefined
+    rightToolsWidth: 380
   };
 
   function serializeConfig() {
@@ -47,10 +29,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
       locale: config.locale,
-      rightToolsWidth: config.rightToolsWidth,
-      agentConversationOverlayEnabled: config.agentConversationOverlayEnabled,
-      agentConversationOverlayLayoutVersion: config.agentConversationOverlayLayoutVersion,
-      ...(config.agentConversationOverlayBounds ? { agentConversationOverlayBounds: config.agentConversationOverlayBounds } : {})
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -59,7 +38,6 @@ function createConfigStore({ configFile }) {
       const data = fs.readFileSync(configFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const overlayLayoutNeedsMigration = parsed.agentConversationOverlayLayoutVersion !== AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION;
         config = {
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
@@ -70,15 +48,8 @@ function createConfigStore({ configFile }) {
           locale: normalizeLocale(parsed.locale),
           rightToolsWidth: typeof parsed.rightToolsWidth === "number"
             && parsed.rightToolsWidth >= 280 && parsed.rightToolsWidth <= 600
-            ? parsed.rightToolsWidth : 380,
-          agentConversationOverlayEnabled: typeof parsed.agentConversationOverlayEnabled === "boolean"
-            ? parsed.agentConversationOverlayEnabled : DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
-          agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
-          agentConversationOverlayBounds: overlayLayoutNeedsMigration
-            ? undefined
-            : normalizeOverlayBounds(parsed.agentConversationOverlayBounds)
+            ? parsed.rightToolsWidth : 380
         };
-        if (overlayLayoutNeedsMigration) saveConfig();
       }
     } catch (err) {
       if (err.code === "ENOENT") return;
@@ -104,9 +75,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
       locale: config.locale,
-      rightToolsWidth: config.rightToolsWidth,
-      agentConversationOverlayEnabled: config.agentConversationOverlayEnabled,
-      ...(config.agentConversationOverlayBounds ? { agentConversationOverlayBounds: { ...config.agentConversationOverlayBounds } } : {})
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -131,13 +100,6 @@ function createConfigStore({ configFile }) {
         && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
         config.rightToolsWidth = partial.rightToolsWidth;
       }
-      if (typeof partial.agentConversationOverlayEnabled === "boolean") {
-        config.agentConversationOverlayEnabled = partial.agentConversationOverlayEnabled;
-      }
-      if (partial.agentConversationOverlayBounds !== undefined) {
-        const bounds = normalizeOverlayBounds(partial.agentConversationOverlayBounds);
-        if (bounds) config.agentConversationOverlayBounds = bounds;
-      }
     }
     saveConfig();
   }
@@ -155,10 +117,7 @@ module.exports = {
   VALID_THEME_IDS,
   DEFAULT_LOCALE,
   VALID_LOCALES,
-  DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
-  AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
   createConfigStore,
   normalizeThemeId,
-  normalizeLocale,
-  normalizeOverlayBounds
+  normalizeLocale
 };

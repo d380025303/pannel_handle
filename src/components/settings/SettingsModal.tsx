@@ -8,13 +8,11 @@ import { MobileAccessSettings } from "./MobileAccessSettings";
 type SettingsModalProps = {
   autoRestore: boolean;
   debugMode: boolean;
-  agentConversationOverlayEnabled: boolean;
   themeId: ThemeId;
   locale: Locale;
   themes: AppTheme[];
   onToggleAutoRestore: () => void;
   onToggleDebugMode: () => void;
-  onToggleAgentConversationOverlay: () => void;
   onThemeChange: (themeId: ThemeId) => void;
   onLocaleChange: (locale: Locale) => void;
   onCancel: () => void;
@@ -23,13 +21,11 @@ type SettingsModalProps = {
 export function SettingsModal({
   autoRestore,
   debugMode,
-  agentConversationOverlayEnabled,
   themeId,
   locale,
   themes,
   onToggleAutoRestore,
   onToggleDebugMode,
-  onToggleAgentConversationOverlay,
   onThemeChange,
   onLocaleChange,
   onCancel
@@ -172,16 +168,6 @@ export function SettingsModal({
                   />
                   <span className="auto-restore-track" />
                   <span className="auto-restore-text">{t("settings.debugMode")}</span>
-                </label>
-                <label className="auto-restore-label">
-                  <input
-                    type="checkbox"
-                    className="auto-restore-checkbox"
-                    checked={agentConversationOverlayEnabled}
-                    onChange={onToggleAgentConversationOverlay}
-                  />
-                  <span className="auto-restore-track" />
-                  <span className="auto-restore-text">{t("settings.agentConversationOverlay")}</span>
                 </label>
                 <div className="settings-field">
                   <span className="modal-label">{t("settings.theme")}</span>

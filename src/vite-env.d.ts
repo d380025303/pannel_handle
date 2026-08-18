@@ -81,8 +81,6 @@ export type AppConfig = {
   themeId: ThemeId;
   locale: Locale;
   rightToolsWidth: number;
-  agentConversationOverlayEnabled: boolean;
-  agentConversationOverlayBounds?: { x: number; y: number; width: number; height: number };
 };
 
 export type MobileAccessInterface = { name: string; address: string };
@@ -494,9 +492,6 @@ export type AgentConversationTurn = {
 };
 
 export type AgentConversationSnapshot = {
-  enabled: boolean;
-  themeId: ThemeId;
-  locale: Locale;
   activeSessionId: string | null;
   turn: AgentConversationTurn | null;
 };
@@ -504,8 +499,6 @@ export type AgentConversationSnapshot = {
 export type AgentConversationApi = {
   setActiveSession: (sessionId?: string) => void;
   getSnapshot: () => Promise<AgentConversationSnapshot>;
-  hide: () => void;
-  focusSession: () => void;
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   onSnapshot: (callback: (snapshot: AgentConversationSnapshot) => void) => () => void;
 };
@@ -913,6 +906,69 @@ export type DingTalkApi = {
   test: () => Promise<DingTalkTestResult>;
 };
 
+export type IdeaExecutionMode = "run" | "debug";
+export type IdeaExecutionStatus = "starting" | "running" | "stopping" | "terminated";
+export type IdeaBridgeConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
+
+export type IdeaExecutionInstance = {
+  id: string;
+  executionId: number;
+  name: string;
+  mode: IdeaExecutionMode;
+  status: IdeaExecutionStatus;
+  startedAt: number;
+};
+
+export type IdeaRunConfiguration = {
+  id: string;
+  name: string;
+  type: string;
+  folderName?: string;
+  temporary: boolean;
+  allowParallel: boolean;
+  supportsRun: boolean;
+  supportsDebug: boolean;
+  instances: IdeaExecutionInstance[];
+};
+
+export type IdeaProject = {
+  id: string;
+  name: string;
+  path: string;
+  configurations: IdeaRunConfiguration[];
+};
+
+export type IdeaBridgeConnection = {
+  bridgeId: string;
+  pid: number;
+  productName: string;
+  productVersion: string;
+  buildNumber: string;
+  status: IdeaBridgeConnectionStatus;
+  projects: IdeaProject[];
+  error?: string;
+};
+
+export type IdeaBridgeSnapshot = {
+  protocolVersion: number;
+  connections: IdeaBridgeConnection[];
+  updatedAt: number;
+};
+
+export type IdeaBridgeOperationResult = {
+  accepted: boolean;
+  count?: number;
+};
+
+export type IdeaBridgeApi = {
+  getSnapshot: () => Promise<IdeaBridgeSnapshot>;
+  start: (bridgeId: string, projectId: string, configurationId: string, mode: IdeaExecutionMode) => Promise<IdeaBridgeOperationResult>;
+  stop: (bridgeId: string, instanceId: string) => Promise<IdeaBridgeOperationResult>;
+  stopAll: (bridgeId: string, projectId: string, configurationId: string) => Promise<IdeaBridgeOperationResult>;
+  restart: (bridgeId: string, instanceId: string) => Promise<IdeaBridgeOperationResult>;
+  onChanged: (callback: (snapshot: IdeaBridgeSnapshot) => void) => () => void;
+};
+
 declare global {
   interface Window {
     terminalApi: TerminalApi;
@@ -932,6 +988,7 @@ declare global {
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;
+    ideaBridgeApi: IdeaBridgeApi;
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
     windowApi: WindowApi;

@@ -69,7 +69,14 @@ contextBridge.exposeInMainWorld("terminalApi", {
 });
 
 contextBridge.exposeInMainWorld("agentConversationApi", {
-  setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId)
+  setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId),
+  getSnapshot: () => ipcRenderer.invoke("agent-conversation:get-snapshot"),
+  openExternal: (url) => ipcRenderer.invoke("external-link:open", url),
+  onSnapshot: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on("agent-conversation:snapshot", listener);
+    return () => ipcRenderer.removeListener("agent-conversation:snapshot", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("launchTemplateApi", {
@@ -268,6 +275,19 @@ contextBridge.exposeInMainWorld("projectSearchApi", {
   searchFiles: (sessionId, query, rootPath, options) => ipcRenderer.invoke("project-search:files", { sessionId, query, rootPath, options }),
   searchText: (sessionId, query, requestId, rootPath, options) => ipcRenderer.invoke("project-search:text", { sessionId, query, requestId, rootPath, options }),
   cancelTextSearch: (sessionId, requestId) => ipcRenderer.invoke("project-search:cancel-text", { sessionId, requestId })
+});
+
+contextBridge.exposeInMainWorld("ideaBridgeApi", {
+  getSnapshot: () => ipcRenderer.invoke("idea-bridge:snapshot"),
+  start: (bridgeId, projectId, configurationId, mode) => ipcRenderer.invoke("idea-bridge:start", { bridgeId, projectId, configurationId, mode }),
+  stop: (bridgeId, instanceId) => ipcRenderer.invoke("idea-bridge:stop", { bridgeId, instanceId }),
+  stopAll: (bridgeId, projectId, configurationId) => ipcRenderer.invoke("idea-bridge:stop-all", { bridgeId, projectId, configurationId }),
+  restart: (bridgeId, instanceId) => ipcRenderer.invoke("idea-bridge:restart", { bridgeId, instanceId }),
+  onChanged: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on("idea-bridge:changed", listener);
+    return () => ipcRenderer.removeListener("idea-bridge:changed", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("windowApi", {

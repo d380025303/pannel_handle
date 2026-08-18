@@ -3795,6 +3795,15 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-danger-bg);
 }
 
+.right-tool-unread {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
 .git-diff-overlay {
   position: fixed;
   inset: 0;
@@ -5969,45 +5978,30 @@ button.agent-usage-status[aria-expanded="true"] {
   .mcp-workspace { grid-template-columns: minmax(200px, 38%) minmax(0, 1fr); padding: 10px 14px 14px; }
   .mcp-form-grid { grid-template-columns: 1fr; }
 }
-html.agent-conversation-window-root,
-html.agent-conversation-window-root body,
-html.agent-conversation-window-root #root,
-.agent-conversation-window-body {
-  margin: 0;
-  overflow: hidden;
-  background: transparent;
-}
-
-.agent-conversation-overlay {
+.agent-conversation-panel {
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-bg-panel) 80%, transparent);
-  border: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
   box-sizing: border-box;
 }
 
-.agent-conversation-overlay.searching {
+.agent-conversation-panel.searching {
   grid-template-rows: 42px 36px minmax(0, 1fr);
 }
 
 .agent-conversation-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, 32px);
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
   gap: 8px;
   padding: 0 5px 0 10px;
   border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-titlebar) 80%, transparent);
-  -webkit-app-region: drag;
-}
-
-.agent-conversation-focus,
-.agent-conversation-search-toggle,
-.agent-conversation-close {
-  -webkit-app-region: no-drag;
+  background: var(--color-bg-titlebar);
 }
 
 .agent-conversation-heading {
@@ -6055,9 +6049,7 @@ html.agent-conversation-window-root #root,
   color: var(--color-warning-text);
 }
 
-.agent-conversation-focus,
-.agent-conversation-search-toggle,
-.agent-conversation-close {
+.agent-conversation-search-toggle {
   display: grid;
   place-items: center;
   width: 28px;
@@ -6070,16 +6062,12 @@ html.agent-conversation-window-root #root,
   cursor: pointer;
 }
 
-.agent-conversation-focus:hover,
-.agent-conversation-search-toggle:hover,
-.agent-conversation-close:hover {
+.agent-conversation-search-toggle:hover {
   color: var(--color-text);
   background: var(--color-bg-hover);
 }
 
-.agent-conversation-focus svg,
-.agent-conversation-search-toggle svg,
-.agent-conversation-close svg {
+.agent-conversation-search-toggle svg {
   width: 15px;
   height: 15px;
 }
@@ -6091,9 +6079,8 @@ html.agent-conversation-window-root #root,
   gap: 4px;
   padding: 4px 6px 4px 10px;
   color: var(--color-text-muted);
-  background: color-mix(in srgb, var(--color-bg-titlebar) 88%, transparent);
+  background: var(--color-bg-titlebar);
   border-bottom: 1px solid var(--color-border);
-  -webkit-app-region: no-drag;
 }
 
 .agent-conversation-search > svg {
@@ -6237,4 +6224,240 @@ html.agent-conversation-window-root #root,
   color: var(--color-text-muted);
   text-align: center;
   font-size: 12px;
+}
+.idea-run-panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+}
+
+.idea-panel-header,
+.idea-connection-header,
+.idea-project-header,
+.idea-configuration-header,
+.idea-instance-row {
+  display: flex;
+  align-items: center;
+}
+
+.idea-panel-header {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.idea-panel-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.idea-panel-header span,
+.idea-connection-header span,
+.idea-project-header span,
+.idea-configuration-title span,
+.idea-instance-row > div span {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.idea-panel-header button,
+.idea-configuration-actions button,
+.idea-instance-row > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  cursor: pointer;
+}
+
+.idea-panel-header button:hover:not(:disabled),
+.idea-configuration-actions button:hover:not(:disabled),
+.idea-instance-row > button:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.idea-panel-header button:disabled,
+.idea-configuration-actions button:disabled,
+.idea-instance-row > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.idea-panel-header svg,
+.idea-configuration-actions svg,
+.idea-instance-row svg {
+  width: 14px;
+  height: 14px;
+}
+
+.idea-configuration-actions .danger:hover:not(:disabled),
+.idea-instance-row > .danger:hover:not(:disabled) {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.idea-connections {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.idea-connection {
+  margin-bottom: 12px;
+}
+
+.idea-connection-header {
+  gap: 8px;
+  padding: 4px 2px 9px;
+}
+
+.idea-connection-header > div,
+.idea-project-header,
+.idea-configuration-title,
+.idea-instance-row > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.idea-connection-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-text-subtle);
+}
+
+.idea-connection-dot.connected { background: var(--color-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 15%, transparent); }
+.idea-connection-dot.connecting { background: var(--color-warning-text); }
+.idea-connection-dot.error { background: var(--color-danger); }
+
+.idea-project {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-control);
+}
+
+.idea-project-header {
+  display: block;
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.idea-project-header span,
+.idea-configuration-title strong,
+.idea-instance-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idea-configuration-card + .idea-configuration-card {
+  border-top: 1px solid var(--color-border);
+}
+
+.idea-configuration-header {
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.idea-configuration-title strong,
+.idea-instance-row strong {
+  display: block;
+  font-size: 12px;
+}
+
+.idea-configuration-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.idea-instance-list {
+  padding: 0 8px 8px;
+}
+
+.idea-instance-row {
+  gap: 7px;
+  min-height: 42px;
+  padding: 5px 4px 5px 7px;
+  border-radius: 6px;
+  background: var(--color-bg-panel);
+}
+
+.idea-instance-row + .idea-instance-row {
+  margin-top: 4px;
+}
+
+.idea-instance-mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-success);
+}
+
+.idea-instance-mode.debug { color: var(--color-accent); }
+
+.idea-panel-empty,
+.idea-project-empty {
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.idea-panel-empty {
+  margin: auto;
+  max-width: 290px;
+  padding: 24px 18px;
+}
+
+.idea-panel-empty > svg {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+  color: var(--color-text-subtle);
+}
+
+.idea-panel-empty strong { display: block; }
+.idea-panel-empty p { margin: 7px 0; font-size: 12px; line-height: 1.5; }
+.idea-panel-empty code { font-size: 11px; user-select: text; }
+.idea-project-empty { padding: 14px 10px; font-size: 12px; }
+
+.idea-panel-error,
+.idea-connection-error {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.idea-panel-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 10px 0;
+  padding: 8px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.idea-panel-error svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.idea-connection-error { margin-bottom: 8px; padding: 7px 9px; border-radius: 6px; font-size: 11px; }
+
+.idea-panel-header .spin {
+  animation: idea-spin 900ms linear infinite;
+}
+
+@keyframes idea-spin {
+  to { transform: rotate(360deg); }
 }

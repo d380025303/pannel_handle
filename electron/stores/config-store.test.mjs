@@ -5,10 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const {
-  AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
-  createConfigStore
-} = require("./config-store.cjs");
+const { createConfigStore } = require("./config-store.cjs");
 
 const tempDirs = [];
 
@@ -36,8 +33,7 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
-      rightToolsWidth: 380,
-      agentConversationOverlayEnabled: true
+      rightToolsWidth: 380
     });
   });
 
@@ -97,50 +93,25 @@ describe("config-store", () => {
     expect(saved.rightToolsWidth).toBe(320);
   });
 
-  it("persists the Agent conversation overlay preference and valid bounds", () => {
-    const configFile = createTempConfigPath();
-    const store = createConfigStore({ configFile });
-    store.loadConfig();
-    store.updateConfig({
-      agentConversationOverlayEnabled: false,
-      agentConversationOverlayBounds: { x: 100, y: 80, width: 460, height: 380 }
-    });
-    expect(store.getConfig()).toMatchObject({
-      agentConversationOverlayEnabled: false,
-      agentConversationOverlayBounds: { x: 100, y: 80, width: 460, height: 380 }
-    });
-    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-    expect(saved.agentConversationOverlayEnabled).toBe(false);
-    expect(saved.agentConversationOverlayBounds).toEqual({ x: 100, y: 80, width: 460, height: 380 });
-    expect(saved.agentConversationOverlayLayoutVersion).toBe(AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION);
-  });
-
-  it("resets every saved overlay geometry once when migrating the portrait layout", () => {
+  it("ignores retired overlay settings and drops them on the next save", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({
-      agentConversationOverlayBounds: { x: 260, y: 140, width: 900, height: 500 }
-    }), "utf-8");
-    const store = createConfigStore({ configFile });
-
-    store.loadConfig();
-
-    expect(store.getConfig().agentConversationOverlayBounds).toBeUndefined();
-    const migrated = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-    expect(migrated.agentConversationOverlayBounds).toBeUndefined();
-    expect(migrated.agentConversationOverlayLayoutVersion).toBe(AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION);
-  });
-
-  it("restores custom overlay geometry after the portrait layout migration", () => {
-    const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({
-      agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
+      agentConversationOverlayEnabled: false,
+      agentConversationOverlayLayoutVersion: 2,
       agentConversationOverlayBounds: { x: 260, y: 140, width: 360, height: 760 }
     }), "utf-8");
     const store = createConfigStore({ configFile });
 
     store.loadConfig();
+    expect(store.getConfig()).not.toHaveProperty("agentConversationOverlayEnabled");
+    expect(store.getConfig()).not.toHaveProperty("agentConversationOverlayBounds");
 
-    expect(store.getConfig().agentConversationOverlayBounds).toEqual({ x: 260, y: 140, width: 360, height: 760 });
+    store.updateConfig({ debugMode: true });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+
+    expect(saved).not.toHaveProperty("agentConversationOverlayEnabled");
+    expect(saved).not.toHaveProperty("agentConversationOverlayLayoutVersion");
+    expect(saved).not.toHaveProperty("agentConversationOverlayBounds");
   });
 
   it("falls back to default rightToolsWidth when an out-of-range value is loaded", () => {
@@ -180,8 +151,7 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",
-      rightToolsWidth: 380,
-      agentConversationOverlayEnabled: true
+      rightToolsWidth: 380
     });
   });
 });

@@ -18,6 +18,7 @@
     "build:desktop": "tsc && vite build",
     "build:mobile": "pnpm --filter pannel-handle-mobile build",
     "mobile:check": "node scripts/validate-mobile-build.cjs",
+    "idea:plugin:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-idea-plugin.ps1",
     "dist:dir": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && pnpm mobile:check && electron-builder --dir",
     "dist:portable": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && pnpm mobile:check && electron-builder"
   },

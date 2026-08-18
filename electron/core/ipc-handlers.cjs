@@ -42,7 +42,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationOverlayManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService, ideaBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -233,6 +233,26 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
   ipcMain.handle("remote-agent:approval-list", () => remoteAgentBridgeService.listPendingApprovals());
   ipcMain.handle("remote-agent:approval-resolve", (_event, { id, decision }) => remoteAgentBridgeService.resolveApproval(id, decision));
+
+  const ideaId = (value, name) => {
+    const id = String(value || "").trim();
+    if (!id || id.length > 512) throw new Error(`${name} is required.`);
+    return id;
+  };
+  ipcMain.handle("idea-bridge:snapshot", () => ideaBridgeService.getSnapshot());
+  ipcMain.handle("idea-bridge:start", (_event, { bridgeId, projectId, configurationId, mode }) => {
+    if (mode !== "run" && mode !== "debug") throw new Error("IDEA execution mode must be run or debug.");
+    return ideaBridgeService.startConfiguration(ideaId(bridgeId, "bridgeId"), ideaId(projectId, "projectId"), ideaId(configurationId, "configurationId"), mode);
+  });
+  ipcMain.handle("idea-bridge:stop", (_event, { bridgeId, instanceId }) => {
+    return ideaBridgeService.stopExecution(ideaId(bridgeId, "bridgeId"), ideaId(instanceId, "instanceId"));
+  });
+  ipcMain.handle("idea-bridge:stop-all", (_event, { bridgeId, projectId, configurationId }) => {
+    return ideaBridgeService.stopAll(ideaId(bridgeId, "bridgeId"), ideaId(projectId, "projectId"), ideaId(configurationId, "configurationId"));
+  });
+  ipcMain.handle("idea-bridge:restart", (_event, { bridgeId, instanceId }) => {
+    return ideaBridgeService.restartExecution(ideaId(bridgeId, "bridgeId"), ideaId(instanceId, "instanceId"));
+  });
 
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     if (typeof text !== "string" || text.length === 0) {
@@ -612,16 +632,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
     }
-    if (partial && typeof partial.agentConversationOverlayEnabled === "boolean") {
-      updates.agentConversationOverlayEnabled = partial.agentConversationOverlayEnabled;
-    }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);
-      if (typeof updates.agentConversationOverlayEnabled === "boolean") {
-        agentConversationOverlayManager.setEnabled(updates.agentConversationOverlayEnabled);
-      } else {
-        agentConversationOverlayManager.refresh();
-      }
     }
     return configStore.getConfig();
   });
@@ -642,12 +654,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("workbuddy-checkin:claim", () => workBuddyCheckinService.claim());
 
-  ipcMain.handle("agent-conversation:get-snapshot", () => agentConversationOverlayManager.getSnapshot());
+  ipcMain.handle("agent-conversation:get-snapshot", () => agentConversationManager.getSnapshot());
   ipcMain.on("agent-conversation:set-active-session", (_event, sessionId) => {
-    agentConversationOverlayManager.setActiveSession(sessionId);
+    agentConversationManager.setActiveSession(sessionId);
   });
-  ipcMain.on("agent-conversation:hide", () => agentConversationOverlayManager.hide());
-  ipcMain.on("agent-conversation:focus-session", () => agentConversationOverlayManager.focusActiveSession());
 
   ipcMain.on("window:minimize", (event) => {
     const window = windowManager.getWindowFromEvent(event);

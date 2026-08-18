@@ -16,13 +16,11 @@ function renderSettingsModal() {
       <SettingsModal
         autoRestore
         debugMode={false}
-        agentConversationOverlayEnabled
         themeId="dark-slate"
         locale="zh-CN"
         themes={APP_THEMES}
         onToggleAutoRestore={vi.fn()}
         onToggleDebugMode={vi.fn()}
-        onToggleAgentConversationOverlay={vi.fn()}
         onThemeChange={vi.fn()}
         onLocaleChange={vi.fn()}
         onCancel={vi.fn()}

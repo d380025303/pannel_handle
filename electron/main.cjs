@@ -1,9 +1,9 @@
 const path = require("node:path");
 const { Readable } = require("node:stream");
-const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, screen, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
 const { registerIpcHandlers } = require("./core/ipc-handlers.cjs");
 const { createWindowManager } = require("./core/window-manager.cjs");
-const { createAgentConversationOverlayManager } = require("./core/agent-conversation-overlay-manager.cjs");
+const { createAgentConversationManager } = require("./core/agent-conversation-manager.cjs");
 const { createAgentHookServer } = require("./hooks/agent-hook-server.cjs");
 const { createAgentSessionLauncher } = require("./hooks/agent-session-launcher.cjs");
 const { createHookConfigManager } = require("./hooks/hook-config-manager.cjs");
@@ -26,6 +26,7 @@ const { createRemoteAgentBridgeService } = require("./services/remote-agent-brid
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/agent-token-stats-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
+const { createIdeaBridgeService } = require("./services/idea-bridge-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
@@ -72,7 +73,8 @@ let clipboardImageService = null;
 let mobileAccessStore = null;
 let mobileRemoteService = null;
 let terminalStateHub = null;
-let agentConversationOverlayManager = null;
+let agentConversationManager = null;
+let ideaBridgeService = null;
 
 protocol.registerSchemesAsPrivileged([{
   scheme: MEDIA_PROTOCOL,
@@ -122,7 +124,7 @@ if (!gotSingleInstanceLock) {
       app.setAppUserModelId("local.pannel-handle");
     }
     windowManager = createWindowManager({
-      onMainWindowClosed: () => agentConversationOverlayManager?.shutdown()
+      onMainWindowClosed: () => agentConversationManager?.shutdown()
     });
     templateUsageStore = createTemplateUsageStore({
       usageFile: path.join(app.getPath("userData"), "template-usage.json")
@@ -160,14 +162,8 @@ if (!gotSingleInstanceLock) {
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
-    agentConversationOverlayManager = createAgentConversationOverlayManager({
-      BrowserWindow,
-      screen,
-      configStore,
-      windowManager,
-      isPackaged: app.isPackaged,
-      preloadPath: path.join(__dirname, "agent-conversation-preload.cjs"),
-      indexPath: path.join(__dirname, "..", "dist", "index.html")
+    agentConversationManager = createAgentConversationManager({
+      broadcast: windowManager.broadcast
     });
     agentTokenStatsStore = createAgentTokenStatsStore({
       databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
@@ -247,7 +243,7 @@ if (!gotSingleInstanceLock) {
       statsStore: agentTokenStatsStore,
       sshSessionRuntime,
       broadcast: windowManager.broadcast,
-      conversationSink: agentConversationOverlayManager
+      conversationSink: agentConversationManager
     });
     remoteFileService = createRemoteFileService({
       terminalManager,
@@ -355,9 +351,14 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       remoteFileService
     });
+    ideaBridgeService = createIdeaBridgeService({
+      discoveryDir: path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "Pannel Handle", "idea-bridge", "instances"),
+      broadcast: windowManager.broadcast
+    });
     sessionStore.loadLibrary();
     await agentHookServer.start();
     await remoteAgentBridgeService.start();
+    await ideaBridgeService.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
       terminalManager,
@@ -369,7 +370,7 @@ if (!gotSingleInstanceLock) {
       dingTalkConfigStore,
       dingTalkNotificationManager,
       windowManager,
-      agentConversationOverlayManager,
+      agentConversationManager,
       clipboard,
       clipboardImageService,
       dialog,
@@ -389,7 +390,8 @@ if (!gotSingleInstanceLock) {
       gitStatusService,
       projectSearchService,
       mobileRemoteService,
-      remoteAgentBridgeService
+      remoteAgentBridgeService,
+      ideaBridgeService
     });
     windowManager.createWindow();
 
@@ -426,14 +428,17 @@ app.on("window-all-closed", () => {
   if (remoteAgentBridgeService) {
     void remoteAgentBridgeService.shutdown();
   }
+  if (ideaBridgeService) {
+    void ideaBridgeService.shutdown();
+  }
   if (agentUsageService) {
     agentUsageService.shutdown();
   }
   if (agentTokenStatsService) {
     agentTokenStatsService.shutdown();
   }
-  if (agentConversationOverlayManager) {
-    agentConversationOverlayManager.shutdown();
+  if (agentConversationManager) {
+    agentConversationManager.shutdown();
   }
   if (agentTokenStatsStore) {
     agentTokenStatsStore.close();

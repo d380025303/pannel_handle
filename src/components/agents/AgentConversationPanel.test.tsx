@@ -2,13 +2,10 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentConversationOverlay } from "./AgentConversationOverlay";
+import { AgentConversationPanel } from "./AgentConversationPanel";
 import type { AgentConversationSnapshot } from "../../vite-env";
 
 const baseSnapshot: AgentConversationSnapshot = {
-  enabled: true,
-  themeId: "dark-slate",
-  locale: "zh-CN",
   activeSessionId: "panel-1",
   turn: {
     sessionId: "panel-1",
@@ -23,19 +20,13 @@ const baseSnapshot: AgentConversationSnapshot = {
   }
 };
 
-describe("AgentConversationOverlay", () => {
-  const hide = vi.fn();
-  const focusSession = vi.fn();
+describe("AgentConversationPanel", () => {
   const openExternal = vi.fn();
 
   beforeEach(() => {
     Object.defineProperty(window, "agentConversationApi", {
       configurable: true,
       value: {
-        getSnapshot: vi.fn().mockResolvedValue(baseSnapshot),
-        onSnapshot: vi.fn(() => () => undefined),
-        hide,
-        focusSession,
         openExternal
       }
     });
@@ -48,50 +39,57 @@ describe("AgentConversationOverlay", () => {
   });
 
   it("renders intermediate and final Markdown replies", async () => {
-    render(<AgentConversationOverlay />);
+    render(<AgentConversationPanel snapshot={baseSnapshot} />);
     expect(await screen.findByText("中间回复")).toBeTruthy();
     expect(screen.getByText("最终回复")).toBeTruthy();
     expect(screen.getByText("配置").tagName).toBe("STRONG");
     expect(screen.getByText("处理完成。")).toBeTruthy();
   });
 
-  it("focuses the session and hides the overlay through controlled APIs", async () => {
-    render(<AgentConversationOverlay />);
-    const sessionTitle = await screen.findByText("Main");
-    expect(sessionTitle.closest("button")).toBeNull();
-    fireEvent.click(screen.getByTitle("返回当前会话"));
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
-    expect(focusSession).toHaveBeenCalled();
-    expect(hide).toHaveBeenCalled();
+  it("renders as an embedded panel without floating-window controls", async () => {
+    render(<AgentConversationPanel snapshot={baseSnapshot} />);
+    expect(await screen.findByText("Main")).toBeTruthy();
+    expect(document.querySelector(".agent-conversation-panel")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "返回当前会话" })).toBeNull();
   });
 
-  it("marks and cleans up the transparent overlay document roots", async () => {
-    const { unmount } = render(<AgentConversationOverlay />);
-    await screen.findByText("Main");
-    expect(document.documentElement.classList.contains("agent-conversation-window-root")).toBe(true);
-    expect(document.body.classList.contains("agent-conversation-window-body")).toBe(true);
+  it("shows an empty state when the active session has no conversation", () => {
+    render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }} />);
+    expect(screen.getByText("当前会话暂无 Agent 对话。")).toBeTruthy();
+  });
 
-    unmount();
-
-    expect(document.documentElement.classList.contains("agent-conversation-window-root")).toBe(false);
-    expect(document.body.classList.contains("agent-conversation-window-body")).toBe(false);
+  it("opens Markdown links through the controlled external-link API", () => {
+    render(
+      <AgentConversationPanel
+        snapshot={{
+          ...baseSnapshot,
+          turn: {
+            ...baseSnapshot.turn!,
+            messages: [{ id: "link", provider: "codex", kind: "final", text: "[文档](https://example.com)", timestamp: 3 }]
+          }
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole("link", { name: "文档" }));
+    expect(openExternal).toHaveBeenCalledWith("https://example.com");
   });
 
   it("shows an explicit remote SSH limitation", async () => {
-    window.agentConversationApi.getSnapshot = vi.fn().mockResolvedValue({
+    const snapshot: AgentConversationSnapshot = {
       ...baseSnapshot,
       turn: { ...baseSnapshot.turn!, provider: "codebuddy", supported: false, status: "unsupported", messages: [] }
-    });
-    render(<AgentConversationOverlay />);
+    };
+    render(<AgentConversationPanel snapshot={snapshot} />);
     await waitFor(() => expect(screen.getByText("纯远程 SSH 暂不支持实时回复")).toBeTruthy());
   });
 
   it("searches all messages, highlights matches, and wraps result navigation", async () => {
-    render(<AgentConversationOverlay />);
+    render(<AgentConversationPanel snapshot={baseSnapshot} />);
     await screen.findByText("Main");
 
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
-    const searchInput = screen.getByRole("searchbox", { name: "搜索浮窗内容" });
+    const searchInput = screen.getByRole("searchbox", { name: "搜索对话内容" });
     fireEvent.change(searchInput, { target: { value: "。" } });
 
     expect(screen.getByText("1/2")).toBeTruthy();
@@ -110,7 +108,7 @@ describe("AgentConversationOverlay", () => {
   });
 
   it("shows an empty search count and closes search with Escape", async () => {
-    render(<AgentConversationOverlay />);
+    render(<AgentConversationPanel snapshot={baseSnapshot} />);
     await screen.findByText("Main");
     fireEvent.click(screen.getByRole("button", { name: "搜索内容" }));
     const search = screen.getByRole("search", { name: "内容搜索" });

@@ -6,9 +6,11 @@ import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
+import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
+import { IdeaRunPanel } from "./components/idea/IdeaRunPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
 import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
@@ -26,6 +28,7 @@ import { McpManager } from "./components/mcp/McpManager";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
 import { useAgentUsage } from "./hooks/useAgentUsage";
 import { useAgentTokenLive } from "./hooks/useAgentTokenLive";
+import { useAgentConversation } from "./hooks/useAgentConversation";
 import { useRightToolsResize } from "./hooks/useRightToolsResize";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
@@ -38,7 +41,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "debug";
+type RightTool = "files" | "git" | "conversation" | "idea" | "debug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -99,7 +102,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
-  const [agentConversationOverlayEnabled, setAgentConversationOverlayEnabled] = useState(true);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
@@ -133,6 +135,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     }
   );
   const terminalSessions = useTerminalSessions();
+  const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
   const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession);
   const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
@@ -202,17 +205,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
-        setAgentConversationOverlayEnabled(config.agentConversationOverlayEnabled);
       }
     });
     return () => {
       isDisposed = true;
     };
   }, [onLocaleChange]);
-
-  useEffect(() => {
-    window.agentConversationApi.setActiveSession(terminalSessions.activeId);
-  }, [terminalSessions.activeId]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeId;
@@ -380,8 +378,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     if (tool !== "files" && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
     }
+    if (tool === "conversation") agentConversation.markRead();
     setRightTool(tool);
-  }, [remoteFilesDirty, t]);
+  }, [agentConversation, remoteFilesDirty, t]);
 
   const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
     await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, quickCommands, sshConfig, tags);
@@ -460,16 +459,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     onLocaleChange(normalizeLocale(config.locale));
   }, [onLocaleChange]);
 
-  const handleToggleAgentConversationOverlay = useCallback(async () => {
-    const config = await window.terminalApi.setConfig({
-      agentConversationOverlayEnabled: !agentConversationOverlayEnabled
-    });
-    setAgentConversationOverlayEnabled(config.agentConversationOverlayEnabled);
-  }, [agentConversationOverlayEnabled]);
-
   useEffect(() => {
     if (!terminalSessions.activeSession) {
-      setRightTool(debugMode ? "debug" : "files");
+      if (rightTool === "files" || rightTool === "git") {
+        setRightTool(debugMode ? "debug" : "idea");
+      }
       return;
     }
     if (!debugMode && rightTool === "debug") {
@@ -479,12 +473,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [debugMode, rightTool, terminalSessions.activeSession]);
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
-  const showRightTools = showFilesPanel || debugMode;
-  const activeRightTool: RightTool = showFilesPanel && (rightTool === "files" || rightTool === "git")
+  const showRightTools = true;
+  const activeRightTool: RightTool = rightTool === "idea" || rightTool === "conversation"
+    ? rightTool
+    : showFilesPanel && (rightTool === "files" || rightTool === "git")
     ? rightTool
     : debugMode
       ? "debug"
-      : "files";
+      : "idea";
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
     : showRightTools
@@ -719,6 +715,25 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       </button>
                     </>
                   )}
+                  <button
+                    className={activeRightTool === "conversation" ? "active" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeRightTool === "conversation"}
+                    onClick={() => handleRightToolChange("conversation")}
+                  >
+                    <span>{t("tabs.conversation")}</span>
+                    {agentConversation.unread && <span className="right-tool-unread" aria-label={t("conversation.unread")} />}
+                  </button>
+                  <button
+                    className={activeRightTool === "idea" ? "active" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeRightTool === "idea"}
+                    onClick={() => handleRightToolChange("idea")}
+                  >
+                    {t("tabs.idea")}
+                  </button>
                   {debugMode && (
                     <button
                       className={activeRightTool === "debug" ? "active" : ""}
@@ -756,6 +771,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   session={terminalSessions.activeSession}
                   onSummaryChange={handleGitSummaryChange}
                 />
+              ) : activeRightTool === "conversation" ? (
+                <AgentConversationPanel snapshot={agentConversation.snapshot} />
+              ) : activeRightTool === "idea" ? (
+                <IdeaRunPanel />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}
@@ -821,13 +840,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         <SettingsModal
           autoRestore={terminalSessions.autoRestore}
           debugMode={debugMode}
-          agentConversationOverlayEnabled={agentConversationOverlayEnabled}
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
-          onToggleAgentConversationOverlay={handleToggleAgentConversationOverlay}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
           onCancel={() => setShowSettingsModal(false)}

@@ -1,0 +1,12 @@
+<idea-plugin>
+    <id>local.pannelhandle.idea-bridge</id>
+    <name>Pannel Handle Bridge</name>
+    <vendor>Pannel Handle</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.execution</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="local.pannelhandle.bridge.BridgeStartupActivity"/>
+    </extensions>
+</idea-plugin>
