@@ -113,6 +113,26 @@ describe("Agent conversation overlay manager", () => {
     expect(win.showInactive).toHaveBeenCalled();
   });
 
+  it("keeps accumulated messages until the panel session is cleared", () => {
+    const { manager } = createHarness();
+    manager.setActiveSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Plan", provider: "codex", supported: true });
+    manager.appendMessages("panel-1", [{ id: "first", provider: "codex", kind: "final", text: "first reply", timestamp: 1 }]);
+    manager.completeTurn("panel-1");
+
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Plan", provider: "codex", supported: true });
+    expect(manager.getSnapshot().turn).toMatchObject({
+      status: "running",
+      messages: [expect.objectContaining({ id: "first", text: "first reply" })]
+    });
+
+    manager.appendMessages("panel-1", [{ id: "second", provider: "codex", kind: "commentary", text: "second reply", timestamp: 2 }]);
+    expect(manager.getSnapshot().turn.messages.map(message => message.id)).toEqual(["first", "second"]);
+
+    manager.clearSession("panel-1");
+    expect(manager.getSnapshot().turn).toBeNull();
+  });
+
   it("follows the selected session and exposes unsupported remote turns", () => {
     const { manager, windowManager } = createHarness();
     manager.setActiveSession("panel-1");

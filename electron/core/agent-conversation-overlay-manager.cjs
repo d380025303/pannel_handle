@@ -154,13 +154,14 @@ function createAgentConversationOverlayManager({
 
   function startTurn({ sessionId, sessionTitle, provider, supported }) {
     if (provider !== "codex" && provider !== "codebuddy") return;
+    const existingTurn = turns.get(sessionId);
     turns.set(sessionId, {
       sessionId,
       sessionTitle: String(sessionTitle || provider),
       provider,
       status: supported ? "running" : "unsupported",
       supported: Boolean(supported),
-      messages: [],
+      messages: existingTurn?.messages || [],
       suppressed: false
     });
     if (activeSessionId === sessionId) refreshVisibility();

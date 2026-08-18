@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentConversationOverlay } from "./AgentConversationOverlay";
 import type { AgentConversationSnapshot } from "../../vite-env";
@@ -84,5 +84,40 @@ describe("AgentConversationOverlay", () => {
     });
     render(<AgentConversationOverlay />);
     await waitFor(() => expect(screen.getByText("纯远程 SSH 暂不支持实时回复")).toBeTruthy());
+  });
+
+  it("searches all messages, highlights matches, and wraps result navigation", async () => {
+    render(<AgentConversationOverlay />);
+    await screen.findByText("Main");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    const searchInput = screen.getByRole("searchbox", { name: "搜索浮窗内容" });
+    fireEvent.change(searchInput, { target: { value: "。" } });
+
+    expect(screen.getByText("1/2")).toBeTruthy();
+    const matches = document.querySelectorAll("mark.agent-conversation-search-match");
+    expect(matches).toHaveLength(2);
+    expect(matches[0].classList.contains("active")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "下一个匹配项" }));
+    expect(screen.getByText("2/2")).toBeTruthy();
+    expect(document.querySelectorAll("mark.agent-conversation-search-match")[1].classList.contains("active")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "下一个匹配项" }));
+    expect(screen.getByText("1/2")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "上一个匹配项" }));
+    expect(screen.getByText("2/2")).toBeTruthy();
+  });
+
+  it("shows an empty search count and closes search with Escape", async () => {
+    render(<AgentConversationOverlay />);
+    await screen.findByText("Main");
+    fireEvent.click(screen.getByRole("button", { name: "搜索内容" }));
+    const search = screen.getByRole("search", { name: "内容搜索" });
+    fireEvent.change(within(search).getByRole("searchbox"), { target: { value: "不存在" } });
+    expect(within(search).getByText("0/0")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("search", { name: "内容搜索" })).toBeNull();
   });
 });
