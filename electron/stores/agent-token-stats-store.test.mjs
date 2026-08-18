@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -22,13 +22,21 @@ function capabilities(skillCount = 0, mcpCount = 0) {
   };
 }
 
-describe("agent token statistics store", () => {
+function fixture(options = {}) {
+  const root = mkdtempSync(path.join(tmpdir(), "token-stats-sqlite-"));
+  const databaseFile = path.join(root, "stats.sqlite3");
+  const legacyStatsFile = path.join(root, "stats.json");
+  const legacyBackupFile = path.join(root, "stats.migrated.json");
+  const store = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile, ...options });
+  store.load();
+  return { root, databaseFile, legacyStatsFile, legacyBackupFile, store };
+}
+
+describe("agent token statistics SQLite store", () => {
   it("stores idempotent cumulative snapshots and aggregates their deltas", () => {
-    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
     let time = Date.UTC(2026, 7, 15, 12);
     const changed = vi.fn();
-    const store = createAgentTokenStatsStore({ statsFile, now: () => time, onChanged: changed });
-    store.load();
+    const { store } = fixture({ now: () => time, onChanged: changed });
     store.update({ provider: "codex", agentSessionId: "one", panelSessionId: "panel", title: "Work", location: "windows", tokens: tokens(100) });
     store.update({ provider: "codex", agentSessionId: "one", panelSessionId: "panel", title: "Work", location: "windows", tokens: tokens(100) });
     time += 86400000;
@@ -39,12 +47,11 @@ describe("agent token statistics store", () => {
     expect(dashboard.summary.sessionCount).toBe(1);
     expect(dashboard.dailyTrend.map(item => item.tokens.totalTokens)).toEqual([100, 60]);
     expect(changed).toHaveBeenCalledTimes(3);
+    store.close();
   });
 
   it("uses a baseline and keeps active-session reset checkpoints after clear", () => {
-    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
-    const store = createAgentTokenStatsStore({ statsFile });
-    store.load();
+    const { store } = fixture();
     store.setBaseline("claude", "resumed", tokens(500));
     store.update({ provider: "claude", agentSessionId: "resumed", panelSessionId: "panel", title: "Resume", location: "wsl", tokens: tokens(620) });
     expect(store.getDashboard({ range: "all" }).summary.tokens.totalTokens).toBe(120);
@@ -52,13 +59,11 @@ describe("agent token statistics store", () => {
     expect(store.getDashboard({ range: "all" }).totalCount).toBe(0);
     store.update({ provider: "claude", agentSessionId: "resumed", panelSessionId: "panel", title: "Resume", location: "wsl", tokens: tokens(700) });
     expect(store.getDashboard({ range: "all" }).summary.tokens.totalTokens).toBe(80);
-    expect(JSON.parse(readFileSync(statsFile, "utf-8")).version).toBe(2);
+    store.close();
   });
 
   it("includes CodeBuddy sessions in totals, filtering, and provider comparison", () => {
-    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
-    const store = createAgentTokenStatsStore({ statsFile });
-    store.load();
+    const { store } = fixture();
     store.update({ provider: "codebuddy", agentSessionId: "buddy", panelSessionId: "panel", title: "Buddy", location: "windows", models: ["glm-5.2"], tokens: tokens(240) });
 
     const dashboard = store.getDashboard({ range: "all", provider: "codebuddy" });
@@ -67,12 +72,11 @@ describe("agent token statistics store", () => {
     expect(dashboard.providerBreakdown).toEqual([
       expect.objectContaining({ provider: "codebuddy", sessionCount: 1 })
     ]);
+    store.close();
   });
 
   it("subtracts capability baselines and aggregates skill and MCP rankings", () => {
-    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
-    const store = createAgentTokenStatsStore({ statsFile });
-    store.load();
+    const { store } = fixture();
     store.setBaseline("codex", "resumed", tokens(50), capabilities(1, 2));
     store.update({
       provider: "codex", agentSessionId: "resumed", panelSessionId: "panel", title: "Resume", location: "windows",
@@ -84,11 +88,58 @@ describe("agent token statistics store", () => {
     expect(dashboard.topSkills).toEqual([{ name: "diagnosing-bugs", count: 2 }]);
     expect(dashboard.topMcpServers[0]).toMatchObject({ name: "logView", count: 3, tools: [{ name: "search_logs", count: 3 }] });
     expect(dashboard.sessions[0].capabilities.mcp.totalCalls).toBe(3);
+    store.close();
   });
 
-  it("migrates version 1 records without treating unknown capabilities as zero", () => {
-    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
-    writeFileSync(statsFile, JSON.stringify({
+  it("persists records across database reopen", () => {
+    const { databaseFile, legacyStatsFile, legacyBackupFile, store } = fixture();
+    store.update({ provider: "codex", agentSessionId: "persisted", panelSessionId: "panel", title: "Persisted", location: "windows", tokens: tokens(90) });
+    store.close();
+
+    const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile });
+    reopened.load();
+    expect(reopened.getDashboard({ range: "all" }).sessions[0]).toMatchObject({ agentSessionId: "persisted", tokens: tokens(90) });
+    reopened.close();
+  });
+
+  it("creates one new record when cumulative counters reset and updates it afterward", () => {
+    let time = 1000;
+    const { store } = fixture({ now: () => time });
+    store.update({ provider: "codex", agentSessionId: "reset", panelSessionId: "panel", title: "Reset", location: "windows", tokens: tokens(100) });
+    time = 2000;
+    store.update({ provider: "codex", agentSessionId: "reset", panelSessionId: "panel", title: "Reset", location: "windows", tokens: tokens(20) });
+    time = 3000;
+    store.update({ provider: "codex", agentSessionId: "reset", panelSessionId: "panel", title: "Reset", location: "windows", tokens: tokens(30) });
+
+    const dashboard = store.getDashboard({ range: "all" });
+    expect(dashboard.totalCount).toBe(2);
+    expect(dashboard.summary.tokens.totalTokens).toBe(130);
+    store.close();
+  });
+
+  it("filters and paginates records while keeping aggregate totals", () => {
+    let time = Date.UTC(2026, 7, 18, 10);
+    const { store } = fixture({ now: () => time });
+    store.update({ provider: "codex", agentSessionId: "one", panelSessionId: "one", title: "One", location: "windows", tokens: tokens(10) });
+    time += 1000;
+    store.update({ provider: "codex", agentSessionId: "two", panelSessionId: "two", title: "Two", location: "windows", tokens: tokens(20) });
+    time += 1000;
+    store.update({ provider: "claude", agentSessionId: "three", panelSessionId: "three", title: "Three", location: "wsl", tokens: tokens(30) });
+
+    const firstPage = store.getDashboard({ range: "all", provider: "codex", limit: 1, offset: 0 });
+    const secondPage = store.getDashboard({ range: "all", provider: "codex", limit: 1, offset: 1 });
+    expect(firstPage.summary).toMatchObject({ sessionCount: 2, tokens: expect.objectContaining({ totalTokens: 30 }) });
+    expect(firstPage.sessions.map(record => record.agentSessionId)).toEqual(["two"]);
+    expect(secondPage.sessions.map(record => record.agentSessionId)).toEqual(["one"]);
+    store.close();
+  });
+
+  it("migrates version 1 JSON once and preserves unknown capability availability", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "token-stats-migration-"));
+    const databaseFile = path.join(root, "stats.sqlite3");
+    const legacyStatsFile = path.join(root, "stats.json");
+    const legacyBackupFile = path.join(root, "stats.migrated.json");
+    writeFileSync(legacyStatsFile, JSON.stringify({
       version: 1,
       records: {
         "codex:old": {
@@ -96,13 +147,72 @@ describe("agent token statistics store", () => {
           models: [], startedAt: 1, updatedAt: 1, endedAt: 1, status: "ended", tokens: tokens(20), rawTokens: tokens(20), baselineTokens: tokens(0)
         }
       },
-      daily: {}, baselines: {}
+      daily: { "2026-08-01": { codex: tokens(20) } }, baselines: {}
     }));
-    const store = createAgentTokenStatsStore({ statsFile, now: () => 2 });
+    const store = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile, now: () => 2 });
     store.load();
 
-    const record = store.getDashboard({ range: "all" }).sessions[0];
-    expect(record.capabilities.skills.availability).toBe("unavailable");
-    expect(record.capabilities.mcp.availability).toBe("unavailable");
+    const dashboard = store.getDashboard({ range: "all" });
+    expect(dashboard.sessions[0].capabilities.skills.availability).toBe("unavailable");
+    expect(dashboard.dailyTrend).toEqual([{ date: "2026-08-01", tokens: tokens(20) }]);
+    expect(existsSync(legacyStatsFile)).toBe(false);
+    expect(JSON.parse(readFileSync(legacyBackupFile, "utf-8")).version).toBe(1);
+    store.close();
+
+    const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile, now: () => 3 });
+    reopened.load();
+    expect(reopened.getDashboard({ range: "all" }).totalCount).toBe(1);
+    reopened.close();
+  });
+
+  it("does not duplicate a successful version 2 migration when backup rename fails", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "token-stats-rename-failure-"));
+    const databaseFile = path.join(root, "stats.sqlite3");
+    const legacyStatsFile = path.join(root, "stats.json");
+    writeFileSync(legacyStatsFile, JSON.stringify({
+      version: 2,
+      records: {
+        "claude:old": {
+          id: "claude:old", provider: "claude", agentSessionId: "old", panelSessionId: "panel", title: "Old", cwd: "", location: "windows",
+          models: ["claude"], startedAt: 1, updatedAt: 1, endedAt: null, status: "active", tokens: tokens(40), rawTokens: tokens(40), baselineTokens: tokens(0),
+          capabilities: capabilities(1, 1), rawCapabilities: capabilities(1, 1), baselineCapabilities: capabilities()
+        }
+      },
+      daily: { "2026-08-01": { claude: tokens(40) } }, baselines: {}
+    }));
+    const fsApi = {
+      existsSync,
+      readFileSync,
+      renameSync() { throw new Error("locked"); }
+    };
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const store = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, fsApi });
+    store.load();
+    expect(store.getDashboard({ range: "all" })).toMatchObject({ totalCount: 1, summary: { sessionCount: 1, skillCalls: 1, mcpCalls: 1, averageTokens: 40, tokens: tokens(40) } });
+    store.close();
+
+    const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, fsApi });
+    reopened.load();
+    expect(reopened.getDashboard({ range: "all" }).dailyTrend[0].tokens.totalTokens).toBe(40);
+    expect(reopened.getDashboard({ range: "all" }).totalCount).toBe(1);
+    reopened.close();
+    expect(warning).toHaveBeenCalledTimes(1);
+    warning.mockRestore();
+  });
+
+  it("rolls back an invalid legacy migration and reports statistics unavailable", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "token-stats-invalid-"));
+    const databaseFile = path.join(root, "stats.sqlite3");
+    const legacyStatsFile = path.join(root, "stats.json");
+    writeFileSync(legacyStatsFile, "{invalid json");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const store = createAgentTokenStatsStore({ databaseFile, legacyStatsFile });
+    store.load();
+
+    expect(() => store.getDashboard({ range: "all" })).toThrow(/database is unavailable/i);
+    expect(existsSync(legacyStatsFile)).toBe(true);
+    expect(store.update({ provider: "codex", agentSessionId: "new", panelSessionId: "panel", tokens: tokens(10) })).toBeUndefined();
+    store.close();
+    errorSpy.mockRestore();
   });
 });

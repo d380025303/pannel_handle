@@ -168,7 +168,8 @@ if (!gotSingleInstanceLock) {
     });
     agentOutputHistoryStore.load();
     agentTokenStatsStore = createAgentTokenStatsStore({
-      statsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
+      databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
+      legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
       onChanged: () => windowManager.broadcast("agent-token-stats:changed", { timestamp: Date.now() })
     });
     agentTokenStatsStore.load();
@@ -426,6 +427,9 @@ app.on("window-all-closed", () => {
   }
   if (agentTokenStatsService) {
     agentTokenStatsService.shutdown();
+  }
+  if (agentTokenStatsStore) {
+    agentTokenStatsStore.close();
   }
   if (gitStatusService) {
     gitStatusService.shutdown();
