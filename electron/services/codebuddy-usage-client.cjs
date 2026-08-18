@@ -63,8 +63,6 @@ function normalizeCodeBuddyResourceResponse(result, fetchedAt = Date.now()) {
 
   const categoryOrder = { base: 0, extra: 1, bonus: 2, other: 3 };
   const allLimits = [];
-  let total = 0;
-  let remaining = 0;
 
   for (const account of accounts) {
     if (!account || typeof account !== "object") continue;
@@ -84,8 +82,6 @@ function normalizeCodeBuddyResourceResponse(result, fetchedAt = Date.now()) {
       ?? parseTimestamp(account.ExpiredTime)
       ?? parseTimestamp(account.DeductionEndTime);
 
-    total += normalizedTotal;
-    remaining += normalizedRemaining;
     allLimits.push({
       id: String(account.ResourceId || packageCode || `codebuddy-resource-${allLimits.length + 1}`),
       name: String(account.PackageName || account.DealName || packageCode || "CodeBuddy Credits"),
@@ -113,6 +109,8 @@ function normalizeCodeBuddyResourceResponse(result, fetchedAt = Date.now()) {
       const rightExpiry = right.expiresAt ?? Number.MAX_SAFE_INTEGER;
       return leftExpiry - rightExpiry || left.name.localeCompare(right.name);
     });
+  const total = limits.reduce((sum, limit) => sum + limit.totalAmount, 0);
+  const remaining = limits.reduce((sum, limit) => sum + limit.remainingAmount, 0);
   const used = Math.max(0, total - remaining);
   const usedPercent = total > 0
     ? Math.min(100, Math.max(0, Math.round((used / total) * 100)))

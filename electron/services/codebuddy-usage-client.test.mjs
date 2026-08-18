@@ -53,11 +53,11 @@ function createAcpTransport(options = {}) {
 }
 
 describe("codebuddy-usage-client", () => {
-  it("normalizes, groups, sorts, and totals precise quota resources", () => {
+  it("normalizes, groups, sorts, and totals visible precise quota resources", () => {
     const snapshot = normalizeCodeBuddyResourceResponse(response([
       resource({ ResourceId: "bonus", PackageCode: "TCACA_code_007_nzdH5h4Nl0", PackageName: "Bonus", CycleCapacitySizePrecise: "50.5", CycleCapacityRemainPrecise: "10.25" }),
       resource({ ResourceId: "base", CycleCapacitySizePrecise: "100", CycleCapacityRemainPrecise: "25" }),
-      resource({ ResourceId: "empty", PackageCode: "unknown", CycleCapacitySizePrecise: "20", CycleCapacityRemainPrecise: "0" })
+      resource({ ResourceId: "empty", PackageCode: "unknown", CycleCapacitySizePrecise: "500", CycleCapacityRemainPrecise: "0" })
     ]), 1234);
 
     expect(snapshot).toMatchObject({
@@ -66,8 +66,8 @@ describe("codebuddy-usage-client", () => {
       primaryLimitId: "codebuddy-total",
       summary: {
         kind: "credits",
-        total: 170.5,
-        used: 135.25,
+        total: 150.5,
+        used: 115.25,
         remaining: 35.25,
         unit: "Credits"
       }
@@ -76,6 +76,7 @@ describe("codebuddy-usage-client", () => {
       ["base", "base"],
       ["bonus", "bonus"]
     ]);
+    expect(snapshot.summary.total).toBe(snapshot.limits.reduce((sum, limit) => sum + limit.totalAmount, 0));
   });
 
   it("rejects missing and unusable account data", () => {
