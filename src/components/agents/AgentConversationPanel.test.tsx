@@ -46,6 +46,35 @@ describe("AgentConversationPanel", () => {
     expect(screen.getByText("处理完成。")).toBeTruthy();
   });
 
+  it("renders the newest message first and keeps a following view at the top", () => {
+    const { rerender } = render(<AgentConversationPanel snapshot={baseSnapshot} />);
+    const messageList = document.querySelector<HTMLElement>(".agent-conversation-messages")!;
+    const initialMessages = document.querySelectorAll<HTMLElement>(".agent-conversation-message");
+
+    expect(initialMessages[0].textContent).toContain(baseSnapshot.turn!.messages[1].text);
+    expect(initialMessages[1].textContent).toContain(baseSnapshot.turn!.messages[0].text.replace(/\*\*/g, ""));
+
+    messageList.scrollTop = 12;
+    fireEvent.scroll(messageList);
+    rerender(
+      <AgentConversationPanel
+        snapshot={{
+          ...baseSnapshot,
+          turn: {
+            ...baseSnapshot.turn!,
+            messages: [
+              ...baseSnapshot.turn!.messages,
+              { id: "three", provider: "codex", kind: "reply", text: "newest reply", timestamp: 3 }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(document.querySelector<HTMLElement>(".agent-conversation-message")?.textContent).toContain("newest reply");
+    expect(messageList.scrollTop).toBe(0);
+  });
+
   it("renders as an embedded panel without floating-window controls", async () => {
     render(<AgentConversationPanel snapshot={baseSnapshot} />);
     expect(await screen.findByText("Main")).toBeTruthy();

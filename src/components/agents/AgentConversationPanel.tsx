@@ -68,13 +68,13 @@ export function AgentConversationPanel({ snapshot }: { snapshot: AgentConversati
   const [totalMatches, setTotalMatches] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const followBottomRef = useRef(true);
+  const followTopRef = useRef(true);
 
   useEffect(() => {
-    if (!followBottomRef.current || searchQuery.trim()) return;
+    if (!followTopRef.current || searchQuery.trim()) return;
     requestAnimationFrame(() => {
       const element = scrollRef.current;
-      if (element) element.scrollTop = element.scrollHeight;
+      if (element) element.scrollTop = 0;
     });
   }, [searchQuery, snapshot?.turn?.messages.length]);
 
@@ -187,7 +187,7 @@ export function AgentConversationPanel({ snapshot }: { snapshot: AgentConversati
         ref={scrollRef}
         onScroll={(event) => {
           const element = event.currentTarget;
-          followBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+          followTopRef.current = element.scrollTop < 48;
         }}
       >
         {!turn ? (
@@ -205,7 +205,7 @@ export function AgentConversationPanel({ snapshot }: { snapshot: AgentConversati
           let searchMatchIndex = 0;
           const nextSearchMatchIndex = () => searchMatchIndex++;
           const highlight = (children: ReactNode) => highlightChildren(children, normalizedSearchQuery, nextSearchMatchIndex, activeMatchIndex);
-          return turn.messages.map(message => (
+          return [...turn.messages].reverse().map(message => (
           <article className={`agent-conversation-message ${message.kind}`} key={message.id}>
             {message.kind !== "reply" && (
               <div className="agent-conversation-message-kind">
