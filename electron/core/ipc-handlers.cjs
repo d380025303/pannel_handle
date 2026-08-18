@@ -445,6 +445,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return skillsService.save(id, content, expectedVersion);
   });
 
+  ipcMain.handle("skills:translate", (_event, { requestId, id, content }) => {
+    return skillsService.translate(requestId, id, content);
+  });
+
+  ipcMain.handle("skills:translate-cancel", (_event, { requestId }) => {
+    return skillsService.cancelTranslation(requestId);
+  });
+
   ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
     return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
   });

@@ -266,6 +266,19 @@ export type TranslationKey =
   | "skills.conflict"
   | "skills.discardChanges"
   | "skills.unsavedClose"
+  | "skills.usageCount"
+  | "skills.translate"
+  | "skills.translating"
+  | "skills.viewOriginal"
+  | "skills.translationPreview"
+  | "skills.translationUnavailable"
+  | "skills.translationTooLarge"
+  | "skills.translationCliMissing"
+  | "skills.translationNotAuthenticated"
+  | "skills.translationTimeout"
+  | "skills.translationCancelled"
+  | "skills.translationInvalidOutput"
+  | "skills.translationFailed"
   | "tokenLive.title"
   | "tokenLive.loading"
   | "tokenLive.waiting"
@@ -872,6 +885,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.conflict": "SKILL.md 已被其他程序修改。当前草稿未覆盖磁盘内容，请重新加载后再编辑。",
     "skills.discardChanges": "当前 SKILL.md 有未保存修改，确定放弃吗？",
     "skills.unsavedClose": "当前 Skill 的 SKILL.md 有未保存修改。",
+    "skills.usageCount": "使用 {count} 次",
+    "skills.translate": "翻译成中文",
+    "skills.translating": "翻译中…",
+    "skills.viewOriginal": "查看原文",
+    "skills.translationPreview": "当前为中文翻译预览，不会修改 SKILL.md。",
+    "skills.translationUnavailable": "翻译服务暂不可用。",
+    "skills.translationTooLarge": "SKILL.md 内容过大，无法翻译。",
+    "skills.translationCliMissing": "未找到对应提供方的命令行工具。",
+    "skills.translationNotAuthenticated": "对应提供方尚未登录，请先在终端完成登录。",
+    "skills.translationTimeout": "翻译超时，请稍后重试。",
+    "skills.translationCancelled": "翻译已取消。",
+    "skills.translationInvalidOutput": "翻译结果格式无效，请重试。",
+    "skills.translationFailed": "翻译失败，请稍后重试。",
     "tokenLive.title": "{provider} 实时 Token",
     "tokenLive.loading": "正在读取 Token...",
     "tokenLive.waiting": "等待 Token 数据",
@@ -1470,6 +1496,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.conflict": "SKILL.md was changed by another program. Your draft was not written; reload before editing again.",
     "skills.discardChanges": "This SKILL.md has unsaved changes. Discard them?",
     "skills.unsavedClose": "The current Skill has unsaved SKILL.md changes.",
+    "skills.usageCount": "Used {count} times",
+    "skills.translate": "Translate to Chinese",
+    "skills.translating": "Translating…",
+    "skills.viewOriginal": "View original",
+    "skills.translationPreview": "Showing a Chinese translation preview. SKILL.md is unchanged.",
+    "skills.translationUnavailable": "The translation service is unavailable.",
+    "skills.translationTooLarge": "This SKILL.md is too large to translate.",
+    "skills.translationCliMissing": "The provider command-line tool was not found.",
+    "skills.translationNotAuthenticated": "The provider is not signed in. Sign in from a terminal first.",
+    "skills.translationTimeout": "Translation timed out. Try again later.",
+    "skills.translationCancelled": "Translation was canceled.",
+    "skills.translationInvalidOutput": "The translation result was invalid. Try again.",
+    "skills.translationFailed": "Translation failed. Try again later.",
     "tokenLive.title": "{provider} live tokens",
     "tokenLive.loading": "Reading tokens...",
     "tokenLive.waiting": "Waiting for token data",

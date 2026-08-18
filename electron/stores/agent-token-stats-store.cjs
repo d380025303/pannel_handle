@@ -504,6 +504,19 @@ function createAgentTokenStatsStore({
     };
   }
 
+  function getSkillUsage(provider) {
+    ensureLoaded();
+    if (!TOKEN_STATS_PROVIDERS.includes(provider)) throw new Error("Unsupported Agent token statistics provider.");
+    return database.prepare(`
+      SELECT k.name, COALESCE(SUM(k.count), 0) AS count
+      FROM token_session_skills k
+      JOIN token_sessions s ON s.id = k.session_id
+      WHERE s.provider = ?
+      GROUP BY k.name
+      ORDER BY count DESC, k.name
+    `).all(provider).map(row => ({ name: row.name, count: safeInteger(row.count) }));
+  }
+
   function clear() {
     ensureLoaded();
     const activeRows = database.prepare("SELECT * FROM token_sessions WHERE status = 'active'").all();
@@ -526,7 +539,7 @@ function createAgentTokenStatsStore({
     database = null;
   }
 
-  return { load, setBaseline, update, markEnded, getDashboard, clear, close };
+  return { load, setBaseline, update, markEnded, getDashboard, getSkillUsage, clear, close };
 }
 
 module.exports = { createAgentTokenStatsStore, cloneTokens, subtractCapabilities, subtractTokens };

@@ -768,6 +768,7 @@ export type SkillSummary = {
   directoryName: string;
   path: string;
   editable: boolean;
+  usageCount: number;
   warning?: string;
 };
 
@@ -782,10 +783,18 @@ export type SkillSaveResult =
   | { status: "saved"; version: string; size: number }
   | { status: "conflict" };
 
+export type SkillTranslationError = "invalid_request" | "unavailable" | "too_large" | "cli_missing" | "not_authenticated" | "timeout" | "cancelled" | "invalid_output" | "failed";
+
+export type SkillTranslationResult =
+  | { status: "translated"; translatedContent: string; sourceHash: string; cached: boolean }
+  | { status: "error"; reason: SkillTranslationError };
+
 export type SkillsApi = {
   list: (provider: SkillProvider) => Promise<SkillSummary[]>;
   read: (id: string) => Promise<SkillDocument>;
   save: (id: string, content: string, expectedVersion: string) => Promise<SkillSaveResult>;
+  translate: (requestId: string, id: string, content: string) => Promise<SkillTranslationResult>;
+  cancelTranslation: (requestId: string) => Promise<boolean>;
 };
 
 export type FileTransferApi = {

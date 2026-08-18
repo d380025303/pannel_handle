@@ -40,6 +40,21 @@ describe("skills-service", () => {
     expect(skills.every((skill) => !Object.hasOwn(skill, "filePath"))).toBe(true);
   });
 
+  it("adds provider-scoped usage counts using both Skill name and directory aliases", async () => {
+    const home = createHome();
+    writeSkill(home, ".codex/skills/review-dir", "---\nname: review\ndescription: Review code\n---\nDo it.");
+    const statsStore = { getSkillUsage: (provider) => provider === "codex" ? [
+      { name: "review", count: 2 },
+      { name: "REVIEW-DIR", count: 3 }
+    ] : [] };
+
+    const service = createSkillsService({ homeDir: home, statsStore });
+    const [skill] = await service.list("codex");
+
+    expect(skill.usageCount).toBe(5);
+    await expect(service.read(skill.id)).resolves.toEqual(expect.objectContaining({ usageCount: 5 }));
+  });
+
   it("returns an empty CodeBuddy list when its directory does not exist", async () => {
     const home = createHome();
     await expect(createSkillsService({ homeDir: home }).list("codebuddy")).resolves.toEqual([]);

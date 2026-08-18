@@ -26,7 +26,8 @@ const userSkill: SkillSummary = {
   description: "Review code",
   directoryName: "review",
   path: "C:\\Users\\tester\\.codex\\skills\\review",
-  editable: true
+  editable: true,
+  usageCount: 4
 };
 
 const systemSkill: SkillSummary = {
@@ -46,6 +47,8 @@ function documentFor(skill: SkillSummary): SkillDocument {
 const list = vi.fn();
 const read = vi.fn();
 const save = vi.fn();
+const translate = vi.fn();
+const cancelTranslation = vi.fn();
 
 function renderManager(overrides: Partial<ComponentProps<typeof SkillsManager>> = {}) {
   return render(
@@ -60,10 +63,15 @@ describe("SkillsManager", () => {
     list.mockReset();
     read.mockReset();
     save.mockReset();
+    translate.mockReset();
+    cancelTranslation.mockReset();
     list.mockImplementation(async (provider) => provider === "codex" ? [userSkill, systemSkill] : []);
     read.mockImplementation(async (id) => documentFor(id === systemSkill.id ? systemSkill : userSkill));
     save.mockResolvedValue({ status: "saved", version: "user-1-v2", size: 20 });
-    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read, save } });
+    translate.mockResolvedValue({ status: "translated", translatedContent: "---\nname: review\ndescription: 审查代码\n---\n说明", sourceHash: "hash", cached: false });
+    cancelTranslation.mockResolvedValue(true);
+    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read, save, translate, cancelTranslation } });
+    Object.defineProperty(window, "agentTokenStatsApi", { configurable: true, value: { onChanged: vi.fn(() => () => undefined) } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
@@ -93,6 +101,20 @@ describe("SkillsManager", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith("user-1", "Updated instructions", "user-1-v1"));
     expect(await screen.findByText("已保存 SKILL.md")).toBeTruthy();
     expect(onDirtyChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a read-only Chinese preview without replacing the original draft", async () => {
+    renderManager();
+    const editor = await screen.findByLabelText("SKILL.md");
+    fireEvent.change(editor, { target: { value: "Draft instructions" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
+
+    await waitFor(() => expect(translate).toHaveBeenCalledWith(expect.stringContaining("skill-translation-"), "user-1", "Draft instructions"));
+    await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toContain("说明"));
+    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /查看原文/ }));
+    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Draft instructions");
   });
 
   it("keeps the draft when saving reports an external conflict", async () => {

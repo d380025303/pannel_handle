@@ -91,6 +91,18 @@ describe("agent token statistics SQLite store", () => {
     store.close();
   });
 
+  it("aggregates all-time Skill usage by provider and clears it with statistics", () => {
+    const { store } = fixture();
+    store.update({ provider: "codex", agentSessionId: "one", panelSessionId: "one", title: "One", location: "windows", tokens: tokens(10), capabilities: capabilities(2) });
+    store.update({ provider: "codebuddy", agentSessionId: "two", panelSessionId: "two", title: "Two", location: "windows", tokens: tokens(20), capabilities: capabilities(3) });
+
+    expect(store.getSkillUsage("codex")).toEqual([{ name: "diagnosing-bugs", count: 2 }]);
+    expect(store.getSkillUsage("codebuddy")).toEqual([{ name: "diagnosing-bugs", count: 3 }]);
+    store.clear();
+    expect(store.getSkillUsage("codex")).toEqual([]);
+    store.close();
+  });
+
   it("persists records across database reopen", () => {
     const { databaseFile, legacyStatsFile, legacyBackupFile, store } = fixture();
     store.update({ provider: "codex", agentSessionId: "persisted", panelSessionId: "panel", title: "Persisted", location: "windows", tokens: tokens(90) });

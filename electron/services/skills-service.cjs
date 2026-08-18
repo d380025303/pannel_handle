@@ -71,7 +71,7 @@ function createAdapters(homeDir) {
   ];
 }
 
-function createSkillsService({ homeDir, fsApi = fs } = {}) {
+function createSkillsService({ homeDir, statsStore, translationService, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
   const adapters = createAdapters(path.resolve(homeDir));
   const registry = new Map();
@@ -133,9 +133,22 @@ function createSkillsService({ homeDir, fsApi = fs } = {}) {
       if (record.provider === provider) registry.delete(id);
     }
     const groups = await Promise.all(adapters.filter((adapter) => adapter.provider === provider).map(discoverAdapter));
+    let usageRows = [];
+    try {
+      usageRows = statsStore?.getSkillUsage(provider) || [];
+    } catch (error) {
+      console.warn("Unable to read Skill usage statistics:", error);
+    }
+    const usageByName = new Map(usageRows.map(item => [String(item.name || "").trim().toLocaleLowerCase(), Number(item.count) || 0]));
     return groups.flat()
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
-      .map(({ filePath: _filePath, root: _root, ...summary }) => summary);
+      .map(({ filePath: _filePath, root: _root, ...summary }) => {
+        const aliases = new Set([summary.name, summary.directoryName].map(value => String(value || "").trim().toLocaleLowerCase()).filter(Boolean));
+        const usageCount = [...aliases].reduce((total, alias) => total + (usageByName.get(alias) || 0), 0);
+        const registryRecord = registry.get(summary.id);
+        if (registryRecord) registryRecord.usageCount = usageCount;
+        return { ...summary, usageCount };
+      });
   }
 
   async function resolveRecord(id) {
@@ -165,6 +178,7 @@ function createSkillsService({ homeDir, fsApi = fs } = {}) {
       directoryName: record.directoryName,
       path: record.path,
       editable: record.editable,
+      usageCount: Number(record.usageCount) || 0,
       warning: record.warning,
       content: format.content,
       version: versionOf(buffer),
@@ -189,7 +203,17 @@ function createSkillsService({ homeDir, fsApi = fs } = {}) {
     return { status: "saved", version: versionOf(next), size: next.length };
   }
 
-  return { list, read, save };
+  async function translate(requestId, id, content) {
+    if (!translationService) return { status: "error", reason: "unavailable" };
+    const record = await resolveRecord(id);
+    return translationService.translate({ requestId, provider: record.provider, skillId: record.id, content });
+  }
+
+  function cancelTranslation(requestId) {
+    return translationService?.cancel(requestId) || false;
+  }
+
+  return { list, read, save, translate, cancelTranslation };
 }
 
 module.exports = { MAX_SKILL_BYTES, createSkillsService };
