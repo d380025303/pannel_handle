@@ -33,7 +33,8 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
-      rightToolsWidth: 380
+      rightToolsWidth: 380,
+      agentConversationOverlayEnabled: true
     });
   });
 
@@ -93,6 +94,23 @@ describe("config-store", () => {
     expect(saved.rightToolsWidth).toBe(320);
   });
 
+  it("persists the Agent conversation overlay preference and valid bounds", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    store.updateConfig({
+      agentConversationOverlayEnabled: false,
+      agentConversationOverlayBounds: { x: 100, y: 80, width: 460, height: 380 }
+    });
+    expect(store.getConfig()).toMatchObject({
+      agentConversationOverlayEnabled: false,
+      agentConversationOverlayBounds: { x: 100, y: 80, width: 460, height: 380 }
+    });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.agentConversationOverlayEnabled).toBe(false);
+    expect(saved.agentConversationOverlayBounds).toEqual({ x: 100, y: 80, width: 460, height: 380 });
+  });
+
   it("falls back to default rightToolsWidth when an out-of-range value is loaded", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({ rightToolsWidth: 999 }), "utf-8");
@@ -130,7 +148,8 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",
-      rightToolsWidth: 380
+      rightToolsWidth: 380,
+      agentConversationOverlayEnabled: true
     });
   });
 });

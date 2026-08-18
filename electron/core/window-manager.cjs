@@ -1,7 +1,7 @@
 const path = require("node:path");
 const { app, BrowserWindow } = require("electron");
 
-function createWindowManager() {
+function createWindowManager({ onMainWindowClosed } = {}) {
   let mainWindow = null;
   let allowClose = false;
   let closeRequestPending = false;
@@ -47,6 +47,10 @@ function createWindowManager() {
         closeRequestPending = true;
         broadcast("window:close-requested");
       }
+    });
+    mainWindow.on("closed", () => {
+      mainWindow = null;
+      onMainWindowClosed?.();
     });
 
     mainWindow.maximize();

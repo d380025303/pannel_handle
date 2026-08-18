@@ -30,6 +30,7 @@ export type TranslationKey =
   | "settings.generalTitle"
   | "settings.autoRestore"
   | "settings.debugMode"
+  | "settings.agentConversationOverlay"
   | "settings.theme"
   | "settings.language"
   | "settings.close"
@@ -655,6 +656,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
     "settings.debugMode": "Debug 模式",
+    "settings.agentConversationOverlay": "显示 Agent 对话浮窗",
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
@@ -1272,6 +1274,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
     "settings.debugMode": "Debug mode",
+    "settings.agentConversationOverlay": "Show Agent conversation overlay",
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",

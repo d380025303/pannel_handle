@@ -99,6 +99,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
+  const [agentConversationOverlayEnabled, setAgentConversationOverlayEnabled] = useState(true);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
@@ -201,12 +202,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
+        setAgentConversationOverlayEnabled(config.agentConversationOverlayEnabled);
       }
     });
     return () => {
       isDisposed = true;
     };
   }, [onLocaleChange]);
+
+  useEffect(() => {
+    window.agentConversationApi.setActiveSession(terminalSessions.activeId);
+  }, [terminalSessions.activeId]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeId;
@@ -453,6 +459,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     const config = await window.terminalApi.setConfig({ locale: nextLocale });
     onLocaleChange(normalizeLocale(config.locale));
   }, [onLocaleChange]);
+
+  const handleToggleAgentConversationOverlay = useCallback(async () => {
+    const config = await window.terminalApi.setConfig({
+      agentConversationOverlayEnabled: !agentConversationOverlayEnabled
+    });
+    setAgentConversationOverlayEnabled(config.agentConversationOverlayEnabled);
+  }, [agentConversationOverlayEnabled]);
 
   useEffect(() => {
     if (!terminalSessions.activeSession) {
@@ -808,11 +821,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         <SettingsModal
           autoRestore={terminalSessions.autoRestore}
           debugMode={debugMode}
+          agentConversationOverlayEnabled={agentConversationOverlayEnabled}
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
+          onToggleAgentConversationOverlay={handleToggleAgentConversationOverlay}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
           onCancel={() => setShowSettingsModal(false)}

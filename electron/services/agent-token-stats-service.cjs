@@ -13,6 +13,7 @@ const {
 } = require("./agent-token-transcript.cjs");
 const { subtractCapabilities } = require("../stores/agent-token-stats-store.cjs");
 const { toWslHostPath } = require("./remote-file-service.cjs");
+const { createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
@@ -85,7 +86,8 @@ function createAgentTokenStatsService({
   fsPromises = fs.promises,
   toWslHostPathFn = toWslHostPath,
   setIntervalFn = setInterval,
-  clearIntervalFn = clearInterval
+  clearIntervalFn = clearInterval,
+  conversationSink = null
 }) {
   const pending = new Map();
   const baselinePending = new Map();
@@ -186,6 +188,9 @@ function createAgentTokenStatsService({
     tracker.offset = 0;
     tracker.pendingBytes = Buffer.alloc(0);
     tracker.parser = createIncrementalTranscriptParser(tracker.provider);
+    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy"
+      ? createAgentConversationTranscriptParser(tracker.provider)
+      : null;
   }
 
   function ensureLiveTracker({ provider, input, session }) {
@@ -206,6 +211,10 @@ function createAgentTokenStatsService({
         offset: 0,
         pendingBytes: Buffer.alloc(0),
         parser: createIncrementalTranscriptParser(provider),
+        conversationParser: provider === "codex" || provider === "codebuddy"
+          ? createAgentConversationTranscriptParser(provider)
+          : null,
+        conversationActive: false,
         rawTokens: emptyTokens(),
         rawCapabilities: emptyCapabilityUsage(),
         sessionBaseline: null,
@@ -272,14 +281,26 @@ function createAgentTokenStatsService({
     const combined = Buffer.concat([tracker.pendingBytes, buffer.subarray(0, bytesRead)]);
     let lineStart = 0;
     let parsedUsage = false;
+    const conversationMessages = [];
     for (let index = 0; index < combined.length; index += 1) {
       if (combined[index] !== 0x0a) continue;
       let line = combined.subarray(lineStart, index);
       if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-      if (line.length) parsedUsage = tracker.parser.pushLine(line.toString("utf-8")) || parsedUsage;
+      if (line.length) {
+        const text = line.toString("utf-8");
+        parsedUsage = tracker.parser.pushLine(text) || parsedUsage;
+        if (tracker.conversationActive && tracker.conversationParser) {
+          conversationMessages.push(...tracker.conversationParser.pushLine(text));
+        } else if (tracker.conversationParser) {
+          tracker.conversationParser.pushLine(text);
+        }
+      }
       lineStart = index + 1;
     }
     tracker.pendingBytes = combined.subarray(lineStart);
+    if (conversationMessages.length) {
+      conversationSink?.appendMessages?.(tracker.panelSessionId, conversationMessages);
+    }
     return parsedUsage;
   }
 
@@ -332,6 +353,7 @@ function createAgentTokenStatsService({
 
   async function startLiveTurn(tracker) {
     await pollLive(tracker, { emit: false });
+    tracker.conversationActive = true;
     if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(tracker.rawTokens);
     if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(tracker.rawCapabilities);
     const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline);
@@ -346,12 +368,18 @@ function createAgentTokenStatsService({
 
   async function completeLiveTurn(tracker) {
     await pollLive(tracker, { emit: false });
-    if (tracker.pendingBytes.length && tracker.parser.pushLine(tracker.pendingBytes.toString("utf-8"))) {
-      const result = tracker.parser.getResult();
-      tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
-      tracker.models = result?.models || tracker.models;
+    if (tracker.pendingBytes.length) {
+      const pendingText = tracker.pendingBytes.toString("utf-8");
+      if (tracker.parser.pushLine(pendingText)) {
+        const result = tracker.parser.getResult();
+        tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
+        tracker.models = result?.models || tracker.models;
+      }
+      const messages = tracker.conversationParser?.pushLine(pendingText) || [];
+      if (messages.length) conversationSink?.appendMessages?.(tracker.panelSessionId, messages);
       tracker.pendingBytes = Buffer.alloc(0);
     }
+    tracker.conversationActive = false;
     if (tracker.turnStartedAt) {
       const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline || emptyTokens());
       const turnOutput = Math.max(0, visible.outputTokens - safeInteger(tracker.turnBaseline?.outputTokens));
@@ -375,9 +403,24 @@ function createAgentTokenStatsService({
       }
 
       const tracker = ensureLiveTracker({ provider, input, session });
+      if ((provider === "codex" || provider === "codebuddy") && eventName === "SessionStart") {
+        conversationSink?.clearSession?.(session.id);
+      }
       if (tracker && eventName === "SessionStart") void pollLive(tracker);
+      if ((provider === "codex" || provider === "codebuddy") && eventName === "UserPromptSubmit") {
+        conversationSink?.startTurn?.({
+          sessionId: session.id,
+          sessionTitle: session.title,
+          provider,
+          supported: Boolean(tracker)
+        });
+      }
       if (tracker && eventName === "UserPromptSubmit") void startLiveTurn(tracker);
-      if (tracker && eventName === "Stop") void completeLiveTurn(tracker);
+      if (tracker && eventName === "Stop") {
+        void completeLiveTurn(tracker).finally(() => conversationSink?.completeTurn?.(session.id));
+      } else if ((provider === "codex" || provider === "codebuddy") && eventName === "Stop") {
+        conversationSink?.completeTurn?.(session.id);
+      }
 
       if (eventName === "Stop" || eventName === "SessionEnd") collect({ provider, input, session });
     },
@@ -391,6 +434,7 @@ function createAgentTokenStatsService({
       liveTrackers.delete(panelSessionId);
       remoteSnapshots.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
+      conversationSink?.clearSession?.(panelSessionId);
     },
     shutdown() {
       for (const tracker of liveTrackers.values()) stopLiveTimer(tracker);

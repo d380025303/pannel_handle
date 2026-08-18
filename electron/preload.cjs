@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("agentConversationApi", {
+  setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId)
+});
+
 contextBridge.exposeInMainWorld("launchTemplateApi", {
   list: () => ipcRenderer.invoke("launch-templates:list"),
   create: (input) => ipcRenderer.invoke("launch-templates:create", input),

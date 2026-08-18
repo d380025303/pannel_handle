@@ -81,6 +81,8 @@ export type AppConfig = {
   themeId: ThemeId;
   locale: Locale;
   rightToolsWidth: number;
+  agentConversationOverlayEnabled: boolean;
+  agentConversationOverlayBounds?: { x: number; y: number; width: number; height: number };
 };
 
 export type MobileAccessInterface = { name: string; address: string };
@@ -472,6 +474,40 @@ export type AgentStatusPayload = {
   toolInput?: unknown;
   activitySummary?: string;
   resolution?: "none" | "provide_input";
+};
+
+export type AgentConversationMessage = {
+  id: string;
+  provider: "codex" | "codebuddy";
+  kind: "commentary" | "final" | "reply";
+  text: string;
+  timestamp: number;
+};
+
+export type AgentConversationTurn = {
+  sessionId: string;
+  sessionTitle: string;
+  provider: "codex" | "codebuddy";
+  status: "running" | "completed" | "unsupported";
+  supported: boolean;
+  messages: AgentConversationMessage[];
+};
+
+export type AgentConversationSnapshot = {
+  enabled: boolean;
+  themeId: ThemeId;
+  locale: Locale;
+  activeSessionId: string | null;
+  turn: AgentConversationTurn | null;
+};
+
+export type AgentConversationApi = {
+  setActiveSession: (sessionId?: string) => void;
+  getSnapshot: () => Promise<AgentConversationSnapshot>;
+  hide: () => void;
+  focusSession: () => void;
+  openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  onSnapshot: (callback: (snapshot: AgentConversationSnapshot) => void) => () => void;
 };
 
 export type AgentHookDebugPayload = {
@@ -880,6 +916,7 @@ export type DingTalkApi = {
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    agentConversationApi: AgentConversationApi;
     launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;

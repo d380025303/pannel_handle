@@ -1,8 +1,9 @@
 const path = require("node:path");
 const { Readable } = require("node:stream");
-const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, screen, shell } = require("electron");
 const { registerIpcHandlers } = require("./core/ipc-handlers.cjs");
 const { createWindowManager } = require("./core/window-manager.cjs");
+const { createAgentConversationOverlayManager } = require("./core/agent-conversation-overlay-manager.cjs");
 const { createAgentHookServer } = require("./hooks/agent-hook-server.cjs");
 const { createAgentSessionLauncher } = require("./hooks/agent-session-launcher.cjs");
 const { createHookConfigManager } = require("./hooks/hook-config-manager.cjs");
@@ -71,6 +72,7 @@ let clipboardImageService = null;
 let mobileAccessStore = null;
 let mobileRemoteService = null;
 let terminalStateHub = null;
+let agentConversationOverlayManager = null;
 
 protocol.registerSchemesAsPrivileged([{
   scheme: MEDIA_PROTOCOL,
@@ -119,7 +121,9 @@ if (!gotSingleInstanceLock) {
     if (process.platform === "win32") {
       app.setAppUserModelId("local.pannel-handle");
     }
-    windowManager = createWindowManager();
+    windowManager = createWindowManager({
+      onMainWindowClosed: () => agentConversationOverlayManager?.shutdown()
+    });
     templateUsageStore = createTemplateUsageStore({
       usageFile: path.join(app.getPath("userData"), "template-usage.json")
     });
@@ -156,6 +160,15 @@ if (!gotSingleInstanceLock) {
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
+    agentConversationOverlayManager = createAgentConversationOverlayManager({
+      BrowserWindow,
+      screen,
+      configStore,
+      windowManager,
+      isPackaged: app.isPackaged,
+      preloadPath: path.join(__dirname, "agent-conversation-preload.cjs"),
+      indexPath: path.join(__dirname, "..", "dist", "index.html")
+    });
     agentTokenStatsStore = createAgentTokenStatsStore({
       databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
       legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
@@ -233,7 +246,8 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       statsStore: agentTokenStatsStore,
       sshSessionRuntime,
-      broadcast: windowManager.broadcast
+      broadcast: windowManager.broadcast,
+      conversationSink: agentConversationOverlayManager
     });
     remoteFileService = createRemoteFileService({
       terminalManager,
@@ -355,6 +369,7 @@ if (!gotSingleInstanceLock) {
       dingTalkConfigStore,
       dingTalkNotificationManager,
       windowManager,
+      agentConversationOverlayManager,
       clipboard,
       clipboardImageService,
       dialog,
@@ -416,6 +431,9 @@ app.on("window-all-closed", () => {
   }
   if (agentTokenStatsService) {
     agentTokenStatsService.shutdown();
+  }
+  if (agentConversationOverlayManager) {
+    agentConversationOverlayManager.shutdown();
   }
   if (agentTokenStatsStore) {
     agentTokenStatsStore.close();

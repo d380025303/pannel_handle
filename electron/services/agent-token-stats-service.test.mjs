@@ -31,7 +31,7 @@ function createMemoryFiles(initial = "") {
   };
 }
 
-function createHarness({ initial = "", now = 1_000 } = {}) {
+function createHarness({ initial = "", now = 1_000, conversationSink = null } = {}) {
   const files = createMemoryFiles(initial);
   const broadcasts = [];
   const intervals = [];
@@ -45,7 +45,8 @@ function createHarness({ initial = "", now = 1_000 } = {}) {
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     setIntervalFn: (callback) => { intervals.push(callback); return callback; },
     clearIntervalFn: vi.fn(),
-    pollIntervalMs: 1000
+    pollIntervalMs: 1000,
+    conversationSink
   });
   const session = { id: "panel-1", type: "windows", title: "Codex", cwd: "C:\\work", agentProvider: "codex" };
   const input = { session_id: "agent-1", transcript_path: "C:\\tokens.jsonl", cwd: "C:\\work" };
@@ -57,6 +58,38 @@ async function flush() {
 }
 
 describe("agent token live statistics", () => {
+  it("emits only current-turn Codex conversation messages through the live reader", async () => {
+    const oldMessage = `${JSON.stringify({ type: "response_item", payload: { type: "message", id: "old", role: "assistant", phase: "final", content: [{ type: "output_text", text: "old" }] } })}\n`;
+    const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn(), clearSession: vi.fn() };
+    const harness = createHarness({ initial: oldMessage + codexLine(100, 20), conversationSink: sink });
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "SessionStart" }, session: harness.session });
+    await flush();
+    expect(sink.clearSession).toHaveBeenCalledWith("panel-1");
+    expect(sink.appendMessages).not.toHaveBeenCalled();
+
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "UserPromptSubmit" }, session: harness.session });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "panel-1", supported: true }));
+    harness.files.append(`${JSON.stringify({ type: "response_item", payload: { type: "message", id: "current", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "current" }] } })}\n`);
+    await harness.intervals[0]();
+    await vi.waitFor(() => expect(sink.appendMessages).toHaveBeenCalledWith("panel-1", [expect.objectContaining({ id: "current", text: "current" })]));
+
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "Stop" }, session: harness.session });
+    await flush();
+    expect(sink.completeTurn).toHaveBeenCalledWith("panel-1");
+  });
+
+  it("marks pure remote SSH turns as unsupported without polling the transcript", () => {
+    const sink = { startTurn: vi.fn() };
+    const harness = createHarness({ conversationSink: sink });
+    harness.service.handleHook({
+      provider: "codebuddy",
+      input: { ...harness.input, hook_event_name: "UserPromptSubmit" },
+      session: { ...harness.session, type: "ssh", agentLocation: "remote", agentProvider: "codebuddy" }
+    });
+    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ provider: "codebuddy", supported: false }));
+  });
+
   it("publishes session deltas and freezes the final average output rate", async () => {
     const harness = createHarness({ initial: codexLine(100, 20), now: 1_000 });
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "SessionStart" }, session: harness.session });

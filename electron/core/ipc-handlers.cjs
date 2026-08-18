@@ -42,7 +42,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationOverlayManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -612,8 +612,16 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
     }
+    if (partial && typeof partial.agentConversationOverlayEnabled === "boolean") {
+      updates.agentConversationOverlayEnabled = partial.agentConversationOverlayEnabled;
+    }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);
+      if (typeof updates.agentConversationOverlayEnabled === "boolean") {
+        agentConversationOverlayManager.setEnabled(updates.agentConversationOverlayEnabled);
+      } else {
+        agentConversationOverlayManager.refresh();
+      }
     }
     return configStore.getConfig();
   });
@@ -633,6 +641,13 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("workbuddy-checkin:get-status", () => workBuddyCheckinService.getStatus());
 
   ipcMain.handle("workbuddy-checkin:claim", () => workBuddyCheckinService.claim());
+
+  ipcMain.handle("agent-conversation:get-snapshot", () => agentConversationOverlayManager.getSnapshot());
+  ipcMain.on("agent-conversation:set-active-session", (_event, sessionId) => {
+    agentConversationOverlayManager.setActiveSession(sessionId);
+  });
+  ipcMain.on("agent-conversation:hide", () => agentConversationOverlayManager.hide());
+  ipcMain.on("agent-conversation:focus-session", () => agentConversationOverlayManager.focusActiveSession());
 
   ipcMain.on("window:minimize", (event) => {
     const window = windowManager.getWindowFromEvent(event);

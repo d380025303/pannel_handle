@@ -5969,3 +5969,184 @@ button.agent-usage-status[aria-expanded="true"] {
   .mcp-workspace { grid-template-columns: minmax(200px, 38%) minmax(0, 1fr); padding: 10px 14px 14px; }
   .mcp-form-grid { grid-template-columns: 1fr; }
 }
+.agent-conversation-window-body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-bg-app);
+}
+
+.agent-conversation-overlay {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg-panel) 96%, transparent);
+  border: 1px solid var(--color-border);
+  box-sizing: border-box;
+}
+
+.agent-conversation-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 5px 0 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-titlebar);
+  -webkit-app-region: drag;
+}
+
+.agent-conversation-session,
+.agent-conversation-close {
+  -webkit-app-region: no-drag;
+}
+
+.agent-conversation-session {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.agent-conversation-session > svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  color: var(--color-text-muted);
+}
+
+.agent-conversation-provider {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8ec5ff;
+  background: rgba(44, 132, 255, 0.16);
+}
+
+.agent-conversation-provider.codebuddy {
+  color: #32c9c0;
+  background: rgba(0, 166, 166, 0.16);
+}
+
+.agent-conversation-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-conversation-status {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.agent-conversation-status.completed {
+  color: var(--color-success);
+}
+
+.agent-conversation-status.unsupported {
+  color: var(--color-warning-text);
+}
+
+.agent-conversation-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.agent-conversation-close:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.agent-conversation-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.agent-conversation-messages {
+  overflow: auto;
+  padding: 12px;
+  scrollbar-gutter: stable;
+}
+
+.agent-conversation-message {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  background: var(--color-bg-control);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.agent-conversation-message.final {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+}
+
+.agent-conversation-message-kind {
+  margin-bottom: 6px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-conversation-message > :first-child,
+.agent-conversation-message > .agent-conversation-message-kind + * {
+  margin-top: 0;
+}
+
+.agent-conversation-message > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-conversation-message pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 9px;
+  background: var(--color-bg-app);
+  border-radius: 5px;
+}
+
+.agent-conversation-message code {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.9em;
+}
+
+.agent-conversation-message a {
+  color: var(--color-accent);
+}
+
+.agent-conversation-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 12px;
+}
