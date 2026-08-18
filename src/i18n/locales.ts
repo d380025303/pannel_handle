@@ -32,13 +32,6 @@ export type TranslationKey =
   | "settings.debugMode"
   | "settings.theme"
   | "settings.language"
-  | "settings.agentLogTitle"
-  | "settings.agentLogDescription"
-  | "settings.agentLogHistoryMaxEntries"
-  | "settings.agentLogOutputMaxKiB"
-  | "settings.agentLogRange"
-  | "settings.agentLogSaved"
-  | "settings.agentLogInvalid"
   | "settings.close"
   | "settings.dingTalkTitle"
   | "settings.dingTalkDescription"
@@ -129,6 +122,13 @@ export type TranslationKey =
   | "remoteAgent.auditTitle"
   | "remoteAgent.auditEphemeral"
   | "remoteAgent.auditWaiting"
+  | "remoteAgent.approvalTitle"
+  | "remoteAgent.approvalSource"
+  | "remoteAgent.approvalRemaining"
+  | "remoteAgent.approvalDeny"
+  | "remoteAgent.approvalOnce"
+  | "remoteAgent.approvalSession"
+  | "remoteAgent.approvalFailed"
   | "session.saving"
   | "session.updateFailed"
   | "session.sshArgs"
@@ -259,6 +259,10 @@ export type TranslationKey =
   | "skills.unsaved"
   | "skills.saving"
   | "skills.saved"
+  | "skills.deleting"
+  | "skills.deleted"
+  | "skills.confirmDelete"
+  | "skills.confirmDeleteDirty"
   | "skills.reload"
   | "skills.conflict"
   | "skills.discardChanges"
@@ -266,6 +270,7 @@ export type TranslationKey =
   | "skills.usageCount"
   | "skills.translate"
   | "skills.translating"
+  | "skills.translationProgress"
   | "skills.viewOriginal"
   | "skills.translationPreview"
   | "skills.translationUnavailable"
@@ -365,22 +370,6 @@ export type TranslationKey =
   | "tabs.terminal"
   | "tabs.workspace"
   | "tabs.debug"
-  | "tabs.agentOutput"
-  | "agentOutput.title"
-  | "agentOutput.scope"
-  | "agentOutput.current"
-  | "agentOutput.all"
-  | "agentOutput.responseCount"
-  | "agentOutput.emptyCurrent"
-  | "agentOutput.emptyAll"
-  | "agentOutput.hookRequired"
-  | "agentOutput.loadFailed"
-  | "agentOutput.loadMore"
-  | "agentOutput.copy"
-  | "agentOutput.commentary"
-  | "agentOutput.final"
-  | "agentOutput.historyTruncated"
-  | "agentOutput.responseTruncated"
   | "debug.eventsCount"
   | "debug.clearEvents"
   | "debug.providerFilter"
@@ -694,13 +683,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug 模式",
     "settings.theme": "主题",
     "settings.language": "语言",
-    "settings.agentLogTitle": "Agent 输出日志",
-    "settings.agentLogDescription": "仅持久化 Claude、Codex、CodeBuddy、OpenCode 和 Qoder Agent 终端会话的输出。配置在新会话启动时生效。",
-    "settings.agentLogHistoryMaxEntries": "每个 Agent 会话模板保留次数",
-    "settings.agentLogOutputMaxKiB": "每次会话输出上限（KiB）",
-    "settings.agentLogRange": "保留 1–1000 次；每次输出 16 KiB–16 MiB。",
-    "settings.agentLogSaved": "Agent 输出日志配置已保存。",
-    "settings.agentLogInvalid": "请输入有效范围内的整数。",
     "settings.close": "关闭",
     "settings.dingTalkTitle": "钉钉机器人通知",
     "settings.dingTalkDescription": "仅推送等待授权、等待输入和执行失败状态。消息固定包含 Pannel Handle 关键词。",
@@ -791,6 +773,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "remoteAgent.auditTitle": "远程操作",
     "remoteAgent.auditEphemeral": "仅保留当前会话",
     "remoteAgent.auditWaiting": "等待 Codex 调用远程工具…",
+    "remoteAgent.approvalTitle": "允许 Codex 操作远程服务器？",
+    "remoteAgent.approvalSource": "来自 {source}",
+    "remoteAgent.approvalRemaining": "另有 {count} 项",
+    "remoteAgent.approvalDeny": "拒绝",
+    "remoteAgent.approvalOnce": "仅本次允许",
+    "remoteAgent.approvalSession": "本会话允许",
+    "remoteAgent.approvalFailed": "授权请求已失效，请重试。",
     "session.saving": "保存中...",
     "session.updateFailed": "保存会话失败",
     "session.sshArgs": "额外 SSH 参数",
@@ -921,6 +910,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.unsaved": "未保存",
     "skills.saving": "保存中…",
     "skills.saved": "已保存 SKILL.md",
+    "skills.deleting": "删除中…",
+    "skills.deleted": "Skill 已移到回收站。",
+    "skills.confirmDelete": "确定将 Skill“{name}”的整个目录移到回收站吗？",
+    "skills.confirmDeleteDirty": "Skill“{name}”有未保存修改。确定放弃草稿并将整个目录移到回收站吗？",
     "skills.reload": "重新加载",
     "skills.conflict": "SKILL.md 已被其他程序修改。当前草稿未覆盖磁盘内容，请重新加载后再编辑。",
     "skills.discardChanges": "当前 SKILL.md 有未保存修改，确定放弃吗？",
@@ -928,6 +921,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.usageCount": "使用 {count} 次",
     "skills.translate": "翻译成中文",
     "skills.translating": "翻译中…",
+    "skills.translationProgress": "正在调用 {provider} 翻译，已等待 {seconds} 秒。较长 Skill 可能需要 1–3 分钟。",
     "skills.viewOriginal": "查看原文",
     "skills.translationPreview": "当前为中文翻译预览，不会修改 SKILL.md。",
     "skills.translationUnavailable": "翻译服务暂不可用。",
@@ -1027,22 +1021,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "终端",
     "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
-    "tabs.agentOutput": "Agent 输出",
-    "agentOutput.title": "Agent 会话内容",
-    "agentOutput.scope": "会话历史范围",
-    "agentOutput.current": "当前模板",
-    "agentOutput.all": "全部历史",
-    "agentOutput.responseCount": "{count} 条内容",
-    "agentOutput.emptyCurrent": "当前模板还没有 Agent 会话内容",
-    "agentOutput.emptyAll": "还没有可查看的 Agent 会话内容",
-    "agentOutput.hookRequired": "计划、过程说明和最终答复会自动保存在这里；需要对应 Agent Hook 正常工作。",
-    "agentOutput.loadFailed": "加载 Agent 会话内容失败",
-    "agentOutput.loadMore": "加载更多",
-    "agentOutput.copy": "复制内容",
-    "agentOutput.commentary": "过程",
-    "agentOutput.final": "最终答复",
-    "agentOutput.historyTruncated": "较早的内容已按输出大小限制清理。",
-    "agentOutput.responseTruncated": "这条内容已达到保存大小上限。",
     "debug.eventsCount": "{count} 个 hook 事件",
     "debug.clearEvents": "清除事件",
     "debug.providerFilter": "Provider 过滤",
@@ -1348,13 +1326,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug mode",
     "settings.theme": "Theme",
     "settings.language": "Language",
-    "settings.agentLogTitle": "Agent output logs",
-    "settings.agentLogDescription": "Persist output only for Claude, Codex, CodeBuddy, OpenCode, and Qoder terminal sessions. Changes apply when a new session starts.",
-    "settings.agentLogHistoryMaxEntries": "Runs kept per Agent session template",
-    "settings.agentLogOutputMaxKiB": "Output limit per run (KiB)",
-    "settings.agentLogRange": "Keep 1–1000 runs; limit each run to 16 KiB–16 MiB.",
-    "settings.agentLogSaved": "Agent output log settings saved.",
-    "settings.agentLogInvalid": "Enter whole numbers within the allowed ranges.",
     "settings.close": "Close",
     "settings.dingTalkTitle": "DingTalk Robot Notifications",
     "settings.dingTalkDescription": "Only permission, input, and failure states are sent. Messages always include the Pannel Handle keyword.",
@@ -1445,6 +1416,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "remoteAgent.auditTitle": "Remote operations",
     "remoteAgent.auditEphemeral": "Current session only",
     "remoteAgent.auditWaiting": "Waiting for Codex to call a remote tool…",
+    "remoteAgent.approvalTitle": "Allow Codex to operate the remote server?",
+    "remoteAgent.approvalSource": "From {source}",
+    "remoteAgent.approvalRemaining": "{count} more pending",
+    "remoteAgent.approvalDeny": "Deny",
+    "remoteAgent.approvalOnce": "Allow once",
+    "remoteAgent.approvalSession": "Allow for session",
+    "remoteAgent.approvalFailed": "This approval request has expired. Try again.",
     "session.saving": "Saving...",
     "session.updateFailed": "Failed to save session",
     "session.sshArgs": "Extra SSH arguments",
@@ -1575,6 +1553,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.unsaved": "Unsaved",
     "skills.saving": "Saving…",
     "skills.saved": "SKILL.md saved",
+    "skills.deleting": "Deleting…",
+    "skills.deleted": "Skill moved to the Recycle Bin.",
+    "skills.confirmDelete": "Move the entire directory for Skill “{name}” to the Recycle Bin?",
+    "skills.confirmDeleteDirty": "Skill “{name}” has unsaved changes. Discard the draft and move its entire directory to the Recycle Bin?",
     "skills.reload": "Reload",
     "skills.conflict": "SKILL.md was changed by another program. Your draft was not written; reload before editing again.",
     "skills.discardChanges": "This SKILL.md has unsaved changes. Discard them?",
@@ -1582,6 +1564,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.usageCount": "Used {count} times",
     "skills.translate": "Translate to Chinese",
     "skills.translating": "Translating…",
+    "skills.translationProgress": "Translating with {provider}; waiting for {seconds} seconds. Longer Skills may take 1–3 minutes.",
     "skills.viewOriginal": "View original",
     "skills.translationPreview": "Showing a Chinese translation preview. SKILL.md is unchanged.",
     "skills.translationUnavailable": "The translation service is unavailable.",
@@ -1681,22 +1664,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "Terminal",
     "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
-    "tabs.agentOutput": "Agent output",
-    "agentOutput.title": "Agent conversation",
-    "agentOutput.scope": "Conversation history scope",
-    "agentOutput.current": "Current template",
-    "agentOutput.all": "All history",
-    "agentOutput.responseCount": "{count} items",
-    "agentOutput.emptyCurrent": "No Agent conversation content for the current template yet",
-    "agentOutput.emptyAll": "No Agent conversation content is available yet",
-    "agentOutput.hookRequired": "Plans, progress updates, and final responses are saved here automatically when the corresponding Agent Hook is working.",
-    "agentOutput.loadFailed": "Failed to load Agent conversation content",
-    "agentOutput.loadMore": "Load more",
-    "agentOutput.copy": "Copy content",
-    "agentOutput.commentary": "Progress",
-    "agentOutput.final": "Final response",
-    "agentOutput.historyTruncated": "Older content was removed by the output size limit.",
-    "agentOutput.responseTruncated": "This item reached the saved output size limit.",
     "debug.eventsCount": "{count} hook events",
     "debug.clearEvents": "Clear events",
     "debug.providerFilter": "Provider filter",

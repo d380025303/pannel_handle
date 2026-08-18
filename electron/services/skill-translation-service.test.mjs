@@ -1,14 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import fs from "node:fs";
 
 const require = createRequire(import.meta.url);
-const { buildInvocation, createSkillTranslationService, findTranslatedContent } = require("./skill-translation-service.cjs");
+const {
+  DEFAULT_TIMEOUT_MS,
+  buildInvocation,
+  createSkillTranslationService,
+  findTranslatedContent,
+  runCli,
+  terminateProcess
+} = require("./skill-translation-service.cjs");
 
 describe("Skill translation service", () => {
+  it("allows enough time for complete Skill documents", () => {
+    expect(DEFAULT_TIMEOUT_MS).toBe(300 * 1000);
+  });
+
   it("builds provider-specific non-interactive invocations", () => {
     const codex = buildInvocation("codex", "C:\\temp\\translation");
     expect(codex.command).toBe("codex");
-    expect(codex.args).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "--output-schema", "-"]));
+    expect(codex.args).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--ignore-user-config", "--disable", "plugins", "--sandbox", "read-only", "--output-schema", "-"]));
 
     const codebuddy = buildInvocation("codebuddy", "C:\\temp\\translation");
     expect(codebuddy.command).toBe("codebuddy");
@@ -49,5 +63,95 @@ describe("Skill translation service", () => {
   it("accepts nested provider JSON envelopes", () => {
     expect(findTranslatedContent({ result: JSON.stringify({ translatedContent: "译文" }) })).toBe("译文");
     expect(findTranslatedContent([{ type: "message" }, { type: "result", result: "完整译文" }])).toBe("完整译文");
+  });
+
+  it("returns a completed Codex output without waiting for the CLI process to close", async () => {
+    const child = new EventEmitter();
+    child.pid = 1234;
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const terminate = vi.fn();
+    const spawn = vi.fn((_command, args) => {
+      const outputFile = args[args.indexOf("--output-last-message") + 1];
+      setTimeout(() => fs.writeFileSync(outputFile, JSON.stringify({ translatedContent: "译文" })), 10);
+      return child;
+    });
+
+    await expect(runCli({
+      provider: "codex",
+      prompt: "Translate this.",
+      workspaceDirectory: "C:\\data",
+      timeoutMs: 1000,
+      spawn,
+      terminate
+    })).resolves.toBe(JSON.stringify({ translatedContent: "译文" }));
+    expect(terminate).toHaveBeenCalledWith(child);
+  });
+
+  it("returns structured stdout even when the Codex process would later exit non-zero", async () => {
+    const child = new EventEmitter();
+    child.pid = 1234;
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const terminate = vi.fn();
+    const spawn = vi.fn(() => {
+      setTimeout(() => child.stdout.write(JSON.stringify({ translatedContent: "标准输出译文" })), 10);
+      setTimeout(() => child.emit("close", 1), 50);
+      return child;
+    });
+
+    await expect(runCli({
+      provider: "codex",
+      prompt: "Translate this.",
+      workspaceDirectory: "C:\\data",
+      timeoutMs: 1000,
+      spawn,
+      terminate
+    })).resolves.toBe(JSON.stringify({ translatedContent: "标准输出译文" }));
+    expect(terminate).toHaveBeenCalledWith(child);
+  });
+
+  it("does not treat an intermediate provider message as the translated document", async () => {
+    const child = new EventEmitter();
+    child.pid = 1234;
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const spawn = vi.fn(() => {
+      setTimeout(() => child.stdout.write(`${JSON.stringify({ type: "message", message: "Working" })}\n`), 5);
+      setTimeout(() => child.stdout.write(JSON.stringify({ type: "result", result: "完整译文" })), 15);
+      return child;
+    });
+
+    await expect(runCli({
+      provider: "codebuddy",
+      prompt: "Translate this.",
+      workspaceDirectory: "C:\\data",
+      timeoutMs: 1000,
+      spawn,
+      terminate: vi.fn()
+    })).resolves.toBe(JSON.stringify({ type: "result", result: "完整译文" }));
+  });
+
+  it("bounds Windows process-tree termination and falls back to the direct child", async () => {
+    vi.useFakeTimers();
+    try {
+      const killer = new EventEmitter();
+      killer.kill = vi.fn();
+      const child = { pid: 1234, kill: vi.fn() };
+      const spawn = vi.fn(() => killer);
+
+      const pending = terminateProcess(child, spawn, "win32");
+      await vi.advanceTimersByTimeAsync(3000);
+      await pending;
+
+      expect(spawn).toHaveBeenCalledWith("taskkill.exe", ["/pid", "1234", "/t", "/f"], expect.objectContaining({ windowsHide: true }));
+      expect(killer.kill).toHaveBeenCalled();
+      expect(child.kill).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

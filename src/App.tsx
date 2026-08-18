@@ -6,7 +6,7 @@ import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
-import { AgentOutputPanel } from "./components/agents/AgentOutputPanel";
+import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
@@ -38,7 +38,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "agentOutput" | "debug";
+type RightTool = "files" | "git" | "debug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -98,10 +98,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
-  const [agentOutputHistoryMaxEntries, setAgentOutputHistoryMaxEntries] = useState(100);
-  const [agentOutputMaxBytes, setAgentOutputMaxBytes] = useState(1024 * 1024);
   const [rightTool, setRightTool] = useState<RightTool>("files");
-  const [agentOutputHistoryAvailable, setAgentOutputHistoryAvailable] = useState(false);
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
@@ -160,18 +157,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     return () => { disposed = true; removeListener(); };
   }, []);
 
-  useEffect(() => {
-    let disposed = false;
-    void window.agentOutputApi.hasAny().then((available) => {
-      if (!disposed) setAgentOutputHistoryAvailable(available);
-    });
-    const removeListener = window.agentOutputApi.onChanged(() => setAgentOutputHistoryAvailable(true));
-    return () => {
-      disposed = true;
-      removeListener();
-    };
-  }, []);
-
   const handleGitSummaryChange = useCallback(({ changes, conflicts }: { changes: number; conflicts: number }) => {
     if (!activeSessionId) return;
     setGitSummary((current) => (
@@ -218,8 +203,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
-        setAgentOutputHistoryMaxEntries(config.listenerAgentHistoryMaxEntries);
-        setAgentOutputMaxBytes(config.listenerAgentOutputMaxBytes);
       }
     });
     return () => {
@@ -477,38 +460,24 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     onLocaleChange(normalizeLocale(config.locale));
   }, [onLocaleChange]);
 
-  const handleAgentOutputHistoryChange = useCallback(async (maxEntries: number, maxOutputBytes: number) => {
-    const config = await window.terminalApi.setConfig({
-      listenerAgentHistoryMaxEntries: maxEntries,
-      listenerAgentOutputMaxBytes: maxOutputBytes
-    });
-    setAgentOutputHistoryMaxEntries(config.listenerAgentHistoryMaxEntries);
-    setAgentOutputMaxBytes(config.listenerAgentOutputMaxBytes);
-  }, []);
-
   useEffect(() => {
     if (!terminalSessions.activeSession) {
-      setRightTool(debugMode ? "debug" : agentOutputHistoryAvailable ? "agentOutput" : "files");
+      setRightTool(debugMode ? "debug" : "files");
       return;
     }
     if (!debugMode && rightTool === "debug") {
       setRightTool("files");
       return;
     }
-  }, [agentOutputHistoryAvailable, debugMode, rightTool, terminalSessions.activeSession]);
+  }, [debugMode, rightTool, terminalSessions.activeSession]);
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
-  const showAgentOutputPanel = showFilesPanel || agentOutputHistoryAvailable;
-  const showRightTools = showFilesPanel || debugMode || agentOutputHistoryAvailable;
-  const activeRightTool: RightTool = rightTool === "agentOutput" && showAgentOutputPanel
-    ? "agentOutput"
-    : showFilesPanel && (rightTool === "files" || rightTool === "git")
-      ? rightTool
-      : debugMode
-        ? "debug"
-        : agentOutputHistoryAvailable
-          ? "agentOutput"
-          : "files";
+  const showRightTools = showFilesPanel || debugMode;
+  const activeRightTool: RightTool = showFilesPanel && (rightTool === "files" || rightTool === "git")
+    ? rightTool
+    : debugMode
+      ? "debug"
+      : "files";
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
     : showRightTools
@@ -747,17 +716,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       </button>
                     </>
                   )}
-                  {showAgentOutputPanel && (
-                    <button
-                      className={activeRightTool === "agentOutput" ? "active" : ""}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeRightTool === "agentOutput"}
-                      onClick={() => handleRightToolChange("agentOutput")}
-                    >
-                      {t("tabs.agentOutput")}
-                    </button>
-                  )}
                   {debugMode && (
                     <button
                       className={activeRightTool === "debug" ? "active" : ""}
@@ -771,13 +729,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   )}
                 </div>
               )}
-              {activeRightTool === "agentOutput" ? (
-                <AgentOutputPanel
-                  activeSessionId={terminalSessions.activeId}
-                  activeTemplateId={terminalSessions.activeSession?.templateId}
-                  onHistoryAvailabilityChange={setAgentOutputHistoryAvailable}
-                />
-              ) : activeRightTool === "files" && showFilesPanel ? (
+              {activeRightTool === "files" && showFilesPanel ? (
                 <RemoteFilePanel
                   session={terminalSessions.activeSession}
                   openRequest={fileOpenRequest}
@@ -813,6 +765,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           )}
         </main>
       </div>
+
+      <RemoteAgentApprovalCard sessions={terminalSessions.sessions} />
 
       {showCreateModal && (
         <CreateSessionModal
@@ -867,13 +821,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
-          agentOutputHistoryMaxEntries={agentOutputHistoryMaxEntries}
-          agentOutputMaxBytes={agentOutputMaxBytes}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleDebugMode={handleToggleDebugMode}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
-          onSaveAgentOutputHistory={handleAgentOutputHistoryChange}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}

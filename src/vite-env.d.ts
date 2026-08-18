@@ -80,8 +80,6 @@ export type AppConfig = {
   themeId: ThemeId;
   locale: Locale;
   rightToolsWidth: number;
-  listenerAgentHistoryMaxEntries: number;
-  listenerAgentOutputMaxBytes: number;
 };
 
 export type MobileAccessInterface = { name: string; address: string };
@@ -635,9 +633,23 @@ export type RemoteAgentAuditEvent = {
   error?: string;
 };
 
+export type RemoteAgentApprovalDecision = "once" | "session" | "deny";
+
+export type RemoteAgentApprovalRequest = {
+  id: string;
+  sessionId: string;
+  tool: string;
+  summary: string;
+  timestamp: number;
+};
+
 export type RemoteAgentApi = {
   listAudit: (sessionId: string) => Promise<RemoteAgentAuditEvent[]>;
+  listPendingApprovals: () => Promise<RemoteAgentApprovalRequest[]>;
+  resolveApproval: (id: string, decision: RemoteAgentApprovalDecision) => Promise<boolean>;
   onAudit: (callback: (payload: RemoteAgentAuditEvent) => void) => () => void;
+  onApprovalRequested: (callback: (payload: RemoteAgentApprovalRequest) => void) => () => void;
+  onApprovalResolved: (callback: (payload: { id: string; decision: RemoteAgentApprovalDecision }) => void) => () => void;
 };
 
 export type TerminalApi = {
@@ -666,33 +678,6 @@ export type TerminalApi = {
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;
-};
-
-export type AgentOutputResponse = {
-  id: string;
-  createdAt: number;
-  content: string;
-  phase: "commentary" | "final";
-  truncated: boolean;
-};
-
-export type AgentOutputRun = {
-  id: string;
-  templateId?: string;
-  provider: AgentProvider;
-  title: string;
-  cwd?: string;
-  startedAt: number;
-  finishedAt: number | null;
-  exitCode: number | null;
-  responsesTruncated: boolean;
-  responses: AgentOutputResponse[];
-};
-
-export type AgentOutputApi = {
-  list: (options?: { scope?: "current" | "all"; sessionId?: string; templateId?: string; offset?: number; limit?: number }) => Promise<{ runs: AgentOutputRun[]; total: number }>;
-  hasAny: () => Promise<boolean>;
-  onChanged: (callback: (payload: { sessionId: string; templateId?: string; timestamp: number }) => void) => () => void;
 };
 
 export type WindowApi = {
@@ -793,6 +778,7 @@ export type SkillsApi = {
   list: (provider: SkillProvider) => Promise<SkillSummary[]>;
   read: (id: string) => Promise<SkillDocument>;
   save: (id: string, content: string, expectedVersion: string) => Promise<SkillSaveResult>;
+  delete: (id: string) => Promise<{ status: "trashed" }>;
   translate: (requestId: string, id: string, content: string) => Promise<SkillTranslationResult>;
   cancelTranslation: (requestId: string) => Promise<boolean>;
 };
@@ -921,7 +907,6 @@ export type DingTalkApi = {
 declare global {
   interface Window {
     terminalApi: TerminalApi;
-    agentOutputApi: AgentOutputApi;
     launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;

@@ -33,9 +33,7 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
-      rightToolsWidth: 380,
-      listenerAgentHistoryMaxEntries: 100,
-      listenerAgentOutputMaxBytes: 1024 * 1024
+      rightToolsWidth: 380
     });
   });
 
@@ -108,12 +106,14 @@ describe("config-store", () => {
     expect(saved.rightToolsWidth).toBe(380);
   });
 
-  it("ignores stale QQ bot config fields when loading older config files", () => {
+  it("ignores stale config fields when loading older config files", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({
       autoRestore: false,
       debugMode: true,
       themeId: "light",
+      listenerAgentHistoryMaxEntries: 250,
+      listenerAgentOutputMaxBytes: 4 * 1024 * 1024,
       qqBot: {
         enabled: true,
         appId: "123",
@@ -130,36 +130,7 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",
-      rightToolsWidth: 380,
-      listenerAgentHistoryMaxEntries: 100,
-      listenerAgentOutputMaxBytes: 1024 * 1024
-    });
-  });
-
-  it("loads, persists, and validates Agent output history limits", () => {
-    const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({
-      listenerAgentHistoryMaxEntries: 250,
-      listenerAgentOutputMaxBytes: 4 * 1024 * 1024
-    }), "utf-8");
-    const store = createConfigStore({ configFile });
-
-    store.loadConfig();
-    expect(store.getConfig()).toMatchObject({
-      listenerAgentHistoryMaxEntries: 250,
-      listenerAgentOutputMaxBytes: 4 * 1024 * 1024
-    });
-
-    store.updateConfig({ listenerAgentHistoryMaxEntries: 500, listenerAgentOutputMaxBytes: 16 * 1024 });
-    expect(store.getConfig()).toMatchObject({
-      listenerAgentHistoryMaxEntries: 500,
-      listenerAgentOutputMaxBytes: 16 * 1024
-    });
-
-    store.updateConfig({ listenerAgentHistoryMaxEntries: 1.5, listenerAgentOutputMaxBytes: 16 * 1024 * 1024 + 1 });
-    expect(store.getConfig()).toMatchObject({
-      listenerAgentHistoryMaxEntries: 500,
-      listenerAgentOutputMaxBytes: 16 * 1024
+      rightToolsWidth: 380
     });
   });
 });

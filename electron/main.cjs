@@ -29,7 +29,6 @@ const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
-const { createAgentOutputHistoryStore } = require("./stores/agent-output-history-store.cjs");
 const { createAgentTokenStatsStore } = require("./stores/agent-token-stats-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
@@ -45,7 +44,6 @@ let templateUsageStore = null;
 let launchTemplateStore = null;
 let launchTemplateService = null;
 let configStore = null;
-let agentOutputHistoryStore = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -160,18 +158,6 @@ if (!gotSingleInstanceLock) {
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
-    agentOutputHistoryStore = createAgentOutputHistoryStore({
-      historyFile: path.join(app.getPath("userData"), "listener-agent-history.json"),
-      onChanged: (payload) => windowManager.broadcast("agent-output-history:changed", payload),
-      getPolicy: () => {
-        const config = configStore.getConfig();
-        return {
-          maxEntries: config.listenerAgentHistoryMaxEntries,
-          maxOutputBytes: config.listenerAgentOutputMaxBytes
-        };
-      }
-    });
-    agentOutputHistoryStore.load();
     agentTokenStatsStore = createAgentTokenStatsStore({
       databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
       legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
@@ -190,7 +176,6 @@ if (!gotSingleInstanceLock) {
       configStore,
       broadcast,
       getHookUrl: () => agentHookServer ? agentHookServer.getHookUrl() : "",
-      agentOutputHistoryStore,
       knownHostStore,
       onAgentStatusChanged: (payload) => {
         if (agentNotificationManager) {
@@ -263,7 +248,6 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       sshSessionRuntime,
       remoteFileService,
-      dialog,
       windowManager,
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
@@ -287,7 +271,7 @@ if (!gotSingleInstanceLock) {
     });
     mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager });
     skillTranslationService = createSkillTranslationService({ workspaceDirectory: app.getPath("userData") });
-    skillsService = createSkillsService({ homeDir: app.getPath("home"), statsStore: agentTokenStatsStore, translationService: skillTranslationService });
+    skillsService = createSkillsService({ homeDir: app.getPath("home"), statsStore: agentTokenStatsStore, translationService: skillTranslationService, shellApi: shell });
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
@@ -388,7 +372,6 @@ if (!gotSingleInstanceLock) {
       workBuddyCheckinService,
       agentTokenStatsStore,
       agentTokenStatsService,
-      agentOutputHistoryStore,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,

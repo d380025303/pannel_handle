@@ -56,7 +56,6 @@ function createRemoteAgentBridgeService({
   terminalManager,
   sshSessionRuntime,
   remoteFileService,
-  dialog,
   windowManager,
   workspacesRoot,
   broadcast,
@@ -67,27 +66,29 @@ function createRemoteAgentBridgeService({
   const bindingsByToken = new Map();
   const bindingsBySession = new Map();
   const auditBySession = new Map();
+  const pendingApprovals = new Map();
   let server = null;
   let port = 0;
+
+  function redactForBinding(binding, value) {
+    const secrets = [binding?.token, binding?.sshSecret]
+      .filter((value) => typeof value === "string" && value.length >= 4);
+    if (typeof value !== "string") return value;
+    let sanitized = value;
+    for (const secret of secrets) sanitized = sanitized.split(secret).join("[REDACTED]");
+    return sanitized.replace(/(authorization\s*:\s*bearer\s+)[^\s]+/gi, "$1[REDACTED]");
+  }
 
   function emitAudit(sessionId, event) {
     const binding = bindingsBySession.get(sessionId);
     if (!binding || binding.closed) return;
-    const secrets = [binding?.token, binding?.sshSecret]
-      .filter((value) => typeof value === "string" && value.length >= 4);
-    const redact = (value) => {
-      if (typeof value !== "string") return value;
-      let sanitized = value;
-      for (const secret of secrets) sanitized = sanitized.split(secret).join("[REDACTED]");
-      return sanitized.replace(/(authorization\s*:\s*bearer\s+)[^\s]+/gi, "$1[REDACTED]");
-    };
     const payload = {
       sessionId,
       timestamp: now(),
       ...event,
-      summary: redact(event.summary),
-      output: redact(event.output),
-      error: redact(event.error)
+      summary: redactForBinding(binding, event.summary),
+      output: redactForBinding(binding, event.output),
+      error: redactForBinding(binding, event.error)
     };
     const events = auditBySession.get(sessionId) || [];
     events.push(payload);
@@ -98,6 +99,22 @@ function createRemoteAgentBridgeService({
 
   function listAudit(sessionId) {
     return [...(auditBySession.get(String(sessionId || "")) || [])];
+  }
+
+  function listPendingApprovals() {
+    return Array.from(pendingApprovals.values())
+      .map(({ request }) => ({ ...request }))
+      .sort((left, right) => left.timestamp - right.timestamp);
+  }
+
+  function resolveApproval(id, decision) {
+    if (!new Set(["once", "session", "deny"]).has(decision)) return false;
+    const pending = pendingApprovals.get(String(id || ""));
+    if (!pending) return false;
+    pendingApprovals.delete(pending.request.id);
+    pending.resolve(decision);
+    broadcast("remote-agent:approval-resolved", { id: pending.request.id, decision });
+    return true;
   }
 
   function getBinding(token) {
@@ -167,17 +184,20 @@ function createRemoteAgentBridgeService({
         resolveDecision(true);
         return;
       }
-      const result = await dialog.showMessageBox(windowManager.focusWindow(), {
-        type: "warning",
-        buttons: ["仅本次允许", "本会话允许", "拒绝"],
-        defaultId: 0,
-        cancelId: 2,
-        title: "允许本地 Codex 操作远程服务器？",
-        message: `${tool} 请求执行远程变更`,
-        detail: String(summary || "").slice(0, 2000)
+      const request = {
+        id: crypto.randomUUID(),
+        sessionId: binding.sessionId,
+        tool,
+        summary: redactForBinding(binding, String(summary || "").slice(0, 2000)),
+        timestamp: now()
+      };
+      const decision = await new Promise((resolve) => {
+        pendingApprovals.set(request.id, { request, binding, resolve });
+        windowManager.focusWindow();
+        broadcast("remote-agent:approval-requested", request);
       });
-      if (result.response === 1) binding.sessionMutationAllowed = true;
-      const allowed = result.response === 0 || result.response === 1;
+      if (decision === "session") binding.sessionMutationAllowed = true;
+      const allowed = decision === "once" || decision === "session";
       emitAudit(binding.sessionId, {
         operationId: crypto.randomUUID(),
         kind: "approval",
@@ -634,6 +654,10 @@ function createRemoteAgentBridgeService({
     const binding = bindingsBySession.get(String(sessionId || ""));
     if (!binding) return;
     binding.closed = true;
+    for (const pending of pendingApprovals.values()) {
+      if (pending.binding !== binding) continue;
+      resolveApproval(pending.request.id, "deny");
+    }
     bindingsBySession.delete(binding.sessionId);
     bindingsByToken.delete(binding.token);
     auditBySession.delete(binding.sessionId);
@@ -656,7 +680,17 @@ function createRemoteAgentBridgeService({
     }
   }
 
-  return { start, createBinding, runConfiguredCommand, closeBinding, shutdown, listAudit, handleHttp };
+  return {
+    start,
+    createBinding,
+    runConfiguredCommand,
+    closeBinding,
+    shutdown,
+    listAudit,
+    listPendingApprovals,
+    resolveApproval,
+    handleHttp
+  };
 }
 
 module.exports = {

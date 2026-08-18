@@ -1,5 +1,8 @@
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -120,6 +123,72 @@ describe("agent token live statistics", () => {
     await flush();
     expect(convert).toHaveBeenCalledWith("Ubuntu", "/home/me/tokens.jsonl");
     service.shutdown();
+  });
+
+  it("tracks a local-bridge SSH Codex transcript from the Windows host", async () => {
+    const tempDirectory = await mkdtemp(path.join(tmpdir(), "pannel-handle-token-"));
+    const transcriptPath = path.join(tempDirectory, "bridge.jsonl");
+    await writeFile(transcriptPath, codexLine(100, 20), "utf-8");
+    const intervals = [];
+    const broadcasts = [];
+    const statsStore = {
+      setBaseline: vi.fn(),
+      markEnded: vi.fn(),
+      update: vi.fn(input => ({ ...input, tokens: input.tokens, capabilities: input.capabilities, models: input.models }))
+    };
+    const sshSessionRuntime = { connectClient: vi.fn() };
+    let clock = 1_000;
+    const service = createAgentTokenStatsService({
+      terminalManager: {},
+      statsStore,
+      sshSessionRuntime,
+      now: () => clock,
+      retryDelaysMs: [0],
+      broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
+      setIntervalFn: callback => { intervals.push(callback); return callback; },
+      clearIntervalFn: vi.fn()
+    });
+    const session = {
+      id: "panel-bridge",
+      type: "ssh",
+      agentLocation: "local",
+      title: "Bridge",
+      cwd: "/srv/app",
+      agentProvider: "codex"
+    };
+    const input = {
+      session_id: "agent-bridge",
+      transcript_path: transcriptPath,
+      cwd: "C:\\runtime\\panel-bridge"
+    };
+
+    try {
+      service.handleHook({ provider: "codex", input: { ...input, hook_event_name: "SessionStart" }, session });
+      await vi.waitFor(() => expect(broadcasts.some(event => event.channel === "agent-token-live:changed")).toBe(true));
+      service.handleHook({ provider: "codex", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
+      await vi.waitFor(() => expect(service.getLive("panel-bridge")?.state).toBe("generating"));
+      await appendFile(transcriptPath, codexLine(160, 50), "utf-8");
+      clock = 4_000;
+      await intervals[0]();
+      await vi.waitFor(() => expect(service.getLive("panel-bridge")?.tokens).toMatchObject({ inputTokens: 60, outputTokens: 30 }));
+      service.handleHook({ provider: "codex", input: { ...input, hook_event_name: "Stop" }, session });
+      await vi.waitFor(() => expect(service.getLive("panel-bridge")?.state).toBe("completed"));
+      await vi.waitFor(() => expect(statsStore.update).toHaveBeenCalled());
+
+      expect(service.getLive("panel-bridge")).toMatchObject({
+        state: "completed",
+        tokens: { inputTokens: 60, outputTokens: 30 }
+      });
+      expect(statsStore.update).toHaveBeenCalledWith(expect.objectContaining({
+        panelSessionId: "panel-bridge",
+        location: "ssh",
+        tokens: expect.objectContaining({ totalTokens: 210 })
+      }));
+      expect(sshSessionRuntime.connectClient).not.toHaveBeenCalled();
+    } finally {
+      service.shutdown();
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
   });
 
   it("publishes a completed SSH snapshot after remote transcript collection", async () => {

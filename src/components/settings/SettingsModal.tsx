@@ -11,13 +11,10 @@ type SettingsModalProps = {
   themeId: ThemeId;
   locale: Locale;
   themes: AppTheme[];
-  agentOutputHistoryMaxEntries: number;
-  agentOutputMaxBytes: number;
   onToggleAutoRestore: () => void;
   onToggleDebugMode: () => void;
   onThemeChange: (themeId: ThemeId) => void;
   onLocaleChange: (locale: Locale) => void;
-  onSaveAgentOutputHistory: (maxEntries: number, maxOutputBytes: number) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -27,13 +24,10 @@ export function SettingsModal({
   themeId,
   locale,
   themes,
-  agentOutputHistoryMaxEntries,
-  agentOutputMaxBytes,
   onToggleAutoRestore,
   onToggleDebugMode,
   onThemeChange,
   onLocaleChange,
-  onSaveAgentOutputHistory,
   onCancel
 }: SettingsModalProps) {
   const { t } = useI18n();
@@ -46,11 +40,6 @@ export function SettingsModal({
   const [dingTalkOpen, setDingTalkOpen] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [generalOpen, setGeneralOpen] = useState(true);
-  const [agentLogOpen, setAgentLogOpen] = useState(false);
-  const [agentHistoryMaxEntries, setAgentHistoryMaxEntries] = useState(String(agentOutputHistoryMaxEntries));
-  const [agentOutputMaxKiB, setAgentOutputMaxKiB] = useState(String(agentOutputMaxBytes / 1024));
-  const [agentLogBusy, setAgentLogBusy] = useState(false);
-  const [agentLogResult, setAgentLogResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const themeOptions = useMemo(() => themes.map((theme) => ({
     value: theme.id,
     label: t(theme.labelKey)
@@ -139,27 +128,6 @@ export function SettingsModal({
     }
   };
 
-  const saveAgentOutputHistory = async () => {
-    const maxEntries = Number(agentHistoryMaxEntries);
-    const maxOutputKiB = Number(agentOutputMaxKiB);
-    const maxOutputBytes = maxOutputKiB * 1024;
-    if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > 1000
-      || !Number.isInteger(maxOutputKiB) || maxOutputKiB < 16 || maxOutputKiB > 16 * 1024) {
-      setAgentLogResult({ kind: "error", message: t("settings.agentLogInvalid") });
-      return;
-    }
-    setAgentLogBusy(true);
-    setAgentLogResult(null);
-    try {
-      await onSaveAgentOutputHistory(maxEntries, maxOutputBytes);
-      setAgentLogResult({ kind: "success", message: t("settings.agentLogSaved") });
-    } catch (err) {
-      setAgentLogResult({ kind: "error", message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setAgentLogBusy(false);
-    }
-  };
-
   return (
     <div className="modal-overlay">
       <div className="modal-dialog settings-dialog">
@@ -221,57 +189,6 @@ export function SettingsModal({
                     onChange={(nextLocale) => onLocaleChange(nextLocale as Locale)}
                   />
                 </div>
-              </>
-            )}
-          </section>
-          <section className="settings-section agent-log-settings">
-            <div
-              className="collapsible-header"
-              role="button"
-              tabIndex={0}
-              aria-expanded={agentLogOpen}
-              onClick={() => setAgentLogOpen((value) => !value)}
-              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentLogOpen((value) => !value); } }}
-            >
-              <span className={`collapsible-chevron${agentLogOpen ? "" : " collapsed"}`} aria-hidden="true">▾</span>
-              <h4>{t("settings.agentLogTitle")}</h4>
-            </div>
-            {agentLogOpen && (
-              <>
-                <p className="settings-help">{t("settings.agentLogDescription")}</p>
-                <label className="settings-field">
-                  <span className="modal-label">{t("settings.agentLogHistoryMaxEntries")}</span>
-                  <input
-                    className="modal-input"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    step="1"
-                    value={agentHistoryMaxEntries}
-                    disabled={agentLogBusy}
-                    onChange={(event) => setAgentHistoryMaxEntries(event.target.value)}
-                  />
-                </label>
-                <label className="settings-field">
-                  <span className="modal-label">{t("settings.agentLogOutputMaxKiB")}</span>
-                  <input
-                    className="modal-input"
-                    type="number"
-                    min="16"
-                    max={16 * 1024}
-                    step="1"
-                    value={agentOutputMaxKiB}
-                    disabled={agentLogBusy}
-                    onChange={(event) => setAgentOutputMaxKiB(event.target.value)}
-                  />
-                </label>
-                <p className="settings-help">{t("settings.agentLogRange")}</p>
-                <div className="settings-actions">
-                  <button className="modal-button primary" type="button" disabled={agentLogBusy} onClick={saveAgentOutputHistory}>
-                    {t("common.save")}
-                  </button>
-                </div>
-                {agentLogResult && <p className={`settings-result ${agentLogResult.kind}`} role="status">{agentLogResult.message}</p>}
               </>
             )}
           </section>

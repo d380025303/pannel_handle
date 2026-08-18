@@ -71,7 +71,7 @@ function createAdapters(homeDir) {
   ];
 }
 
-function createSkillsService({ homeDir, statsStore, translationService, fsApi = fs } = {}) {
+function createSkillsService({ homeDir, statsStore, translationService, fsApi = fs, shellApi } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
   const adapters = createAdapters(path.resolve(homeDir));
   const registry = new Map();
@@ -116,6 +116,7 @@ function createSkillsService({ homeDir, statsStore, translationService, fsApi = 
         source: adapter.source,
         directoryName: entry.name,
         path: realDirectory,
+        entryPath: directoryPath,
         filePath,
         editable: adapter.editable,
         root,
@@ -142,7 +143,7 @@ function createSkillsService({ homeDir, statsStore, translationService, fsApi = 
     const usageByName = new Map(usageRows.map(item => [String(item.name || "").trim().toLocaleLowerCase(), Number(item.count) || 0]));
     return groups.flat()
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
-      .map(({ filePath: _filePath, root: _root, ...summary }) => {
+      .map(({ entryPath: _entryPath, filePath: _filePath, root: _root, ...summary }) => {
         const aliases = new Set([summary.name, summary.directoryName].map(value => String(value || "").trim().toLocaleLowerCase()).filter(Boolean));
         const usageCount = [...aliases].reduce((total, alias) => total + (usageByName.get(alias) || 0), 0);
         const registryRecord = registry.get(summary.id);
@@ -203,6 +204,29 @@ function createSkillsService({ homeDir, statsStore, translationService, fsApi = 
     return { status: "saved", version: versionOf(next), size: next.length };
   }
 
+  async function deleteSkill(id) {
+    const record = await resolveRecord(id);
+    if (!record.editable || record.source !== "user") throw new Error("System Skills are read-only.");
+    if (!shellApi || typeof shellApi.trashItem !== "function") throw new Error("The Recycle Bin is unavailable.");
+
+    const entryParent = path.dirname(record.entryPath);
+    if (entryParent !== record.root || path.basename(record.entryPath) !== record.directoryName) {
+      throw new Error("Skill path is outside its configured directory.");
+    }
+    const currentDirectory = await fsApi.promises.realpath(record.entryPath);
+    if (!isWithin(record.root, currentDirectory) || currentDirectory !== record.path) {
+      throw new Error("Skill path changed before it could be deleted.");
+    }
+    const currentFile = await fsApi.promises.realpath(path.join(currentDirectory, "SKILL.md"));
+    if (!isWithin(record.root, currentFile) || path.basename(currentFile).toLowerCase() !== "skill.md") {
+      throw new Error("Skill path is outside its configured directory.");
+    }
+
+    await shellApi.trashItem(record.entryPath);
+    registry.delete(record.id);
+    return { status: "trashed" };
+  }
+
   async function translate(requestId, id, content) {
     if (!translationService) return { status: "error", reason: "unavailable" };
     const record = await resolveRecord(id);
@@ -213,7 +237,7 @@ function createSkillsService({ homeDir, statsStore, translationService, fsApi = 
     return translationService?.cancel(requestId) || false;
   }
 
-  return { list, read, save, translate, cancelTranslation };
+  return { list, read, save, delete: deleteSkill, translate, cancelTranslation };
 }
 
 module.exports = { MAX_SKILL_BYTES, createSkillsService };

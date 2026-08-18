@@ -4,17 +4,6 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
-const DEFAULT_AGENT_OUTPUT_HISTORY_MAX_ENTRIES = 100;
-const MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES = 1;
-const MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES = 1000;
-const DEFAULT_AGENT_OUTPUT_MAX_BYTES = 1024 * 1024;
-const MIN_AGENT_OUTPUT_MAX_BYTES = 16 * 1024;
-const MAX_AGENT_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
-
-function isIntegerInRange(value, min, max) {
-  return Number.isInteger(value) && value >= min && value <= max;
-}
-
 function normalizeThemeId(themeId) {
   return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
 }
@@ -30,9 +19,7 @@ function createConfigStore({ configFile }) {
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
-    rightToolsWidth: 380,
-    listenerAgentHistoryMaxEntries: DEFAULT_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-    listenerAgentOutputMaxBytes: DEFAULT_AGENT_OUTPUT_MAX_BYTES
+    rightToolsWidth: 380
   };
 
   function serializeConfig() {
@@ -42,9 +29,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
       locale: config.locale,
-      rightToolsWidth: config.rightToolsWidth,
-      listenerAgentHistoryMaxEntries: config.listenerAgentHistoryMaxEntries,
-      listenerAgentOutputMaxBytes: config.listenerAgentOutputMaxBytes
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -63,17 +48,7 @@ function createConfigStore({ configFile }) {
           locale: normalizeLocale(parsed.locale),
           rightToolsWidth: typeof parsed.rightToolsWidth === "number"
             && parsed.rightToolsWidth >= 280 && parsed.rightToolsWidth <= 600
-            ? parsed.rightToolsWidth : 380,
-          listenerAgentHistoryMaxEntries: isIntegerInRange(
-            parsed.listenerAgentHistoryMaxEntries,
-            MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-            MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES
-          ) ? parsed.listenerAgentHistoryMaxEntries : DEFAULT_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-          listenerAgentOutputMaxBytes: isIntegerInRange(
-            parsed.listenerAgentOutputMaxBytes,
-            MIN_AGENT_OUTPUT_MAX_BYTES,
-            MAX_AGENT_OUTPUT_MAX_BYTES
-          ) ? parsed.listenerAgentOutputMaxBytes : DEFAULT_AGENT_OUTPUT_MAX_BYTES
+            ? parsed.rightToolsWidth : 380
         };
       }
     } catch (err) {
@@ -100,9 +75,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
       locale: config.locale,
-      rightToolsWidth: config.rightToolsWidth,
-      listenerAgentHistoryMaxEntries: config.listenerAgentHistoryMaxEntries,
-      listenerAgentOutputMaxBytes: config.listenerAgentOutputMaxBytes
+      rightToolsWidth: config.rightToolsWidth
     };
   }
 
@@ -127,20 +100,6 @@ function createConfigStore({ configFile }) {
         && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
         config.rightToolsWidth = partial.rightToolsWidth;
       }
-      if (isIntegerInRange(
-        partial.listenerAgentHistoryMaxEntries,
-        MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-        MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES
-      )) {
-        config.listenerAgentHistoryMaxEntries = partial.listenerAgentHistoryMaxEntries;
-      }
-      if (isIntegerInRange(
-        partial.listenerAgentOutputMaxBytes,
-        MIN_AGENT_OUTPUT_MAX_BYTES,
-        MAX_AGENT_OUTPUT_MAX_BYTES
-      )) {
-        config.listenerAgentOutputMaxBytes = partial.listenerAgentOutputMaxBytes;
-      }
     }
     saveConfig();
   }
@@ -158,14 +117,7 @@ module.exports = {
   VALID_THEME_IDS,
   DEFAULT_LOCALE,
   VALID_LOCALES,
-  DEFAULT_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-  MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-  MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-  DEFAULT_AGENT_OUTPUT_MAX_BYTES,
-  MIN_AGENT_OUTPUT_MAX_BYTES,
-  MAX_AGENT_OUTPUT_MAX_BYTES,
   createConfigStore,
-  isIntegerInRange,
   normalizeThemeId,
   normalizeLocale
 };

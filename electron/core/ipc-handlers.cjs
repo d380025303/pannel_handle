@@ -4,15 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { startNativeFileDrag } = require("./native-file-drag.cjs");
 const { openExternalHttpUrl } = require("./external-link.cjs");
-const {
-  MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-  MAX_AGENT_OUTPUT_MAX_BYTES,
-  MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-  MIN_AGENT_OUTPUT_MAX_BYTES,
-  VALID_LOCALES,
-  VALID_THEME_IDS,
-  isIntegerInRange
-} = require("../stores/config-store.cjs");
+const { VALID_LOCALES, VALID_THEME_IDS } = require("../stores/config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -50,7 +42,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, agentOutputHistoryStore, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -238,23 +230,9 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
 
-  ipcMain.handle("agent-output-history:list", (_event, options = {}) => {
-    const input = options && typeof options === "object" ? options : {};
-    const scope = input.scope === "current" ? "current" : "all";
-    const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
-    const templateId = typeof input.templateId === "string" ? input.templateId : undefined;
-    return agentOutputHistoryStore.listResponses({
-      scope,
-      sessionId,
-      templateId,
-      offset: input.offset,
-      limit: input.limit
-    });
-  });
-
-  ipcMain.handle("agent-output-history:has-any", () => agentOutputHistoryStore.hasAnyResponses());
-
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
+  ipcMain.handle("remote-agent:approval-list", () => remoteAgentBridgeService.listPendingApprovals());
+  ipcMain.handle("remote-agent:approval-resolve", (_event, { id, decision }) => remoteAgentBridgeService.resolveApproval(id, decision));
 
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     if (typeof text !== "string" || text.length === 0) {
@@ -446,6 +424,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("skills:save", (_event, { id, content, expectedVersion }) => {
     return skillsService.save(id, content, expectedVersion);
   });
+
+  ipcMain.handle("skills:delete", (_event, { id }) => skillsService.delete(id));
 
   ipcMain.handle("skills:translate", (_event, { requestId, id, content }) => {
     return skillsService.translate(requestId, id, content);
@@ -647,20 +627,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (partial && typeof partial.rightToolsWidth === "number"
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
-    }
-    if (partial && isIntegerInRange(
-      partial.listenerAgentHistoryMaxEntries,
-      MIN_AGENT_OUTPUT_HISTORY_MAX_ENTRIES,
-      MAX_AGENT_OUTPUT_HISTORY_MAX_ENTRIES
-    )) {
-      updates.listenerAgentHistoryMaxEntries = partial.listenerAgentHistoryMaxEntries;
-    }
-    if (partial && isIntegerInRange(
-      partial.listenerAgentOutputMaxBytes,
-      MIN_AGENT_OUTPUT_MAX_BYTES,
-      MAX_AGENT_OUTPUT_MAX_BYTES
-    )) {
-      updates.listenerAgentOutputMaxBytes = partial.listenerAgentOutputMaxBytes;
     }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);

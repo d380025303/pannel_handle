@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 
-function createServer({ transcriptReader } = {}) {
+function createServer() {
   const session = {
     id: "run-1",
     cwd: "C:\\work"
@@ -13,13 +13,12 @@ function createServer({ transcriptReader } = {}) {
     getSession: vi.fn((id) => id === session.id ? session : undefined),
     getSessions: vi.fn(() => [session]),
     broadcastAgentStatus: vi.fn(),
-    broadcastAgentHookDebug: vi.fn(),
-    recordAgentResponse: vi.fn()
+    broadcastAgentHookDebug: vi.fn()
   };
   const agentTokenStatsService = {
     handleHook: vi.fn()
   };
-  const server = createAgentHookServer({ terminalManager, agentTokenStatsService, ...(transcriptReader ? { transcriptReader } : {}) });
+  const server = createAgentHookServer({ terminalManager, agentTokenStatsService });
 
   return { server, session, terminalManager, agentTokenStatsService };
 }
@@ -101,109 +100,6 @@ describe("agent-hook-server", () => {
       status: "completed",
       eventName: "Stop"
     }));
-  });
-
-  it.each([
-    ["claude", "Stop"],
-    ["codex", "Stop"],
-    ["codebuddy", "Stop"],
-    ["qoder", "Stop"],
-    ["opencode", "session.idle"]
-  ])("records the complete final response for %s", (provider, eventName) => {
-    const { server, terminalManager } = createServer();
-    const content = `# 完成\n\n${"长答复".repeat(300)}`;
-
-    server.handleAgentHook(provider, {
-      hook_event_name: eventName,
-      event_name: eventName,
-      session_id: `${provider}-1`,
-      turn_id: "turn-1",
-      pannel_handle_session_id: "run-1",
-      last_assistant_message: content
-    });
-
-    expect(terminalManager.recordAgentResponse).toHaveBeenCalledWith("run-1", {
-      id: `${provider}:${provider}-1:turn-1`,
-      dedupeKey: `${provider}:${provider}-1:turn-1`,
-      phase: "final",
-      content
-    });
-  });
-
-  it("records commentary and final messages from the Agent transcript", () => {
-    const transcriptReader = vi.fn(() => [
-      { id: "plan-1", phase: "commentary", content: "## 计划\n\n先检查调用链。", createdAt: 100 },
-      { id: "final-1", phase: "final", content: "已完成。", createdAt: 200 }
-    ]);
-    const { server, terminalManager } = createServer({ transcriptReader });
-
-    server.handleAgentHook("codex", {
-      hook_event_name: "Stop",
-      session_id: "codex-1",
-      turn_id: "turn-1",
-      transcript_path: "C:\\transcripts\\rollout.jsonl",
-      pannel_handle_session_id: "run-1",
-      last_assistant_message: "已完成。"
-    });
-
-    expect(transcriptReader).toHaveBeenCalledWith("codex", "C:\\transcripts\\rollout.jsonl", { defaultPhase: "final" });
-    expect(terminalManager.recordAgentResponse).toHaveBeenNthCalledWith(1, "run-1", {
-      id: "codex:transcript:plan-1",
-      dedupeKey: "codex:transcript:plan-1",
-      phase: "commentary",
-      content: "## 计划\n\n先检查调用链。",
-      createdAt: 100
-    });
-    expect(terminalManager.recordAgentResponse).toHaveBeenNthCalledWith(2, "run-1", {
-      id: "codex:transcript:final-1",
-      dedupeKey: "codex:transcript:final-1",
-      phase: "final",
-      content: "已完成。",
-      createdAt: 200
-    });
-  });
-
-  it("uses transcript items enriched by remote Hook scripts", () => {
-    const transcriptReader = vi.fn(() => []);
-    const { server, terminalManager } = createServer({ transcriptReader });
-
-    server.handleAgentHook("codex", {
-      hook_event_name: "PreToolUse",
-      session_id: "codex-1",
-      pannel_handle_session_id: "run-1",
-      pannel_handle_transcript_items: [{
-        id: "plan-remote",
-        phase: "commentary",
-        content: "远程计划",
-        timestamp: "2026-08-18T04:09:42.408Z"
-      }]
-    });
-
-    expect(transcriptReader).not.toHaveBeenCalled();
-    expect(terminalManager.recordAgentResponse).toHaveBeenCalledWith("run-1", expect.objectContaining({
-      id: "codex:transcript:plan-remote",
-      phase: "commentary",
-      content: "远程计划",
-      createdAt: Date.parse("2026-08-18T04:09:42.408Z")
-    }));
-  });
-
-  it("does not record prompts or empty completion events as final responses", () => {
-    const { server, terminalManager } = createServer();
-
-    server.handleAgentHook("codex", {
-      hook_event_name: "UserPromptSubmit",
-      session_id: "codex-1",
-      pannel_handle_session_id: "run-1",
-      prompt: "请修复问题"
-    });
-    server.handleAgentHook("codex", {
-      hook_event_name: "Stop",
-      session_id: "codex-1",
-      pannel_handle_session_id: "run-1"
-    });
-
-    expect(terminalManager.recordAgentResponse).not.toHaveBeenCalled();
   });
 
   it("maps Codex clear SessionStart to cleared without an activity summary", () => {

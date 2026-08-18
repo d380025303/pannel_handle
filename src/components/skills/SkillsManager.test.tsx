@@ -47,6 +47,7 @@ function documentFor(skill: SkillSummary): SkillDocument {
 const list = vi.fn();
 const read = vi.fn();
 const save = vi.fn();
+const deleteSkill = vi.fn();
 const translate = vi.fn();
 const cancelTranslation = vi.fn();
 
@@ -63,14 +64,16 @@ describe("SkillsManager", () => {
     list.mockReset();
     read.mockReset();
     save.mockReset();
+    deleteSkill.mockReset();
     translate.mockReset();
     cancelTranslation.mockReset();
     list.mockImplementation(async (provider) => provider === "codex" ? [userSkill, systemSkill] : []);
     read.mockImplementation(async (id) => documentFor(id === systemSkill.id ? systemSkill : userSkill));
     save.mockResolvedValue({ status: "saved", version: "user-1-v2", size: 20 });
+    deleteSkill.mockResolvedValue({ status: "trashed" });
     translate.mockResolvedValue({ status: "translated", translatedContent: "---\nname: review\ndescription: 审查代码\n---\n说明", sourceHash: "hash", cached: false });
     cancelTranslation.mockResolvedValue(true);
-    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read, save, translate, cancelTranslation } });
+    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read, save, delete: deleteSkill, translate, cancelTranslation } });
     Object.defineProperty(window, "agentTokenStatsApi", { configurable: true, value: { onChanged: vi.fn(() => () => undefined) } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
@@ -88,6 +91,45 @@ describe("SkillsManager", () => {
 
     await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true));
     expect(screen.getAllByText("只读").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+  });
+
+  it("deletes a user Skill after confirmation and selects the next Skill", async () => {
+    list
+      .mockResolvedValueOnce([userSkill, systemSkill])
+      .mockResolvedValueOnce([systemSkill]);
+    renderManager();
+    await screen.findByLabelText("SKILL.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+    await waitFor(() => expect(deleteSkill).toHaveBeenCalledWith("user-1"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("整个目录移到回收站"));
+    await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true));
+    expect(screen.getByText("Skill 已移到回收站。")).toBeTruthy();
+  });
+
+  it("keeps a dirty Skill when deletion is canceled", async () => {
+    vi.mocked(window.confirm).mockReturnValue(false);
+    renderManager();
+    fireEvent.change(await screen.findByLabelText("SKILL.md"), { target: { value: "Local draft" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("未保存修改"));
+    expect(deleteSkill).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Local draft");
+  });
+
+  it("keeps the current Skill visible when deletion fails", async () => {
+    deleteSkill.mockRejectedValueOnce(new Error("Recycle Bin failed"));
+    renderManager();
+    await screen.findByLabelText("SKILL.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+    expect(await screen.findByText("Recycle Bin failed")).toBeTruthy();
+    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toContain("Instructions");
   });
 
   it("edits and saves a user SKILL.md", async () => {
@@ -115,6 +157,35 @@ describe("SkillsManager", () => {
     expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /查看原文/ }));
     expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Draft instructions");
+  });
+
+  it("allows an in-progress translation to be canceled", async () => {
+    translate.mockImplementation(() => new Promise(() => undefined));
+    renderManager();
+    await screen.findByLabelText("SKILL.md");
+
+    fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
+
+    expect(cancelTranslation).toHaveBeenCalledWith(expect.stringContaining("skill-translation-"));
+    expect(screen.getByRole("button", { name: /翻译成中文/ })).toBeTruthy();
+  });
+
+  it("shows elapsed time while a long translation is running", async () => {
+    translate.mockImplementation(() => new Promise(() => undefined));
+    renderManager();
+    await screen.findByLabelText("SKILL.md");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
+      await vi.advanceTimersByTimeAsync(61_000);
+
+      expect(screen.getByRole("status").textContent).toContain("已等待 61 秒");
+      expect(screen.getByRole("status").textContent).toContain("1–3 分钟");
+    } finally {
+      fireEvent.click(screen.getByRole("button", { name: "取消" }));
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the draft when saving reports an external conflict", async () => {

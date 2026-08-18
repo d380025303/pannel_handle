@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, Languages, Lock, RefreshCw, Save, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, Languages, Lock, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { SkillDocument, SkillProvider, SkillSummary, SkillTranslationError } from "../../vite-env";
 import { RemoteCodeEditor } from "../remote/RemoteCodeEditor";
@@ -21,7 +21,9 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDocument, setLoadingDocument] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [translating, setTranslating] = useState(false);
+  const [translationElapsedSeconds, setTranslationElapsedSeconds] = useState(0);
   const [translation, setTranslation] = useState<{ source: string; content: string } | null>(null);
   const [showingTranslation, setShowingTranslation] = useState(false);
   const [error, setError] = useState("");
@@ -39,6 +41,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
     if (!requestId) return;
     translationRequestRef.current = null;
     setTranslating(false);
+    setTranslationElapsedSeconds(0);
     void window.skillsApi.cancelTranslation(requestId);
   }, []);
 
@@ -96,6 +99,11 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
 
   useEffect(() => { void loadSkills("codex"); }, [loadSkills]);
   useEffect(() => () => cancelTranslation(), [cancelTranslation]);
+  useEffect(() => {
+    if (!translating) return;
+    const interval = window.setInterval(() => setTranslationElapsedSeconds((current) => current + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [translating]);
   useEffect(() => {
     let active = true;
     const unsubscribe = window.agentTokenStatsApi.onChanged(() => {
@@ -159,6 +167,34 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
     }
   };
 
+  const deleteSkill = useCallback(async () => {
+    if (!document?.editable || deleting || saving || translating) return;
+    const confirmationKey = dirty ? "skills.confirmDeleteDirty" : "skills.confirmDelete";
+    if (!window.confirm(t(confirmationKey, { name: document.name }))) return;
+
+    const selectedIndex = skills.findIndex((skill) => skill.id === document.id);
+    setDeleting(true);
+    setError("");
+    setNotice("");
+    try {
+      await window.skillsApi.delete(document.id);
+      resetTranslation();
+      const nextSkills = await window.skillsApi.list(provider);
+      setSkills(nextSkills);
+      setSelectedId(null);
+      setDocument(null);
+      setContent("");
+      const nextSkill = nextSkills[Math.min(Math.max(selectedIndex, 0), nextSkills.length - 1)];
+      if (nextSkill) await openSkill(nextSkill);
+      setNotice(t("skills.deleted"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingList(false);
+      setDeleting(false);
+    }
+  }, [deleting, dirty, document, openSkill, provider, resetTranslation, saving, skills, t, translating]);
+
   const translationErrorText = useCallback((reason: SkillTranslationError) => {
     const keys: Record<SkillTranslationError, Parameters<typeof t>[0]> = {
       invalid_request: "skills.translationFailed",
@@ -186,6 +222,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
     }
     const requestId = `skill-translation-${Date.now()}-${requestRef.current}`;
     translationRequestRef.current = requestId;
+    setTranslationElapsedSeconds(0);
     setTranslating(true);
     setTranslationError("");
     setNotice("");
@@ -204,6 +241,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
       if (translationRequestRef.current === requestId) {
         translationRequestRef.current = null;
         setTranslating(false);
+        setTranslationElapsedSeconds(0);
       }
     }
   }, [content, document, showingTranslation, translation, translating, translationErrorText]);
@@ -222,7 +260,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
           <BookOpen aria-hidden="true" />
           <div><h1>{t("skills.title")}</h1><p>{t("skills.description")}</p></div>
         </div>
-        <button className="skills-save" type="button" disabled={!dirty || saving || !document?.editable || showingTranslation} onClick={() => void save()}>
+        <button className="skills-save" type="button" disabled={!dirty || saving || deleting || translating || !document?.editable || showingTranslation} onClick={() => void save()}>
           <Save aria-hidden="true" />{saving ? t("skills.saving") : t("common.save")}
         </button>
       </header>
@@ -258,9 +296,12 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
                 <div><h2>{document.name}{dirty && <span title={t("skills.unsaved")}> *</span>}</h2><p title={document.path}>{document.path}</p></div>
                 <div className="skills-document-actions">
                   {!document.editable && <span className="skills-readonly"><Lock aria-hidden="true" />{t("skills.readOnly")}</span>}
-                  <button className="skills-translate" type="button" disabled={translating} onClick={() => void toggleTranslation()}>
+                  {document.editable && <button className="skills-delete" type="button" disabled={saving || deleting || translating} onClick={() => void deleteSkill()}>
+                    <Trash2 aria-hidden="true" />{deleting ? t("skills.deleting") : t("common.delete")}
+                  </button>}
+                  <button className="skills-translate" type="button" disabled={saving || deleting} onClick={() => { if (translating) cancelTranslation(); else void toggleTranslation(); }}>
                     <Languages className={translating ? "spin" : ""} aria-hidden="true" />
-                    {translating ? t("skills.translating") : showingTranslation ? t("skills.viewOriginal") : t("skills.translate")}
+                    {translating ? t("common.cancel") : showingTranslation ? t("skills.viewOriginal") : t("skills.translate")}
                   </button>
                 </div>
               </div>
@@ -268,6 +309,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
               {error && <div className="skills-error" role="alert">{error}<button type="button" onClick={() => { if (confirmDiscard()) void openSkill(skills.find((skill) => skill.id === document.id) || document); }}>{t("skills.reload")}</button></div>}
               {notice && <div className="skills-notice" role="status">{notice}</div>}
               {translationError && <div className="skills-error" role="alert">{translationError}<button type="button" onClick={() => void toggleTranslation()}>{t("common.retry")}</button></div>}
+              {translating && <div className="skills-translation-notice" role="status">{t("skills.translationProgress", { provider: provider === "codex" ? "Codex" : "CodeBuddy", seconds: translationElapsedSeconds })}</div>}
               {showingTranslation && <div className="skills-translation-notice" role="status">{t("skills.translationPreview")}</div>}
               <div className="skills-editor">
                 <RemoteCodeEditor
@@ -285,7 +327,7 @@ export function SkillsManager({ onClose, onDirtyChange, onRegisterSave }: Skills
                 />
               </div>
             </>
-          ) : <div className="skills-editor-state">{error || t("skills.selectHint")}</div>}
+          ) : <div className="skills-editor-state">{error || notice || t("skills.selectHint")}</div>}
         </section>
       </div>
     </main>

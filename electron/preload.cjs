@@ -68,16 +68,6 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
-contextBridge.exposeInMainWorld("agentOutputApi", {
-  list: (options) => ipcRenderer.invoke("agent-output-history:list", options),
-  hasAny: () => ipcRenderer.invoke("agent-output-history:has-any"),
-  onChanged: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("agent-output-history:changed", listener);
-    return () => ipcRenderer.removeListener("agent-output-history:changed", listener);
-  }
-});
-
 contextBridge.exposeInMainWorld("launchTemplateApi", {
   list: () => ipcRenderer.invoke("launch-templates:list"),
   create: (input) => ipcRenderer.invoke("launch-templates:create", input),
@@ -167,6 +157,7 @@ contextBridge.exposeInMainWorld("skillsApi", {
   list: (provider) => ipcRenderer.invoke("skills:list", { provider }),
   read: (id) => ipcRenderer.invoke("skills:read", { id }),
   save: (id, content, expectedVersion) => ipcRenderer.invoke("skills:save", { id, content, expectedVersion }),
+  delete: (id) => ipcRenderer.invoke("skills:delete", { id }),
   translate: (requestId, id, content) => ipcRenderer.invoke("skills:translate", { requestId, id, content }),
   cancelTranslation: (requestId) => ipcRenderer.invoke("skills:translate-cancel", { requestId })
 });
@@ -209,10 +200,22 @@ contextBridge.exposeInMainWorld("agentTokenStatsApi", {
 
 contextBridge.exposeInMainWorld("remoteAgentApi", {
   listAudit: (sessionId) => ipcRenderer.invoke("remote-agent:audit-list", { sessionId }),
+  listPendingApprovals: () => ipcRenderer.invoke("remote-agent:approval-list"),
+  resolveApproval: (id, decision) => ipcRenderer.invoke("remote-agent:approval-resolve", { id, decision }),
   onAudit: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("remote-agent:audit", listener);
     return () => ipcRenderer.removeListener("remote-agent:audit", listener);
+  },
+  onApprovalRequested: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-agent:approval-requested", listener);
+    return () => ipcRenderer.removeListener("remote-agent:approval-requested", listener);
+  },
+  onApprovalResolved: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-agent:approval-resolved", listener);
+    return () => ipcRenderer.removeListener("remote-agent:approval-resolved", listener);
   }
 });
 

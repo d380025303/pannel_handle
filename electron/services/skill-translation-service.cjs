@@ -2,11 +2,13 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
+const { spawn: defaultSpawn } = require("node:child_process");
 
 const MAX_TRANSLATION_INPUT_BYTES = 512 * 1024;
 const MAX_TRANSLATION_OUTPUT_BYTES = 2 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 120 * 1000;
+const DEFAULT_TIMEOUT_MS = 300 * 1000;
+const OUTPUT_POLL_INTERVAL_MS = 100;
+const TERMINATION_TIMEOUT_MS = 3000;
 const TRANSLATION_SCHEMA = {
   type: "object",
   properties: { translatedContent: { type: "string" } },
@@ -37,7 +39,7 @@ function buildInvocation(provider, temporaryDirectory) {
     const outputFile = path.join(temporaryDirectory, "output.json");
     return {
       command: "codex",
-      args: ["exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--output-schema", schemaFile, "--output-last-message", outputFile, "-"],
+      args: ["exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--disable", "plugins", "--sandbox", "read-only", "--output-schema", schemaFile, "--output-last-message", outputFile, "-"],
       schemaFile,
       outputFile
     };
@@ -74,6 +76,36 @@ function findTranslatedContent(value) {
   return "";
 }
 
+function hasCompletedTranslation(value) {
+  if (!value) return false;
+  if (typeof value === "string") {
+    try { return hasCompletedTranslation(JSON.parse(value)); } catch { return false; }
+  }
+  if (typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasCompletedTranslation);
+  if (typeof value.translatedContent === "string" && value.translatedContent.trim()) return true;
+  if (value.type === "result" && typeof value.result === "string" && value.result.trim()) return true;
+  return ["structured_output", "structuredOutput", "result", "content", "message"]
+    .some((key) => hasCompletedTranslation(value[key]));
+}
+
+function findCompletedStructuredOutput(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  const candidates = [trimmed, ...trimmed.split(/\r?\n/).reverse()];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      if (hasCompletedTranslation(JSON.parse(candidate))) return candidate;
+    } catch {
+      // Structured CLI output may arrive over multiple chunks or lines.
+    }
+  }
+  return "";
+}
+
 function failureReason(error, stderr = "") {
   if (error?.reason) return error.reason;
   const message = `${error?.message || ""}\n${stderr}`;
@@ -82,20 +114,44 @@ function failureReason(error, stderr = "") {
   return "failed";
 }
 
-function terminateProcess(child, spawnSync = defaultSpawnSync) {
-  if (process.platform === "win32" && Number.isInteger(child?.pid) && child.pid > 0) {
-    try {
-      spawnSync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-      return;
-    } catch { /* fall through to the direct child */ }
+function terminateProcess(child, spawn = defaultSpawn, platform = process.platform) {
+  if (platform !== "win32" || !Number.isInteger(child?.pid) || child.pid <= 0) {
+    try { child?.kill(); } catch { /* best effort */ }
+    return Promise.resolve();
   }
-  try { child?.kill(); } catch { /* best effort */ }
+  return new Promise((resolve) => {
+    let settled = false;
+    let killer;
+    let timer;
+    const finish = (fallback = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (fallback) {
+        try { killer?.kill(); } catch { /* best effort */ }
+        try { child?.kill(); } catch { /* best effort */ }
+      }
+      resolve();
+    };
+    try {
+      killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
+        windowsHide: true,
+        stdio: "ignore"
+      });
+      killer.once("close", (code) => finish(code !== 0));
+      killer.once("error", () => finish(true));
+      timer = setTimeout(() => finish(true), TERMINATION_TIMEOUT_MS);
+    } catch {
+      finish(true);
+    }
+  });
 }
 
 async function runCli({ provider, prompt, workspaceDirectory, timeoutMs, spawn = defaultSpawn, terminate = terminateProcess, registerCancel = () => {} }) {
   const temporaryDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pannel-skill-translation-"));
   const invocation = buildInvocation(provider, temporaryDirectory);
   if (invocation.schemaFile) await fs.promises.writeFile(invocation.schemaFile, JSON.stringify(TRANSLATION_SCHEMA), "utf-8");
+  let terminationPromise = Promise.resolve();
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(invocation.command, invocation.args, {
@@ -108,31 +164,83 @@ async function runCli({ provider, prompt, workspaceDirectory, timeoutMs, spawn =
       let stderr = "";
       let settled = false;
       let outputExceeded = false;
+      let pollingOutput = false;
+      let timer;
+      let outputPoll;
+      const stopChild = () => {
+        terminationPromise = Promise.resolve(terminate(child)).catch(() => undefined);
+      };
       const finish = (callback) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearInterval(outputPoll);
         callback();
       };
       const cancel = () => {
         if (settled) return;
         const error = new Error("Skill translation was canceled.");
         error.reason = "cancelled";
-        terminate(child);
-        finish(() => reject(error));
+        finish(() => {
+          stopChild();
+          reject(error);
+        });
       };
-      registerCancel(cancel);
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         const error = new Error("Skill translation timed out.");
         error.reason = "timeout";
-        terminate(child);
-        finish(() => reject(error));
+        finish(() => {
+          stopChild();
+          reject(error);
+        });
       }, timeoutMs);
+      if (invocation.outputFile) {
+        outputPoll = setInterval(async () => {
+          if (settled || pollingOutput) return;
+          pollingOutput = true;
+          try {
+            const raw = await fs.promises.readFile(invocation.outputFile, "utf-8");
+            if (Buffer.byteLength(raw, "utf-8") > MAX_TRANSLATION_OUTPUT_BYTES) {
+              const error = new Error("Skill translation output was too large.");
+              error.reason = "invalid_output";
+              finish(() => {
+                terminate(child);
+                reject(error);
+              });
+              return;
+            }
+            const completed = findCompletedStructuredOutput(raw);
+            if (!completed) return;
+            finish(() => {
+              stopChild();
+              resolve(completed);
+            });
+          } catch {
+            // The CLI may briefly omit, replace, or lock the output file while writing it.
+          } finally {
+            pollingOutput = false;
+          }
+        }, OUTPUT_POLL_INTERVAL_MS);
+      }
+      registerCancel(cancel);
       child.stdout?.on("data", chunk => {
         stdout += chunk.toString("utf-8");
         if (Buffer.byteLength(stdout, "utf-8") > MAX_TRANSLATION_OUTPUT_BYTES) {
           outputExceeded = true;
-          terminate(child);
+          const error = new Error("Skill translation output was too large.");
+          error.reason = "invalid_output";
+          finish(() => {
+            stopChild();
+            reject(error);
+          });
+          return;
+        }
+        const completed = findCompletedStructuredOutput(stdout);
+        if (completed) {
+          finish(() => {
+            stopChild();
+            resolve(completed);
+          });
         }
       });
       child.stderr?.on("data", chunk => {
@@ -148,14 +256,22 @@ async function runCli({ provider, prompt, workspaceDirectory, timeoutMs, spawn =
           finish(() => reject(error));
           return;
         }
-        if (code !== 0) {
-          const error = new Error(stderr.trim() || `Skill translation exited with code ${code}.`);
-          error.stderr = stderr;
-          finish(() => reject(error));
-          return;
-        }
         try {
-          const raw = invocation.outputFile ? await fs.promises.readFile(invocation.outputFile, "utf-8") : stdout;
+          let raw = stdout;
+          if (invocation.outputFile) {
+            try { raw = await fs.promises.readFile(invocation.outputFile, "utf-8"); } catch { /* use stdout */ }
+          }
+          const completed = findCompletedStructuredOutput(raw) || findCompletedStructuredOutput(stdout);
+          if (completed) {
+            finish(() => resolve(completed));
+            return;
+          }
+          if (code !== 0) {
+            const error = new Error(stderr.trim() || `Skill translation exited with code ${code}.`);
+            error.stderr = stderr;
+            finish(() => reject(error));
+            return;
+          }
           finish(() => resolve(raw));
         } catch (error) {
           finish(() => reject(error));
@@ -164,6 +280,7 @@ async function runCli({ provider, prompt, workspaceDirectory, timeoutMs, spawn =
       child.stdin?.end(prompt, "utf-8");
     });
   } finally {
+    await terminationPromise;
     await fs.promises.rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
   }
 }
@@ -235,9 +352,14 @@ function createSkillTranslationService({ workspaceDirectory, timeoutMs = DEFAULT
 module.exports = {
   DEFAULT_TIMEOUT_MS,
   MAX_TRANSLATION_INPUT_BYTES,
+  OUTPUT_POLL_INTERVAL_MS,
+  TERMINATION_TIMEOUT_MS,
   TRANSLATION_SCHEMA,
   buildInvocation,
   createSkillTranslationService,
+  findCompletedStructuredOutput,
   findTranslatedContent,
-  sourceHash
+  runCli,
+  sourceHash,
+  terminateProcess
 };

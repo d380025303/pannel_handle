@@ -65,6 +65,14 @@ function subtractTokens(current, baseline) {
   return Object.fromEntries(TOKEN_FIELDS.map(field => [field, Math.max(0, safeInteger(current?.[field]) - safeInteger(baseline?.[field]))]));
 }
 
+function isLocalSshBridge(session) {
+  return session?.type === "ssh" && session.agentLocation === "local";
+}
+
+function hasHostReadableTranscript(session) {
+  return session?.type === "windows" || session?.type === "wsl" || isLocalSshBridge(session);
+}
+
 function createAgentTokenStatsService({
   terminalManager,
   statsStore,
@@ -99,7 +107,7 @@ function createAgentTokenStatsService({
     for (const delay of retryDelaysMs) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       try {
-        return session.type === "windows"
+        return session.type === "windows" || isLocalSshBridge(session)
           ? parseTranscriptFile(provider, transcriptPath)
           : await parseRemote(session, provider, transcriptPath);
       } catch (error) {
@@ -132,7 +140,7 @@ function createAgentTokenStatsService({
           capabilities: result.capabilities,
           startedAt: startedAtBySession.get(key)
         });
-        if (session.type === "ssh" && record) {
+        if (session.type === "ssh" && !isLocalSshBridge(session) && record) {
           const snapshot = {
             panelSessionId: session.id,
             provider,
@@ -160,7 +168,7 @@ function createAgentTokenStatsService({
     if (!agentSessionId || !transcriptPath) return;
     const key = `${provider}:${agentSessionId}`;
     if (baselinePending.has(key)) return;
-    const request = (session.type === "windows"
+    const request = (session.type === "windows" || isLocalSshBridge(session)
       ? Promise.resolve().then(() => parseTranscriptFile(provider, transcriptPath))
       : parseRemote(session, provider, transcriptPath))
       .then(result => statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities))
@@ -169,7 +177,7 @@ function createAgentTokenStatsService({
   }
 
   function getLiveHostPath(session, transcriptPath) {
-    if (session.type === "windows") return transcriptPath;
+    if (session.type === "windows" || isLocalSshBridge(session)) return transcriptPath;
     if (session.type === "wsl") return toWslHostPathFn(session.wslDistro, transcriptPath);
     return null;
   }
@@ -181,7 +189,7 @@ function createAgentTokenStatsService({
   }
 
   function ensureLiveTracker({ provider, input, session }) {
-    if (!LIVE_TOKEN_PROVIDERS.includes(provider) || !["windows", "wsl"].includes(session?.type)) return null;
+    if (!LIVE_TOKEN_PROVIDERS.includes(provider) || !hasHostReadableTranscript(session)) return null;
     const agentSessionId = input?.session_id || input?.sessionId;
     const transcriptPath = input?.transcript_path || input?.transcriptPath;
     if (!agentSessionId || !transcriptPath) return null;

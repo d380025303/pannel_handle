@@ -196,6 +196,45 @@ describe("agent-usage-service", () => {
     expect(transports).toHaveLength(2);
   });
 
+  it("reads local-bridge SSH Codex usage from Windows and shares the local account cache", async () => {
+    const sessions = new Map([
+      ["bridge-1", { id: "bridge-1", type: "ssh", agentLocation: "local", agentProvider: "codex" }],
+      ["bridge-2", { id: "bridge-2", type: "ssh", agentLocation: "local", agentProvider: "codex" }]
+    ]);
+    const spawn = vi.fn(() => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      child.stdin = {
+        writable: true,
+        end: vi.fn(),
+        write: vi.fn((line) => {
+          const message = JSON.parse(line);
+          const result = message.method === "initialize"
+            ? { userAgent: "test" }
+            : rateLimitResult(18);
+          queueMicrotask(() => child.stdout.emit("data", `${JSON.stringify({ id: message.id, result })}\n`));
+        })
+      };
+      return child;
+    });
+    const sshSessionRuntime = { connectClient: vi.fn() };
+    const service = createAgentUsageService({
+      terminalManager: { getSession: id => sessions.get(id) },
+      sshSessionRuntime,
+      spawn,
+      now: () => 1_000
+    });
+
+    await expect(service.getUsage("bridge-1")).resolves.toMatchObject({ limits: [{ usedPercent: 18 }] });
+    await expect(service.getUsage("bridge-2")).resolves.toMatchObject({ limits: [{ usedPercent: 18 }] });
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledWith("cmd.exe", ["/d", "/s", "/c", "codex app-server --stdio"], expect.any(Object));
+    expect(sshSessionRuntime.connectClient).not.toHaveBeenCalled();
+  });
+
   it("uses the current SSH session connection and closes it after the response", async () => {
     const client = { exec: vi.fn(), end: vi.fn() };
     const stream = new EventEmitter();

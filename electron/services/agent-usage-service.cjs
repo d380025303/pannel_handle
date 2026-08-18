@@ -315,9 +315,13 @@ function runCodexRateLimitRequest(transport, {
 
 function getCacheKey(session) {
   const provider = session.agentProvider || "unknown";
-  if (session.type === "windows") return `${provider}:windows`;
+  if (session.type === "windows" || isLocalSshBridge(session)) return `${provider}:windows`;
   if (session.type === "wsl") return `${provider}:wsl:${String(session.wslDistro || "").trim()}`;
   return `${provider}:ssh:${session.id}`;
+}
+
+function isLocalSshBridge(session) {
+  return session?.type === "ssh" && session.agentLocation === "local";
 }
 
 function createAgentUsageService({
@@ -339,9 +343,11 @@ function createAgentUsageService({
   async function createTransport(session) {
     if (transportFactory) return transportFactory(session);
     if (session.agentProvider === "codebuddy") return createCodeBuddyProcessTransport(session, spawn);
-    return session.type === "ssh"
-      ? createSshTransport(session, sshSessionRuntime, { timeoutMs })
-      : createProcessTransport(session, spawn);
+    if (session.type === "ssh" && !isLocalSshBridge(session)) {
+      return createSshTransport(session, sshSessionRuntime, { timeoutMs });
+    }
+    const runtimeSession = isLocalSshBridge(session) ? { ...session, type: "windows" } : session;
+    return createProcessTransport(runtimeSession, spawn);
   }
 
   async function readUsage(session) {

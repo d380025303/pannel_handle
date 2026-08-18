@@ -1,10 +1,9 @@
 const http = require("node:http");
-const { readAgentTranscriptItems } = require("./agent-transcript-reader.cjs");
 const path = require("node:path");
 
 const MAX_ACTIVITY_SUMMARY_LENGTH = 500;
 
-function createAgentHookServer({ terminalManager, agentTokenStatsService, transcriptReader = readAgentTranscriptItems }) {
+function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   const agentSessions = {
     claude: new Map(),
     codex: new Map(),
@@ -125,65 +124,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService, transc
       }
     }
     return undefined;
-  }
-
-  function normalizeFinalResponseValue(value) {
-    if (typeof value === "string") return value.trim() || undefined;
-    if (!value || typeof value !== "object") return undefined;
-    if (typeof value.content === "string") return value.content.trim() || undefined;
-    if (typeof value.text === "string") return value.text.trim() || undefined;
-    if (Array.isArray(value.content)) {
-      const text = value.content
-        .map(item => typeof item === "string" ? item : item?.text)
-        .filter(item => typeof item === "string" && item.trim())
-        .join("\n")
-        .trim();
-      return text || undefined;
-    }
-    return undefined;
-  }
-
-  function getFinalResponseContent(input) {
-    for (const value of [input.last_assistant_message, input.lastAssistantMessage, input.message]) {
-      const content = normalizeFinalResponseValue(value);
-      if (content) return content;
-    }
-    return undefined;
-  }
-
-  function getResponseDedupeKey(provider, input) {
-    const turnId = input.turn_id || input.turnId || input.event_id || input.eventId || input.message_id || input.messageId;
-    if (typeof turnId !== "string" || !turnId.trim()) return undefined;
-    const agentSessionId = getAgentSessionId(input) || "unknown";
-    return `${provider}:${agentSessionId}:${turnId.trim()}`;
-  }
-
-  function getTranscriptItems(provider, input, status) {
-    const supplied = Array.isArray(input.pannel_handle_transcript_items)
-      ? input.pannel_handle_transcript_items
-        .map(item => {
-          const id = typeof item?.id === "string" ? item.id.trim() : "";
-          const content = typeof item?.content === "string" ? item.content.trim() : "";
-          if (!id || !content) return undefined;
-          return {
-            id,
-            phase: item.phase === "final" ? "final" : "commentary",
-            content,
-            ...(Number.isFinite(item.createdAt)
-              ? { createdAt: item.createdAt }
-              : typeof item.timestamp === "string" && Number.isFinite(Date.parse(item.timestamp))
-                ? { createdAt: Date.parse(item.timestamp) }
-                : {})
-          };
-        })
-        .filter(Boolean)
-      : [];
-    if (supplied.length > 0) return supplied;
-    return transcriptReader(
-      provider,
-      input.transcript_path || input.transcriptPath,
-      { defaultPhase: status === "completed" ? "final" : "commentary" }
-    );
   }
 
   function formatToolSummary(input, detail) {
@@ -564,30 +504,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService, transc
       activitySummary,
       ...(resolution !== undefined ? { resolution } : {})
     });
-    const transcriptItems = getTranscriptItems(provider, input, status);
-    if (typeof terminalManager.recordAgentResponse === "function") {
-      for (const item of transcriptItems) {
-        const dedupeKey = `${provider}:transcript:${item.id}`;
-        terminalManager.recordAgentResponse(session.id, {
-          id: dedupeKey,
-          dedupeKey,
-          phase: item.phase,
-          content: item.content,
-          ...(Number.isFinite(item.createdAt) ? { createdAt: item.createdAt } : {})
-        });
-      }
-    }
-    if (status === "completed" && !transcriptItems.some(item => item.phase === "final")) {
-      const content = getFinalResponseContent(input);
-      if (content && typeof terminalManager.recordAgentResponse === "function") {
-        const dedupeKey = getResponseDedupeKey(provider, input);
-        terminalManager.recordAgentResponse(session.id, {
-          ...(dedupeKey ? { id: dedupeKey, dedupeKey } : {}),
-          phase: "final",
-          content
-        });
-      }
-    }
     agentTokenStatsService?.handleHook({ provider, input, session });
     return true;
   }

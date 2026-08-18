@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -113,6 +113,53 @@ describe("skills-service", () => {
     const document = await service.read(summary.id);
 
     await expect(service.save(summary.id, "Changed", document.version)).rejects.toThrow("read-only");
+  });
+
+  it("moves an entire user Skill directory to the Recycle Bin", async () => {
+    const home = createHome();
+    const directory = writeSkill(home, ".codex/skills/review", "---\nname: review\ndescription: Review code\n---\nDo it.");
+    fs.mkdirSync(path.join(directory, "scripts"));
+    fs.writeFileSync(path.join(directory, "scripts", "review.mjs"), "export default true;");
+    const trashItem = vi.fn(async (target) => fs.promises.rm(target, { recursive: true }));
+    const service = createSkillsService({ homeDir: home, shellApi: { trashItem } });
+    const summary = (await service.list("codex")).find((skill) => skill.source === "user");
+
+    await expect(service.delete(summary.id)).resolves.toEqual({ status: "trashed" });
+
+    expect(trashItem).toHaveBeenCalledWith(directory);
+    expect(fs.existsSync(directory)).toBe(false);
+    await expect(service.list("codex")).resolves.toEqual([]);
+  });
+
+  it("rejects deletion of Codex system Skills", async () => {
+    const home = createHome();
+    const directory = writeSkill(home, ".codex/skills/.system/imagegen", "---\nname: imagegen\ndescription: Generate images\n---\nSystem.");
+    const trashItem = vi.fn();
+    const service = createSkillsService({ homeDir: home, shellApi: { trashItem } });
+    const [summary] = await service.list("codex");
+
+    await expect(service.delete(summary.id)).rejects.toThrow("read-only");
+    expect(trashItem).not.toHaveBeenCalled();
+    expect(fs.existsSync(directory)).toBe(true);
+  });
+
+  it("rejects deletion when a listed Skill entry has been replaced", async () => {
+    const home = createHome();
+    const directory = writeSkill(home, ".codebuddy/skills/review", "---\nname: review\ndescription: Review code\n---\nOld.");
+    const replacement = writeSkill(home, ".codebuddy/skills/replacement", "---\nname: replacement\ndescription: Replacement\n---\nNew.");
+    const trashItem = vi.fn();
+    const service = createSkillsService({ homeDir: home, shellApi: { trashItem } });
+    const summary = (await service.list("codebuddy")).find((skill) => skill.directoryName === "review");
+    fs.rmSync(directory, { recursive: true });
+    try {
+      fs.symlinkSync(replacement, directory, "junction");
+    } catch (err) {
+      if (process.platform === "win32" && err.code === "EPERM") return;
+      throw err;
+    }
+
+    await expect(service.delete(summary.id)).rejects.toThrow("changed");
+    expect(trashItem).not.toHaveBeenCalled();
   });
 
   it("ignores skill symlinks that escape the configured root", async () => {

@@ -105,7 +105,7 @@ describe("remote-agent-bridge-service", () => {
     expect(toolNames).toEqual(expect.arrayContaining(["remote_context", "remote_read_text", "remote_apply_patch", "remote_exec"]));
 
     for (const id of [4, 5]) {
-      const response = await post(binding, {
+      const responsePromise = post(binding, {
         id,
         method: "tools/call",
         params: {
@@ -113,11 +113,19 @@ describe("remote-agent-bridge-service", () => {
           arguments: { changes: [{ path: "src/a.ts", expectedVersion: "v1", content: "new" }] }
         }
       });
+      if (id === 4) {
+        await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+        const [approval] = harness.service.listPendingApprovals();
+        expect(approval).toEqual(expect.objectContaining({ sessionId: "run-1", tool: "remote_apply_patch" }));
+        expect(harness.dialog.showMessageBox).not.toHaveBeenCalled();
+        expect(harness.service.resolveApproval(approval.id, "session")).toBe(true);
+      }
+      const response = await responsePromise;
       const payload = await response.json();
       expect(payload.result.isError).not.toBe(true);
     }
 
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledTimes(1);
+    expect(harness.dialog.showMessageBox).not.toHaveBeenCalled();
     expect(harness.remoteFileService.writeText).toHaveBeenCalledTimes(2);
     expect(readFileSync(path.join(binding.workspacePath, "AGENTS.md"), "utf-8")).toContain("/srv/app");
     expect(harness.broadcast).toHaveBeenCalledWith("remote-agent:audit", expect.objectContaining({ sessionId: "run-1" }));
@@ -137,6 +145,51 @@ describe("remote-agent-bridge-service", () => {
     const serializedAudit = JSON.stringify(harness.broadcast.mock.calls.map((call) => call[1]));
     expect(serializedAudit).not.toContain("ssh-secret");
     expect(serializedAudit).toContain("[REDACTED]");
+
+    await harness.service.shutdown();
+  });
+
+  it("queues one-time approvals and denies only the selected request", async () => {
+    const harness = createHarness();
+    const binding = await harness.service.createBinding("run-1");
+    const call = (id, command) => post(binding, {
+      id,
+      method: "tools/call",
+      params: { name: "remote_exec", arguments: { command } }
+    });
+
+    const firstResponse = call(1, "git status --short");
+    const secondResponse = call(2, "git diff --stat");
+    await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+    const [firstApproval] = harness.service.listPendingApprovals();
+    expect(harness.service.resolveApproval(firstApproval.id, "once")).toBe(true);
+    expect((await (await firstResponse).json()).result.isError).not.toBe(true);
+
+    await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+    const [secondApproval] = harness.service.listPendingApprovals();
+    expect(secondApproval.summary).toBe("git diff --stat");
+    expect(harness.service.resolveApproval(secondApproval.id, "deny")).toBe(true);
+    expect(harness.service.resolveApproval(secondApproval.id, "once")).toBe(false);
+    expect((await (await secondResponse).json()).result.isError).toBe(true);
+    expect(harness.sshSessionRuntime.execStreaming).toHaveBeenCalledTimes(1);
+
+    await harness.service.shutdown();
+  });
+
+  it("rejects a pending approval when its SSH binding closes", async () => {
+    const harness = createHarness();
+    const binding = await harness.service.createBinding("run-1");
+    const responsePromise = post(binding, {
+      id: 1,
+      method: "tools/call",
+      params: { name: "remote_exec", arguments: { command: "git status" } }
+    });
+
+    await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+    await harness.service.closeBinding("run-1");
+    expect(harness.service.listPendingApprovals()).toEqual([]);
+    expect((await (await responsePromise).json()).result.isError).toBe(true);
+    expect(harness.sshSessionRuntime.execStreaming).not.toHaveBeenCalled();
 
     await harness.service.shutdown();
   });
