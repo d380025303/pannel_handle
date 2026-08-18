@@ -2,32 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const MAX_SKILL_BYTES = 2 * 1024 * 1024;
 const PROVIDERS = new Set(["codex", "codebuddy"]);
-
-function versionOf(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
-}
-
-function detectFormat(buffer) {
-  const bom = buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
-  const content = buffer.subarray(bom ? 3 : 0).toString("utf-8");
-  const firstNewline = content.match(/\r\n|\r|\n/);
-  return {
-    bom,
-    content,
-    eol: firstNewline?.[0] === "\r\n" ? "crlf" : firstNewline?.[0] === "\r" ? "cr" : "lf"
-  };
-}
-
-function normalizeForWrite(content, format) {
-  const eol = format.eol === "crlf" ? "\r\n" : format.eol === "cr" ? "\r" : "\n";
-  const body = String(content).replace(/\r\n|\r|\n/g, eol);
-  const encoded = Buffer.from(body, "utf-8");
-  return format.bom
-    ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), encoded])
-    : encoded;
-}
 
 function unquote(value) {
   const trimmed = String(value || "").trim();
@@ -41,7 +16,7 @@ function unquote(value) {
 function parseFrontmatter(content, directoryName) {
   const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) {
-    return { name: directoryName, description: "", warning: "SKILL.md is missing valid front matter." };
+    return { name: directoryName, description: "" };
   }
   const fields = {};
   for (const line of match[1].split(/\r?\n/)) {
@@ -50,11 +25,7 @@ function parseFrontmatter(content, directoryName) {
   }
   const name = fields.name || directoryName;
   const description = fields.description || "";
-  return {
-    name,
-    description,
-    warning: fields.name && fields.description ? undefined : "SKILL.md front matter is missing name or description."
-  };
+  return { name, description };
 }
 
 function isWithin(root, candidate) {
@@ -65,16 +36,15 @@ function isWithin(root, candidate) {
 function createAdapters(homeDir) {
   const codexRoot = path.join(homeDir, ".codex", "skills");
   return [
-    { provider: "codex", source: "user", root: codexRoot, editable: true, exclude: new Set([".system"]) },
-    { provider: "codex", source: "system", root: path.join(codexRoot, ".system"), editable: false, exclude: new Set() },
-    { provider: "codebuddy", source: "user", root: path.join(homeDir, ".codebuddy", "skills"), editable: true, exclude: new Set() }
+    { provider: "codex", source: "user", root: codexRoot, exclude: new Set([".system"]) },
+    { provider: "codex", source: "system", root: path.join(codexRoot, ".system"), exclude: new Set() },
+    { provider: "codebuddy", source: "user", root: path.join(homeDir, ".codebuddy", "skills"), exclude: new Set() }
   ];
 }
 
-function createSkillsService({ homeDir, statsStore, translationService, fsApi = fs, shellApi } = {}) {
+function createSkillsService({ homeDir, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
   const adapters = createAdapters(path.resolve(homeDir));
-  const registry = new Map();
 
   async function discoverAdapter(adapter) {
     let root;
@@ -106,138 +76,28 @@ function createSkillsService({ homeDir, statsStore, translationService, fsApi = 
       }
       if (!stat.isFile()) continue;
       const previewBuffer = await fsApi.promises.readFile(filePath);
-      const metadata = parseFrontmatter(detectFormat(previewBuffer).content, entry.name);
+      const hasBom = previewBuffer.length >= 3 && previewBuffer[0] === 0xef && previewBuffer[1] === 0xbb && previewBuffer[2] === 0xbf;
+      const metadata = parseFrontmatter(previewBuffer.subarray(hasBom ? 3 : 0).toString("utf-8"), entry.name);
       const id = crypto.createHash("sha256")
         .update(`${adapter.provider}\0${adapter.source}\0${realDirectory}`)
         .digest("hex");
-      const record = {
+      skills.push({
         id,
-        provider: adapter.provider,
-        source: adapter.source,
-        directoryName: entry.name,
-        path: realDirectory,
-        entryPath: directoryPath,
-        filePath,
-        editable: adapter.editable,
-        root,
-        ...metadata
-      };
-      registry.set(id, record);
-      skills.push(record);
+        name: metadata.name,
+        description: metadata.description
+      });
     }
     return skills;
   }
 
   async function list(provider) {
     if (!PROVIDERS.has(provider)) throw new Error("Unsupported Skills provider.");
-    for (const [id, record] of registry) {
-      if (record.provider === provider) registry.delete(id);
-    }
     const groups = await Promise.all(adapters.filter((adapter) => adapter.provider === provider).map(discoverAdapter));
-    let usageRows = [];
-    try {
-      usageRows = statsStore?.getSkillUsage(provider) || [];
-    } catch (error) {
-      console.warn("Unable to read Skill usage statistics:", error);
-    }
-    const usageByName = new Map(usageRows.map(item => [String(item.name || "").trim().toLocaleLowerCase(), Number(item.count) || 0]));
     return groups.flat()
-      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
-      .map(({ entryPath: _entryPath, filePath: _filePath, root: _root, ...summary }) => {
-        const aliases = new Set([summary.name, summary.directoryName].map(value => String(value || "").trim().toLocaleLowerCase()).filter(Boolean));
-        const usageCount = [...aliases].reduce((total, alias) => total + (usageByName.get(alias) || 0), 0);
-        const registryRecord = registry.get(summary.id);
-        if (registryRecord) registryRecord.usageCount = usageCount;
-        return { ...summary, usageCount };
-      });
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   }
 
-  async function resolveRecord(id) {
-    let record = registry.get(String(id || ""));
-    if (record) return record;
-    await Promise.all(Array.from(PROVIDERS, (provider) => list(provider)));
-    record = registry.get(String(id || ""));
-    if (!record) throw new Error("Skill was not found.");
-    return record;
-  }
-
-  async function read(id) {
-    const record = await resolveRecord(id);
-    const realFile = await fsApi.promises.realpath(record.filePath);
-    if (!isWithin(record.root, realFile) || path.basename(realFile).toLowerCase() !== "skill.md") {
-      throw new Error("Skill path is outside its configured directory.");
-    }
-    const buffer = await fsApi.promises.readFile(realFile);
-    if (buffer.length > MAX_SKILL_BYTES) throw new Error("SKILL.md is too large to edit.");
-    const format = detectFormat(buffer);
-    return {
-      id: record.id,
-      provider: record.provider,
-      source: record.source,
-      name: record.name,
-      description: record.description,
-      directoryName: record.directoryName,
-      path: record.path,
-      editable: record.editable,
-      usageCount: Number(record.usageCount) || 0,
-      warning: record.warning,
-      content: format.content,
-      version: versionOf(buffer),
-      bom: format.bom,
-      eol: format.eol
-    };
-  }
-
-  async function save(id, content, expectedVersion) {
-    if (typeof content !== "string") throw new Error("Skill content must be text.");
-    if (Buffer.byteLength(content, "utf-8") > MAX_SKILL_BYTES) throw new Error("SKILL.md is too large to save.");
-    const record = await resolveRecord(id);
-    if (!record.editable) throw new Error("System Skills are read-only.");
-    const realFile = await fsApi.promises.realpath(record.filePath);
-    if (!isWithin(record.root, realFile) || path.basename(realFile).toLowerCase() !== "skill.md") {
-      throw new Error("Skill path is outside its configured directory.");
-    }
-    const current = await fsApi.promises.readFile(realFile);
-    if (!expectedVersion || versionOf(current) !== expectedVersion) return { status: "conflict" };
-    const next = normalizeForWrite(content, detectFormat(current));
-    await fsApi.promises.writeFile(realFile, next);
-    return { status: "saved", version: versionOf(next), size: next.length };
-  }
-
-  async function deleteSkill(id) {
-    const record = await resolveRecord(id);
-    if (!record.editable || record.source !== "user") throw new Error("System Skills are read-only.");
-    if (!shellApi || typeof shellApi.trashItem !== "function") throw new Error("The Recycle Bin is unavailable.");
-
-    const entryParent = path.dirname(record.entryPath);
-    if (entryParent !== record.root || path.basename(record.entryPath) !== record.directoryName) {
-      throw new Error("Skill path is outside its configured directory.");
-    }
-    const currentDirectory = await fsApi.promises.realpath(record.entryPath);
-    if (!isWithin(record.root, currentDirectory) || currentDirectory !== record.path) {
-      throw new Error("Skill path changed before it could be deleted.");
-    }
-    const currentFile = await fsApi.promises.realpath(path.join(currentDirectory, "SKILL.md"));
-    if (!isWithin(record.root, currentFile) || path.basename(currentFile).toLowerCase() !== "skill.md") {
-      throw new Error("Skill path is outside its configured directory.");
-    }
-
-    await shellApi.trashItem(record.entryPath);
-    registry.delete(record.id);
-    return { status: "trashed" };
-  }
-
-  async function translate(requestId, id, content) {
-    if (!translationService) return { status: "error", reason: "unavailable" };
-    const record = await resolveRecord(id);
-    return translationService.translate({ requestId, provider: record.provider, skillId: record.id, content });
-  }
-
-  function cancelTranslation(requestId) {
-    return translationService?.cancel(requestId) || false;
-  }
-
-  return { list, read, save, delete: deleteSkill, translate, cancelTranslation };
+  return { list };
 }
 
-module.exports = { MAX_SKILL_BYTES, createSkillsService };
+module.exports = { createSkillsService };

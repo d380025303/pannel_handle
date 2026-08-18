@@ -745,45 +745,15 @@ export type RemoteSystemApi = {
 };
 
 export type SkillProvider = "codex" | "codebuddy";
-export type SkillSource = "user" | "system";
 
 export type SkillSummary = {
   id: string;
-  provider: SkillProvider;
-  source: SkillSource;
   name: string;
   description: string;
-  directoryName: string;
-  path: string;
-  editable: boolean;
-  usageCount: number;
-  warning?: string;
 };
-
-export type SkillDocument = SkillSummary & {
-  content: string;
-  version: string;
-  bom: boolean;
-  eol: "lf" | "crlf" | "cr";
-};
-
-export type SkillSaveResult =
-  | { status: "saved"; version: string; size: number }
-  | { status: "conflict" };
-
-export type SkillTranslationError = "invalid_request" | "unavailable" | "too_large" | "cli_missing" | "not_authenticated" | "timeout" | "cancelled" | "invalid_output" | "failed";
-
-export type SkillTranslationResult =
-  | { status: "translated"; translatedContent: string; sourceHash: string; cached: boolean }
-  | { status: "error"; reason: SkillTranslationError };
 
 export type SkillsApi = {
   list: (provider: SkillProvider) => Promise<SkillSummary[]>;
-  read: (id: string) => Promise<SkillDocument>;
-  save: (id: string, content: string, expectedVersion: string) => Promise<SkillSaveResult>;
-  delete: (id: string) => Promise<{ status: "trashed" }>;
-  translate: (requestId: string, id: string, content: string) => Promise<SkillTranslationResult>;
-  cancelTranslation: (requestId: string) => Promise<boolean>;
 };
 
 export type McpProvider = "codex" | "codebuddy";

@@ -154,12 +154,7 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
 });
 
 contextBridge.exposeInMainWorld("skillsApi", {
-  list: (provider) => ipcRenderer.invoke("skills:list", { provider }),
-  read: (id) => ipcRenderer.invoke("skills:read", { id }),
-  save: (id, content, expectedVersion) => ipcRenderer.invoke("skills:save", { id, content, expectedVersion }),
-  delete: (id) => ipcRenderer.invoke("skills:delete", { id }),
-  translate: (requestId, id, content) => ipcRenderer.invoke("skills:translate", { requestId, id, content }),
-  cancelTranslation: (requestId) => ipcRenderer.invoke("skills:translate-cancel", { requestId })
+  list: (provider) => ipcRenderer.invoke("skills:list", { provider })
 });
 
 contextBridge.exposeInMainWorld("mcpApi", {

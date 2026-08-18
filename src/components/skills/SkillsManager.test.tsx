@@ -2,59 +2,26 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComponentProps } from "react";
 import { I18nProvider } from "../../i18n";
-import type { SkillDocument, SkillSummary } from "../../vite-env";
+import type { SkillSummary } from "../../vite-env";
 import { SkillsManager } from "./SkillsManager";
 
-vi.mock("../remote/RemoteCodeEditor", () => ({
-  RemoteCodeEditor: ({ value, readOnly, onChange, onSave }: { value: string; readOnly?: boolean; onChange: (value: string) => void; onSave: () => void }) => (
-    <textarea aria-label="SKILL.md" value={value} disabled={readOnly} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => {
-      if (event.ctrlKey && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        onSave();
-      }
-    }} />
-  )
-}));
+const codexSkills: SkillSummary[] = [
+  { id: "review", name: "review", description: "Review code changes" },
+  { id: "imagegen", name: "imagegen", description: "Generate and edit images" },
+  { id: "summaryless", name: "summaryless", description: "" }
+];
 
-const userSkill: SkillSummary = {
-  id: "user-1",
-  provider: "codex",
-  source: "user",
-  name: "review",
-  description: "Review code",
-  directoryName: "review",
-  path: "C:\\Users\\tester\\.codex\\skills\\review",
-  editable: true,
-  usageCount: 4
-};
-
-const systemSkill: SkillSummary = {
-  ...userSkill,
-  id: "system-1",
-  source: "system",
-  name: "imagegen",
-  directoryName: "imagegen",
-  path: "C:\\Users\\tester\\.codex\\skills\\.system\\imagegen",
-  editable: false
-};
-
-function documentFor(skill: SkillSummary): SkillDocument {
-  return { ...skill, content: `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\nInstructions`, version: `${skill.id}-v1`, bom: false, eol: "lf" };
-}
+const codeBuddySkills: SkillSummary[] = [
+  { id: "browser", name: "browser", description: "Control a browser session" }
+];
 
 const list = vi.fn();
-const read = vi.fn();
-const save = vi.fn();
-const deleteSkill = vi.fn();
-const translate = vi.fn();
-const cancelTranslation = vi.fn();
 
-function renderManager(overrides: Partial<ComponentProps<typeof SkillsManager>> = {}) {
+function renderManager() {
   return render(
-    <I18nProvider locale="zh-CN">
-      <SkillsManager onClose={() => undefined} onDirtyChange={() => undefined} onRegisterSave={() => undefined} {...overrides} />
+    <I18nProvider locale="en-US">
+      <SkillsManager onClose={() => undefined} />
     </I18nProvider>
   );
 }
@@ -62,20 +29,8 @@ function renderManager(overrides: Partial<ComponentProps<typeof SkillsManager>> 
 describe("SkillsManager", () => {
   beforeEach(() => {
     list.mockReset();
-    read.mockReset();
-    save.mockReset();
-    deleteSkill.mockReset();
-    translate.mockReset();
-    cancelTranslation.mockReset();
-    list.mockImplementation(async (provider) => provider === "codex" ? [userSkill, systemSkill] : []);
-    read.mockImplementation(async (id) => documentFor(id === systemSkill.id ? systemSkill : userSkill));
-    save.mockResolvedValue({ status: "saved", version: "user-1-v2", size: 20 });
-    deleteSkill.mockResolvedValue({ status: "trashed" });
-    translate.mockResolvedValue({ status: "translated", translatedContent: "---\nname: review\ndescription: 审查代码\n---\n说明", sourceHash: "hash", cached: false });
-    cancelTranslation.mockResolvedValue(true);
-    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read, save, delete: deleteSkill, translate, cancelTranslation } });
-    Object.defineProperty(window, "agentTokenStatsApi", { configurable: true, value: { onChanged: vi.fn(() => () => undefined) } });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    list.mockImplementation(async (provider) => provider === "codex" ? codexSkills : codeBuddySkills);
+    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list } });
   });
 
   afterEach(() => {
@@ -83,139 +38,65 @@ describe("SkillsManager", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads Codex skills and exposes system skills as read-only", async () => {
+  it("renders non-interactive cards containing only each Skill name and description", async () => {
     renderManager();
-    expect((await screen.findAllByText("review")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByText("imagegen").closest("button")!);
-
-    await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true));
-    expect(screen.getAllByText("只读").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: "review" })).toBeTruthy();
+    expect(screen.getByText("Review code changes")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "summaryless" })).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(3);
+    expect(screen.queryByLabelText("SKILL.md")).toBeNull();
+    expect(screen.queryByRole("button", { name: /save|delete|translate/i })).toBeNull();
   });
 
-  it("deletes a user Skill after confirmation and selects the next Skill", async () => {
-    list
-      .mockResolvedValueOnce([userSkill, systemSkill])
-      .mockResolvedValueOnce([systemSkill]);
+  it("filters cards by name and description", async () => {
     renderManager();
-    await screen.findByLabelText("SKILL.md");
+    await screen.findByRole("heading", { name: "review" });
 
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Skills" }), { target: { value: "images" } });
 
-    await waitFor(() => expect(deleteSkill).toHaveBeenCalledWith("user-1"));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("整个目录移到回收站"));
-    await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true));
-    expect(screen.getByText("Skill 已移到回收站。")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "imagegen" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "review" })).toBeNull();
   });
 
-  it("keeps a dirty Skill when deletion is canceled", async () => {
-    vi.mocked(window.confirm).mockReturnValue(false);
+  it("switches providers and clears the active search", async () => {
     renderManager();
-    fireEvent.change(await screen.findByLabelText("SKILL.md"), { target: { value: "Local draft" } });
+    await screen.findByRole("heading", { name: "review" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Skills" }), { target: { value: "review" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
-
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("未保存修改"));
-    expect(deleteSkill).not.toHaveBeenCalled();
-    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Local draft");
-  });
-
-  it("keeps the current Skill visible when deletion fails", async () => {
-    deleteSkill.mockRejectedValueOnce(new Error("Recycle Bin failed"));
-    renderManager();
-    await screen.findByLabelText("SKILL.md");
-
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
-
-    expect(await screen.findByText("Recycle Bin failed")).toBeTruthy();
-    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toContain("Instructions");
-  });
-
-  it("edits and saves a user SKILL.md", async () => {
-    const onDirtyChange = vi.fn();
-    renderManager({ onDirtyChange });
-    const editor = await screen.findByLabelText("SKILL.md");
-    fireEvent.change(editor, { target: { value: "Updated instructions" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() => expect(save).toHaveBeenCalledWith("user-1", "Updated instructions", "user-1-v1"));
-    expect(await screen.findByText("已保存 SKILL.md")).toBeTruthy();
-    expect(onDirtyChange).toHaveBeenCalledWith(true);
-  });
-
-  it("shows a read-only Chinese preview without replacing the original draft", async () => {
-    renderManager();
-    const editor = await screen.findByLabelText("SKILL.md");
-    fireEvent.change(editor, { target: { value: "Draft instructions" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
-
-    await waitFor(() => expect(translate).toHaveBeenCalledWith(expect.stringContaining("skill-translation-"), "user-1", "Draft instructions"));
-    await waitFor(() => expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toContain("说明"));
-    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: /查看原文/ }));
-    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Draft instructions");
-  });
-
-  it("allows an in-progress translation to be canceled", async () => {
-    translate.mockImplementation(() => new Promise(() => undefined));
-    renderManager();
-    await screen.findByLabelText("SKILL.md");
-
-    fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
-
-    expect(cancelTranslation).toHaveBeenCalledWith(expect.stringContaining("skill-translation-"));
-    expect(screen.getByRole("button", { name: /翻译成中文/ })).toBeTruthy();
-  });
-
-  it("shows elapsed time while a long translation is running", async () => {
-    translate.mockImplementation(() => new Promise(() => undefined));
-    renderManager();
-    await screen.findByLabelText("SKILL.md");
-    vi.useFakeTimers();
-    try {
-      fireEvent.click(screen.getByRole("button", { name: /翻译成中文/ }));
-      await vi.advanceTimersByTimeAsync(61_000);
-
-      expect(screen.getByRole("status").textContent).toContain("已等待 61 秒");
-      expect(screen.getByRole("status").textContent).toContain("1–3 分钟");
-    } finally {
-      fireEvent.click(screen.getByRole("button", { name: "取消" }));
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps the draft when saving reports an external conflict", async () => {
-    save.mockResolvedValueOnce({ status: "conflict" });
-    renderManager();
-    const editor = await screen.findByLabelText("SKILL.md");
-    fireEvent.change(editor, { target: { value: "Local draft" } });
-    fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
-
-    expect((await screen.findByRole("alert")).textContent).toContain("已被其他程序修改");
-    expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe("Local draft");
-  });
-
-  it("shows the CodeBuddy empty state without creating anything", async () => {
-    renderManager();
-    await screen.findByLabelText("SKILL.md");
     fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
 
-    expect(await screen.findByText("尚未发现 Skills")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "browser" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Search Skills" }) as HTMLInputElement).value).toBe("");
+    expect(list).toHaveBeenLastCalledWith("codebuddy");
+  });
+
+  it("refreshes the current provider", async () => {
+    renderManager();
+    await screen.findByRole("heading", { name: "review" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(list).toHaveBeenLastCalledWith("codex");
+  });
+
+  it("shows provider-specific empty state", async () => {
+    list.mockImplementation(async (provider) => provider === "codex" ? codexSkills : []);
+    renderManager();
+    await screen.findByRole("heading", { name: "review" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
+
+    expect(await screen.findByText("No Skills found")).toBeTruthy();
     expect(screen.getByText(/\.codebuddy\/skills/)).toBeTruthy();
   });
 
-  it("cancels provider switching when the current draft is dirty", async () => {
-    vi.mocked(window.confirm).mockReturnValue(false);
+  it("shows list failures without retaining stale cards", async () => {
+    list.mockRejectedValueOnce(new Error("Unable to read Skills"));
     renderManager();
-    fireEvent.change(await screen.findByLabelText("SKILL.md"), { target: { value: "Draft" } });
 
-    fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
-
-    expect(screen.getByRole("tab", { name: "Codex" }).getAttribute("aria-selected")).toBe("true");
-    expect(list).toHaveBeenCalledTimes(1);
+    expect((await screen.findByRole("alert")).textContent).toContain("Unable to read Skills");
+    expect(screen.queryByRole("article")).toBeNull();
   });
 });

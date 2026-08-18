@@ -252,35 +252,6 @@ export type TranslationKey =
   | "skills.empty"
   | "skills.codebuddyEmptyHint"
   | "skills.noMatches"
-  | "skills.userSource"
-  | "skills.systemSource"
-  | "skills.readOnly"
-  | "skills.selectHint"
-  | "skills.unsaved"
-  | "skills.saving"
-  | "skills.saved"
-  | "skills.deleting"
-  | "skills.deleted"
-  | "skills.confirmDelete"
-  | "skills.confirmDeleteDirty"
-  | "skills.reload"
-  | "skills.conflict"
-  | "skills.discardChanges"
-  | "skills.unsavedClose"
-  | "skills.usageCount"
-  | "skills.translate"
-  | "skills.translating"
-  | "skills.translationProgress"
-  | "skills.viewOriginal"
-  | "skills.translationPreview"
-  | "skills.translationUnavailable"
-  | "skills.translationTooLarge"
-  | "skills.translationCliMissing"
-  | "skills.translationNotAuthenticated"
-  | "skills.translationTimeout"
-  | "skills.translationCancelled"
-  | "skills.translationInvalidOutput"
-  | "skills.translationFailed"
   | "mcp.title"
   | "mcp.open"
   | "mcp.description"
@@ -899,42 +870,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.transcriptDetected": "基于 transcript 保守识别",
     "skills.title": "Skills",
     "skills.open": "打开 Skills",
-    "skills.description": "查看和编辑 Codex 与 CodeBuddy 的用户级技能",
+    "skills.description": "浏览 Codex 与 CodeBuddy 技能",
     "skills.back": "返回终端",
     "skills.provider": "Skill 提供方",
     "skills.search": "搜索 Skills",
     "skills.empty": "尚未发现 Skills",
     "skills.codebuddyEmptyHint": "在 ~/.codebuddy/skills 中添加 Skill 后会显示在这里。",
     "skills.noMatches": "没有匹配的 Skills",
-    "skills.userSource": "用户",
-    "skills.systemSource": "系统",
-    "skills.readOnly": "只读",
-    "skills.selectHint": "选择一个 Skill 查看 SKILL.md",
-    "skills.unsaved": "未保存",
-    "skills.saving": "保存中…",
-    "skills.saved": "已保存 SKILL.md",
-    "skills.deleting": "删除中…",
-    "skills.deleted": "Skill 已移到回收站。",
-    "skills.confirmDelete": "确定将 Skill“{name}”的整个目录移到回收站吗？",
-    "skills.confirmDeleteDirty": "Skill“{name}”有未保存修改。确定放弃草稿并将整个目录移到回收站吗？",
-    "skills.reload": "重新加载",
-    "skills.conflict": "SKILL.md 已被其他程序修改。当前草稿未覆盖磁盘内容，请重新加载后再编辑。",
-    "skills.discardChanges": "当前 SKILL.md 有未保存修改，确定放弃吗？",
-    "skills.unsavedClose": "当前 Skill 的 SKILL.md 有未保存修改。",
-    "skills.usageCount": "使用 {count} 次",
-    "skills.translate": "翻译成中文",
-    "skills.translating": "翻译中…",
-    "skills.translationProgress": "正在调用 {provider} 翻译，已等待 {seconds} 秒。较长 Skill 可能需要 1–3 分钟。",
-    "skills.viewOriginal": "查看原文",
-    "skills.translationPreview": "当前为中文翻译预览，不会修改 SKILL.md。",
-    "skills.translationUnavailable": "翻译服务暂不可用。",
-    "skills.translationTooLarge": "SKILL.md 内容过大，无法翻译。",
-    "skills.translationCliMissing": "未找到对应提供方的命令行工具。",
-    "skills.translationNotAuthenticated": "对应提供方尚未登录，请先在终端完成登录。",
-    "skills.translationTimeout": "翻译超时，请稍后重试。",
-    "skills.translationCancelled": "翻译已取消。",
-    "skills.translationInvalidOutput": "翻译结果格式无效，请重试。",
-    "skills.translationFailed": "翻译失败，请稍后重试。",
     "mcp.title": "MCP 管理",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
@@ -1545,42 +1487,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.transcriptDetected": "Conservatively detected from the transcript",
     "skills.title": "Skills",
     "skills.open": "Open Skills",
-    "skills.description": "View and edit user-level Codex and CodeBuddy skills",
+    "skills.description": "Browse Codex and CodeBuddy skills",
     "skills.back": "Back to terminal",
     "skills.provider": "Skill provider",
     "skills.search": "Search Skills",
     "skills.empty": "No Skills found",
     "skills.codebuddyEmptyHint": "Add a Skill under ~/.codebuddy/skills to see it here.",
     "skills.noMatches": "No matching Skills",
-    "skills.userSource": "User",
-    "skills.systemSource": "System",
-    "skills.readOnly": "Read only",
-    "skills.selectHint": "Select a Skill to view SKILL.md",
-    "skills.unsaved": "Unsaved",
-    "skills.saving": "Saving…",
-    "skills.saved": "SKILL.md saved",
-    "skills.deleting": "Deleting…",
-    "skills.deleted": "Skill moved to the Recycle Bin.",
-    "skills.confirmDelete": "Move the entire directory for Skill “{name}” to the Recycle Bin?",
-    "skills.confirmDeleteDirty": "Skill “{name}” has unsaved changes. Discard the draft and move its entire directory to the Recycle Bin?",
-    "skills.reload": "Reload",
-    "skills.conflict": "SKILL.md was changed by another program. Your draft was not written; reload before editing again.",
-    "skills.discardChanges": "This SKILL.md has unsaved changes. Discard them?",
-    "skills.unsavedClose": "The current Skill has unsaved SKILL.md changes.",
-    "skills.usageCount": "Used {count} times",
-    "skills.translate": "Translate to Chinese",
-    "skills.translating": "Translating…",
-    "skills.translationProgress": "Translating with {provider}; waiting for {seconds} seconds. Longer Skills may take 1–3 minutes.",
-    "skills.viewOriginal": "View original",
-    "skills.translationPreview": "Showing a Chinese translation preview. SKILL.md is unchanged.",
-    "skills.translationUnavailable": "The translation service is unavailable.",
-    "skills.translationTooLarge": "This SKILL.md is too large to translate.",
-    "skills.translationCliMissing": "The provider command-line tool was not found.",
-    "skills.translationNotAuthenticated": "The provider is not signed in. Sign in from a terminal first.",
-    "skills.translationTimeout": "Translation timed out. Try again later.",
-    "skills.translationCancelled": "Translation was canceled.",
-    "skills.translationInvalidOutput": "The translation result was invalid. Try again.",
-    "skills.translationFailed": "Translation failed. Try again later.",
     "mcp.title": "MCP Manager",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",

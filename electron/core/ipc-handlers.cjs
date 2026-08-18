@@ -419,22 +419,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("skills:list", (_event, { provider }) => skillsService.list(provider));
 
-  ipcMain.handle("skills:read", (_event, { id }) => skillsService.read(id));
-
-  ipcMain.handle("skills:save", (_event, { id, content, expectedVersion }) => {
-    return skillsService.save(id, content, expectedVersion);
-  });
-
-  ipcMain.handle("skills:delete", (_event, { id }) => skillsService.delete(id));
-
-  ipcMain.handle("skills:translate", (_event, { requestId, id, content }) => {
-    return skillsService.translate(requestId, id, content);
-  });
-
-  ipcMain.handle("skills:translate-cancel", (_event, { requestId }) => {
-    return skillsService.cancelTranslation(requestId);
-  });
-
   ipcMain.handle("mcp:list", (_event, request) => mcpConfigService.list(request));
 
   ipcMain.handle("mcp:reveal", (_event, request) => mcpConfigService.reveal(request));
