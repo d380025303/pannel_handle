@@ -63,7 +63,7 @@ describe("AgentTokenStatsDashboard", () => {
       topMcpServers: [{ name: "logView", count: 3, tools: [{ name: "search_logs", count: 3 }] }],
       sessions: [{
         id: "codex:one", provider: "codex", agentSessionId: "one", panelSessionId: "panel", title: "Work", cwd: "C:\\work", location: "windows",
-        models: ["gpt-5.6"], startedAt: 1, updatedAt: Date.now(), endedAt: null, status: "active", tokens: emptyTokens,
+        models: ["gpt-5.6"], startedAt: 1, updatedAt: Date.now(), endedAt: null, tokens: emptyTokens,
         capabilities: {
           skills: { availability: "available", totalCalls: 2, items: [{ name: "diagnosing-bugs", count: 2 }] },
           mcp: { availability: "available", totalCalls: 3, servers: [{ name: "logView", count: 3, tools: [{ name: "search_logs", count: 3 }] }] }
@@ -74,8 +74,10 @@ describe("AgentTokenStatsDashboard", () => {
     render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
 
     expect(await screen.findAllByText("diagnosing-bugs")).toHaveLength(1);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
     fireEvent.click(screen.getByRole("button", { name: "查看技能与 MCP" }));
     expect(screen.getAllByText("diagnosing-bugs")).toHaveLength(2);
     expect(screen.getByText("search_logs ×3")).toBeTruthy();
+    expect(document.querySelector(".token-capability-row td")?.getAttribute("colspan")).toBe("7");
   });
 });

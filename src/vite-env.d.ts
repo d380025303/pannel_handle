@@ -581,7 +581,6 @@ export type AgentTokenSessionRecord = {
   startedAt: number;
   updatedAt: number;
   endedAt: number | null;
-  status: "active" | "ended";
   tokens: AgentTokenTotals;
   capabilities: AgentCapabilityUsage;
 };

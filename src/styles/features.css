@@ -1973,13 +1973,9 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-stats-table-panel td:nth-child(3) strong,
 .token-stats-table-panel td:nth-child(3) small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .token-stats-table-panel td:nth-child(3) small { margin-top: 3px; color: var(--color-text-muted); }
-.token-provider-pill,
-.token-session-status { display: inline-flex; padding: 3px 7px; border-radius: 999px; font-size: 11px; text-transform: capitalize; }
-.token-provider-pill { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
+.token-provider-pill { display: inline-flex; padding: 3px 7px; border-radius: 999px; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, transparent); font-size: 11px; text-transform: capitalize; }
 .token-provider-pill.claude { color: #e08a5b; background: rgba(217, 119, 69, 0.14); }
 .token-provider-pill.codebuddy { color: #19b8b8; background: rgba(0, 166, 166, 0.14); }
-.token-session-status.active { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
-.token-session-status.ended { color: var(--color-text-muted); background: var(--color-bg-control); }
 .token-stats-breakdown { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
 .token-stats-breakdown small { color: var(--color-text-muted); }
 .token-stats-empty,

@@ -228,9 +228,6 @@ export type TranslationKey =
   | "tokenStats.location"
   | "tokenStats.model"
   | "tokenStats.tokens"
-  | "tokenStats.status"
-  | "tokenStats.active"
-  | "tokenStats.ended"
   | "tokenStats.previous"
   | "tokenStats.next"
   | "tokenStats.skillCalls"
@@ -847,9 +844,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.location": "位置",
     "tokenStats.model": "模型",
     "tokenStats.tokens": "总计（输入 / 输出）",
-    "tokenStats.status": "状态",
-    "tokenStats.active": "进行中",
-    "tokenStats.ended": "已结束",
     "tokenStats.previous": "上一页",
     "tokenStats.next": "下一页",
     "tokenStats.skillCalls": "技能调用",
@@ -1458,9 +1452,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.location": "Location",
     "tokenStats.model": "Model",
     "tokenStats.tokens": "Total (input / output)",
-    "tokenStats.status": "Status",
-    "tokenStats.active": "Active",
-    "tokenStats.ended": "Ended",
     "tokenStats.previous": "Previous",
     "tokenStats.next": "Next",
     "tokenStats.skillCalls": "Skill calls",

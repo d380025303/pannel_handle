@@ -207,7 +207,7 @@ function createAgentTokenStatsStore({
     });
   }
 
-  function recordFromRow(row, { includePrivate = true } = {}) {
+  function recordFromRow(row, { includePrivate = true, includeStatus = true } = {}) {
     if (!row) return undefined;
     const record = {
       id: row.id,
@@ -222,10 +222,10 @@ function createAgentTokenStatsStore({
       startedAt: safeInteger(row.started_at),
       updatedAt: safeInteger(row.updated_at),
       endedAt: row.ended_at == null ? null : safeInteger(row.ended_at),
-      status: row.status,
       tokens: tokensFromRow(row),
       capabilities: getCapabilities(row.id, row)
     };
+    if (includeStatus) record.status = row.status;
     if (includePrivate) {
       record.rawTokens = tokensFromRow(row, "raw_");
       record.baselineTokens = tokensFromRow(row, "baseline_");
@@ -499,7 +499,7 @@ function createAgentTokenStatsStore({
     const sessionRows = database.prepare(`SELECT * FROM token_sessions s WHERE ${filter.sql} ORDER BY updated_at DESC LIMIT ? OFFSET ?`).all(...filter.parameters, limit, offset);
     return {
       generatedAt: now(), range, provider, summary, dailyTrend, providerBreakdown, topSkills, topMcpServers,
-      sessions: sessionRows.map(row => recordFromRow(row, { includePrivate: false })),
+      sessions: sessionRows.map(row => recordFromRow(row, { includePrivate: false, includeStatus: false })),
       totalCount, offset, limit
     };
   }

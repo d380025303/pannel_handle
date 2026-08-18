@@ -142,6 +142,7 @@ describe("agent token statistics SQLite store", () => {
     const secondPage = store.getDashboard({ range: "all", provider: "codex", limit: 1, offset: 1 });
     expect(firstPage.summary).toMatchObject({ sessionCount: 2, tokens: expect.objectContaining({ totalTokens: 30 }) });
     expect(firstPage.sessions.map(record => record.agentSessionId)).toEqual(["two"]);
+    expect(firstPage.sessions[0]).not.toHaveProperty("status");
     expect(secondPage.sessions.map(record => record.agentSessionId)).toEqual(["one"]);
     store.close();
   });
