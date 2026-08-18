@@ -276,6 +276,50 @@ export type TranslationKey =
   | "skills.translationCancelled"
   | "skills.translationInvalidOutput"
   | "skills.translationFailed"
+  | "mcp.title"
+  | "mcp.open"
+  | "mcp.description"
+  | "mcp.back"
+  | "mcp.provider"
+  | "mcp.scope"
+  | "mcp.scopeUser"
+  | "mcp.scopeProject"
+  | "mcp.scopeProjectLocal"
+  | "mcp.scopeProjectShared"
+  | "mcp.projectUnavailable"
+  | "mcp.sharedWarning"
+  | "mcp.search"
+  | "mcp.add"
+  | "mcp.empty"
+  | "mcp.noMatches"
+  | "mcp.selectHint"
+  | "mcp.newServer"
+  | "mcp.name"
+  | "mcp.transport"
+  | "mcp.command"
+  | "mcp.args"
+  | "mcp.argsHint"
+  | "mcp.cwd"
+  | "mcp.env"
+  | "mcp.envKey"
+  | "mcp.url"
+  | "mcp.bearerEnv"
+  | "mcp.headers"
+  | "mcp.headerKey"
+  | "mcp.startupTimeout"
+  | "mcp.toolTimeout"
+  | "mcp.enabled"
+  | "mcp.disabled"
+  | "mcp.masked"
+  | "mcp.reveal"
+  | "mcp.saving"
+  | "mcp.saved"
+  | "mcp.removed"
+  | "mcp.conflict"
+  | "mcp.discardChanges"
+  | "mcp.unsavedClose"
+  | "mcp.confirmDelete"
+  | "mcp.restartHint"
   | "tokenLive.title"
   | "tokenLive.loading"
   | "tokenLive.waiting"
@@ -892,6 +936,50 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.translationCancelled": "翻译已取消。",
     "skills.translationInvalidOutput": "翻译结果格式无效，请重试。",
     "skills.translationFailed": "翻译失败，请稍后重试。",
+    "mcp.title": "MCP 管理",
+    "mcp.open": "打开 MCP 管理",
+    "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
+    "mcp.back": "返回终端",
+    "mcp.provider": "MCP 提供方",
+    "mcp.scope": "配置作用域",
+    "mcp.scopeUser": "用户级",
+    "mcp.scopeProject": "项目级",
+    "mcp.scopeProjectLocal": "项目私有",
+    "mcp.scopeProjectShared": "项目共享",
+    "mcp.projectUnavailable": "请选择一个运行中的 Windows 会话",
+    "mcp.sharedWarning": "此作用域会修改当前工作目录中的仓库配置文件。",
+    "mcp.search": "搜索 MCP 服务",
+    "mcp.add": "新增 MCP 服务",
+    "mcp.empty": "当前作用域没有 MCP 服务",
+    "mcp.noMatches": "没有匹配的 MCP 服务",
+    "mcp.selectHint": "选择或新增一个 MCP 服务",
+    "mcp.newServer": "新建 MCP 服务",
+    "mcp.name": "服务名称",
+    "mcp.transport": "传输方式",
+    "mcp.command": "启动命令",
+    "mcp.args": "命令参数",
+    "mcp.argsHint": "每行一个参数",
+    "mcp.cwd": "工作目录（可选）",
+    "mcp.env": "环境变量",
+    "mcp.envKey": "环境变量名",
+    "mcp.url": "服务 URL",
+    "mcp.bearerEnv": "Bearer Token 环境变量名（可选）",
+    "mcp.headers": "HTTP Headers",
+    "mcp.headerKey": "Header 名称",
+    "mcp.startupTimeout": "启动超时（秒）",
+    "mcp.toolTimeout": "工具超时（秒）",
+    "mcp.enabled": "已启用",
+    "mcp.disabled": "已停用",
+    "mcp.masked": "敏感值已隐藏",
+    "mcp.reveal": "揭示敏感值",
+    "mcp.saving": "保存中…",
+    "mcp.saved": "MCP 配置已保存。",
+    "mcp.removed": "MCP 服务已删除。",
+    "mcp.conflict": "配置文件已被其它程序修改。当前草稿未覆盖磁盘内容，请刷新后重试。",
+    "mcp.discardChanges": "当前 MCP 配置有未保存修改，确定放弃吗？",
+    "mcp.unsavedClose": "当前 MCP 配置有未保存修改。",
+    "mcp.confirmDelete": "确定删除 MCP 服务“{name}”吗？删除后可从 .pannel-handle.bak 备份恢复。",
+    "mcp.restartHint": "保存后需重启对应 Agent 会话才能确保加载新配置。",
     "tokenLive.title": "{provider} 实时 Token",
     "tokenLive.loading": "正在读取 Token...",
     "tokenLive.waiting": "等待 Token 数据",
@@ -1500,6 +1588,50 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.translationCancelled": "Translation was canceled.",
     "skills.translationInvalidOutput": "The translation result was invalid. Try again.",
     "skills.translationFailed": "Translation failed. Try again later.",
+    "mcp.title": "MCP Manager",
+    "mcp.open": "Open MCP Manager",
+    "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",
+    "mcp.back": "Back to terminal",
+    "mcp.provider": "MCP provider",
+    "mcp.scope": "Configuration scope",
+    "mcp.scopeUser": "User",
+    "mcp.scopeProject": "Project",
+    "mcp.scopeProjectLocal": "Project private",
+    "mcp.scopeProjectShared": "Project shared",
+    "mcp.projectUnavailable": "Select a running Windows session",
+    "mcp.sharedWarning": "This scope modifies a repository configuration file in the current working directory.",
+    "mcp.search": "Search MCP servers",
+    "mcp.add": "Add MCP server",
+    "mcp.empty": "No MCP servers in this scope",
+    "mcp.noMatches": "No matching MCP servers",
+    "mcp.selectHint": "Select or add an MCP server",
+    "mcp.newServer": "New MCP server",
+    "mcp.name": "Server name",
+    "mcp.transport": "Transport",
+    "mcp.command": "Command",
+    "mcp.args": "Arguments",
+    "mcp.argsHint": "One argument per line",
+    "mcp.cwd": "Working directory (optional)",
+    "mcp.env": "Environment variables",
+    "mcp.envKey": "Environment variable name",
+    "mcp.url": "Server URL",
+    "mcp.bearerEnv": "Bearer token environment variable (optional)",
+    "mcp.headers": "HTTP headers",
+    "mcp.headerKey": "Header name",
+    "mcp.startupTimeout": "Startup timeout (seconds)",
+    "mcp.toolTimeout": "Tool timeout (seconds)",
+    "mcp.enabled": "Enabled",
+    "mcp.disabled": "Disabled",
+    "mcp.masked": "Sensitive value hidden",
+    "mcp.reveal": "Reveal sensitive value",
+    "mcp.saving": "Saving…",
+    "mcp.saved": "MCP configuration saved.",
+    "mcp.removed": "MCP server removed.",
+    "mcp.conflict": "The configuration file changed in another program. Your draft was not written; refresh and try again.",
+    "mcp.discardChanges": "This MCP configuration has unsaved changes. Discard them?",
+    "mcp.unsavedClose": "The current MCP configuration has unsaved changes.",
+    "mcp.confirmDelete": "Delete MCP server “{name}”? You can restore it from the .pannel-handle.bak backup.",
+    "mcp.restartHint": "Restart the corresponding Agent session after saving to ensure the new configuration is loaded.",
     "tokenLive.title": "{provider} live tokens",
     "tokenLive.loading": "Reading tokens...",
     "tokenLive.waiting": "Waiting for token data",

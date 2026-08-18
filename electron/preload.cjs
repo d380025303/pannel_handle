@@ -171,6 +171,13 @@ contextBridge.exposeInMainWorld("skillsApi", {
   cancelTranslation: (requestId) => ipcRenderer.invoke("skills:translate-cancel", { requestId })
 });
 
+contextBridge.exposeInMainWorld("mcpApi", {
+  list: (request) => ipcRenderer.invoke("mcp:list", request),
+  reveal: (request) => ipcRenderer.invoke("mcp:reveal", request),
+  save: (request) => ipcRenderer.invoke("mcp:save", request),
+  remove: (request) => ipcRenderer.invoke("mcp:remove", request)
+});
+
 contextBridge.exposeInMainWorld("agentUsageApi", {
   getUsage: (sessionId, options) => ipcRenderer.invoke("agent-usage:get", {
     sessionId,

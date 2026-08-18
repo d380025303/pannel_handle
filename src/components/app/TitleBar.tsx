@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -13,10 +13,11 @@ type TitleBarProps = {
   onQuickCreateAgent?: (provider: AgentProvider) => Promise<void>;
   onOpenStats?: () => void;
   onOpenSkills?: () => void;
+  onOpenMcp?: () => void;
   mobileAccessState: MobileAccessState | null;
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSkills }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSkills, onOpenMcp }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -57,6 +58,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSe
         <div className="titlebar-actions" onDoubleClick={(event) => event.stopPropagation()}>
           <button className="titlebar-settings-btn" type="button" title={t("tokenStats.title")} aria-label={t("tokenStats.open")} onClick={() => onOpenStats?.()}><BarChart3 aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("skills.title")} aria-label={t("skills.open")} onClick={() => onOpenSkills?.()}><BookOpen aria-hidden="true" /></button>
+          <button className="titlebar-settings-btn" type="button" title={t("mcp.title")} aria-label={t("mcp.open")} onClick={() => onOpenMcp?.()}><Cable aria-hidden="true" /></button>
           <button
             className="titlebar-settings-btn"
             type="button"

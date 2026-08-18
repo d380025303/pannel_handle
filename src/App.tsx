@@ -22,6 +22,7 @@ import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remo
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { TitleBar } from "./components/app/TitleBar";
 import { SkillsManager } from "./components/skills/SkillsManager";
+import { McpManager } from "./components/mcp/McpManager";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
 import { useAgentUsage } from "./hooks/useAgentUsage";
 import { useAgentTokenLive } from "./hooks/useAgentTokenLive";
@@ -93,6 +94,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showTokenStats, setShowTokenStats] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [skillsDirty, setSkillsDirty] = useState(false);
+  const [showMcp, setShowMcp] = useState(false);
+  const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [agentOutputHistoryMaxEntries, setAgentOutputHistoryMaxEntries] = useState(100);
@@ -119,6 +122,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const closePreviewRequestIdRef = useRef(0);
   const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
   const saveSkillRef = useRef<(() => Promise<boolean>) | null>(null);
+  const saveMcpRef = useRef<(() => Promise<boolean>) | null>(null);
   const lastBlockingOverlaySignatureRef = useRef("");
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
@@ -186,12 +190,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   useEffect(() => window.windowApi.onCloseRequested(() => {
     const hasActiveTransfers = fileTransfers.some((task) => task.status === "queued" || task.status === "running");
-    if (!remoteFilesDirty && !skillsDirty && !hasActiveTransfers) {
+    if (!remoteFilesDirty && !skillsDirty && !mcpDirty && !hasActiveTransfers) {
       window.windowApi.resolveClose(true);
       return;
     }
     setShowCloseGuard(true);
-  }), [fileTransfers, remoteFilesDirty, skillsDirty]);
+  }), [fileTransfers, mcpDirty, remoteFilesDirty, skillsDirty]);
 
   const openProjectSearch = useCallback((mode: ProjectSearchMode, rootPath?: string) => {
     const activeSession = terminalSessions.activeSession;
@@ -317,6 +321,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     if (skillsDirty && !window.confirm(t("skills.discardChanges"))) {
       return;
     }
+    if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) {
+      return;
+    }
 
     setQuickAgentError(null);
     const activeSession = terminalSessions.activeSession;
@@ -339,11 +346,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       setShowTokenStats(false);
       setShowSkills(false);
       setSkillsDirty(false);
+      setShowMcp(false);
+      setMcpDirty(false);
       setWorkspaceTab("terminal");
     } catch (err: any) {
       setQuickAgentError(err?.message || t("session.createFailed"));
     }
-  }, [remoteFilesDirty, skillsDirty, t, terminalSessions]);
+  }, [mcpDirty, remoteFilesDirty, skillsDirty, t, terminalSessions]);
 
   const handleCloseSession = useCallback(async (id: string) => {
     if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
@@ -520,7 +529,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
+          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           onOpenSettings={() => setShowSettingsModal(true)}
@@ -529,12 +538,22 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onQuickCreateAgent={handleQuickCreateAgent}
           onOpenStats={() => {
             if (skillsDirty && !window.confirm(t("skills.discardChanges"))) return;
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
             setShowSkills(false);
+            setShowMcp(false);
             setShowTokenStats(true);
           }}
           onOpenSkills={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
             setShowTokenStats(false);
+            setShowMcp(false);
             setShowSkills(true);
+          }}
+          onOpenMcp={() => {
+            if (skillsDirty && !window.confirm(t("skills.discardChanges"))) return;
+            setShowTokenStats(false);
+            setShowSkills(false);
+            setShowMcp(true);
           }}
         />
         {terminalSessions.startupError && (
@@ -558,7 +577,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveSkillRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills ? "none" : undefined }}>
+        {showMcp && (
+          <McpManager
+            session={terminalSessions.activeSession}
+            onClose={() => setShowMcp(false)}
+            onDirtyChange={setMcpDirty}
+            onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
+          />
+        )}
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
@@ -869,13 +896,15 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             )}
             {fileTransfers.some((task) => task.status === "queued" || task.status === "running") && <p>{t("files.activeTransfersExit")}</p>}
             {skillsDirty && <p>{t("skills.unsavedClose")}</p>}
+            {mcpDirty && <p>{t("mcp.unsavedClose")}</p>}
             <div className="file-operation-actions">
               <button type="button" onClick={() => { setShowCloseGuard(false); window.windowApi.resolveClose(false); }}>{t("common.cancel")}</button>
               <button type="button" onClick={() => window.windowApi.resolveClose(true)}>{t("files.discardAndExit")}</button>
-              {(remoteFilesDirty || skillsDirty) && <button type="button" onClick={async () => {
+              {(remoteFilesDirty || skillsDirty || mcpDirty) && <button type="button" onClick={async () => {
                 const remoteSaved = !remoteFilesDirty || await saveAllRemoteFilesRef.current?.();
                 const skillSaved = !skillsDirty || await saveSkillRef.current?.();
-                if (remoteSaved && skillSaved) window.windowApi.resolveClose(true);
+                const mcpSaved = !mcpDirty || await saveMcpRef.current?.();
+                if (remoteSaved && skillSaved && mcpSaved) window.windowApi.resolveClose(true);
               }}>{t("files.saveAllAndExit")}</button>}
             </div>
           </div>

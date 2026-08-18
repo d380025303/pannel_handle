@@ -796,6 +796,62 @@ export type SkillsApi = {
   cancelTranslation: (requestId: string) => Promise<boolean>;
 };
 
+export type McpProvider = "codex" | "codebuddy";
+export type McpScope = "user" | "project-local" | "project";
+export type McpTransport = "stdio" | "http" | "sse";
+
+export type McpSecretEntry = {
+  key: string;
+  value: string;
+  masked: boolean;
+  hasValue: boolean;
+};
+
+export type McpServerDraft = {
+  name: string;
+  enabled: boolean;
+  transport: McpTransport;
+  command: string;
+  args: string[];
+  argsMasked: boolean;
+  cwd: string;
+  url: string;
+  urlMasked: boolean;
+  bearerTokenEnvVar: string;
+  env: McpSecretEntry[];
+  headers: McpSecretEntry[];
+  startupTimeoutSec?: number | string;
+  toolTimeoutSec?: number | string;
+};
+
+export type McpServerSummary = McpServerDraft & {
+  id: string;
+  provider: McpProvider;
+  scope: McpScope;
+};
+
+export type McpDocument = {
+  provider: McpProvider;
+  scope: McpScope;
+  path: string;
+  projectDirectory?: string;
+  version: string;
+  servers: McpServerSummary[];
+};
+
+export type McpTargetRequest = {
+  provider: McpProvider;
+  scope: McpScope;
+  sessionId?: string;
+};
+
+export type McpApi = {
+  list: (request: McpTargetRequest) => Promise<McpDocument>;
+  reveal: (request: McpTargetRequest & { name: string; field: "url" | "args" | "env" | "headers"; key?: string; expectedVersion: string }) => Promise<{ status: "revealed"; value: string } | { status: "conflict" }>;
+  save: (request: McpTargetRequest & { originalName?: string; draft: McpServerDraft; expectedVersion: string }) => Promise<{ status: "saved"; document: McpDocument; serverName: string } | { status: "conflict" }>;
+  remove: (request: McpTargetRequest & { name: string; expectedVersion: string }) => Promise<{ status: "removed"; document: McpDocument } | { status: "conflict" }>;
+};
+
 export type FileTransferApi = {
   list: () => Promise<FileTransferTask[]>;
   chooseUpload: (sessionId: string, remoteDir: string) => Promise<{ canceled: true } | { canceled: false; tasks: FileTransferTask[] }>;
@@ -872,6 +928,7 @@ declare global {
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     skillsApi: SkillsApi;
+    mcpApi: McpApi;
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;

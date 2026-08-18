@@ -20,6 +20,7 @@ const { createFileTransferManager } = require("./services/file-transfer-manager.
 const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createSkillsService } = require("./services/skills-service.cjs");
+const { createMcpConfigService } = require("./services/mcp-config-service.cjs");
 const { createSkillTranslationService } = require("./services/skill-translation-service.cjs");
 const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
@@ -54,6 +55,7 @@ let fileTransferManager = null;
 let fileWatchManager = null;
 let remoteSystemService = null;
 let skillsService = null;
+let mcpConfigService = null;
 let skillTranslationService = null;
 let remoteAgentBridgeService = null;
 let agentUsageService = null;
@@ -283,6 +285,7 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime
     });
+    mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager });
     skillTranslationService = createSkillTranslationService({ workspaceDirectory: app.getPath("userData") });
     skillsService = createSkillsService({ homeDir: app.getPath("home"), statsStore: agentTokenStatsStore, translationService: skillTranslationService });
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
@@ -380,6 +383,7 @@ if (!gotSingleInstanceLock) {
       fileWatchManager,
       remoteSystemService,
       skillsService,
+      mcpConfigService,
       agentUsageService,
       workBuddyCheckinService,
       agentTokenStatsStore,

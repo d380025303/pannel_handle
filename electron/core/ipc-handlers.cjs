@@ -50,7 +50,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, agentOutputHistoryStore, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, agentOutputHistoryStore, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -452,6 +452,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("skills:translate-cancel", (_event, { requestId }) => {
     return skillsService.cancelTranslation(requestId);
   });
+
+  ipcMain.handle("mcp:list", (_event, request) => mcpConfigService.list(request));
+
+  ipcMain.handle("mcp:reveal", (_event, request) => mcpConfigService.reveal(request));
+
+  ipcMain.handle("mcp:save", (_event, request) => mcpConfigService.save(request));
+
+  ipcMain.handle("mcp:remove", (_event, request) => mcpConfigService.remove(request));
 
   ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
     return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
