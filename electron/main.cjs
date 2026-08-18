@@ -19,6 +19,7 @@ const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-f
 const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
 const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
+const { createSkillsService } = require("./services/skills-service.cjs");
 const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/agent-token-stats-service.cjs");
@@ -51,6 +52,7 @@ let remoteFileService = null;
 let fileTransferManager = null;
 let fileWatchManager = null;
 let remoteSystemService = null;
+let skillsService = null;
 let remoteAgentBridgeService = null;
 let agentUsageService = null;
 let workBuddyCheckinService = null;
@@ -277,6 +279,7 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime
     });
+    skillsService = createSkillsService({ homeDir: app.getPath("home") });
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
@@ -371,6 +374,7 @@ if (!gotSingleInstanceLock) {
       fileTransferManager,
       fileWatchManager,
       remoteSystemService,
+      skillsService,
       agentUsageService,
       workBuddyCheckinService,
       agentTokenStatsStore,

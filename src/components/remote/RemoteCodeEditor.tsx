@@ -25,6 +25,8 @@ type RemoteCodeEditorProps = {
   onLanguageModeChange: (mode: RemoteCodeLanguageMode) => void;
   onSave: () => void;
   onViewportChange: (documentId: string, viewport: RemoteCodeEditorViewport) => void;
+  readOnly?: boolean;
+  showLanguageSelector?: boolean;
 };
 
 const remoteCodeHighlightStyle = HighlightStyle.define([
@@ -77,7 +79,9 @@ export function RemoteCodeEditor({
   onChange,
   onLanguageModeChange,
   onSave,
-  onViewportChange
+  onViewportChange,
+  readOnly = false,
+  showLanguageSelector = true
 }: RemoteCodeEditorProps) {
   const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -87,12 +91,15 @@ export function RemoteCodeEditor({
   const onViewportChangeRef = useRef(onViewportChange);
   const documentIdRef = useRef(documentId);
   const viewportRef = useRef(viewport);
+  const readOnlyRef = useRef(readOnly);
   const languageRef = useRef(new Compartment());
+  const editableRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onViewportChangeRef.current = onViewportChange;
   viewportRef.current = viewport;
+  readOnlyRef.current = readOnly;
 
   useEffect(() => {
     if (!hostRef.current) return undefined;
@@ -111,6 +118,7 @@ export function RemoteCodeEditor({
           highlightActiveLine(),
           highlightSelectionMatches(),
           EditorView.lineWrapping,
+          editableRef.current.of(EditorView.editable.of(!readOnly)),
           EditorView.theme({
             "&": { height: "100%", backgroundColor: "transparent", color: "var(--color-text)" },
             ".cm-content": { caretColor: "var(--color-accent)", fontFamily: "Consolas, monospace", fontSize: "12px" },
@@ -128,7 +136,7 @@ export function RemoteCodeEditor({
             ".cm-scroller": { overflow: "auto" }
           }),
           keymap.of([
-            { key: "Mod-s", preventDefault: true, run: () => { onSaveRef.current(); return true; } },
+            { key: "Mod-s", preventDefault: true, run: () => { if (!readOnlyRef.current) onSaveRef.current(); return true; } },
             indentWithTab,
             ...defaultKeymap,
             ...historyKeymap,
@@ -188,10 +196,16 @@ export function RemoteCodeEditor({
     return () => { disposed = true; };
   }, [fileName, languageMode]);
 
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: editableRef.current.reconfigure(EditorView.editable.of(!readOnly)) });
+  }, [readOnly]);
+
   const detectedLanguage = detectLanguage(fileName);
   return (
     <div className="remote-code-editor">
-      <div className="remote-code-editor-toolbar">
+      {showLanguageSelector && <div className="remote-code-editor-toolbar">
         <label>
           <span>{t("files.languageMode")}</span>
           <select
@@ -208,7 +222,7 @@ export function RemoteCodeEditor({
             ))}
           </select>
         </label>
-      </div>
+      </div>}
       <div ref={hostRef} className="remote-code-editor-host" aria-label={fileName} />
     </div>
   );

@@ -244,6 +244,26 @@ export type TranslationKey =
   | "tokenStats.noSkills"
   | "tokenStats.noMcp"
   | "tokenStats.transcriptDetected"
+  | "skills.title"
+  | "skills.open"
+  | "skills.description"
+  | "skills.back"
+  | "skills.provider"
+  | "skills.search"
+  | "skills.empty"
+  | "skills.codebuddyEmptyHint"
+  | "skills.noMatches"
+  | "skills.userSource"
+  | "skills.systemSource"
+  | "skills.readOnly"
+  | "skills.selectHint"
+  | "skills.unsaved"
+  | "skills.saving"
+  | "skills.saved"
+  | "skills.reload"
+  | "skills.conflict"
+  | "skills.discardChanges"
+  | "skills.unsavedClose"
   | "tokenLive.title"
   | "tokenLive.loading"
   | "tokenLive.waiting"
@@ -814,6 +834,26 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.noSkills": "本会话未检测到技能调用",
     "tokenStats.noMcp": "本会话未检测到 MCP 调用",
     "tokenStats.transcriptDetected": "基于 transcript 保守识别",
+    "skills.title": "Skills",
+    "skills.open": "打开 Skills",
+    "skills.description": "查看和编辑 Codex 与 CodeBuddy 的用户级技能",
+    "skills.back": "返回终端",
+    "skills.provider": "Skill 提供方",
+    "skills.search": "搜索 Skills",
+    "skills.empty": "尚未发现 Skills",
+    "skills.codebuddyEmptyHint": "在 ~/.codebuddy/skills 中添加 Skill 后会显示在这里。",
+    "skills.noMatches": "没有匹配的 Skills",
+    "skills.userSource": "用户",
+    "skills.systemSource": "系统",
+    "skills.readOnly": "只读",
+    "skills.selectHint": "选择一个 Skill 查看 SKILL.md",
+    "skills.unsaved": "未保存",
+    "skills.saving": "保存中…",
+    "skills.saved": "已保存 SKILL.md",
+    "skills.reload": "重新加载",
+    "skills.conflict": "SKILL.md 已被其他程序修改。当前草稿未覆盖磁盘内容，请重新加载后再编辑。",
+    "skills.discardChanges": "当前 SKILL.md 有未保存修改，确定放弃吗？",
+    "skills.unsavedClose": "当前 Skill 的 SKILL.md 有未保存修改。",
     "tokenLive.title": "{provider} 实时 Token",
     "tokenLive.loading": "正在读取 Token...",
     "tokenLive.waiting": "等待 Token 数据",
@@ -1376,6 +1416,26 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.noSkills": "No skill calls detected in this session",
     "tokenStats.noMcp": "No MCP calls detected in this session",
     "tokenStats.transcriptDetected": "Conservatively detected from the transcript",
+    "skills.title": "Skills",
+    "skills.open": "Open Skills",
+    "skills.description": "View and edit user-level Codex and CodeBuddy skills",
+    "skills.back": "Back to terminal",
+    "skills.provider": "Skill provider",
+    "skills.search": "Search Skills",
+    "skills.empty": "No Skills found",
+    "skills.codebuddyEmptyHint": "Add a Skill under ~/.codebuddy/skills to see it here.",
+    "skills.noMatches": "No matching Skills",
+    "skills.userSource": "User",
+    "skills.systemSource": "System",
+    "skills.readOnly": "Read only",
+    "skills.selectHint": "Select a Skill to view SKILL.md",
+    "skills.unsaved": "Unsaved",
+    "skills.saving": "Saving…",
+    "skills.saved": "SKILL.md saved",
+    "skills.reload": "Reload",
+    "skills.conflict": "SKILL.md was changed by another program. Your draft was not written; reload before editing again.",
+    "skills.discardChanges": "This SKILL.md has unsaved changes. Discard them?",
+    "skills.unsavedClose": "The current Skill has unsaved SKILL.md changes.",
     "tokenLive.title": "{provider} live tokens",
     "tokenLive.loading": "Reading tokens...",
     "tokenLive.waiting": "Waiting for token data",

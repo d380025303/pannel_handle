@@ -123,4 +123,22 @@ describe("TitleBar mobile access layout", () => {
     expect(onOpenPicker).toHaveBeenCalledTimes(1);
     expect(onOpenCreate).toHaveBeenCalledTimes(1);
   });
+
+  it("opens the Skills workspace from the title bar", () => {
+    const onOpenSkills = vi.fn();
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenSkills={onOpenSkills}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开 Skills" }));
+    expect(onOpenSkills).toHaveBeenCalledTimes(1);
+  });
 });

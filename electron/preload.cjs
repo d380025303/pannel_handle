@@ -153,6 +153,12 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
   getMetrics: (sessionId) => ipcRenderer.invoke("remote-system:metrics", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("skillsApi", {
+  list: (provider) => ipcRenderer.invoke("skills:list", { provider }),
+  read: (id) => ipcRenderer.invoke("skills:read", { id }),
+  save: (id, content, expectedVersion) => ipcRenderer.invoke("skills:save", { id, content, expectedVersion })
+});
+
 contextBridge.exposeInMainWorld("agentUsageApi", {
   getUsage: (sessionId, options) => ipcRenderer.invoke("agent-usage:get", {
     sessionId,

@@ -730,6 +730,38 @@ export type RemoteSystemApi = {
   getMetrics: (sessionId: string) => Promise<RemoteSystemMetrics>;
 };
 
+export type SkillProvider = "codex" | "codebuddy";
+export type SkillSource = "user" | "system";
+
+export type SkillSummary = {
+  id: string;
+  provider: SkillProvider;
+  source: SkillSource;
+  name: string;
+  description: string;
+  directoryName: string;
+  path: string;
+  editable: boolean;
+  warning?: string;
+};
+
+export type SkillDocument = SkillSummary & {
+  content: string;
+  version: string;
+  bom: boolean;
+  eol: "lf" | "crlf" | "cr";
+};
+
+export type SkillSaveResult =
+  | { status: "saved"; version: string; size: number }
+  | { status: "conflict" };
+
+export type SkillsApi = {
+  list: (provider: SkillProvider) => Promise<SkillSummary[]>;
+  read: (id: string) => Promise<SkillDocument>;
+  save: (id: string, content: string, expectedVersion: string) => Promise<SkillSaveResult>;
+};
+
 export type FileTransferApi = {
   list: () => Promise<FileTransferTask[]>;
   chooseUpload: (sessionId: string, remoteDir: string) => Promise<{ canceled: true } | { canceled: false; tasks: FileTransferTask[] }>;
@@ -804,6 +836,7 @@ declare global {
     externalLinkApi: ExternalLinkApi;
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
+    skillsApi: SkillsApi;
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;

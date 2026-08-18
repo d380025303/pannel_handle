@@ -114,4 +114,14 @@ describe("RemoteCodeEditor theme", () => {
     await waitFor(() => expect(scroller.scrollTop).toBe(480));
     expect(viewports.get("b")?.scrollTop).toBe(0);
   });
+
+  it("supports a fixed read-only editor without the language toolbar", () => {
+    const { container } = render(
+      <RemoteCodeEditor value="system" fileName="SKILL.md" {...baseProps} readOnly showLanguageSelector={false} />
+    );
+
+    expect(container.querySelector(".remote-code-editor-toolbar")).toBeNull();
+    expect(container.querySelector(".cm-editor")?.getAttribute("class")).toContain("cm-editor");
+    expect(container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
+  });
 });
