@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { constrainBounds, createAgentConversationOverlayManager } = require("./agent-conversation-overlay-manager.cjs");
+const { DEFAULT_BOUNDS, constrainBounds, createAgentConversationOverlayManager } = require("./agent-conversation-overlay-manager.cjs");
 
 class MockBrowserWindow extends EventEmitter {
   static instances = [];
@@ -57,6 +57,14 @@ function createHarness(enabled = true) {
 }
 
 describe("Agent conversation overlay manager", () => {
+  it("uses a narrow, tall default that remains inside the display work area", () => {
+    expect(DEFAULT_BOUNDS).toEqual({ width: 320, height: 720 });
+    const screen = { getPrimaryDisplay: () => ({ workArea: { x: 100, y: 50, width: 800, height: 600 } }) };
+    expect(constrainBounds(screen)).toEqual({
+      x: 556, y: 50, width: 320, height: 600
+    });
+  });
+
   it("constrains restored geometry to the display work area", () => {
     const screen = { getDisplayMatching: () => ({ workArea: { x: 100, y: 50, width: 800, height: 600 } }) };
     expect(constrainBounds(screen, { x: -500, y: 900, width: 500, height: 300 })).toEqual({
@@ -73,7 +81,13 @@ describe("Agent conversation overlay manager", () => {
     manager.appendMessages("panel-1", [{ id: "one", provider: "codex", kind: "commentary", text: "正在检查", timestamp: 1 }]);
     const win = MockBrowserWindow.instances[0];
     win.webContents.emit("did-finish-load");
-    expect(win.options).toMatchObject({ alwaysOnTop: true, skipTaskbar: true, frame: false });
+    expect(win.options).toMatchObject({
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      frame: false,
+      transparent: true,
+      backgroundColor: "#00000000"
+    });
     expect(win.options.webPreferences).toMatchObject({ contextIsolation: true, nodeIntegration: false });
     expect(win.showInactive).toHaveBeenCalled();
   });

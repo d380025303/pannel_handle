@@ -57,10 +57,24 @@ describe("AgentConversationOverlay", () => {
 
   it("focuses the session and hides the overlay through controlled APIs", async () => {
     render(<AgentConversationOverlay />);
-    fireEvent.click(await screen.findByTitle("返回当前会话"));
+    const sessionTitle = await screen.findByText("Main");
+    expect(sessionTitle.closest("button")).toBeNull();
+    fireEvent.click(screen.getByTitle("返回当前会话"));
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(focusSession).toHaveBeenCalled();
     expect(hide).toHaveBeenCalled();
+  });
+
+  it("marks and cleans up the transparent overlay document roots", async () => {
+    const { unmount } = render(<AgentConversationOverlay />);
+    await screen.findByText("Main");
+    expect(document.documentElement.classList.contains("agent-conversation-window-root")).toBe(true);
+    expect(document.body.classList.contains("agent-conversation-window-body")).toBe(true);
+
+    unmount();
+
+    expect(document.documentElement.classList.contains("agent-conversation-window-root")).toBe(false);
+    expect(document.body.classList.contains("agent-conversation-window-body")).toBe(false);
   });
 
   it("shows an explicit remote SSH limitation", async () => {

@@ -5,6 +5,7 @@ const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
 const DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED = true;
+const AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION = 2;
 function normalizeThemeId(themeId) {
   return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
 }
@@ -35,6 +36,7 @@ function createConfigStore({ configFile }) {
     locale: DEFAULT_LOCALE,
     rightToolsWidth: 380,
     agentConversationOverlayEnabled: DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
+    agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
     agentConversationOverlayBounds: undefined
   };
 
@@ -47,6 +49,7 @@ function createConfigStore({ configFile }) {
       locale: config.locale,
       rightToolsWidth: config.rightToolsWidth,
       agentConversationOverlayEnabled: config.agentConversationOverlayEnabled,
+      agentConversationOverlayLayoutVersion: config.agentConversationOverlayLayoutVersion,
       ...(config.agentConversationOverlayBounds ? { agentConversationOverlayBounds: config.agentConversationOverlayBounds } : {})
     };
   }
@@ -56,6 +59,7 @@ function createConfigStore({ configFile }) {
       const data = fs.readFileSync(configFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const overlayLayoutNeedsMigration = parsed.agentConversationOverlayLayoutVersion !== AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION;
         config = {
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
@@ -69,8 +73,12 @@ function createConfigStore({ configFile }) {
             ? parsed.rightToolsWidth : 380,
           agentConversationOverlayEnabled: typeof parsed.agentConversationOverlayEnabled === "boolean"
             ? parsed.agentConversationOverlayEnabled : DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
-          agentConversationOverlayBounds: normalizeOverlayBounds(parsed.agentConversationOverlayBounds)
+          agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
+          agentConversationOverlayBounds: overlayLayoutNeedsMigration
+            ? undefined
+            : normalizeOverlayBounds(parsed.agentConversationOverlayBounds)
         };
+        if (overlayLayoutNeedsMigration) saveConfig();
       }
     } catch (err) {
       if (err.code === "ENOENT") return;
@@ -148,6 +156,7 @@ module.exports = {
   DEFAULT_LOCALE,
   VALID_LOCALES,
   DEFAULT_AGENT_CONVERSATION_OVERLAY_ENABLED,
+  AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
   createConfigStore,
   normalizeThemeId,
   normalizeLocale,

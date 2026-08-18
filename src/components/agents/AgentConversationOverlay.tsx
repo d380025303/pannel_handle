@@ -15,6 +15,7 @@ export function AgentConversationOverlay() {
 
   useEffect(() => {
     let disposed = false;
+    document.documentElement.classList.add("agent-conversation-window-root");
     document.body.classList.add("agent-conversation-window-body");
     void window.agentConversationApi.getSnapshot().then(value => {
       if (!disposed) setSnapshot(value);
@@ -25,6 +26,7 @@ export function AgentConversationOverlay() {
     return () => {
       disposed = true;
       removeListener();
+      document.documentElement.classList.remove("agent-conversation-window-root");
       document.body.classList.remove("agent-conversation-window-body");
     };
   }, []);
@@ -55,17 +57,20 @@ export function AgentConversationOverlay() {
   return (
     <section className="agent-conversation-overlay" aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
       <header className="agent-conversation-header">
-        <button
-          className="agent-conversation-session"
-          type="button"
-          title={isEnglish ? "Return to this session" : "返回当前会话"}
-          onClick={() => window.agentConversationApi.focusSession()}
-        >
+        <div className="agent-conversation-heading">
           <span className={`agent-conversation-provider ${turn?.provider || "codex"}`}>{providerName(turn?.provider)}</span>
           <span className="agent-conversation-title">{turn?.sessionTitle || (isEnglish ? "Agent conversation" : "Agent 对话")}</span>
+          <span className={`agent-conversation-status ${turn?.status || "running"}`}>{statusText}</span>
+        </div>
+        <button
+          className="agent-conversation-focus"
+          type="button"
+          title={isEnglish ? "Return to this session" : "返回当前会话"}
+          aria-label={isEnglish ? "Return to this session" : "返回当前会话"}
+          onClick={() => window.agentConversationApi.focusSession()}
+        >
           <ExternalLink aria-hidden="true" />
         </button>
-        <span className={`agent-conversation-status ${turn?.status || "running"}`}>{statusText}</span>
         <button className="agent-conversation-close" type="button" aria-label={isEnglish ? "Close" : "关闭"} onClick={() => window.agentConversationApi.hide()}>
           <X aria-hidden="true" />
         </button>

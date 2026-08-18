@@ -5,7 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createConfigStore } = require("./config-store.cjs");
+const {
+  AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
+  createConfigStore
+} = require("./config-store.cjs");
 
 const tempDirs = [];
 
@@ -109,6 +112,35 @@ describe("config-store", () => {
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(saved.agentConversationOverlayEnabled).toBe(false);
     expect(saved.agentConversationOverlayBounds).toEqual({ x: 100, y: 80, width: 460, height: 380 });
+    expect(saved.agentConversationOverlayLayoutVersion).toBe(AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION);
+  });
+
+  it("resets every saved overlay geometry once when migrating the portrait layout", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({
+      agentConversationOverlayBounds: { x: 260, y: 140, width: 900, height: 500 }
+    }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+
+    expect(store.getConfig().agentConversationOverlayBounds).toBeUndefined();
+    const migrated = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(migrated.agentConversationOverlayBounds).toBeUndefined();
+    expect(migrated.agentConversationOverlayLayoutVersion).toBe(AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION);
+  });
+
+  it("restores custom overlay geometry after the portrait layout migration", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({
+      agentConversationOverlayLayoutVersion: AGENT_CONVERSATION_OVERLAY_LAYOUT_VERSION,
+      agentConversationOverlayBounds: { x: 260, y: 140, width: 360, height: 760 }
+    }), "utf-8");
+    const store = createConfigStore({ configFile });
+
+    store.loadConfig();
+
+    expect(store.getConfig().agentConversationOverlayBounds).toEqual({ x: 260, y: 140, width: 360, height: 760 });
   });
 
   it("falls back to default rightToolsWidth when an out-of-range value is loaded", () => {

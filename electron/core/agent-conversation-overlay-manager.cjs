@@ -1,4 +1,4 @@
-const DEFAULT_BOUNDS = { width: 440, height: 360 };
+const DEFAULT_BOUNDS = { width: 320, height: 720 };
 
 function constrainBounds(screenApi, savedBounds) {
   const candidate = savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)
@@ -13,10 +13,10 @@ function constrainBounds(screenApi, savedBounds) {
   return {
     x: candidate
       ? Math.min(Math.max(candidate.x, workArea.x), workArea.x + workArea.width - width)
-      : workArea.x + workArea.width - width - 24,
+      : Math.max(workArea.x, workArea.x + workArea.width - width - 24),
     y: candidate
       ? Math.min(Math.max(candidate.y, workArea.y), workArea.y + workArea.height - height)
-      : workArea.y + workArea.height - height - 48,
+      : Math.max(workArea.y, workArea.y + workArea.height - height - 48),
     width,
     height
   };
@@ -99,7 +99,8 @@ function createAgentConversationOverlayManager({
       show: false,
       alwaysOnTop: true,
       skipTaskbar: true,
-      backgroundColor: "#101318",
+      transparent: true,
+      backgroundColor: "#00000000",
       webPreferences: {
         preload: preloadPath,
         contextIsolation: true,
