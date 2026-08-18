@@ -4,18 +4,21 @@ const {
   TOKEN_FIELDS,
   cloneTokens,
   createIncrementalTranscriptParser,
+  emptyCapabilityUsage,
   emptyTokens,
+  normalizeCapabilityUsage,
   parseTranscriptFile,
   parseTranscriptText,
   safeInteger
 } = require("./agent-token-transcript.cjs");
+const { subtractCapabilities } = require("../stores/agent-token-stats-store.cjs");
 const { toWslHostPath } = require("./remote-file-service.cjs");
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "codebuddy"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -69,6 +72,7 @@ function createAgentTokenStatsService({
   broadcast = () => {},
   spawn = defaultSpawn,
   now = () => Date.now(),
+  retryDelaysMs = RETRY_DELAYS_MS,
   pollIntervalMs = LIVE_POLL_INTERVAL_MS,
   fsPromises = fs.promises,
   toWslHostPathFn = toWslHostPath,
@@ -79,6 +83,7 @@ function createAgentTokenStatsService({
   const baselinePending = new Map();
   const startedAtBySession = new Map();
   const liveTrackers = new Map();
+  const remoteSnapshots = new Map();
 
   async function parseRemote(session, provider, transcriptPath) {
     const command = remoteParserCommand(provider, transcriptPath);
@@ -91,7 +96,7 @@ function createAgentTokenStatsService({
 
   async function readWithRetry(session, provider, transcriptPath) {
     let lastError;
-    for (const delay of RETRY_DELAYS_MS) {
+    for (const delay of retryDelaysMs) {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       try {
         return session.type === "windows"
@@ -113,18 +118,37 @@ function createAgentTokenStatsService({
     const request = Promise.resolve(baselinePending.get(key))
       .catch(() => undefined)
       .then(() => readWithRetry(session, provider, transcriptPath))
-      .then(result => statsStore.update({
-        provider,
-        agentSessionId,
-        panelSessionId: session.id,
-        templateId: session.templateId,
-        title: session.title,
-        cwd: input.cwd || session.cwd,
-        location: session.type,
-        models: result.models.length ? result.models : [input.model].filter(Boolean),
-        tokens: result.tokens,
-        startedAt: startedAtBySession.get(key)
-      }))
+      .then(result => {
+        const record = statsStore.update({
+          provider,
+          agentSessionId,
+          panelSessionId: session.id,
+          templateId: session.templateId,
+          title: session.title,
+          cwd: input.cwd || session.cwd,
+          location: session.type,
+          models: result.models.length ? result.models : [input.model].filter(Boolean),
+          tokens: result.tokens,
+          capabilities: result.capabilities,
+          startedAt: startedAtBySession.get(key)
+        });
+        if (session.type === "ssh" && record) {
+          const snapshot = {
+            panelSessionId: session.id,
+            provider,
+            state: "completed",
+            tokens: cloneTokens(record.tokens),
+            capabilities: normalizeCapabilityUsage(record.capabilities),
+            turnOutputTokens: 0,
+            outputTokensPerSecond: 0,
+            models: [...record.models],
+            updatedAt: now()
+          };
+          remoteSnapshots.set(session.id, snapshot);
+          broadcast("agent-token-live:changed", snapshot);
+        }
+        return record;
+      })
       .catch(error => console.error(`Failed to collect ${provider} token statistics:`, error))
       .finally(() => { if (pending.get(key) === request) pending.delete(key); });
     pending.set(key, request);
@@ -139,8 +163,8 @@ function createAgentTokenStatsService({
     const request = (session.type === "windows"
       ? Promise.resolve().then(() => parseTranscriptFile(provider, transcriptPath))
       : parseRemote(session, provider, transcriptPath))
-      .then(result => statsStore.setBaseline(provider, agentSessionId, result.tokens))
-      .catch(() => statsStore.setBaseline(provider, agentSessionId, {}));
+      .then(result => statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities))
+      .catch(() => statsStore.setBaseline(provider, agentSessionId, {}, emptyCapabilityUsage()));
     baselinePending.set(key, request);
   }
 
@@ -175,7 +199,9 @@ function createAgentTokenStatsService({
         pendingBytes: Buffer.alloc(0),
         parser: createIncrementalTranscriptParser(provider),
         rawTokens: emptyTokens(),
+        rawCapabilities: emptyCapabilityUsage(),
         sessionBaseline: null,
+        sessionCapabilityBaseline: null,
         turnBaseline: emptyTokens(),
         turnStartedAt: null,
         state: "waiting",
@@ -192,12 +218,14 @@ function createAgentTokenStatsService({
 
   function buildLiveSnapshot(tracker) {
     const tokens = subtractTokens(tracker.rawTokens, tracker.sessionBaseline || emptyTokens());
+    const capabilities = subtractCapabilities(tracker.rawCapabilities, tracker.sessionCapabilityBaseline || emptyCapabilityUsage());
     const turnOutputTokens = Math.max(0, tokens.outputTokens - safeInteger(tracker.turnBaseline?.outputTokens));
     return {
       panelSessionId: tracker.panelSessionId,
       provider: tracker.provider,
       state: tracker.state,
       tokens,
+      capabilities,
       turnOutputTokens,
       outputTokensPerSecond: tracker.outputTokensPerSecond,
       models: [...tracker.models],
@@ -257,8 +285,10 @@ function createAgentTokenStatsService({
             tracker.state = tracker.turnStartedAt ? (tracker.timer ? "generating" : "completed") : "waiting";
           }
           tracker.rawTokens = cloneTokens(result.tokens);
+          tracker.rawCapabilities = normalizeCapabilityUsage(result.capabilities);
           tracker.models = result.models;
           if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(result.tokens);
+          if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(result.capabilities);
           if (tracker.state === "generating" && tracker.turnStartedAt) {
             const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline);
             const turnOutput = Math.max(0, visible.outputTokens - safeInteger(tracker.turnBaseline?.outputTokens));
@@ -295,6 +325,7 @@ function createAgentTokenStatsService({
   async function startLiveTurn(tracker) {
     await pollLive(tracker, { emit: false });
     if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(tracker.rawTokens);
+    if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(tracker.rawCapabilities);
     const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline);
     tracker.turnBaseline = cloneTokens(visible);
     tracker.turnStartedAt = now();
@@ -344,17 +375,19 @@ function createAgentTokenStatsService({
     },
     getLive(panelSessionId) {
       const tracker = liveTrackers.get(String(panelSessionId || ""));
-      return tracker ? buildLiveSnapshot(tracker) : null;
+      return tracker ? buildLiveSnapshot(tracker) : remoteSnapshots.get(String(panelSessionId || "")) || null;
     },
     markEnded(panelSessionId) {
       const tracker = liveTrackers.get(panelSessionId);
       stopLiveTimer(tracker);
       liveTrackers.delete(panelSessionId);
+      remoteSnapshots.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
     },
     shutdown() {
       for (const tracker of liveTrackers.values()) stopLiveTimer(tracker);
       liveTrackers.clear();
+      remoteSnapshots.clear();
     }
   };
 }

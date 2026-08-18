@@ -18,6 +18,10 @@ function snapshot(panelSessionId: string): AgentTokenLiveSnapshot {
     provider: "codex",
     state: "generating",
     tokens: { inputTokens: 10, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 12 },
+    capabilities: {
+      skills: { availability: "available", totalCalls: 0, items: [] },
+      mcp: { availability: "available", totalCalls: 0, servers: [] }
+    },
     turnOutputTokens: 2,
     outputTokensPerSecond: 1,
     models: ["gpt-5.6"],
@@ -48,7 +52,7 @@ describe("useAgentTokenLive", () => {
     expect(remove).toHaveBeenCalled();
   });
 
-  it("supports WSL CodeBuddy and hides SSH sessions", async () => {
+  it("supports WSL CodeBuddy and waits for SSH Claude completion snapshots", async () => {
     window.agentTokenStatsApi = {
       getDashboard: vi.fn(), clear: vi.fn(), onChanged: vi.fn(),
       getLive: vi.fn(async () => null), onLiveChanged: vi.fn(() => vi.fn())
@@ -57,7 +61,7 @@ describe("useAgentTokenLive", () => {
       initialProps: { active: session("panel-1", "codebuddy", "wsl") }
     });
     await waitFor(() => expect(result.current.status).toBe("waiting"));
-    rerender({ active: session("panel-2", "codebuddy", "ssh") });
-    expect(result.current).toEqual({ status: "hidden" });
+    rerender({ active: session("panel-2", "claude", "ssh") });
+    await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "claude" }));
   });
 });

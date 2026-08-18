@@ -550,6 +550,25 @@ export type AgentTokenTotals = {
   totalTokens: number;
 };
 
+export type AgentCapabilityAvailability = "available" | "unavailable";
+
+export type AgentCapabilityUsage = {
+  skills: {
+    availability: AgentCapabilityAvailability;
+    totalCalls: number;
+    items: Array<{ name: string; count: number }>;
+  };
+  mcp: {
+    availability: AgentCapabilityAvailability;
+    totalCalls: number;
+    servers: Array<{
+      name: string;
+      count: number;
+      tools: Array<{ name: string; count: number }>;
+    }>;
+  };
+};
+
 export type AgentTokenSessionRecord = {
   id: string;
   provider: "codex" | "claude" | "codebuddy";
@@ -565,15 +584,18 @@ export type AgentTokenSessionRecord = {
   endedAt: number | null;
   status: "active" | "ended";
   tokens: AgentTokenTotals;
+  capabilities: AgentCapabilityUsage;
 };
 
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
   provider: "all" | "codex" | "claude" | "codebuddy";
-  summary: { sessionCount: number; averageTokens: number; tokens: AgentTokenTotals };
+  summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
   providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy"; sessionCount: number; tokens: AgentTokenTotals }>;
+  topSkills: Array<{ name: string; count: number }>;
+  topMcpServers: Array<{ name: string; count: number; tools: Array<{ name: string; count: number }> }>;
   sessions: AgentTokenSessionRecord[];
   totalCount: number;
   offset: number;
@@ -582,9 +604,10 @@ export type AgentTokenDashboard = {
 
 export type AgentTokenLiveSnapshot = {
   panelSessionId: string;
-  provider: "codex" | "codebuddy";
+  provider: "codex" | "claude" | "codebuddy";
   state: "waiting" | "generating" | "completed" | "unavailable";
   tokens: AgentTokenTotals;
+  capabilities: AgentCapabilityUsage;
   turnOutputTokens: number;
   outputTokensPerSecond: number;
   models: string[];

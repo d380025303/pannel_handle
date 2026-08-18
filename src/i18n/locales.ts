@@ -231,6 +231,19 @@ export type TranslationKey =
   | "tokenStats.ended"
   | "tokenStats.previous"
   | "tokenStats.next"
+  | "tokenStats.skillCalls"
+  | "tokenStats.mcpCalls"
+  | "tokenStats.callsUnit"
+  | "tokenStats.topSkills"
+  | "tokenStats.topMcp"
+  | "tokenStats.skillUsage"
+  | "tokenStats.mcpUsage"
+  | "tokenStats.expandUsage"
+  | "tokenStats.collapseUsage"
+  | "tokenStats.capabilityUnavailable"
+  | "tokenStats.noSkills"
+  | "tokenStats.noMcp"
+  | "tokenStats.transcriptDetected"
   | "tokenLive.title"
   | "tokenLive.loading"
   | "tokenLive.waiting"
@@ -244,6 +257,13 @@ export type TranslationKey =
   | "tokenLive.outputRate"
   | "tokenLive.model"
   | "tokenLive.updatedAt"
+  | "tokenLive.skillUsage"
+  | "tokenLive.mcpUsage"
+  | "tokenLive.callsUnit"
+  | "tokenLive.noSkills"
+  | "tokenLive.noMcp"
+  | "tokenLive.capabilityUnavailable"
+  | "tokenLive.transcriptDetected"
   | "tokenLive.state.waiting"
   | "tokenLive.state.generating"
   | "tokenLive.state.completed"
@@ -784,6 +804,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.ended": "已结束",
     "tokenStats.previous": "上一页",
     "tokenStats.next": "下一页",
+    "tokenStats.skillCalls": "技能调用",
+    "tokenStats.mcpCalls": "MCP 调用",
+    "tokenStats.callsUnit": "次",
+    "tokenStats.topSkills": "常用技能",
+    "tokenStats.topMcp": "常用 MCP",
+    "tokenStats.skillUsage": "技能使用",
+    "tokenStats.mcpUsage": "MCP 使用",
+    "tokenStats.expandUsage": "查看技能与 MCP",
+    "tokenStats.collapseUsage": "收起技能与 MCP",
+    "tokenStats.capabilityUnavailable": "当前 transcript 无法识别此类调用",
+    "tokenStats.noSkills": "本会话未检测到技能调用",
+    "tokenStats.noMcp": "本会话未检测到 MCP 调用",
+    "tokenStats.transcriptDetected": "基于 transcript 保守识别",
     "tokenLive.title": "{provider} 实时 Token",
     "tokenLive.loading": "正在读取 Token...",
     "tokenLive.waiting": "等待 Token 数据",
@@ -797,6 +830,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenLive.outputRate": "平均输出速率",
     "tokenLive.model": "模型",
     "tokenLive.updatedAt": "更新时间",
+    "tokenLive.skillUsage": "技能使用",
+    "tokenLive.mcpUsage": "MCP 使用",
+    "tokenLive.callsUnit": "次",
+    "tokenLive.noSkills": "本会话未检测到技能调用",
+    "tokenLive.noMcp": "本会话未检测到 MCP 调用",
+    "tokenLive.capabilityUnavailable": "当前 transcript 无法识别此类调用",
+    "tokenLive.transcriptDetected": "基于 transcript 保守识别",
     "tokenLive.state.waiting": "等待首次 usage 数据",
     "tokenLive.state.generating": "当前轮次生成中",
     "tokenLive.state.completed": "当前轮次已完成",
@@ -1329,6 +1369,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.ended": "Ended",
     "tokenStats.previous": "Previous",
     "tokenStats.next": "Next",
+    "tokenStats.skillCalls": "Skill calls",
+    "tokenStats.mcpCalls": "MCP calls",
+    "tokenStats.callsUnit": "calls",
+    "tokenStats.topSkills": "Top skills",
+    "tokenStats.topMcp": "Top MCP servers",
+    "tokenStats.skillUsage": "Skill usage",
+    "tokenStats.mcpUsage": "MCP usage",
+    "tokenStats.expandUsage": "View skills and MCP",
+    "tokenStats.collapseUsage": "Hide skills and MCP",
+    "tokenStats.capabilityUnavailable": "This transcript does not expose recognizable calls",
+    "tokenStats.noSkills": "No skill calls detected in this session",
+    "tokenStats.noMcp": "No MCP calls detected in this session",
+    "tokenStats.transcriptDetected": "Conservatively detected from the transcript",
     "tokenLive.title": "{provider} live tokens",
     "tokenLive.loading": "Reading tokens...",
     "tokenLive.waiting": "Waiting for token data",
@@ -1342,6 +1395,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenLive.outputRate": "Average output rate",
     "tokenLive.model": "Model",
     "tokenLive.updatedAt": "Updated",
+    "tokenLive.skillUsage": "Skill usage",
+    "tokenLive.mcpUsage": "MCP usage",
+    "tokenLive.callsUnit": "calls",
+    "tokenLive.noSkills": "No skill calls detected in this session",
+    "tokenLive.noMcp": "No MCP calls detected in this session",
+    "tokenLive.capabilityUnavailable": "This transcript does not expose recognizable calls",
+    "tokenLive.transcriptDetected": "Conservatively detected from the transcript",
     "tokenLive.state.waiting": "Waiting for the first usage record",
     "tokenLive.state.generating": "Current turn is generating",
     "tokenLive.state.completed": "Current turn completed",

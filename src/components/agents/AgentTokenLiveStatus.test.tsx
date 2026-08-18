@@ -17,6 +17,10 @@ const snapshot = {
     reasoningOutputTokens: 120,
     totalTokens: 12_450
   },
+  capabilities: {
+    skills: { availability: "available" as const, totalCalls: 2, items: [{ name: "diagnosing-bugs", count: 2 }] },
+    mcp: { availability: "available" as const, totalCalls: 3, servers: [{ name: "logView", count: 3, tools: [{ name: "search_logs", count: 3 }] }] }
+  },
   turnOutputTokens: 150,
   outputTokensPerSecond: 37.5,
   models: ["gpt-5.6"],
@@ -38,6 +42,8 @@ describe("AgentTokenLiveStatus", () => {
     expect(screen.getByRole("dialog", { name: "Codex 实时 Token" })).toBeTruthy();
     expect(screen.getByText("本轮输出")).toBeTruthy();
     expect(screen.getByText("gpt-5.6")).toBeTruthy();
+    expect(screen.getByText("diagnosing-bugs")).toBeTruthy();
+    expect(screen.getByText("search_logs ×3")).toBeTruthy();
   });
 
   it("shows a non-blocking unavailable state", () => {

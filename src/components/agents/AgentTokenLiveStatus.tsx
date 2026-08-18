@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentTokenLiveViewState } from "../../hooks/useAgentTokenLive";
+import type { AgentCapabilityUsage } from "../../vite-env";
 
 function formatTokens(value: number, locale: string) {
   return new Intl.NumberFormat(locale, {
@@ -10,8 +11,9 @@ function formatTokens(value: number, locale: string) {
   }).format(value);
 }
 
-function providerName(provider: "codex" | "codebuddy") {
-  return provider === "codex" ? "Codex" : "CodeBuddy";
+function providerName(provider: "codex" | "claude" | "codebuddy") {
+  if (provider === "codebuddy") return "CodeBuddy";
+  return provider === "codex" ? "Codex" : "Claude";
 }
 
 function stateLabel(state: "waiting" | "generating" | "completed" | "unavailable") {
@@ -19,6 +21,38 @@ function stateLabel(state: "waiting" | "generating" | "completed" | "unavailable
   if (state === "completed") return "tokenLive.state.completed" as const;
   if (state === "unavailable") return "tokenLive.state.unavailable" as const;
   return "tokenLive.state.waiting" as const;
+}
+
+function CapabilitySection({ capabilities }: { capabilities: AgentCapabilityUsage }) {
+  const { t } = useI18n();
+  return (
+    <section className="agent-capability-live">
+      <div className="agent-capability-heading">
+        <strong>{t("tokenLive.skillUsage")}</strong>
+        <span>{capabilities.skills.totalCalls} {t("tokenLive.callsUnit")}</span>
+      </div>
+      {capabilities.skills.availability === "unavailable"
+        ? <p>{t("tokenLive.capabilityUnavailable")}</p>
+        : capabilities.skills.items.length
+          ? <div className="agent-capability-chips">{capabilities.skills.items.map(item => <span key={item.name}>{item.name}<b>{item.count}</b></span>)}</div>
+          : <p>{t("tokenLive.noSkills")}</p>}
+      <div className="agent-capability-heading">
+        <strong>{t("tokenLive.mcpUsage")}</strong>
+        <span>{capabilities.mcp.totalCalls} {t("tokenLive.callsUnit")}</span>
+      </div>
+      {capabilities.mcp.availability === "unavailable"
+        ? <p>{t("tokenLive.capabilityUnavailable")}</p>
+        : capabilities.mcp.servers.length
+          ? <div className="agent-mcp-live-list">{capabilities.mcp.servers.map(server => (
+            <div key={server.name}>
+              <strong>{server.name}<small>{server.count}</small></strong>
+              <span>{server.tools.map(tool => `${tool.name} ×${tool.count}`).join(" · ")}</span>
+            </div>
+          ))}</div>
+          : <p>{t("tokenLive.noMcp")}</p>}
+      <small>{t("tokenLive.transcriptDetected")}</small>
+    </section>
+  );
 }
 
 export function AgentTokenLiveStatus({ state }: { state: AgentTokenLiveViewState }) {
@@ -75,16 +109,19 @@ export function AgentTokenLiveStatus({ state }: { state: AgentTokenLiveViewState
             <button type="button" onClick={() => setOpen(false)} aria-label={t("common.close")}><X aria-hidden="true" /></button>
           </header>
           {unavailable ? <p className="agent-token-live-empty">{t("tokenLive.unavailableHint")}</p> : (
-            <div className="agent-token-live-grid">
-              <span>{t("tokenLive.sessionInput")}</span><strong>{snapshot.tokens.inputTokens.toLocaleString(locale)}</strong>
-              <span>{t("tokenLive.sessionOutput")}</span><strong>{snapshot.tokens.outputTokens.toLocaleString(locale)}</strong>
-              <span>{t("tokenLive.cachedInput")}</span><strong>{snapshot.tokens.cachedInputTokens.toLocaleString(locale)}</strong>
-              <span>{t("tokenLive.reasoningOutput")}</span><strong>{snapshot.tokens.reasoningOutputTokens.toLocaleString(locale)}</strong>
-              <span>{t("tokenLive.turnOutput")}</span><strong>{snapshot.turnOutputTokens.toLocaleString(locale)}</strong>
-              <span>{t("tokenLive.outputRate")}</span><strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong>
-              <span>{t("tokenLive.model")}</span><strong>{snapshot.models.join(", ") || "—"}</strong>
-              <span>{t("tokenLive.updatedAt")}</span><strong>{new Date(snapshot.updatedAt).toLocaleTimeString(locale)}</strong>
-            </div>
+            <>
+              <div className="agent-token-live-grid">
+                <span>{t("tokenLive.sessionInput")}</span><strong>{snapshot.tokens.inputTokens.toLocaleString(locale)}</strong>
+                <span>{t("tokenLive.sessionOutput")}</span><strong>{snapshot.tokens.outputTokens.toLocaleString(locale)}</strong>
+                <span>{t("tokenLive.cachedInput")}</span><strong>{snapshot.tokens.cachedInputTokens.toLocaleString(locale)}</strong>
+                <span>{t("tokenLive.reasoningOutput")}</span><strong>{snapshot.tokens.reasoningOutputTokens.toLocaleString(locale)}</strong>
+                <span>{t("tokenLive.turnOutput")}</span><strong>{snapshot.turnOutputTokens.toLocaleString(locale)}</strong>
+                <span>{t("tokenLive.outputRate")}</span><strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong>
+                <span>{t("tokenLive.model")}</span><strong>{snapshot.models.join(", ") || "—"}</strong>
+                <span>{t("tokenLive.updatedAt")}</span><strong>{new Date(snapshot.updatedAt).toLocaleTimeString(locale)}</strong>
+              </div>
+              <CapabilitySection capabilities={snapshot.capabilities} />
+            </>
           )}
           <small>{t(stateLabel(snapshot.state))}</small>
         </div>

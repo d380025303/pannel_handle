@@ -3,15 +3,15 @@ import type { AgentTokenLiveSnapshot, TerminalSession } from "../vite-env";
 
 export type AgentTokenLiveViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" }
-  | { status: "waiting"; provider: "codex" | "codebuddy" }
+  | { status: "loading"; provider: "codex" | "claude" | "codebuddy" }
+  | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" }
   | { status: "ready"; snapshot: AgentTokenLiveSnapshot };
 
 export function useAgentTokenLive(session?: TerminalSession) {
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy"
+  const provider = session?.agentProvider === "codex" || session?.agentProvider === "claude" || session?.agentProvider === "codebuddy"
     ? session.agentProvider
     : undefined;
-  const supported = Boolean(provider && (session?.type === "windows" || session?.type === "wsl"));
+  const supported = Boolean(provider && (session?.type === "windows" || session?.type === "wsl" || session?.type === "ssh"));
   const sessionId = session?.id;
   const [state, setState] = useState<AgentTokenLiveViewState>({ status: "hidden" });
 

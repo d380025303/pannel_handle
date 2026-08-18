@@ -1,8 +1,8 @@
-import { ArrowLeft, BarChart3, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, RefreshCw, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useAgentTokenStats, type TokenStatsProvider, type TokenStatsRange } from "../../hooks/useAgentTokenStats";
-import type { AgentTokenTotals } from "../../vite-env";
+import type { AgentCapabilityUsage, AgentTokenTotals } from "../../vite-env";
 
 function formatTokens(value: number, locale: string) {
   return new Intl.NumberFormat(locale, { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
@@ -47,6 +47,37 @@ function TrendChart({ values, locale }: { values: Array<{ date: string; tokens: 
   );
 }
 
+function CapabilityDetails({ capabilities }: { capabilities: AgentCapabilityUsage }) {
+  const { t } = useI18n();
+  return (
+    <div className="token-capability-details">
+      <section>
+        <div><strong>{t("tokenStats.skillUsage")}</strong><span>{capabilities.skills.totalCalls} {t("tokenStats.callsUnit")}</span></div>
+        {capabilities.skills.availability === "unavailable"
+          ? <p>{t("tokenStats.capabilityUnavailable")}</p>
+          : capabilities.skills.items.length
+            ? <ul>{capabilities.skills.items.map(item => <li key={item.name}><span>{item.name}</span><b>{item.count}</b></li>)}</ul>
+            : <p>{t("tokenStats.noSkills")}</p>}
+      </section>
+      <section>
+        <div><strong>{t("tokenStats.mcpUsage")}</strong><span>{capabilities.mcp.totalCalls} {t("tokenStats.callsUnit")}</span></div>
+        {capabilities.mcp.availability === "unavailable"
+          ? <p>{t("tokenStats.capabilityUnavailable")}</p>
+          : capabilities.mcp.servers.length
+            ? <ul>{capabilities.mcp.servers.map(server => <li key={server.name}><span><strong>{server.name}</strong><small>{server.tools.map(tool => `${tool.name} ×${tool.count}`).join(" · ")}</small></span><b>{server.count}</b></li>)}</ul>
+            : <p>{t("tokenStats.noMcp")}</p>}
+      </section>
+      <small>{t("tokenStats.transcriptDetected")}</small>
+    </div>
+  );
+}
+
+function RankingList({ items, emptyText }: { items: Array<{ name: string; count: number }>; emptyText: string }) {
+  if (!items.length) return <div className="token-stats-chart-empty">{emptyText}</div>;
+  const max = Math.max(1, ...items.map(item => item.count));
+  return <div className="token-capability-ranking">{items.slice(0, 8).map(item => <div key={item.name}><span><strong>{item.name}</strong><b>{item.count}</b></span><i><span style={{ width: `${item.count / max * 100}%` }} /></i></div>)}</div>;
+}
+
 export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
   const { locale, t } = useI18n();
   const [range, setRange] = useState<TokenStatsRange>("30d");
@@ -54,8 +85,9 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
   const [offset, setOffset] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const { dashboard, loading, error, refresh } = useAgentTokenStats(range, provider, offset);
-  useEffect(() => setOffset(0), [provider, range]);
+  useEffect(() => { setOffset(0); setExpandedSessionId(null); }, [provider, range]);
   const maxProviderTokens = useMemo(() => Math.max(1, ...(dashboard?.providerBreakdown.map(item => item.tokens.totalTokens) || [])), [dashboard]);
 
   const clearAll = async () => {
@@ -83,6 +115,8 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
             <article><span>{t("tokenStats.sessions")}</span><strong>{dashboard.summary.sessionCount.toLocaleString(locale)}</strong><small>{t("tokenStats.trackedSessions")}</small></article>
             <article><span>{t("tokenStats.average")}</span><strong>{formatTokens(dashboard.summary.averageTokens, locale)}</strong><small>{t("tokenStats.perSession")}</small></article>
             <article><span>{t("tokenStats.inputOutput")}</span><strong>{formatTokens(dashboard.summary.tokens.inputTokens, locale)} / {formatTokens(dashboard.summary.tokens.outputTokens, locale)}</strong><small>{t("tokenStats.inputOutputHint")}</small></article>
+            <article><span>{t("tokenStats.skillCalls")}</span><strong>{dashboard.summary.skillCalls.toLocaleString(locale)}</strong><small>{t("tokenStats.transcriptDetected")}</small></article>
+            <article><span>{t("tokenStats.mcpCalls")}</span><strong>{dashboard.summary.mcpCalls.toLocaleString(locale)}</strong><small>{t("tokenStats.transcriptDetected")}</small></article>
           </section>
 
           <section className="token-stats-visuals">
@@ -90,9 +124,20 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
             <article className="token-stats-panel"><h2>{t("tokenStats.providerCompare")}</h2><div className="token-stats-provider-bars">{dashboard.providerBreakdown.map(item => <div key={item.provider}><div><strong>{providerName(item.provider)}</strong><span>{formatTokens(item.tokens.totalTokens, locale)} · {item.sessionCount} {t("tokenStats.sessionsUnit")}</span></div><div className={`token-provider-bar ${item.provider}`}><span style={{ width: `${item.tokens.totalTokens / maxProviderTokens * 100}%` }} /></div></div>)}</div></article>
           </section>
 
+          <section className="token-stats-visuals token-capability-visuals">
+            <article className="token-stats-panel"><h2>{t("tokenStats.topSkills")}</h2><RankingList items={dashboard.topSkills} emptyText={t("tokenStats.noSkills")} /></article>
+            <article className="token-stats-panel"><h2>{t("tokenStats.topMcp")}</h2><RankingList items={dashboard.topMcpServers} emptyText={t("tokenStats.noMcp")} /></article>
+          </section>
+
           <section className="token-stats-panel token-stats-table-panel">
             <div className="token-stats-table-heading"><h2>{t("tokenStats.sessionDetails")}</h2><span>{t("tokenStats.totalRecords", { count: dashboard.totalCount })}</span></div>
-            {dashboard.sessions.length === 0 ? <div className="token-stats-empty"><BarChart3 aria-hidden="true" /><strong>{t("tokenStats.noData")}</strong><span>{t("tokenStats.noDataHint")}</span></div> : <div className="token-stats-table-wrap"><table><thead><tr><th>{t("tokenStats.time")}</th><th>{t("tokenStats.provider")}</th><th>{t("tokenStats.session")}</th><th>{t("tokenStats.location")}</th><th>{t("tokenStats.model")}</th><th>{t("tokenStats.tokens")}</th><th>{t("tokenStats.status")}</th></tr></thead><tbody>{dashboard.sessions.map(record => <tr key={record.id}><td>{formatDate(record.updatedAt, locale)}</td><td><span className={`token-provider-pill ${record.provider}`}>{providerName(record.provider)}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><span className={`token-session-status ${record.status}`}>{record.status === "active" ? t("tokenStats.active") : t("tokenStats.ended")}</span></td></tr>)}</tbody></table></div>}
+            {dashboard.sessions.length === 0 ? <div className="token-stats-empty"><BarChart3 aria-hidden="true" /><strong>{t("tokenStats.noData")}</strong><span>{t("tokenStats.noDataHint")}</span></div> : <div className="token-stats-table-wrap"><table><thead><tr><th>{t("tokenStats.time")}</th><th>{t("tokenStats.provider")}</th><th>{t("tokenStats.session")}</th><th>{t("tokenStats.location")}</th><th>{t("tokenStats.model")}</th><th>{t("tokenStats.tokens")}</th><th>{t("tokenStats.skillCalls")} / {t("tokenStats.mcpCalls")}</th><th>{t("tokenStats.status")}</th></tr></thead><tbody>{dashboard.sessions.map(record => {
+              const expanded = expandedSessionId === record.id;
+              return <Fragment key={record.id}>
+                <tr><td>{formatDate(record.updatedAt, locale)}</td><td><span className={`token-provider-pill ${record.provider}`}>{providerName(record.provider)}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><button className="token-capability-toggle" type="button" aria-expanded={expanded} aria-label={t(expanded ? "tokenStats.collapseUsage" : "tokenStats.expandUsage")} onClick={() => setExpandedSessionId(expanded ? null : record.id)}><span>{record.capabilities.skills.availability === "available" ? record.capabilities.skills.totalCalls : "—"} / {record.capabilities.mcp.availability === "available" ? record.capabilities.mcp.totalCalls : "—"}</span>{expanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button></td><td><span className={`token-session-status ${record.status}`}>{record.status === "active" ? t("tokenStats.active") : t("tokenStats.ended")}</span></td></tr>
+                {expanded && <tr className="token-capability-row"><td colSpan={8}><CapabilityDetails capabilities={record.capabilities} /></td></tr>}
+              </Fragment>;
+            })}</tbody></table></div>}
             {dashboard.totalCount > dashboard.limit && <div className="token-stats-pagination"><button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t("tokenStats.previous")}</button><span>{Math.floor(offset / 50) + 1} / {Math.ceil(dashboard.totalCount / 50)}</span><button type="button" disabled={offset + 50 >= dashboard.totalCount} onClick={() => setOffset(offset + 50)}>{t("tokenStats.next")}</button></div>}
           </section>
         </div>

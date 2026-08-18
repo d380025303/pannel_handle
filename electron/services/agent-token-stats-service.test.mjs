@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -119,5 +120,50 @@ describe("agent token live statistics", () => {
     await flush();
     expect(convert).toHaveBeenCalledWith("Ubuntu", "/home/me/tokens.jsonl");
     service.shutdown();
+  });
+
+  it("publishes a completed SSH snapshot after remote transcript collection", async () => {
+    const broadcasts = [];
+    const statsStore = {
+      setBaseline: vi.fn(),
+      markEnded: vi.fn(),
+      update: vi.fn(input => ({ ...input, tokens: input.tokens, capabilities: input.capabilities, models: input.models }))
+    };
+    const transcript = [
+      JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 30, output_tokens: 5, total_tokens: 35 } } } }),
+      JSON.stringify({ type: "response_item", payload: { type: "function_call", call_id: "mcp-a", name: "mcp__remote__inspect", arguments: "{}" } })
+    ];
+    const sshSessionRuntime = {
+      connectClient: vi.fn(async () => ({
+        exec: (_command, callback) => {
+          const stream = new EventEmitter();
+          stream.stderr = new EventEmitter();
+          callback(null, stream);
+          queueMicrotask(() => {
+            stream.emit("data", Buffer.from(JSON.stringify(transcript)));
+            stream.emit("close", 0);
+          });
+        },
+        end: vi.fn()
+      }))
+    };
+    const service = createAgentTokenStatsService({
+      terminalManager: {}, statsStore, sshSessionRuntime, retryDelaysMs: [0],
+      broadcast: (channel, payload) => broadcasts.push({ channel, payload })
+    });
+    service.handleHook({
+      provider: "codex",
+      input: { session_id: "agent-ssh", transcript_path: "/tmp/session.jsonl", hook_event_name: "Stop" },
+      session: { id: "panel-ssh", type: "ssh", title: "Remote", cwd: "/tmp" }
+    });
+    await flush();
+    await flush();
+
+    expect(service.getLive("panel-ssh")).toMatchObject({
+      state: "completed",
+      tokens: { totalTokens: 35 },
+      capabilities: { mcp: { totalCalls: 1 } }
+    });
+    expect(broadcasts.some(event => event.channel === "agent-token-live:changed")).toBe(true);
   });
 });
