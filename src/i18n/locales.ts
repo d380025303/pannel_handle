@@ -464,12 +464,12 @@ export type TranslationKey =
   | "git.availableAfterSession"
   | "git.refreshStatus"
   | "git.directory"
-  | "git.directoryPlaceholder"
-  | "git.changeDirectory"
   | "git.selectRepository"
   | "git.scanRepositories"
   | "git.scanningRepositories"
   | "git.noRepositories"
+  | "git.workspaceSummary"
+  | "git.repositoryLoadFailed"
   | "git.checkoutBranch"
   | "git.remoteBranch"
   | "git.stash"
@@ -500,7 +500,6 @@ export type TranslationKey =
   | "git.pop"
   | "git.changesTab"
   | "git.historyTab"
-  | "git.repositorySection"
   | "git.syncSection"
   | "git.commitSection"
   | "git.changesSection"
@@ -509,8 +508,6 @@ export type TranslationKey =
   | "git.stagedCount"
   | "git.commitDraftPresent"
   | "git.changeCount"
-  | "git.discoverRepository"
-  | "git.browseDirectory"
   | "git.diffTruncated"
   | "git.stashManager"
   | "git.stashMessage"
@@ -1037,12 +1034,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.availableAfterSession": "选择会话后可查看 Git 状态。",
     "git.refreshStatus": "刷新 Git 状态",
     "git.directory": "Git 工作目录",
-    "git.directoryPlaceholder": "输入 Git 仓库绝对路径",
-    "git.changeDirectory": "切换 Git 工作目录",
     "git.selectRepository": "选择 Git 仓库",
     "git.scanRepositories": "重新扫描仓库并刷新状态",
     "git.scanningRepositories": "正在扫描仓库…",
     "git.noRepositories": "当前目录及一级子目录中未发现 Git 仓库",
+    "git.workspaceSummary": "{repositories} 个仓库 · {changes} 项修改",
+    "git.repositoryLoadFailed": "仓库状态加载失败",
     "git.checkoutBranch": "切换分支",
     "git.remoteBranch": "（远程）",
     "git.stash": "储藏",
@@ -1073,7 +1070,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.pop": "弹出",
     "git.changesTab": "更改",
     "git.historyTab": "历史",
-    "git.repositorySection": "仓库与分支",
     "git.syncSection": "同步",
     "git.commitSection": "提交",
     "git.changesSection": "变更",
@@ -1082,8 +1078,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.stagedCount": "{count} 个已暂存",
     "git.commitDraftPresent": "有草稿",
     "git.changeCount": "{count} 个文件",
-    "git.discoverRepository": "从会话目录发现仓库",
-    "git.browseDirectory": "浏览 Windows 仓库目录",
     "git.diffTruncated": "差异过大，已显示安全范围内的预览。请在终端中审阅完整差异。",
     "git.stashManager": "储藏管理",
     "git.stashMessage": "储藏说明（可选）",
@@ -1602,12 +1596,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.availableAfterSession": "Git status is available after selecting a session.",
     "git.refreshStatus": "Refresh Git status",
     "git.directory": "Git working directory",
-    "git.directoryPlaceholder": "Enter an absolute Git repository path",
-    "git.changeDirectory": "Change Git working directory",
     "git.selectRepository": "Select Git repository",
     "git.scanRepositories": "Rescan repositories and refresh status",
     "git.scanningRepositories": "Scanning repositories…",
     "git.noRepositories": "No Git repositories found in this directory or its immediate children",
+    "git.workspaceSummary": "{repositories} repositories · {changes} changes",
+    "git.repositoryLoadFailed": "Failed to load repository status",
     "git.checkoutBranch": "Checkout branch",
     "git.remoteBranch": " (remote)",
     "git.stash": "Stash",
@@ -1638,7 +1632,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.pop": "Pop",
     "git.changesTab": "Changes",
     "git.historyTab": "History",
-    "git.repositorySection": "Repository and branch",
     "git.syncSection": "Sync",
     "git.commitSection": "Commit",
     "git.changesSection": "Changes",
@@ -1647,8 +1640,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.stagedCount": "{count} staged",
     "git.commitDraftPresent": "Draft",
     "git.changeCount": "{count} files",
-    "git.discoverRepository": "Discover repository from session directory",
-    "git.browseDirectory": "Browse for a Windows repository",
     "git.diffTruncated": "This diff is too large. A safe preview is shown; review the complete diff in the terminal.",
     "git.stashManager": "Stash manager",
     "git.stashMessage": "Stash message (optional)",

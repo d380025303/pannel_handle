@@ -275,9 +275,7 @@ function createTerminalManager({
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
       quickCommands: session.quickCommands || [],
-      tags: session.tags || [],
-      gitCwd: session.gitCwd,
-      gitCwdHistory: session.gitCwdHistory || []
+      tags: session.tags || []
     };
   }
 
@@ -717,41 +715,6 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateGitDirectory(id, gitCwd) {
-    const session = sessions.get(id);
-    if (!session) {
-      throw new Error("Session is not running.");
-    }
-    const normalizedCwd = String(gitCwd || "").trim();
-    if (!normalizedCwd) {
-      throw new Error("A valid Git working directory is required.");
-    }
-    const templateId = session.templateId || id;
-    const previousHistory = Array.isArray(session.gitCwdHistory) ? session.gitCwdHistory : [];
-    const keyFor = value => session.type === "windows" ? value.toLowerCase() : value;
-    const seen = new Set();
-    const gitCwdHistory = [normalizedCwd, ...previousHistory]
-      .filter(value => typeof value === "string" && value.trim())
-      .map(value => value.trim())
-      .filter(value => {
-        const key = keyFor(value);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 10);
-
-    for (const runningSession of sessions.values()) {
-      if ((runningSession.templateId || runningSession.id) === templateId) {
-        runningSession.gitCwd = normalizedCwd;
-        runningSession.gitCwdHistory = gitCwdHistory;
-      }
-    }
-    sessionStore.updateLibrary(templateId, { gitCwd: normalizedCwd, gitCwdHistory });
-    broadcast("sessions:changed", listSessions());
-    return serializeSession(session);
-  }
-
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
@@ -863,7 +826,6 @@ function createTerminalManager({
     reorderRunningSessions,
     renameSession,
     updateSession,
-    updateGitDirectory,
     closeSession,
     listSessions,
     getHistory,

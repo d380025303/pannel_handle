@@ -36,8 +36,6 @@ export type TerminalSession = {
   sshConfig?: SshConfig;
   quickCommands?: QuickCommand[];
   tags?: string[];
-  gitCwd?: string;
-  gitCwdHistory?: string[];
   readonly recentLaunchCount?: number;
   readonly lastLaunchedAt?: number;
 };
@@ -373,24 +371,25 @@ export type GitOperationResult = {
   truncated?: boolean;
 };
 
-export type GitDirectoryChangeResult = {
-  cwd: string;
-  history: string[];
-  snapshot: GitRepositorySnapshot;
-  status: GitStatusResult;
-  branches: GitBranchListResult;
-  stashes: GitStashListResult;
-};
-
 export type GitRepositoryEntry = {
   cwd: string;
   name: string;
   relativePath: string;
 };
 
-export type GitRepositoryDiscoveryResult = {
+export type GitRepositoryTarget = {
+  sessionId: string;
+  cwd: string;
+};
+
+export type GitWorkspaceRepository = GitRepositoryEntry & {
+  snapshot?: GitRepositorySnapshot;
+  error?: string;
+};
+
+export type GitWorkspaceSnapshot = {
   root: string;
-  repositories: GitRepositoryEntry[];
+  repositories: GitWorkspaceRepository[];
 };
 
 export type ProjectFileSearchResult = {
@@ -744,33 +743,30 @@ export type FileTransferApi = {
 };
 
 export type GitApi = {
-  changeDirectory: (sessionId: string, cwd: string) => Promise<GitDirectoryChangeResult>;
-  getSnapshot: (sessionId: string) => Promise<GitRepositorySnapshot>;
-  discoverRepository: (sessionId: string) => Promise<{ cwd: string }>;
-  discoverRepositories: (sessionId: string) => Promise<GitRepositoryDiscoveryResult>;
-  chooseDirectory: (sessionId: string, currentDirectory: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
-  getStatus: (sessionId: string) => Promise<GitStatusResult>;
-  getDiff: (sessionId: string, request: GitDiffRequest) => Promise<GitDiffResult>;
-  getBranches: (sessionId: string) => Promise<GitBranchListResult>;
-  getRemotes: (sessionId: string) => Promise<GitRemoteListResult>;
-  checkoutBranch: (sessionId: string, branch: Pick<GitBranchEntry, "name" | "kind">, operationId: string) => Promise<GitOperationResult>;
-  createBranch: (sessionId: string, branchName: string, operationId: string) => Promise<GitOperationResult>;
-  getStashes: (sessionId: string) => Promise<GitStashListResult>;
-  getHistory: (sessionId: string, options?: { skip?: number }) => Promise<GitHistoryResult>;
-  stageFiles: (sessionId: string, paths: string[], operationId: string) => Promise<GitOperationResult>;
-  stageAll: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
-  unstageFiles: (sessionId: string, paths: string[], operationId: string) => Promise<GitOperationResult>;
-  unstageAll: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
-  discardWorkingTree: (sessionId: string, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
-  commit: (sessionId: string, message: { subject: string; body?: string }, operationId: string) => Promise<GitOperationResult>;
-  fetch: (sessionId: string, remote: string, operationId: string) => Promise<GitOperationResult>;
-  pull: (sessionId: string, operationId: string) => Promise<GitOperationResult>;
-  push: (sessionId: string, remote: string | undefined, operationId: string) => Promise<GitOperationResult>;
-  stashChanges: (sessionId: string, message: string | undefined, operationId: string) => Promise<GitOperationResult>;
-  applyStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
-  popStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
-  dropStash: (sessionId: string, ref: string, operationId: string) => Promise<GitOperationResult>;
-  revertFile: (sessionId: string, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
+  getWorkspaceSnapshot: (sessionId: string) => Promise<GitWorkspaceSnapshot>;
+  getSnapshot: (target: GitRepositoryTarget) => Promise<GitRepositorySnapshot>;
+  getStatus: (target: GitRepositoryTarget) => Promise<GitStatusResult>;
+  getDiff: (target: GitRepositoryTarget, request: GitDiffRequest) => Promise<GitDiffResult>;
+  getBranches: (target: GitRepositoryTarget) => Promise<GitBranchListResult>;
+  getRemotes: (target: GitRepositoryTarget) => Promise<GitRemoteListResult>;
+  checkoutBranch: (target: GitRepositoryTarget, branch: Pick<GitBranchEntry, "name" | "kind">, operationId: string) => Promise<GitOperationResult>;
+  createBranch: (target: GitRepositoryTarget, branchName: string, operationId: string) => Promise<GitOperationResult>;
+  getStashes: (target: GitRepositoryTarget) => Promise<GitStashListResult>;
+  getHistory: (target: GitRepositoryTarget, options?: { skip?: number }) => Promise<GitHistoryResult>;
+  stageFiles: (target: GitRepositoryTarget, paths: string[], operationId: string) => Promise<GitOperationResult>;
+  stageAll: (target: GitRepositoryTarget, operationId: string) => Promise<GitOperationResult>;
+  unstageFiles: (target: GitRepositoryTarget, paths: string[], operationId: string) => Promise<GitOperationResult>;
+  unstageAll: (target: GitRepositoryTarget, operationId: string) => Promise<GitOperationResult>;
+  discardWorkingTree: (target: GitRepositoryTarget, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
+  commit: (target: GitRepositoryTarget, message: { subject: string; body?: string }, operationId: string) => Promise<GitOperationResult>;
+  fetch: (target: GitRepositoryTarget, remote: string, operationId: string) => Promise<GitOperationResult>;
+  pull: (target: GitRepositoryTarget, operationId: string) => Promise<GitOperationResult>;
+  push: (target: GitRepositoryTarget, remote: string | undefined, operationId: string) => Promise<GitOperationResult>;
+  stashChanges: (target: GitRepositoryTarget, message: string | undefined, operationId: string) => Promise<GitOperationResult>;
+  applyStash: (target: GitRepositoryTarget, ref: string, operationId: string) => Promise<GitOperationResult>;
+  popStash: (target: GitRepositoryTarget, ref: string, operationId: string) => Promise<GitOperationResult>;
+  dropStash: (target: GitRepositoryTarget, ref: string, operationId: string) => Promise<GitOperationResult>;
+  revertFile: (target: GitRepositoryTarget, file: GitStatusEntry, operationId: string) => Promise<GitOperationResult>;
   cancelOperation: (operationId: string) => Promise<boolean>;
 };
 

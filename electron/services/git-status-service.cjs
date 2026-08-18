@@ -449,7 +449,7 @@ function createGitStatusService({
 
   function getWorkingDirectory(session, cwdOverride) {
     const hasOverride = typeof cwdOverride !== "undefined";
-    const candidate = hasOverride ? cwdOverride : (session.gitCwd || session.cwd);
+    const candidate = hasOverride ? cwdOverride : session.cwd;
     if (hasOverride && (typeof candidate !== "string" || !candidate.trim())) {
       throw new Error("A valid absolute Git working directory is required.");
     }
@@ -458,6 +458,12 @@ function createGitStatusService({
       return normalizeWindowsPath(candidate);
     }
     return normalizeWslPath(candidate);
+  }
+
+  function getRepositoryTarget(target) {
+    if (!target || typeof target !== "object") throw new Error("A Git repository target is required.");
+    const session = getSession(target.sessionId);
+    return { session, cwd: getWorkingDirectory(session, target.cwd) };
   }
 
   async function runSshShellCommand(session, command, options = {}) {
@@ -555,9 +561,8 @@ function createGitStatusService({
     return null;
   }
 
-  async function getStatus(sessionId, cwdOverride) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdOverride);
+  async function getStatus(target) {
+    const { session, cwd } = getRepositoryTarget(target);
     const result = await runGitForSession(session, ["status", "--porcelain=v2", "--branch", "-z"], {
       actionName: "Git status",
       cwd
@@ -567,9 +572,8 @@ function createGitStatusService({
     return { cwd, clean: parsed.files.length === 0, files: parsed.files, branch: parsed.branch };
   }
 
-  async function getBranches(sessionId, cwdOverride) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdOverride);
+  async function getBranches(target) {
+    const { session, cwd } = getRepositoryTarget(target);
     const result = await runGitForSession(session, ["for-each-ref", `--format=${BRANCH_FORMAT}`, "refs/heads", "refs/remotes"], {
       actionName: "Git branch list",
       cwd
@@ -577,28 +581,25 @@ function createGitStatusService({
     return { cwd, branches: parseBranchList(result.stdout) };
   }
 
-  async function getRemotes(sessionId, cwdOverride) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdOverride);
+  async function getRemotes(target) {
+    const { session, cwd } = getRepositoryTarget(target);
     const result = await runGitForSession(session, ["remote"], { actionName: "Git remote list", cwd });
     return { cwd, remotes: result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) };
   }
 
-  async function getStashes(sessionId, cwdOverride) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdOverride);
+  async function getStashes(target) {
+    const { session, cwd } = getRepositoryTarget(target);
     const result = await runGitForSession(session, ["stash", "list", `--format=${STASH_FORMAT}`], { actionName: "Git stash list", cwd });
     return { cwd, stashes: parseStashList(result.stdout) };
   }
 
-  async function getSnapshot(sessionId, cwdOverride) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdOverride);
+  async function getSnapshot(target) {
+    const { session, cwd } = getRepositoryTarget(target);
     const [statusResult, branchesResult, remotesResult, stashesResult, operationResult] = await Promise.allSettled([
-      getStatus(sessionId, cwd),
-      getBranches(sessionId, cwd),
-      getRemotes(sessionId, cwd),
-      getStashes(sessionId, cwd),
+      getStatus(target),
+      getBranches(target),
+      getRemotes(target),
+      getStashes(target),
       getOperationStateForSession(session, cwd)
     ]);
     if (statusResult.status === "rejected") throw statusResult.reason;
@@ -611,13 +612,6 @@ function createGitStatusService({
       operationState: operationResult.status === "fulfilled" ? operationResult.value : null,
       operationStateError: operationResult.status === "rejected" ? getErrorMessage(operationResult.reason) : undefined
     };
-  }
-
-  async function discoverRepository(sessionId) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, session.cwd);
-    const result = await runGitForSession(session, ["rev-parse", "--show-toplevel"], { actionName: "Git repository discovery", cwd });
-    return { cwd: result.stdout.trim() };
   }
 
   async function listImmediateDirectories(session, root) {
@@ -686,25 +680,21 @@ function createGitStatusService({
     return { root, repositories };
   }
 
-  async function changeDirectory(sessionId, cwdValue) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session, cwdValue);
-    const snapshot = await getSnapshot(sessionId, cwd);
-    if (typeof terminalManager.updateGitDirectory !== "function") throw new Error("Git working directory persistence is unavailable.");
-    const updatedSession = terminalManager.updateGitDirectory(sessionId, cwd);
-    return {
-      cwd,
-      history: updatedSession.gitCwdHistory || [cwd],
-      snapshot,
-      status: snapshot.status,
-      branches: snapshot.branches,
-      stashes: snapshot.stashes
-    };
+  async function getWorkspaceSnapshot(sessionId) {
+    const discovery = await discoverRepositories(sessionId);
+    const repositories = await mapWithConcurrency(discovery.repositories, REPOSITORY_DISCOVERY_CONCURRENCY, async (repository) => {
+      try {
+        const snapshot = await getSnapshot({ sessionId, cwd: repository.cwd });
+        return { ...repository, snapshot };
+      } catch (error) {
+        return { ...repository, error: getErrorMessage(error) };
+      }
+    });
+    return { root: discovery.root, repositories };
   }
 
-  async function getDiff(sessionId, request) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
+  async function getDiff(target, request) {
+    const { session, cwd } = getRepositoryTarget(target);
     const scope = request?.scope || "combined";
     const repoPath = request?.path ? validateRepoPath(request.path) : undefined;
     const oldPath = request?.oldPath ? validateRepoPath(request.oldPath) : undefined;
@@ -752,9 +742,8 @@ function createGitStatusService({
     };
   }
 
-  async function getHistory(sessionId, options = {}) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
+  async function getHistory(target, options = {}) {
+    const { session, cwd } = getRepositoryTarget(target);
     const skip = Math.max(0, Number(options.skip) || 0);
     if (!await hasHead(session, cwd)) return { cwd, commits: [], hasMore: false, nextSkip: skip };
     const result = await runGitForSession(session, [
@@ -789,9 +778,9 @@ function createGitStatusService({
     activeRepositoryOperations.clear();
   }
 
-  async function runOperation(sessionId, operationIdValue, actionName, args, options = {}) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
+  async function runOperation(target, operationIdValue, actionName, args, options = {}) {
+    const { session, cwd } = getRepositoryTarget(target);
+    const sessionId = session.id;
     const operationId = validateOperationId(operationIdValue || `legacy-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const repositoryKey = `${session.id}:${cwd}`;
     if (activeRepositoryOperations.has(repositoryKey)) {
@@ -836,75 +825,72 @@ function createGitStatusService({
     }
   }
 
-  async function stageFiles(sessionId, paths, operationId) {
-    return runOperation(sessionId, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths)]);
+  async function stageFiles(target, paths, operationId) {
+    return runOperation(target, operationId, "Git stage", ["add", "-A", "--", ...validateRepoPaths(paths)]);
   }
 
-  async function stageAll(sessionId, operationId) {
-    return runOperation(sessionId, operationId, "Git stage all", ["add", "-A"]);
+  async function stageAll(target, operationId) {
+    return runOperation(target, operationId, "Git stage all", ["add", "-A"]);
   }
 
-  async function unstageFiles(sessionId, paths, operationId) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
+  async function unstageFiles(target, paths, operationId) {
+    const { session, cwd } = getRepositoryTarget(target);
     const safePaths = validateRepoPaths(paths);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", "--", ...safePaths]
       : ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...safePaths];
-    return runOperation(sessionId, operationId, "Git unstage", args);
+    return runOperation(target, operationId, "Git unstage", args);
   }
 
-  async function unstageAll(sessionId, operationId) {
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
+  async function unstageAll(target, operationId) {
+    const { session, cwd } = getRepositoryTarget(target);
     const args = await hasHead(session, cwd)
       ? ["restore", "--staged", ":/"]
       : ["rm", "--cached", "-r", "--ignore-unmatch", "."];
-    return runOperation(sessionId, operationId, "Git unstage all", args);
+    return runOperation(target, operationId, "Git unstage all", args);
   }
 
-  async function discardWorkingTree(sessionId, request, operationId) {
+  async function discardWorkingTree(target, request, operationId) {
     const paths = validateRepoPaths([request?.path, ...(request?.oldPath ? [request.oldPath] : [])]);
     const isUntracked = request?.indexStatus === "?" || request?.status === "?";
     const args = isUntracked ? ["clean", "-f", "--", ...paths] : ["restore", "--worktree", "--", ...paths];
-    return runOperation(sessionId, operationId, "Git discard working tree changes", args);
+    return runOperation(target, operationId, "Git discard working tree changes", args);
   }
 
-  async function commit(sessionId, message, operationId) {
+  async function commit(target, message, operationId) {
     const subject = String(message?.subject || "").trim();
     const body = String(message?.body || "").trim();
     if (!subject) return { ok: false, operationId, message: "A commit subject is required." };
     if (Buffer.byteLength(`${subject}\n${body}`, "utf-8") > 64 * 1024) {
       return { ok: false, operationId, message: "The commit message is too large." };
     }
-    const snapshot = await getSnapshot(sessionId);
+    const snapshot = await getSnapshot(target);
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation in the terminal first.` };
     }
     const hasStaged = snapshot.status.files.some((file) => ![" ", ".", "?", "!"].includes(file.indexStatus));
     if (!hasStaged) return { ok: false, operationId, cwd: snapshot.cwd, message: "Stage at least one change before committing." };
-    return runOperation(sessionId, operationId, "Git commit", ["commit", "-m", subject, ...(body ? ["-m", body] : [])]);
+    return runOperation(target, operationId, "Git commit", ["commit", "-m", subject, ...(body ? ["-m", body] : [])]);
   }
 
-  async function checkoutBranch(sessionId, branch, operationId) {
-    const target = validateBranchEntry(branch);
-    const snapshot = await getSnapshot(sessionId);
+  async function checkoutBranch(repositoryTarget, branch, operationId) {
+    const targetBranch = validateBranchEntry(branch);
+    const snapshot = await getSnapshot(repositoryTarget);
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
     const branches = snapshot.branches.branches;
-    if (!branches.some((candidate) => candidate.kind === target.kind && candidate.name === target.name)) {
+    if (!branches.some((candidate) => candidate.kind === targetBranch.kind && candidate.name === targetBranch.name)) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: "The selected branch no longer exists." };
     }
-    const args = target.kind === "remote" ? ["checkout", "--track", target.name] : ["checkout", target.name];
-    return runOperation(sessionId, operationId, "Git checkout", args);
+    const args = targetBranch.kind === "remote" ? ["checkout", "--track", targetBranch.name] : ["checkout", targetBranch.name];
+    return runOperation(repositoryTarget, operationId, "Git checkout", args);
   }
 
-  async function createBranch(sessionId, branchNameValue, operationId) {
+  async function createBranch(target, branchNameValue, operationId) {
     const branchName = validateBranchNameInput(branchNameValue);
-    const session = getSession(sessionId);
-    const cwd = getWorkingDirectory(session);
-    const snapshot = await getSnapshot(sessionId);
+    const { session, cwd } = getRepositoryTarget(target);
+    const snapshot = await getSnapshot(target);
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
@@ -913,31 +899,31 @@ function createGitStatusService({
     } catch (err) {
       return { ok: false, operationId, cwd, message: getErrorMessage(err) };
     }
-    return runOperation(sessionId, operationId, "Git create branch", ["checkout", "-b", branchName]);
+    return runOperation(target, operationId, "Git create branch", ["checkout", "-b", branchName]);
   }
 
-  async function fetchRemote(sessionId, remoteValue, operationId) {
-    const snapshot = await getSnapshot(sessionId);
+  async function fetchRemote(target, remoteValue, operationId) {
+    const snapshot = await getSnapshot(target);
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
     const remote = validateRemoteName(remoteValue, snapshot.remotes.remotes);
-    return runOperation(sessionId, operationId, "Git fetch", ["fetch", "--prune", remote], { timeoutMs: NETWORK_TIMEOUT_MS });
+    return runOperation(target, operationId, "Git fetch", ["fetch", "--prune", remote], { timeoutMs: NETWORK_TIMEOUT_MS });
   }
 
-  async function pullBranch(sessionId, operationId) {
-    const snapshot = await getSnapshot(sessionId);
+  async function pullBranch(target, operationId) {
+    const snapshot = await getSnapshot(target);
     if (snapshot.status.branch.detached || !snapshot.status.branch.upstream) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: "The current branch has no upstream to pull from." };
     }
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
-    return runOperation(sessionId, operationId, "Git pull", ["pull", "--ff-only"], { timeoutMs: NETWORK_TIMEOUT_MS });
+    return runOperation(target, operationId, "Git pull", ["pull", "--ff-only"], { timeoutMs: NETWORK_TIMEOUT_MS });
   }
 
-  async function pushBranch(sessionId, remoteValue, operationId) {
-    const snapshot = await getSnapshot(sessionId);
+  async function pushBranch(target, remoteValue, operationId) {
+    const snapshot = await getSnapshot(target);
     const branch = snapshot.status.branch;
     if (branch.detached || branch.unborn || !branch.name) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: "Create a branch before pushing." };
@@ -945,36 +931,35 @@ function createGitStatusService({
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
-    if (branch.upstream) return runOperation(sessionId, operationId, "Git push", ["push"], { timeoutMs: NETWORK_TIMEOUT_MS });
+    if (branch.upstream) return runOperation(target, operationId, "Git push", ["push"], { timeoutMs: NETWORK_TIMEOUT_MS });
     const remote = validateRemoteName(remoteValue, snapshot.remotes.remotes);
-    return runOperation(sessionId, operationId, "Git push", ["push", "--set-upstream", remote, branch.name], { timeoutMs: NETWORK_TIMEOUT_MS });
+    return runOperation(target, operationId, "Git push", ["push", "--set-upstream", remote, branch.name], { timeoutMs: NETWORK_TIMEOUT_MS });
   }
 
-  async function stashChanges(sessionId, messageValue, operationId) {
+  async function stashChanges(target, messageValue, operationId) {
     const message = typeof messageValue === "string" ? messageValue.trim() : "";
-    return runOperation(sessionId, operationId, "Git stash", ["stash", "push", "-u", ...(message ? ["-m", message] : [])]);
+    return runOperation(target, operationId, "Git stash", ["stash", "push", "-u", ...(message ? ["-m", message] : [])]);
   }
 
-  function applyStash(sessionId, ref, operationId) {
-    return runOperation(sessionId, operationId, "Git stash apply", ["stash", "apply", "--index", validateStashRef(ref)]);
+  function applyStash(target, ref, operationId) {
+    return runOperation(target, operationId, "Git stash apply", ["stash", "apply", "--index", validateStashRef(ref)]);
   }
 
-  function popStash(sessionId, ref, operationId) {
-    return runOperation(sessionId, operationId, "Git stash pop", ["stash", "pop", "--index", validateStashRef(ref)]);
+  function popStash(target, ref, operationId) {
+    return runOperation(target, operationId, "Git stash pop", ["stash", "pop", "--index", validateStashRef(ref)]);
   }
 
-  function dropStash(sessionId, ref, operationId) {
-    return runOperation(sessionId, operationId, "Git stash drop", ["stash", "drop", validateStashRef(ref)]);
+  function dropStash(target, ref, operationId) {
+    return runOperation(target, operationId, "Git stash drop", ["stash", "drop", validateStashRef(ref)]);
   }
 
-  function revertFile(sessionId, file, operationId) {
-    return discardWorkingTree(sessionId, file, operationId);
+  function revertFile(target, file, operationId) {
+    return discardWorkingTree(target, file, operationId);
   }
 
   return {
-    changeDirectory,
-    discoverRepository,
     discoverRepositories,
+    getWorkspaceSnapshot,
     getSnapshot,
     getStatus,
     getDiff,

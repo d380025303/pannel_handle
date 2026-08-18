@@ -2953,40 +2953,94 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-bg-app);
 }
 
-.git-directory-control {
-  grid-template-columns: minmax(0, 1fr) 30px;
-  padding: 6px 10px;
-  border-bottom: 0;
-  background: transparent;
+.git-workspace-repositories {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
 }
 
-.git-directory-control .searchable-select {
-  width: 100%;
-  min-width: 0;
+.git-repository-card {
+  overflow: hidden;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
 }
 
-.git-manual-directory-control {
+.git-repository-card.error {
+  border-color: var(--color-danger-text);
+}
+
+.git-repository-card-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(2, 30px);
-  gap: 6px;
-  padding: 0 10px 6px;
-}
-
-.git-manual-directory-control > input {
-  min-width: 0;
-  height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  outline: 0;
+  width: 100%;
+  grid-template-columns: 14px minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 0;
   color: var(--color-text);
-  background: var(--color-bg-control);
-  font-family: Consolas, "Cascadia Mono", monospace;
-  font-size: 11px;
+  background: var(--color-bg-elevated);
+  text-align: left;
+  cursor: pointer;
 }
 
-.git-manual-directory-control > input:focus {
-  border-color: var(--color-accent);
+.git-repository-card-header > svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+
+.git-repository-card.collapsed .git-repository-card-header > svg {
+  transform: rotate(-90deg);
+}
+
+.git-repository-card-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.git-repository-card-title strong,
+.git-repository-card-title small,
+.git-repository-card-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-repository-card-title small,
+.git-repository-card-branch {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.git-repository-card-count {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.git-repository-card-count.conflict {
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+}
+
+.git-repository-card-content {
+  min-width: 0;
+}
+
+.git-history-repository-select {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.git-history-repository-select .searchable-select {
+  width: 100%;
 }
 
 .git-changes-view,
@@ -3256,22 +3310,12 @@ button.agent-usage-status[aria-expanded="true"] {
     padding-inline: 8px;
   }
 
-  .git-directory-control {
-    grid-template-columns: minmax(0, 1fr) 28px;
-    gap: 4px;
-    padding-inline: 8px;
+  .git-repository-card-header {
+    grid-template-columns: 14px minmax(0, 1fr) max-content;
   }
 
-  .git-directory-control .icon-button,
-  .git-manual-directory-control .icon-button {
-    width: 28px;
-    height: 28px;
-  }
-
-  .git-manual-directory-control {
-    grid-template-columns: minmax(0, 1fr) repeat(2, 28px);
-    gap: 4px;
-    padding-inline: 8px;
+  .git-repository-card-branch {
+    display: none;
   }
 
   .git-branch-sync,

@@ -50,7 +50,7 @@ describe("session-store", () => {
     expect(session).toMatchObject({ cwd: "C:\\terminal", fileRoot: "C:\\repo", fileSort: { key: "modifiedAt", direction: "desc" } });
   });
 
-  it("preserves Git directory state and defaults old sessions to no override", () => {
+  it("drops legacy Git directory overrides", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([
       { id: "1", title: "Old", type: "windows", cwd: "C:\\old" },
@@ -65,11 +65,10 @@ describe("session-store", () => {
     ]));
     const sessions = createStore(sessionsFile).loadLibrary();
 
-    expect(sessions[0]).toMatchObject({ gitCwd: undefined, gitCwdHistory: [] });
-    expect(sessions[1]).toMatchObject({
-      gitCwd: "C:\\repo",
-      gitCwdHistory: ["C:\\repo", "C:\\other"]
-    });
+    expect(sessions[0]).not.toHaveProperty("gitCwd");
+    expect(sessions[0]).not.toHaveProperty("gitCwdHistory");
+    expect(sessions[1]).not.toHaveProperty("gitCwd");
+    expect(sessions[1]).not.toHaveProperty("gitCwdHistory");
   });
 
   it("normalizes tags case-insensitively while preserving the first display value", () => {

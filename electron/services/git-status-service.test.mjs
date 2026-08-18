@@ -28,12 +28,7 @@ afterEach(() => {
 
 function createTerminalManager(session) {
   return {
-    getSession: vi.fn(() => session),
-    updateGitDirectory: vi.fn((_id, cwd) => {
-      session.gitCwd = cwd;
-      session.gitCwdHistory = [cwd, ...(session.gitCwdHistory || []).filter((item) => item !== cwd)].slice(0, 10);
-      return session;
-    })
+    getSession: vi.fn(() => session)
   };
 }
 
@@ -76,6 +71,10 @@ function createSshRuntimeMock(result = { stdout: "", stderr: "", code: 0 }) {
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function repositoryTarget(sessionId, cwd) {
+  return { sessionId, cwd };
 }
 
 function createRepository() {
@@ -167,7 +166,7 @@ describe("git command routing", () => {
       sessionStore: {},
       spawn: windowsSpawn
     });
-    await expect(windowsService.getStatus("win")).resolves.toMatchObject({ clean: false, branch: { name: "main" }, files: [expect.objectContaining({ worktreeStatus: "M" })] });
+    await expect(windowsService.getStatus(repositoryTarget("win", "C:\\work\\repo"))).resolves.toMatchObject({ clean: false, branch: { name: "main" }, files: [expect.objectContaining({ worktreeStatus: "M" })] });
     expect(windowsSpawn.calls[0]).toMatchObject({ command: "git", args: ["status", "--porcelain=v2", "--branch", "-z"] });
     expect(windowsSpawn.calls[0].options.env.GIT_TERMINAL_PROMPT).toBe("0");
 
@@ -177,7 +176,7 @@ describe("git command routing", () => {
       sessionStore: {},
       spawn: wslSpawn
     });
-    await wslService.getStatus("wsl");
+    await wslService.getStatus(repositoryTarget("wsl", "/work/repo"));
     expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "-z"]);
   });
 
@@ -210,7 +209,7 @@ describe("git command routing", () => {
       sessionStore: {},
       sshSessionRuntime: sshRuntime
     });
-    await expect(service.getStatus("ssh")).resolves.toMatchObject({ files: [expect.objectContaining({ path: "remote.txt" })] });
+    await expect(service.getStatus(repositoryTarget("ssh", "/srv/app's repo"))).resolves.toMatchObject({ files: [expect.objectContaining({ path: "remote.txt" })] });
     expect(sshRuntime.calls[0].command).toBe("cd '/srv/app'\\''s repo' && GIT_TERMINAL_PROMPT=0 git 'status' '--porcelain=v2' '--branch' '-z'");
   });
 
@@ -242,11 +241,12 @@ describe("git command routing", () => {
       sessionStore: {},
       spawn
     });
-    await service.getDiff("win", { scope: "staged", path: "src/App.tsx" });
-    await service.applyStash("win", "stash@{0}", "apply-1");
-    await service.popStash("win", "stash@{1}", "pop-1");
-    await service.discardWorkingTree("win", { path: "src/App.tsx", status: "M", indexStatus: "M" }, "discard-1");
-    await service.discardWorkingTree("win", { path: "scratch.txt", status: "?", indexStatus: "?" }, "discard-2");
+    const target = repositoryTarget("win", "C:\\work\\repo");
+    await service.getDiff(target, { scope: "staged", path: "src/App.tsx" });
+    await service.applyStash(target, "stash@{0}", "apply-1");
+    await service.popStash(target, "stash@{1}", "pop-1");
+    await service.discardWorkingTree(target, { path: "src/App.tsx", status: "M", indexStatus: "M" }, "discard-1");
+    await service.discardWorkingTree(target, { path: "scratch.txt", status: "?", indexStatus: "?" }, "discard-2");
     expect(spawn.calls.map((call) => call.args)).toEqual([
       ["diff", "--cached", "--no-color", "--find-renames", "--", "src/App.tsx"],
       ["stash", "apply", "--index", "stash@{0}"],
@@ -262,8 +262,9 @@ describe("git command routing", () => {
       sessionStore: {},
       spawn: createSpawnMock()
     });
-    expect(() => service.applyStash("win", "stash@{x}", "bad-stash")).toThrow("stash reference");
-    await expect(service.discardWorkingTree("win", { path: "../secret" }, "bad-path")).rejects.toThrow("repository-relative path");
+    const target = repositoryTarget("win", "C:\\work\\repo");
+    expect(() => service.applyStash(target, "stash@{x}", "bad-stash")).toThrow("stash reference");
+    await expect(service.discardWorkingTree(target, { path: "../secret" }, "bad-path")).rejects.toThrow("repository-relative path");
   });
 });
 
@@ -290,6 +291,13 @@ describe("real temporary repository workflow", () => {
     expect(result.root).toBe(path.resolve(aggregate));
     expect(result.repositories.map((repository) => repository.cwd)).toEqual([path.resolve(alpha), path.resolve(beta)]);
     expect(result.repositories.map((repository) => repository.relativePath)).toEqual(["alpha", "beta"]);
+
+    fs.writeFileSync(path.join(beta, "changed.txt"), "changed\n", "utf-8");
+    const workspace = await service.getWorkspaceSnapshot(session.id);
+    expect(workspace.repositories).toEqual([
+      expect.objectContaining({ cwd: path.resolve(alpha), snapshot: expect.objectContaining({ status: expect.objectContaining({ clean: true }) }) }),
+      expect.objectContaining({ cwd: path.resolve(beta), snapshot: expect.objectContaining({ status: expect.objectContaining({ clean: false }) }) })
+    ]);
   });
 
   it("deduplicates the containing repository when scanning from one of its directories", async () => {
@@ -306,78 +314,82 @@ describe("real temporary repository workflow", () => {
 
   it("stages, commits, preserves staged content when discarding, and unstages", async () => {
     const { directory, service } = createRepository();
+    const target = repositoryTarget("session-1", directory);
     fs.writeFileSync(path.join(directory, "note.txt"), "initial\n", "utf-8");
-    let status = await service.getStatus("session-1");
+    let status = await service.getStatus(target);
     expect(status.branch.unborn).toBe(true);
     expect(status.files[0]).toMatchObject({ path: "note.txt", indexStatus: "?" });
 
-    expect((await service.stageFiles("session-1", ["note.txt"], "stage-initial")).ok).toBe(true);
-    expect((await service.commit("session-1", { subject: "Initial", body: "Body" }, "commit-initial")).ok).toBe(true);
+    expect((await service.stageFiles(target, ["note.txt"], "stage-initial")).ok).toBe(true);
+    expect((await service.commit(target, { subject: "Initial", body: "Body" }, "commit-initial")).ok).toBe(true);
     fs.writeFileSync(path.join(directory, "note.txt"), "staged\n", "utf-8");
-    await service.stageFiles("session-1", ["note.txt"], "stage-change");
+    await service.stageFiles(target, ["note.txt"], "stage-change");
     fs.writeFileSync(path.join(directory, "note.txt"), "working\n", "utf-8");
 
-    status = await service.getStatus("session-1");
+    status = await service.getStatus(target);
     expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "M" });
-    await service.discardWorkingTree("session-1", status.files[0], "discard-working");
+    await service.discardWorkingTree(target, status.files[0], "discard-working");
     expect(fs.readFileSync(path.join(directory, "note.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("staged\n");
-    status = await service.getStatus("session-1");
+    status = await service.getStatus(target);
     expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "." });
 
-    await service.unstageFiles("session-1", ["note.txt"], "unstage-change");
-    status = await service.getStatus("session-1");
+    await service.unstageFiles(target, ["note.txt"], "unstage-change");
+    status = await service.getStatus(target);
     expect(status.files[0]).toMatchObject({ indexStatus: ".", worktreeStatus: "M" });
-    const commitWithoutStagedChanges = await service.commit("session-1", { subject: "Must not commit working tree" }, "commit-working-only");
+    const commitWithoutStagedChanges = await service.commit(target, { subject: "Must not commit working tree" }, "commit-working-only");
     expect(commitWithoutStagedChanges).toMatchObject({ ok: false, message: "Stage at least one change before committing." });
   });
 
   it("creates Unicode branches and paginates current-HEAD history", async () => {
     const { directory, service } = createRepository();
+    const target = repositoryTarget("session-1", directory);
     fs.writeFileSync(path.join(directory, "one.txt"), "1\n", "utf-8");
-    await service.stageAll("session-1", "stage-all");
-    await service.commit("session-1", { subject: "First" }, "commit-first");
-    expect((await service.createBranch("session-1", "功能/体验", "branch-unicode")).ok).toBe(true);
+    await service.stageAll(target, "stage-all");
+    await service.commit(target, { subject: "First" }, "commit-first");
+    expect((await service.createBranch(target, "功能/体验", "branch-unicode")).ok).toBe(true);
     fs.writeFileSync(path.join(directory, "one.txt"), "2\n", "utf-8");
-    await service.stageAll("session-1", "stage-second");
-    await service.commit("session-1", { subject: "Second" }, "commit-second");
-    const snapshot = await service.getSnapshot("session-1");
+    await service.stageAll(target, "stage-second");
+    await service.commit(target, { subject: "Second" }, "commit-second");
+    const snapshot = await service.getSnapshot(target);
     expect(snapshot.status.branch.name).toBe("功能/体验");
-    const history = await service.getHistory("session-1");
+    const history = await service.getHistory(target);
     expect(history.commits.map((entry) => entry.subject)).toEqual(["Second", "First"]);
     expect(history.hasMore).toBe(false);
   });
 
   it("creates a message stash, previews it, restores index state, and drops it", async () => {
     const { directory, service } = createRepository();
+    const target = repositoryTarget("session-1", directory);
     fs.writeFileSync(path.join(directory, "stash.txt"), "base\n", "utf-8");
-    await service.stageAll("session-1", "stage-base");
-    await service.commit("session-1", { subject: "Base" }, "commit-base");
+    await service.stageAll(target, "stage-base");
+    await service.commit(target, { subject: "Base" }, "commit-base");
     fs.writeFileSync(path.join(directory, "stash.txt"), "staged\n", "utf-8");
-    await service.stageAll("session-1", "stage-stash");
+    await service.stageAll(target, "stage-stash");
     fs.writeFileSync(path.join(directory, "working.txt"), "working\n", "utf-8");
-    expect((await service.stashChanges("session-1", "work in progress", "stash-create")).ok).toBe(true);
-    const list = await service.getStashes("session-1");
+    expect((await service.stashChanges(target, "work in progress", "stash-create")).ok).toBe(true);
+    const list = await service.getStashes(target);
     expect(list.stashes[0].message).toContain("work in progress");
-    const diff = await service.getDiff("session-1", { scope: "stash", revision: list.stashes[0].ref });
+    const diff = await service.getDiff(target, { scope: "stash", revision: list.stashes[0].ref });
     expect(diff.rows.length).toBeGreaterThan(0);
-    expect((await service.applyStash("session-1", list.stashes[0].ref, "stash-apply")).ok).toBe(true);
-    const status = await service.getStatus("session-1");
+    expect((await service.applyStash(target, list.stashes[0].ref, "stash-apply")).ok).toBe(true);
+    const status = await service.getStatus(target);
     expect(status.files.find((file) => file.path === "stash.txt")?.indexStatus).toBe("M");
-    expect((await service.dropStash("session-1", list.stashes[0].ref, "stash-drop")).ok).toBe(true);
-    expect((await service.getStashes("session-1")).stashes).toHaveLength(0);
+    expect((await service.dropStash(target, list.stashes[0].ref, "stash-drop")).ok).toBe(true);
+    expect((await service.getStashes(target)).stashes).toHaveLength(0);
   });
 
   it("sets upstream on first push and enforces fast-forward-only pulls", async () => {
     const { directory, service } = createRepository();
+    const target = repositoryTarget("session-1", directory);
     const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-remote-"));
     temporaryDirectories.push(remote);
     git(remote, "init", "--bare");
     git(directory, "remote", "add", "origin", remote);
     fs.writeFileSync(path.join(directory, "sync.txt"), "one\n", "utf-8");
-    await service.stageAll("session-1", "sync-stage");
-    await service.commit("session-1", { subject: "Sync base" }, "sync-commit");
-    expect((await service.pushBranch("session-1", "origin", "sync-push")).ok).toBe(true);
-    let snapshot = await service.getSnapshot("session-1");
+    await service.stageAll(target, "sync-stage");
+    await service.commit(target, { subject: "Sync base" }, "sync-commit");
+    expect((await service.pushBranch(target, "origin", "sync-push")).ok).toBe(true);
+    let snapshot = await service.getSnapshot(target);
     expect(snapshot.status.branch.upstream?.remote).toBe("origin");
 
     const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-clone-"));
@@ -390,10 +402,10 @@ describe("real temporary repository workflow", () => {
     git(clone, "commit", "-m", "Remote change");
     git(clone, "push");
 
-    expect((await service.fetchRemote("session-1", "origin", "sync-fetch")).ok).toBe(true);
-    snapshot = await service.getSnapshot("session-1");
+    expect((await service.fetchRemote(target, "origin", "sync-fetch")).ok).toBe(true);
+    snapshot = await service.getSnapshot(target);
     expect(snapshot.status.branch.behind).toBe(1);
-    expect((await service.pullBranch("session-1", "sync-pull")).ok).toBe(true);
+    expect((await service.pullBranch(target, "sync-pull")).ok).toBe(true);
     expect(fs.readFileSync(path.join(directory, "sync.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("two\n");
   });
 });
