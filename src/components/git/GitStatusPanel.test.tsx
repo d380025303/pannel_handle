@@ -84,9 +84,9 @@ function createSnapshot(cwd: string, mode: "mixed" | "staged" | "working" | "con
 
 function createGitApi(snapshotBySession: Record<string, GitRepositorySnapshot>) {
   return {
-    changeDirectory: vi.fn(async (sessionId: string) => ({
+    changeDirectory: vi.fn(async (sessionId: string, _cwd: string) => ({
       cwd: snapshotBySession[sessionId].cwd,
-      history: [],
+      history: [] as string[],
       snapshot: snapshotBySession[sessionId],
       status: snapshotBySession[sessionId].status,
       branches: snapshotBySession[sessionId].branches,
@@ -94,6 +94,10 @@ function createGitApi(snapshotBySession: Record<string, GitRepositorySnapshot>) 
     })),
     getSnapshot: vi.fn(async (sessionId: string) => snapshotBySession[sessionId]),
     discoverRepository: vi.fn(async (sessionId: string) => ({ cwd: snapshotBySession[sessionId].cwd })),
+    discoverRepositories: vi.fn(async (sessionId: string) => ({
+      root: snapshotBySession[sessionId].cwd,
+      repositories: [{ cwd: snapshotBySession[sessionId].cwd, name: sessionId, relativePath: "." }]
+    })),
     chooseDirectory: vi.fn(async () => ({ canceled: true as const })),
     getStatus: vi.fn(async (sessionId: string) => snapshotBySession[sessionId].status),
     getDiff: vi.fn(async (_sessionId: string, request: { scope: string }) => ({
@@ -206,6 +210,50 @@ describe("GitStatusPanel", () => {
     const commitButton = screen.getByRole("button", { name: /提交已暂存更改/ });
     expect((commitButton as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelectorAll(".git-change-group")).toHaveLength(1);
+  });
+
+  it("discovers repositories automatically and refreshes branches after repository selection", async () => {
+    const session = createSession("aggregate-panel");
+    const alphaCwd = `${session.cwd}\\alpha`;
+    const betaCwd = `${session.cwd}\\beta`;
+    const alpha = createSnapshot(alphaCwd, "clean");
+    const beta = createSnapshot(betaCwd, "clean");
+    beta.status.branch.name = "develop";
+    beta.branches.branches = [{ name: "develop", kind: "local", current: true, commit: "fedcba9", relativeTime: "now" }];
+    const api = createGitApi({ [session.id]: alpha });
+    api.discoverRepositories.mockResolvedValue({
+      root: session.cwd,
+      repositories: [
+        { cwd: alphaCwd, name: "alpha", relativePath: "alpha" },
+        { cwd: betaCwd, name: "beta", relativePath: "beta" }
+      ]
+    });
+    api.changeDirectory.mockImplementation(async (_sessionId: string, cwd: string) => {
+      const snapshot = cwd === betaCwd ? beta : alpha;
+      return { cwd, history: [cwd], snapshot, status: snapshot.status, branches: snapshot.branches, stashes: snapshot.stashes };
+    });
+    window.gitApi = api;
+    const user = userEvent.setup();
+    renderPanel(session);
+
+    const repositorySelect = await screen.findByRole("combobox", { name: "选择 Git 仓库" });
+    await waitFor(() => expect(api.changeDirectory).toHaveBeenCalledWith(session.id, alphaCwd));
+    await user.click(repositorySelect);
+    await user.click(await screen.findByRole("option", { name: "beta — beta" }));
+
+    await waitFor(() => expect(api.changeDirectory).toHaveBeenLastCalledWith(session.id, betaCwd));
+    expect(await screen.findByText("* develop")).toBeTruthy();
+  });
+
+  it("shows an empty state when the current directory has no immediate repositories", async () => {
+    const session = createSession("empty-aggregate");
+    const api = createGitApi({ [session.id]: createSnapshot(session.cwd, "clean") });
+    api.discoverRepositories.mockResolvedValue({ root: session.cwd, repositories: [] });
+    window.gitApi = api;
+    renderPanel(session);
+
+    expect(await screen.findByText("当前目录及一级子目录中未发现 Git 仓库")).toBeTruthy();
+    expect(api.changeDirectory).not.toHaveBeenCalled();
   });
 
   it("smart-opens exceptional repository, sync, and commit sections", async () => {

@@ -63,10 +63,11 @@ function createSshRuntimeMock(result = { stdout: "", stderr: "", code: 0 }) {
     calls,
     execStreaming: vi.fn(async (sessionId, command, options) => {
       calls.push({ sessionId, command, options });
-      options.onStdout?.(result.stdout || "");
-      options.onStderr?.(result.stderr || "");
+      const current = Array.isArray(result) ? result[Math.min(calls.length - 1, result.length - 1)] : result;
+      options.onStdout?.(current.stdout || "");
+      options.onStderr?.(current.stderr || "");
       return {
-        promise: Promise.resolve({ exitCode: result.code ?? 0 }),
+        promise: Promise.resolve({ exitCode: current.code ?? 0 }),
         cancel: vi.fn()
       };
     })
@@ -180,6 +181,27 @@ describe("git command routing", () => {
     expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "-z"]);
   });
 
+  it("routes one-level repository discovery through WSL", async () => {
+    const wslSpawn = createSpawnMock([
+      { stdout: "./alpha\0./plain\0" },
+      { code: 128 },
+      { stdout: "/work/alpha\ntrue\n" },
+      { code: 128 }
+    ]);
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager({ id: "wsl-scan", type: "wsl", cwd: "/work", wslDistro: "Ubuntu-24.04" }),
+      sessionStore: {},
+      spawn: wslSpawn
+    });
+
+    await expect(service.discoverRepositories("wsl-scan")).resolves.toEqual({
+      root: "/work",
+      repositories: [{ cwd: "/work/alpha", name: "alpha", relativePath: "alpha" }]
+    });
+    expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work", "--exec", "find", ".", "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print0"]);
+    expect(wslSpawn.calls.slice(1).every((call) => call.args.includes("--is-inside-work-tree"))).toBe(true);
+  });
+
   it("quotes SSH directories and supports cancellable streaming execution", async () => {
     const status = ["# branch.oid abc", "# branch.head main", "? remote.txt", ""].join("\0");
     const sshRuntime = createSshRuntimeMock({ stdout: status });
@@ -190,6 +212,27 @@ describe("git command routing", () => {
     });
     await expect(service.getStatus("ssh")).resolves.toMatchObject({ files: [expect.objectContaining({ path: "remote.txt" })] });
     expect(sshRuntime.calls[0].command).toBe("cd '/srv/app'\\''s repo' && GIT_TERMINAL_PROMPT=0 git 'status' '--porcelain=v2' '--branch' '-z'");
+  });
+
+  it("routes one-level repository discovery through SSH with quoted paths", async () => {
+    const sshRuntime = createSshRuntimeMock([
+      { stdout: "./alpha\0" },
+      { code: 128 },
+      { stdout: "/srv/app's workspace/alpha\ntrue\n" }
+    ]);
+    const session = { id: "ssh-scan", type: "ssh", cwd: "/srv/app's workspace" };
+    const service = createGitStatusService({
+      terminalManager: createTerminalManager(session),
+      sessionStore: {},
+      sshSessionRuntime: sshRuntime
+    });
+
+    await expect(service.discoverRepositories(session.id)).resolves.toEqual({
+      root: session.cwd,
+      repositories: [{ cwd: `${session.cwd}/alpha`, name: "alpha", relativePath: "alpha" }]
+    });
+    expect(sshRuntime.calls[0].command).toContain("cd '/srv/app'\\''s workspace' && find");
+    expect(sshRuntime.calls.slice(1).every((call) => call.command.includes("GIT_TERMINAL_PROMPT=0 git 'rev-parse'"))).toBe(true);
   });
 
   it("uses scoped diff, stash index restoration, and contextual discard commands", async () => {
@@ -225,6 +268,42 @@ describe("git command routing", () => {
 });
 
 describe("real temporary repository workflow", () => {
+  it("discovers only the current directory and immediate child working trees", async () => {
+    const aggregate = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-aggregate-"));
+    temporaryDirectories.push(aggregate);
+    const alpha = path.join(aggregate, "alpha");
+    const beta = path.join(aggregate, "beta");
+    const nested = path.join(aggregate, "group", "nested");
+    const bare = path.join(aggregate, "bare.git");
+    fs.mkdirSync(alpha);
+    fs.mkdirSync(beta);
+    fs.mkdirSync(nested, { recursive: true });
+    git(alpha, "init");
+    git(beta, "init");
+    git(nested, "init");
+    git(aggregate, "init", "--bare", bare);
+    const session = { id: "aggregate-session", type: "windows", cwd: aggregate };
+    const service = createGitStatusService({ terminalManager: createTerminalManager(session), sessionStore: {} });
+
+    const result = await service.discoverRepositories(session.id);
+
+    expect(result.root).toBe(path.resolve(aggregate));
+    expect(result.repositories.map((repository) => repository.cwd)).toEqual([path.resolve(alpha), path.resolve(beta)]);
+    expect(result.repositories.map((repository) => repository.relativePath)).toEqual(["alpha", "beta"]);
+  });
+
+  it("deduplicates the containing repository when scanning from one of its directories", async () => {
+    const { directory, session, service } = createRepository();
+    const nested = path.join(directory, "src");
+    fs.mkdirSync(nested);
+    fs.mkdirSync(path.join(nested, "child"));
+    session.cwd = nested;
+
+    const result = await service.discoverRepositories(session.id);
+
+    expect(result.repositories).toEqual([expect.objectContaining({ cwd: path.resolve(directory), relativePath: ".." })]);
+  });
+
   it("stages, commits, preserves staged content when discarding, and unstages", async () => {
     const { directory, service } = createRepository();
     fs.writeFileSync(path.join(directory, "note.txt"), "initial\n", "utf-8");

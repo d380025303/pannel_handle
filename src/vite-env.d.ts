@@ -382,6 +382,17 @@ export type GitDirectoryChangeResult = {
   stashes: GitStashListResult;
 };
 
+export type GitRepositoryEntry = {
+  cwd: string;
+  name: string;
+  relativePath: string;
+};
+
+export type GitRepositoryDiscoveryResult = {
+  root: string;
+  repositories: GitRepositoryEntry[];
+};
+
 export type ProjectFileSearchResult = {
   path: string;
   relativePath: string;
@@ -713,6 +724,7 @@ export type GitApi = {
   changeDirectory: (sessionId: string, cwd: string) => Promise<GitDirectoryChangeResult>;
   getSnapshot: (sessionId: string) => Promise<GitRepositorySnapshot>;
   discoverRepository: (sessionId: string) => Promise<{ cwd: string }>;
+  discoverRepositories: (sessionId: string) => Promise<GitRepositoryDiscoveryResult>;
   chooseDirectory: (sessionId: string, currentDirectory: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   getStatus: (sessionId: string) => Promise<GitStatusResult>;
   getDiff: (sessionId: string, request: GitDiffRequest) => Promise<GitDiffResult>;

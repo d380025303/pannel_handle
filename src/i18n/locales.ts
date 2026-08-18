@@ -446,6 +446,10 @@ export type TranslationKey =
   | "git.directory"
   | "git.directoryPlaceholder"
   | "git.changeDirectory"
+  | "git.selectRepository"
+  | "git.scanRepositories"
+  | "git.scanningRepositories"
+  | "git.noRepositories"
   | "git.checkoutBranch"
   | "git.remoteBranch"
   | "git.stash"
@@ -995,6 +999,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.directory": "Git 工作目录",
     "git.directoryPlaceholder": "输入 Git 仓库绝对路径",
     "git.changeDirectory": "切换 Git 工作目录",
+    "git.selectRepository": "选择 Git 仓库",
+    "git.scanRepositories": "重新扫描仓库并刷新状态",
+    "git.scanningRepositories": "正在扫描仓库…",
+    "git.noRepositories": "当前目录及一级子目录中未发现 Git 仓库",
     "git.checkoutBranch": "切换分支",
     "git.remoteBranch": "（远程）",
     "git.stash": "储藏",
@@ -1536,6 +1544,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "git.directory": "Git working directory",
     "git.directoryPlaceholder": "Enter an absolute Git repository path",
     "git.changeDirectory": "Change Git working directory",
+    "git.selectRepository": "Select Git repository",
+    "git.scanRepositories": "Rescan repositories and refresh status",
+    "git.scanningRepositories": "Scanning repositories…",
+    "git.noRepositories": "No Git repositories found in this directory or its immediate children",
     "git.checkoutBranch": "Checkout branch",
     "git.remoteBranch": " (remote)",
     "git.stash": "Stash",

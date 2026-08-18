@@ -450,6 +450,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return gitStatusService.discoverRepository(sessionId);
   });
 
+  ipcMain.handle("git:discover-repositories", (_event, { sessionId }) => {
+    return gitStatusService.discoverRepositories(sessionId);
+  });
+
   ipcMain.handle("git:choose-directory", async (event, { sessionId, currentDirectory }) => {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.type !== "windows") return { canceled: true };

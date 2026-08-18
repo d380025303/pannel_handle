@@ -2911,13 +2911,25 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .git-directory-control {
-  grid-template-columns: minmax(0, 1fr) repeat(3, 30px);
+  grid-template-columns: minmax(0, 1fr) 30px;
   padding: 6px 10px;
   border-bottom: 0;
   background: transparent;
 }
 
-.git-directory-control > input {
+.git-directory-control .searchable-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.git-manual-directory-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, 30px);
+  gap: 6px;
+  padding: 0 10px 6px;
+}
+
+.git-manual-directory-control > input {
   min-width: 0;
   height: 30px;
   padding: 0 9px;
@@ -2930,7 +2942,7 @@ button.agent-usage-status[aria-expanded="true"] {
   font-size: 11px;
 }
 
-.git-directory-control > input:focus {
+.git-manual-directory-control > input:focus {
   border-color: var(--color-accent);
 }
 
@@ -3202,14 +3214,21 @@ button.agent-usage-status[aria-expanded="true"] {
   }
 
   .git-directory-control {
-    grid-template-columns: minmax(0, 1fr) repeat(3, 28px);
+    grid-template-columns: minmax(0, 1fr) 28px;
     gap: 4px;
     padding-inline: 8px;
   }
 
-  .git-directory-control .icon-button {
+  .git-directory-control .icon-button,
+  .git-manual-directory-control .icon-button {
     width: 28px;
     height: 28px;
+  }
+
+  .git-manual-directory-control {
+    grid-template-columns: minmax(0, 1fr) repeat(2, 28px);
+    gap: 4px;
+    padding-inline: 8px;
   }
 
   .git-branch-sync,

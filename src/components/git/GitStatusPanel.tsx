@@ -26,6 +26,7 @@ import type {
   GitDiffResult,
   GitHistoryEntry,
   GitOperationResult,
+  GitRepositoryEntry,
   GitRepositorySnapshot,
   GitStashEntry,
   GitStatusEntry,
@@ -58,6 +59,8 @@ type OperationState =
   | { status: "idle" }
   | { status: "running"; id: string; label: string }
   | { status: "success" | "error"; label: string; message: string; details: string; canceled?: boolean };
+
+type RepositoryScanState = "idle" | "loading" | "ready" | "error";
 
 type CommitDraft = { subject: string; body: string };
 type GitPanelSection = "repository" | "sync" | "commit";
@@ -102,6 +105,23 @@ function formatLineNumber(value?: number) {
 function repositoryName(cwd: string) {
   const segments = cwd.split(/[\\/]/).filter(Boolean);
   return segments.at(-1) || cwd;
+}
+
+function sameRepositoryPath(left: string, right: string, sessionType: TerminalSession["type"]) {
+  return sessionType === "windows"
+    ? left.localeCompare(right, undefined, { sensitivity: "base" }) === 0
+    : left === right;
+}
+
+function repositoryContainsPath(repositoryCwd: string, targetPath: string, sessionType: TerminalSession["type"]) {
+  const separator = sessionType === "windows" ? "\\" : "/";
+  const normalize = (value: string) => {
+    const normalized = value.replace(/[\\/]+$/, "");
+    return sessionType === "windows" ? normalized.toLocaleLowerCase() : normalized;
+  };
+  const repository = normalize(repositoryCwd);
+  const target = normalize(targetPath);
+  return target === repository || target.startsWith(`${repository}${separator}`);
 }
 
 function branchKey(branch: Pick<GitBranchEntry, "kind" | "name">) {
@@ -443,21 +463,25 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [directoryInput, setDirectoryInput] = useState("");
   const [directoryError, setDirectoryError] = useState("");
+  const [repositories, setRepositories] = useState<GitRepositoryEntry[]>([]);
+  const [repositoryScanState, setRepositoryScanState] = useState<RepositoryScanState>("idle");
   const [remoteSelection, setRemoteSelection] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [commitDraft, setCommitDraft] = useState<CommitDraft>({ subject: "", body: "" });
   const [operation, setOperation] = useState<OperationState>({ status: "idle" });
   const [sectionOverrides, setSectionOverrides] = useState<GitPanelSectionOverrides>({});
   const requestRef = useRef(0);
+  const repositoryScanRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const mountedRef = useRef(true);
   const sessionId = session?.id;
+  const sessionType = session?.type || "windows";
   const currentGitCwd = session?.gitCwd || session?.cwd || "";
   const repositoryKey = sessionId ? `${sessionId}:${currentGitCwd}` : "";
   const repositoryKeyRef = useRef(repositoryKey);
   repositoryKeyRef.current = repositoryKey;
   const snapshot = loadState.status === "ready" ? loadState.snapshot : undefined;
-  const busy = operation.status === "running" || loadState.status === "loading";
+  const busy = operation.status === "running" || loadState.status === "loading" || repositoryScanState === "loading";
 
   useEffect(() => () => { mountedRef.current = false; }, []);
   useEffect(() => {
@@ -467,6 +491,8 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
     setDiffState({ status: "idle" });
     setDirectoryInput(currentGitCwd);
     setDirectoryError("");
+    setRepositories([]);
+    setRepositoryScanState("loading");
     setOperation(repositoryOperations.get(repositoryKey) || { status: "idle" });
     setCommitDraft(commitDrafts.get(repositoryKey) || { subject: "", body: "" });
     setSectionOverrides(repositorySectionOverrides.get(repositoryKey) || {});
@@ -509,12 +535,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
   }, [applySnapshot, onSummaryChange, sessionId]);
 
   useEffect(() => {
-    void loadSnapshot();
-    return () => { requestRef.current += 1; };
-  }, [loadSnapshot]);
-
-  useEffect(() => {
-    if (!sessionId || view !== "changes") return;
+    if (!sessionId || view !== "changes" || loadState.status !== "ready") return;
     let stopped = false;
     let timer = 0;
     let delay = session?.type === "ssh" ? 5000 : 3000;
@@ -603,15 +624,21 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
     if (!sessionId) return;
     const next = value.trim();
     if (!next) return;
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
     setDirectoryError("");
     try {
       const result = await window.gitApi.changeDirectory(sessionId, next);
+      if (requestRef.current !== requestId || !mountedRef.current) return;
       setDirectoryInput(result.cwd);
+      setRepositories((current) => current.some((repository) => sameRepositoryPath(repository.cwd, result.cwd, sessionType))
+        ? current
+        : [...current, { cwd: result.cwd, name: repositoryName(result.cwd), relativePath: result.cwd }]);
       applySnapshot(result.snapshot);
     } catch (error) {
-      setDirectoryError(getErrorMessage(error));
+      if (requestRef.current === requestId && mountedRef.current) setDirectoryError(getErrorMessage(error));
     }
-  }, [applySnapshot, sessionId]);
+  }, [applySnapshot, sessionId, sessionType]);
 
   const discoverRepository = useCallback(async () => {
     if (!sessionId) return;
@@ -634,6 +661,42 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
     }
   }, [changeDirectory, currentGitCwd, directoryInput, session?.type, sessionId]);
 
+  const scanRepositories = useCallback(async () => {
+    if (!sessionId) return;
+    const scanRequestId = repositoryScanRequestRef.current + 1;
+    repositoryScanRequestRef.current = scanRequestId;
+    setRepositoryScanState("loading");
+    setDirectoryError("");
+    try {
+      const result = await window.gitApi.discoverRepositories(sessionId);
+      if (repositoryScanRequestRef.current !== scanRequestId || !mountedRef.current) return;
+      setRepositories(result.repositories);
+      setRepositoryScanState("ready");
+      if (result.repositories.length === 0) {
+        setLoadState({ status: "idle" });
+        onSummaryChange?.({ changes: 0, conflicts: 0 });
+        return;
+      }
+      const preferred = result.repositories.find((repository) => sameRepositoryPath(repository.cwd, currentGitCwd, sessionType))
+        || result.repositories.find((repository) => repositoryContainsPath(repository.cwd, result.root, sessionType))
+        || result.repositories[0];
+      await changeDirectory(preferred.cwd);
+    } catch (error) {
+      if (repositoryScanRequestRef.current !== scanRequestId || !mountedRef.current) return;
+      setRepositoryScanState("error");
+      setDirectoryError(getErrorMessage(error));
+      setLoadState((current) => current.status === "ready" ? current : { status: "error", message: getErrorMessage(error) });
+    }
+  }, [changeDirectory, currentGitCwd, onSummaryChange, sessionId, sessionType]);
+
+  useEffect(() => {
+    void scanRepositories();
+    return () => {
+      repositoryScanRequestRef.current += 1;
+      requestRef.current += 1;
+    };
+  }, [scanRepositories]);
+
   const openFileDiff = (file: GitStatusEntry, scope: "working" | "staged") => {
     void loadDiff({ scope, path: file.path, oldPath: file.oldPath, status: file.status, indexStatus: file.indexStatus, worktreeStatus: file.worktreeStatus }, formatFilePath(file));
   };
@@ -651,7 +714,12 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
   const remotes = snapshot?.remotes.remotes || [];
   const hasStaged = staged.length > 0;
   const operationBlocked = Boolean(snapshot?.operationState);
-  const directoryOptions = [...new Set([currentGitCwd, ...(session.gitCwdHistory || []), session.cwd].filter(Boolean))];
+  const selectedRepositoryCwd = snapshot?.cwd || currentGitCwd;
+  const repositoryOptions = repositories.map((repository) => ({
+    value: repository.cwd,
+    label: repository.relativePath === "." ? repository.name : `${repository.name} — ${repository.relativePath}`,
+    searchText: `${repository.name} ${repository.relativePath} ${repository.cwd}`
+  }));
   const repositoryLabel = repositoryName(snapshot?.cwd || currentGitCwd);
   const branchLabel = branch?.detached
     ? t("git.detachedHead")
@@ -659,7 +727,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
       ? t("git.unbornBranch")
       : branch?.name || t("git.noBranch");
   const hasCommitDraft = Boolean(commitDraft.subject.trim() || commitDraft.body.trim());
-  const repositorySmartOpen = loadState.status === "error" || Boolean(directoryError) || Boolean(branch?.detached || branch?.unborn);
+  const repositorySmartOpen = repositories.length > 1 || loadState.status === "error" || Boolean(directoryError) || Boolean(branch?.detached || branch?.unborn);
   const syncSmartOpen = Boolean(branch && (!branch.upstream || branch.ahead > 0 || branch.behind > 0));
   const commitSmartOpen = hasStaged || hasCommitDraft;
   const repositoryOpen = sectionOverrides.repository ?? repositorySmartOpen;
@@ -681,7 +749,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
             <h2>Git</h2>
             <span title={snapshot?.cwd || currentGitCwd}>{repositoryLabel}</span>
           </div>
-          <button className="icon-button" type="button" title={t("git.refreshStatus")} disabled={busy} onClick={() => void loadSnapshot()}><RefreshCw aria-hidden="true" /></button>
+          <button className="icon-button" type="button" title={t("git.scanRepositories")} disabled={busy} onClick={() => void scanRepositories()}><RefreshCw aria-hidden="true" /></button>
         </div>
 
         <div className="git-subtabs" role="tablist">
@@ -697,11 +765,21 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
           onToggle={() => toggleSection("repository", repositoryOpen)}
         >
           <div className="git-directory-control">
-            <input list={`git-directories-${sessionId}`} value={directoryInput} title={directoryInput} placeholder={t("git.directoryPlaceholder")} disabled={busy} onChange={(event) => setDirectoryInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void changeDirectory(directoryInput); }} />
-            <datalist id={`git-directories-${sessionId}`}>{directoryOptions.map((value) => <option value={value} key={value} />)}</datalist>
+            <SearchableSelect
+              value={selectedRepositoryCwd}
+              options={repositoryOptions}
+              disabled={busy || repositoryOptions.length === 0}
+              ariaLabel={t("git.selectRepository")}
+              placeholder={repositoryScanState === "loading" ? t("git.scanningRepositories") : t("git.noRepositories")}
+              menuMinWidth={320}
+              onChange={(value) => void changeDirectory(value)}
+            />
+            {session.type === "windows" && <button className="icon-button" type="button" title={t("git.browseDirectory")} disabled={busy} onClick={() => void browseDirectory()}><ChevronDown aria-hidden="true" /></button>}
+          </div>
+          <div className="git-manual-directory-control">
+            <input value={directoryInput} title={directoryInput} placeholder={t("git.directoryPlaceholder")} disabled={busy} onChange={(event) => setDirectoryInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void changeDirectory(directoryInput); }} />
             <button className="icon-button" type="button" title={t("git.changeDirectory")} disabled={busy || !directoryInput.trim()} onClick={() => void changeDirectory(directoryInput)}><FolderInput aria-hidden="true" /></button>
             <button className="icon-button" type="button" title={t("git.discoverRepository")} disabled={busy} onClick={() => void discoverRepository()}><Search aria-hidden="true" /></button>
-            {session.type === "windows" && <button className="icon-button" type="button" title={t("git.browseDirectory")} disabled={busy} onClick={() => void browseDirectory()}><ChevronDown aria-hidden="true" /></button>}
           </div>
           {directoryError && <div className="git-status-error"><span>{directoryError}</span><button type="button" onClick={() => setDirectoryError("")}>{t("git.dismiss")}</button></div>}
           {snapshot && (
@@ -751,7 +829,7 @@ export function GitStatusPanel({ session, onSummaryChange }: GitStatusPanelProps
 
         {snapshot?.operationState && <div className="git-sequencer-warning"><strong>{t("git.operationState", { state: snapshot.operationState })}</strong><span>{t("git.operationStateGuidance")}</span></div>}
 
-        {loadState.status === "loading" ? <div className="git-status-empty">{t("git.loadingStatus")}</div> : loadState.status === "error" ? (
+        {repositoryScanState === "ready" && repositories.length === 0 ? <div className="git-status-empty"><GitBranch aria-hidden="true" /><span>{t("git.noRepositories")}</span></div> : loadState.status === "loading" ? <div className="git-status-empty">{t("git.loadingStatus")}</div> : loadState.status === "error" ? (
           <div className="git-status-error"><span>{loadState.message}</span><button type="button" onClick={() => void loadSnapshot()}>{t("common.retry")}</button></div>
         ) : snapshot && view === "changes" ? (
           <div className="git-changes-view">

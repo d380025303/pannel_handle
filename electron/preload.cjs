@@ -211,6 +211,7 @@ contextBridge.exposeInMainWorld("gitApi", {
   changeDirectory: (sessionId, cwd) => ipcRenderer.invoke("git:change-directory", { sessionId, cwd }),
   getSnapshot: (sessionId) => ipcRenderer.invoke("git:snapshot", { sessionId }),
   discoverRepository: (sessionId) => ipcRenderer.invoke("git:discover-repository", { sessionId }),
+  discoverRepositories: (sessionId) => ipcRenderer.invoke("git:discover-repositories", { sessionId }),
   chooseDirectory: (sessionId, currentDirectory) => ipcRenderer.invoke("git:choose-directory", { sessionId, currentDirectory }),
   getStatus: (sessionId) => ipcRenderer.invoke("git:status", { sessionId }),
   getDiff: (sessionId, request) => ipcRenderer.invoke("git:diff", { sessionId, request }),

@@ -1,4 +1,5 @@
 const path = require("node:path");
+const fs = require("node:fs");
 const { spawn: defaultSpawn } = require("node:child_process");
 const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
 
@@ -9,6 +10,7 @@ const MAX_COMMAND_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_DIFF_ROWS = 5000;
 const HISTORY_PAGE_SIZE = 30;
+const REPOSITORY_DISCOVERY_CONCURRENCY = 6;
 
 const STATUS_CODES = new Set(["M", "A", "D", "R", "C", "U", "T", "?", "!"]);
 const BRANCH_FORMAT = "%(refname)%09%(refname:short)%09%(HEAD)%09%(objectname:short)%09%(committerdate:relative)";
@@ -409,12 +411,27 @@ function parseHistory(output) {
   });
 }
 
+async function mapWithConcurrency(values, concurrency, mapper) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function createGitStatusService({
   terminalManager,
   sessionStore,
   knownHostStore,
   sshSessionRuntime,
   spawn = defaultSpawn,
+  fsApi = fs,
   clientFactory = createDefaultSshClient
 }) {
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({ terminalManager, sessionStore, knownHostStore, clientFactory, timeoutMs: STATUS_TIMEOUT_MS });
@@ -443,9 +460,7 @@ function createGitStatusService({
     return normalizeWslPath(candidate);
   }
 
-  async function runSshCommand(session, args, options = {}) {
-    const cwd = getWorkingDirectory(session, options.cwd);
-    const command = `cd ${shellQuote(cwd)} && GIT_TERMINAL_PROMPT=0 git ${args.map(shellQuote).join(" ")}`;
+  async function runSshShellCommand(session, command, options = {}) {
     if (typeof sshRuntime.execStreaming !== "function") {
       const stdout = await sshRuntime.exec(session.id, command, {
         actionName: options.actionName,
@@ -485,6 +500,12 @@ function createGitStatusService({
       throw createCommandError(options.actionName || "Git command", result.exitCode, stdout, stderr, result.signal === "TERM");
     }
     return { stdout, stderr, truncated };
+  }
+
+  function runSshCommand(session, args, options = {}) {
+    const cwd = getWorkingDirectory(session, options.cwd);
+    const command = `cd ${shellQuote(cwd)} && GIT_TERMINAL_PROMPT=0 git ${args.map(shellQuote).join(" ")}`;
+    return runSshShellCommand(session, command, options);
   }
 
   function runGitForSession(session, args, options = {}) {
@@ -597,6 +618,72 @@ function createGitStatusService({
     const cwd = getWorkingDirectory(session, session.cwd);
     const result = await runGitForSession(session, ["rev-parse", "--show-toplevel"], { actionName: "Git repository discovery", cwd });
     return { cwd: result.stdout.trim() };
+  }
+
+  async function listImmediateDirectories(session, root) {
+    if (session.type === "windows") {
+      const entries = await fsApi.promises.readdir(root, { withFileTypes: true });
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(root, entry.name));
+    }
+
+    const args = [".", "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print0"];
+    let result;
+    if (session.type === "wsl") {
+      result = await runProcess(spawn, "wsl.exe", [
+        "-d",
+        validateWslDistro(session.wslDistro),
+        "--cd",
+        root,
+        "--exec",
+        "find",
+        ...args
+      ], { actionName: "Git repository directory scan" });
+    } else {
+      const command = `cd ${shellQuote(root)} && find ${args.map(shellQuote).join(" ")}`;
+      result = await runSshShellCommand(session, command, { actionName: "Git repository directory scan" });
+    }
+    if (result.truncated) throw new Error("Git repository directory scan output is too large.");
+    return result.stdout
+      .split("\0")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => path.posix.resolve(root, entry));
+  }
+
+  async function discoverRepositories(sessionId) {
+    const session = getSession(sessionId);
+    const root = getWorkingDirectory(session, session.cwd);
+    const childDirectories = await listImmediateDirectories(session, root);
+    const candidates = [root, ...childDirectories];
+    const discovered = await mapWithConcurrency(candidates, REPOSITORY_DISCOVERY_CONCURRENCY, async (candidate) => {
+      try {
+        const result = await runGitForSession(session, ["rev-parse", "--show-toplevel", "--is-inside-work-tree"], {
+          actionName: "Git repository discovery",
+          allowExitCodes: [0, 1, 128],
+          cwd: candidate
+        });
+        const lines = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        if (lines.at(-1) !== "true" || lines.length < 2) return null;
+        const cwd = session.type === "windows" ? normalizeWindowsPath(lines[0]) : normalizeWslPath(lines[0]);
+        const relativePath = session.type === "windows" ? path.relative(root, cwd) : path.posix.relative(root, cwd);
+        const name = session.type === "windows" ? path.basename(cwd) : path.posix.basename(cwd);
+        return { cwd, name: name || cwd, relativePath: relativePath || "." };
+      } catch {
+        return null;
+      }
+    });
+
+    const repositories = [];
+    const seen = new Set();
+    for (const repository of discovered) {
+      if (!repository) continue;
+      const key = session.type === "windows" ? repository.cwd.toLocaleLowerCase() : repository.cwd;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      repositories.push(repository);
+    }
+    repositories.sort((left, right) => left.cwd.localeCompare(right.cwd, undefined, { sensitivity: session.type === "windows" ? "base" : "variant" }));
+    return { root, repositories };
   }
 
   async function changeDirectory(sessionId, cwdValue) {
@@ -887,6 +974,7 @@ function createGitStatusService({
   return {
     changeDirectory,
     discoverRepository,
+    discoverRepositories,
     getSnapshot,
     getStatus,
     getDiff,
@@ -926,6 +1014,7 @@ module.exports = {
   MAX_DIFF_OUTPUT_BYTES,
   MAX_DIFF_ROWS,
   HISTORY_PAGE_SIZE,
+  REPOSITORY_DISCOVERY_CONCURRENCY,
   createGitStatusService,
   parsePorcelainStatus,
   parsePorcelainV2,
