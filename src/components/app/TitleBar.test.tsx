@@ -9,6 +9,13 @@ import { TitleBar } from "./TitleBar";
 
 const featureStyles = readFileSync(path.join(process.cwd(), "src/styles/features.css"), "utf8");
 
+function declarationsForSelector(styles: string, selector: string) {
+  return Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+    .filter((match) => match[1].split(",").some((candidate) => candidate.trim() === selector))
+    .map((match) => match[2])
+    .join("\n");
+}
+
 function createMobileAccessState(activeDevice: MobileAccessState["activeDevice"] = null): MobileAccessState {
   return {
     config: { enabled: true, interfaceName: "Ethernet", port: 6174 },
@@ -122,6 +129,24 @@ describe("TitleBar mobile access layout", () => {
 
     expect(onOpenPicker).toHaveBeenCalledTimes(1);
     expect(onOpenCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clip the quick Agent menu below the titlebar", () => {
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "快速创建本机 Agent 会话" }));
+
+    expect(screen.getByRole("menu").closest(".titlebar-brand")).not.toBeNull();
+    expect(declarationsForSelector(featureStyles, ".titlebar-brand")).not.toMatch(/overflow:\s*hidden/);
   });
 
   it("opens the Skills workspace from the title bar", () => {
