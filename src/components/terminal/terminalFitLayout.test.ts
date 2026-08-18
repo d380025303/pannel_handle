@@ -21,6 +21,13 @@ function getPadding(selector: string) {
 describe("terminal fit layout", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("fills the terminal panel without exposing xterm's black viewport background", () => {
+    expect(getPadding(".terminal-host .xterm")).toBe(0);
+    expect(getRules(".terminal-host .xterm .xterm-viewport")).toMatch(
+      /background-color:\s*var\(--color-bg-app\)/
+    );
+  });
+
   it("keeps every fitted row and column inside the visible terminal content box", () => {
     const hostPadding = getPadding(".terminal-host");
     const terminalPadding = getPadding(".terminal-host .xterm");

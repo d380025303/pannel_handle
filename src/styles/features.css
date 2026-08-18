@@ -346,14 +346,14 @@
 .terminal-host .xterm {
   width: 100%;
   height: 100%;
-  padding: 12px;
 }
 
-.xterm-viewport {
+.terminal-host .xterm .xterm-viewport {
+  background-color: var(--color-bg-app);
   scrollbar-width: none;
 }
 
-.xterm-viewport::-webkit-scrollbar {
+.terminal-host .xterm .xterm-viewport::-webkit-scrollbar {
   display: none;
 }
 
