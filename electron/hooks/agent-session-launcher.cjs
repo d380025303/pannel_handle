@@ -279,7 +279,7 @@ function createAgentSessionLauncher({
       try {
         return localBridge ? await finishLocalSsh(session) : await finishSsh(session);
       } catch (err) {
-        terminalManager.deleteSavedSession(session.templateId);
+        if (session.templateId) terminalManager.deleteSavedSession(session.templateId);
         throw err;
       }
     }

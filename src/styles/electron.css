@@ -12,6 +12,8 @@ input,
 .titlebar-settings-btn,
 .titlebar-actions,
 .titlebar-action-btn,
+.titlebar-quick-agent,
+.quick-agent-menu,
 .window-controls,
 .window-control {
   -webkit-app-region: no-drag;

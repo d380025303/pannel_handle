@@ -143,6 +143,46 @@ describe("terminal-manager", () => {
     expect(broadcast).toHaveBeenCalledWith("sessions:changed", [session]);
   });
 
+  it("creates a transient session without persisting or restoring it", () => {
+    const configStore = createConfigStoreMock();
+    const { manager, sessionStore } = createManager({ configStore });
+
+    const session = manager.createSession({
+      title: "Codex · work",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      persist: false
+    });
+
+    expect(session).toMatchObject({
+      id: "run-1",
+      title: "Codex · work",
+      cwd: "C:\\work",
+      agentProvider: "codex"
+    });
+    expect(session.templateId).toBeUndefined();
+    expect(sessionStore.addToLibrary).not.toHaveBeenCalled();
+    expect(configStore.updateConfig).not.toHaveBeenCalled();
+
+    const secondSession = manager.createSession({
+      title: "Codex · work",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      persist: false
+    });
+    expect(secondSession.title).toBe("Codex · work #2");
+    expect(secondSession.templateId).toBeUndefined();
+
+    manager.renameSession(session.id, "Temporary Agent");
+    manager.updateSession(session.id, { cwd: "C:\\next" });
+    expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
+
+    manager.closeSession(session.id);
+    manager.closeSession(secondSession.id);
+    expect(manager.listSessions()).toEqual([]);
+    expect(configStore.getConfig().lastActiveSessionIds).toEqual([]);
+  });
+
   it("rolls back the runtime session when PTY startup fails", () => {
     const spawnError = new Error("spawn failed");
     const { manager, sessionStore } = createManager({

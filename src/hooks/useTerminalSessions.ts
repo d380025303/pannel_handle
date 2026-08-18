@@ -12,6 +12,7 @@ type CreateSessionOptions = {
   agentLocation?: AgentLocation;
   sshConfig?: SshConfig;
   tags?: string[];
+  persist?: boolean;
 };
 
 export function useTerminalSessions() {
@@ -113,7 +114,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, tags }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, tags, persist }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -125,9 +126,12 @@ export function useTerminalSessions() {
       ...(initialCommand ? { initialCommand } : {}),
       ...(agentProvider ? { agentProvider } : {}),
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
-      tags
+      tags,
+      ...(typeof persist === "boolean" ? { persist } : {})
     });
-    setLibrarySessions(await window.terminalApi.loadSavedSessions());
+    if (persist !== false) {
+      setLibrarySessions(await window.terminalApi.loadSavedSessions());
+    }
     setActiveId(session.id);
   }, []);
 

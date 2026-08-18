@@ -1,4 +1,6 @@
 .custom-titlebar {
+  position: relative;
+  z-index: 50;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   grid-template-areas: "brand mobile session controls";
@@ -41,6 +43,41 @@
   gap: 4px;
 }
 
+.titlebar-quick-agent {
+  position: relative;
+  display: inline-flex;
+}
+
+.quick-agent-menu {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
+.quick-agent-menu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-agent-menu button:hover,
+.quick-agent-menu button:focus-visible {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
 .titlebar-session {
   grid-area: session;
   min-width: 0;
@@ -74,6 +111,11 @@
   border-color: var(--color-success);
   color: var(--color-text);
   background: var(--color-success-bg);
+}
+
+.titlebar-action-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .titlebar-settings-btn svg,

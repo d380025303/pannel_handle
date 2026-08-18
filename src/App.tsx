@@ -11,6 +11,7 @@ import { GitStatusPanel } from "./components/git/GitStatusPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
 import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
+import { getAgentProviderLabel } from "./components/sessions/agentProviders";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { TerminalComposer } from "./components/terminal/TerminalComposer";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
@@ -83,6 +84,7 @@ type AppContentProps = {
 function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const { t } = useI18n();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [quickAgentError, setQuickAgentError] = useState<string | null>(null);
   const [wslDistros, setWslDistros] = useState<string[]>([]);
   const [editDialogSession, setEditDialogSession] = useState<TerminalSession | null>(null);
   const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
@@ -294,6 +296,41 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setShowCreateModal(false);
   }, [remoteFilesDirty, terminalSessions, t]);
 
+  const handleQuickCreateAgent = useCallback(async (provider: AgentProvider) => {
+    if (remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
+      return;
+    }
+    if (skillsDirty && !window.confirm(t("skills.discardChanges"))) {
+      return;
+    }
+
+    setQuickAgentError(null);
+    const activeSession = terminalSessions.activeSession;
+    const defaultPath = activeSession?.type === "windows" && activeSession.cwd !== "~"
+      ? activeSession.cwd
+      : undefined;
+
+    try {
+      const selection = await window.hookConfigApi.selectProjectDirectory(defaultPath);
+      if (selection.canceled) return;
+      const normalizedPath = selection.path.replace(/[\\/]+$/, "");
+      const directoryName = normalizedPath.split(/[\\/]/).pop() || selection.path;
+      await terminalSessions.createSession({
+        selectedShellId: "powershell",
+        title: `${getAgentProviderLabel(provider)} · ${directoryName}`,
+        cwd: selection.path,
+        agentProvider: provider,
+        persist: false
+      });
+      setShowTokenStats(false);
+      setShowSkills(false);
+      setSkillsDirty(false);
+      setWorkspaceTab("terminal");
+    } catch (err: any) {
+      setQuickAgentError(err?.message || t("session.createFailed"));
+    }
+  }, [remoteFilesDirty, skillsDirty, t, terminalSessions]);
+
   const handleCloseSession = useCallback(async (id: string) => {
     if (id === terminalSessions.activeId && remoteFilesDirty && !window.confirm(t("confirm.discardUnsavedFileChanges"))) {
       return;
@@ -470,6 +507,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onOpenSettings={() => setShowSettingsModal(true)}
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
+          onQuickCreateAgent={handleQuickCreateAgent}
           onOpenStats={() => {
             if (skillsDirty && !window.confirm(t("skills.discardChanges"))) return;
             setShowSkills(false);
@@ -484,6 +522,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           <div className="startup-error-banner" role="alert">
             <span>{terminalSessions.startupError}</span>
             <button type="button" onClick={terminalSessions.clearStartupError} aria-label={t("common.close")}>×</button>
+          </div>
+        )}
+        {quickAgentError && (
+          <div className="startup-error-banner" role="alert">
+            <span>{quickAgentError}</span>
+            <button type="button" onClick={() => setQuickAgentError(null)} aria-label={t("common.close")}>×</button>
           </div>
         )}
 

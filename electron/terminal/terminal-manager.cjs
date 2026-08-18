@@ -293,10 +293,10 @@ function createTerminalManager({
     return id;
   }
 
-  function getRuntimeTitle(template) {
+  function getRuntimeTitle(template, matchTemplate = true) {
     const usedTitles = new Set(
       Array.from(sessions.values())
-        .filter(session => session.templateId === template.id)
+        .filter(session => matchTemplate ? session.templateId === template.id : !session.templateId)
         .map(session => session.title)
     );
 
@@ -497,11 +497,12 @@ function createTerminalManager({
       validateSsh2Config(template.sshConfig);
     }
     const id = createRuntimeId();
+    const templateId = options.persist === false ? undefined : template.id;
     const session = {
       ...template,
       id,
-      templateId: template.id,
-      title: getRuntimeTitle(template),
+      templateId,
+      title: getRuntimeTitle(template, Boolean(templateId)),
       agentRuntimeProvider: template.agentProvider,
       createdAt: Date.now()
     };
@@ -540,6 +541,7 @@ function createTerminalManager({
   }
 
   function createSession(options = {}) {
+    const persist = options.persist !== false;
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
     const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : getDefaultShell());
@@ -571,8 +573,10 @@ function createTerminalManager({
       tags: options.tags || []
     };
 
-    const session = startSessionFromTemplate(template, options);
-    sessionStore.addToLibrary(template);
+    const session = startSessionFromTemplate(template, { ...options, persist });
+    if (persist) {
+      sessionStore.addToLibrary(template);
+    }
     broadcast("sessions:changed", listSessions());
     syncLastActiveIds();
 
@@ -613,7 +617,9 @@ function createTerminalManager({
       return listSessions();
     }
     session.title = title.trim() || session.title;
-    sessionStore.updateLibrary(session.templateId || id, { title: session.title });
+    if (session.templateId) {
+      sessionStore.updateLibrary(session.templateId, { title: session.title });
+    }
     broadcast("sessions:changed", listSessions());
     syncLastActiveIds();
     return listSessions();
@@ -634,8 +640,8 @@ function createTerminalManager({
       }
       return listSessions();
     }
-    const templateId = session.templateId || id;
-    const template = sessionStore.getTemplate(templateId);
+    const templateId = session.templateId;
+    const template = templateId ? sessionStore.getTemplate(templateId) : undefined;
     const previousTitle = session.title;
     const libraryUpdates = {};
     if (typeof title === "string") {
@@ -675,7 +681,7 @@ function createTerminalManager({
       session.quickCommands = quickCommands;
       libraryUpdates.quickCommands = quickCommands;
       for (const [sid, s] of sessions) {
-        if (sid !== id && s.templateId === templateId) {
+        if (templateId && sid !== id && s.templateId === templateId) {
           s.quickCommands = quickCommands;
         }
       }
@@ -688,7 +694,7 @@ function createTerminalManager({
       session.tags = normalizedTags;
       libraryUpdates.tags = normalizedTags;
       for (const [sid, s] of sessions) {
-        if (sid !== id && s.templateId === templateId) {
+        if (templateId && sid !== id && s.templateId === templateId) {
           s.tags = normalizedTags;
         }
       }
@@ -709,7 +715,9 @@ function createTerminalManager({
       session.sshConfig = normalizedSshConfig;
       session.sshSecret = getSshSecret(session);
     }
-    sessionStore.updateLibrary(templateId, libraryUpdates);
+    if (templateId) {
+      sessionStore.updateLibrary(templateId, libraryUpdates);
+    }
     broadcast("sessions:changed", listSessions());
     syncLastActiveIds();
     return listSessions();

@@ -117,6 +117,8 @@ export type TranslationKey =
   | "session.initialCommandPlaceholder"
   | "session.agentCli"
   | "session.normalTerminal"
+  | "session.quickAgent"
+  | "session.quickAgentMenu"
   | "session.agentCwdRequired"
   | "session.preLaunchCommand"
   | "session.agentLocation"
@@ -707,6 +709,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.initialCommandPlaceholder": "输入初始命令（可选），如：{example}",
     "session.agentCli": "Agent CLI",
     "session.normalTerminal": "普通终端",
+    "session.quickAgent": "快速创建本机 Agent 会话",
+    "session.quickAgentMenu": "选择本机 Agent",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.agentLocation": "Agent 运行位置",
@@ -1289,6 +1293,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.initialCommandPlaceholder": "Enter an optional initial command, for example: {example}",
     "session.agentCli": "Agent CLI",
     "session.normalTerminal": "Terminal",
+    "session.quickAgent": "Quick-create local Agent session",
+    "session.quickAgentMenu": "Choose local Agent",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
     "session.agentLocation": "Agent location",

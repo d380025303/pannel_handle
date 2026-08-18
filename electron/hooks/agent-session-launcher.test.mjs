@@ -123,6 +123,23 @@ describe("agent-session-launcher", () => {
     }));
   });
 
+  it("forwards transient creation to the terminal manager", async () => {
+    const mocks = createMocks();
+
+    await mocks.launcher.createSession({
+      type: "windows",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      persist: false
+    });
+
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: "codex",
+      persist: false,
+      runtimeInitialCommand: "codex"
+    }));
+  });
+
   it("does not create a local session when the CLI is missing", async () => {
     const mocks = createMocks();
     mocks.spawnSync.mockReturnValue({ status: 1 });

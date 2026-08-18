@@ -1,6 +1,8 @@
-import { BarChart3, BookOpen, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BarChart3, BookOpen, Bot, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { MobileAccessState } from "../../vite-env";
+import type { AgentProvider, MobileAccessState } from "../../vite-env";
+import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
 
 type TitleBarProps = {
   activeTitle?: string;
@@ -8,13 +10,45 @@ type TitleBarProps = {
   onOpenSettings: () => void;
   onOpenPicker: () => void;
   onOpenCreate: () => void;
+  onQuickCreateAgent?: (provider: AgentProvider) => Promise<void>;
   onOpenStats?: () => void;
   onOpenSkills?: () => void;
   mobileAccessState: MobileAccessState | null;
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onOpenStats, onOpenSkills }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSkills }: TitleBarProps) {
   const { t } = useI18n();
+  const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
+  const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
+  const quickAgentMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!quickAgentMenuOpen) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!quickAgentMenuRef.current?.contains(event.target as Node)) {
+        setQuickAgentMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setQuickAgentMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [quickAgentMenuOpen]);
+
+  const handleQuickCreate = async (provider: AgentProvider) => {
+    setQuickAgentMenuOpen(false);
+    setCreatingProvider(provider);
+    try {
+      await onQuickCreateAgent?.(provider);
+    } finally {
+      setCreatingProvider(undefined);
+    }
+  };
 
   return (
     <header className="custom-titlebar" onDoubleClick={() => window.windowApi.toggleMaximize()}>
@@ -41,6 +75,34 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSe
           >
             <Library aria-hidden="true" />
           </button>
+          <div className="titlebar-quick-agent" ref={quickAgentMenuRef}>
+            <button
+              className="titlebar-action-btn"
+              type="button"
+              title={t("session.quickAgent")}
+              aria-label={t("session.quickAgent")}
+              aria-haspopup="menu"
+              aria-expanded={quickAgentMenuOpen}
+              disabled={Boolean(creatingProvider)}
+              onClick={() => setQuickAgentMenuOpen((open) => !open)}
+            >
+              <Bot aria-hidden="true" />
+            </button>
+            {quickAgentMenuOpen && (
+              <div className="quick-agent-menu" role="menu" aria-label={t("session.quickAgentMenu")}>
+                {AGENT_PROVIDER_OPTIONS.map((provider) => (
+                  <button
+                    key={provider.value}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void handleQuickCreate(provider.value)}
+                  >
+                    {provider.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             className="titlebar-action-btn primary"
             type="button"

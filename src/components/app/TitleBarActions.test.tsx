@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TitleBar } from "./TitleBar";
 
@@ -34,5 +34,51 @@ describe("TitleBar session actions", () => {
 
     expect(onOpenPicker).toHaveBeenCalledTimes(1);
     expect(onOpenCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("quick-creates a selected local Agent from the title bar menu", async () => {
+    const onQuickCreateAgent = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+        onQuickCreateAgent={onQuickCreateAgent}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "快速创建本机 Agent 会话" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Claude",
+      "Codex",
+      "CodeBuddy",
+      "OpenCode",
+      "Qoder"
+    ]);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));
+    await waitFor(() => expect(onQuickCreateAgent).toHaveBeenCalledWith("codex"));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes the quick Agent menu with Escape", () => {
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "快速创建本机 Agent 会话" }));
+    expect(screen.getByRole("menu")).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

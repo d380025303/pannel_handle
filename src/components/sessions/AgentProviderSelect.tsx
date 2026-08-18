@@ -1,22 +1,18 @@
 import type { AgentProvider } from "../../vite-env";
 import { useI18n } from "../../i18n";
+import { AGENT_PROVIDER_OPTIONS } from "./agentProviders";
 
 type AgentProviderSelectProps = {
   value?: AgentProvider;
   onChange: (provider?: AgentProvider) => void;
 };
 
-const providers: Array<{ value?: AgentProvider; label: string }> = [
-  { label: "Terminal" },
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-  { value: "codebuddy", label: "CodeBuddy" },
-  { value: "opencode", label: "OpenCode" },
-  { value: "qoder", label: "Qoder" }
-];
-
 export function AgentProviderSelect({ value, onChange }: AgentProviderSelectProps) {
   const { t } = useI18n();
+  const providers: Array<{ value?: AgentProvider; label: string }> = [
+    { label: t("session.normalTerminal") },
+    ...AGENT_PROVIDER_OPTIONS
+  ];
   return (
     <fieldset className="modal-field agent-provider-field">
       <legend className="modal-label">{t("session.agentCli")}</legend>
@@ -28,7 +24,7 @@ export function AgentProviderSelect({ value, onChange }: AgentProviderSelectProp
             key={provider.value || "terminal"}
             onClick={() => onChange(provider.value)}
           >
-            {provider.value ? provider.label : t("session.normalTerminal")}
+            {provider.label}
           </button>
         ))}
       </div>
