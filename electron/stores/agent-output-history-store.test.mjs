@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -74,5 +74,77 @@ describe("agent-output-history-store", () => {
     const [run] = store.list("template-1");
     expect(Buffer.byteLength(run.output, "utf-8")).toBe(16 * 1024);
     expect(run.truncated).toBe(true);
+  });
+
+  it("persists structured responses immediately and exposes the active run", () => {
+    const onChanged = vi.fn();
+    const { store, historyFile } = createStore({
+      getPolicy: () => ({ maxEntries: 10, maxOutputBytes: 16 * 1024 }),
+      now: () => 300,
+      onChanged
+    });
+    store.load();
+    const session = {
+      id: "run-1",
+      templateId: "template-1",
+      title: "Codex",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      createdAt: 100
+    };
+    store.start(session);
+
+    store.recordResponse(session, {
+      id: "turn-1",
+      dedupeKey: "codex:agent-1:turn-1",
+      content: "第一条最终答复",
+      createdAt: 200
+    });
+
+    expect(store.listResponses({ scope: "current", sessionId: "run-1" })).toEqual({
+      total: 1,
+      runs: [expect.objectContaining({
+        id: "run-1",
+        templateId: "template-1",
+        responses: [{ id: "turn-1", content: "第一条最终答复", createdAt: 200, truncated: false }]
+      })]
+    });
+    expect(JSON.parse(fs.readFileSync(historyFile, "utf-8"))["terminal:template-1"][0].responses).toHaveLength(1);
+    expect(onChanged).toHaveBeenCalledWith({ sessionId: "run-1", timestamp: 300 });
+  });
+
+  it("deduplicates stable turns and lists closed ephemeral runs globally", () => {
+    const { store } = createStore({
+      getPolicy: () => ({ maxEntries: 10, maxOutputBytes: 16 * 1024 })
+    });
+    store.load();
+    const session = { id: "quick-1", title: "Codex", cwd: "C:\\work", agentProvider: "codex" };
+    store.start(session);
+    store.recordResponse(session, { dedupeKey: "codex:agent-1:turn-1", content: "旧内容" });
+    store.recordResponse(session, { dedupeKey: "codex:agent-1:turn-1", content: "更新内容" });
+    store.finish(session.id);
+
+    const result = store.listResponses({ scope: "all" });
+    expect(result.total).toBe(1);
+    expect(result.runs[0]).toEqual(expect.objectContaining({
+      id: "quick-1",
+      templateId: undefined,
+      responses: [expect.objectContaining({ content: "更新内容" })]
+    }));
+  });
+
+  it("keeps the newest responses inside the configured byte limit", () => {
+    const { store } = createStore({
+      getPolicy: () => ({ maxEntries: 10, maxOutputBytes: 16 * 1024 })
+    });
+    store.load();
+    const session = { id: "run-1", title: "Agent", agentProvider: "qoder" };
+    store.start(session);
+    store.recordResponse(session, { id: "first", content: "a".repeat(10 * 1024) });
+    store.recordResponse(session, { id: "second", content: "b".repeat(10 * 1024) });
+
+    const [run] = store.listResponses({ scope: "current", sessionId: session.id }).runs;
+    expect(run.responses.map(response => response.id)).toEqual(["second"]);
+    expect(run.responsesTruncated).toBe(true);
   });
 });

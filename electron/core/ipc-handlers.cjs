@@ -50,7 +50,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, agentOutputHistoryStore, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -237,6 +237,20 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
+
+  ipcMain.handle("agent-output-history:list", (_event, options = {}) => {
+    const input = options && typeof options === "object" ? options : {};
+    const scope = input.scope === "current" ? "current" : "all";
+    const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+    return agentOutputHistoryStore.listResponses({
+      scope,
+      sessionId,
+      offset: input.offset,
+      limit: input.limit
+    });
+  });
+
+  ipcMain.handle("agent-output-history:has-any", () => agentOutputHistoryStore.hasAnyResponses());
 
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
 

@@ -797,6 +797,12 @@ function createTerminalManager({
     return Array.from(sessions.values());
   }
 
+  function recordAgentResponse(id, response) {
+    const session = sessions.get(id);
+    if (!session) return undefined;
+    return agentOutputHistoryStore?.recordResponse(session, response);
+  }
+
   function reorderRunningSessions(orderedIds) {
     const idSet = new Set(orderedIds);
     for (const id of sessionOrder) {
@@ -841,6 +847,7 @@ function createTerminalManager({
     resize,
     getSession,
     getSessions,
+    recordAgentResponse,
     broadcastAgentStatus,
     broadcastAgentHookDebug,
     shutdown,

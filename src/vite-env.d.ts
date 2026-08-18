@@ -669,6 +669,32 @@ export type TerminalApi = {
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;
 };
 
+export type AgentOutputResponse = {
+  id: string;
+  createdAt: number;
+  content: string;
+  truncated: boolean;
+};
+
+export type AgentOutputRun = {
+  id: string;
+  templateId?: string;
+  provider: AgentProvider;
+  title: string;
+  cwd?: string;
+  startedAt: number;
+  finishedAt: number | null;
+  exitCode: number | null;
+  responsesTruncated: boolean;
+  responses: AgentOutputResponse[];
+};
+
+export type AgentOutputApi = {
+  list: (options?: { scope?: "current" | "all"; sessionId?: string; offset?: number; limit?: number }) => Promise<{ runs: AgentOutputRun[]; total: number }>;
+  hasAny: () => Promise<boolean>;
+  onChanged: (callback: (payload: { sessionId: string; timestamp: number }) => void) => () => void;
+};
+
 export type WindowApi = {
   minimize: () => void;
   toggleMaximize: () => void;
@@ -830,6 +856,7 @@ export type DingTalkApi = {
 declare global {
   interface Window {
     terminalApi: TerminalApi;
+    agentOutputApi: AgentOutputApi;
     launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;
     clipboardApi: ClipboardApi;

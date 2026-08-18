@@ -126,6 +126,37 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return undefined;
   }
 
+  function normalizeFinalResponseValue(value) {
+    if (typeof value === "string") return value.trim() || undefined;
+    if (!value || typeof value !== "object") return undefined;
+    if (typeof value.content === "string") return value.content.trim() || undefined;
+    if (typeof value.text === "string") return value.text.trim() || undefined;
+    if (Array.isArray(value.content)) {
+      const text = value.content
+        .map(item => typeof item === "string" ? item : item?.text)
+        .filter(item => typeof item === "string" && item.trim())
+        .join("\n")
+        .trim();
+      return text || undefined;
+    }
+    return undefined;
+  }
+
+  function getFinalResponseContent(input) {
+    for (const value of [input.last_assistant_message, input.lastAssistantMessage, input.message]) {
+      const content = normalizeFinalResponseValue(value);
+      if (content) return content;
+    }
+    return undefined;
+  }
+
+  function getResponseDedupeKey(provider, input) {
+    const turnId = input.turn_id || input.turnId || input.event_id || input.eventId || input.message_id || input.messageId;
+    if (typeof turnId !== "string" || !turnId.trim()) return undefined;
+    const agentSessionId = getAgentSessionId(input) || "unknown";
+    return `${provider}:${agentSessionId}:${turnId.trim()}`;
+  }
+
   function formatToolSummary(input, detail) {
     const toolName = firstSummaryValue(getToolName(input));
     const detailText = formatSummaryValue(detail);
@@ -225,6 +256,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     for (const fieldName of [
       "hook_event_name",
       "session_id",
+      "turn_id",
+      "event_id",
       "transcript_path",
       "cwd",
       "last_assistant_message",
@@ -502,6 +535,16 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       activitySummary,
       ...(resolution !== undefined ? { resolution } : {})
     });
+    if (status === "completed") {
+      const content = getFinalResponseContent(input);
+      if (content && typeof terminalManager.recordAgentResponse === "function") {
+        const dedupeKey = getResponseDedupeKey(provider, input);
+        terminalManager.recordAgentResponse(session.id, {
+          ...(dedupeKey ? { id: dedupeKey, dedupeKey } : {}),
+          content
+        });
+      }
+    }
     agentTokenStatsService?.handleHook({ provider, input, session });
     return true;
   }

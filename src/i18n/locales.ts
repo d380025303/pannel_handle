@@ -311,6 +311,20 @@ export type TranslationKey =
   | "tabs.terminal"
   | "tabs.workspace"
   | "tabs.debug"
+  | "tabs.agentOutput"
+  | "agentOutput.title"
+  | "agentOutput.scope"
+  | "agentOutput.current"
+  | "agentOutput.all"
+  | "agentOutput.responseCount"
+  | "agentOutput.emptyCurrent"
+  | "agentOutput.emptyAll"
+  | "agentOutput.hookRequired"
+  | "agentOutput.loadFailed"
+  | "agentOutput.loadMore"
+  | "agentOutput.copy"
+  | "agentOutput.historyTruncated"
+  | "agentOutput.responseTruncated"
   | "debug.eventsCount"
   | "debug.clearEvents"
   | "debug.providerFilter"
@@ -903,6 +917,20 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "终端",
     "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
+    "tabs.agentOutput": "Agent 输出",
+    "agentOutput.title": "Agent 最终答复",
+    "agentOutput.scope": "答复历史范围",
+    "agentOutput.current": "当前会话",
+    "agentOutput.all": "全部历史",
+    "agentOutput.responseCount": "{count} 条答复",
+    "agentOutput.emptyCurrent": "当前会话还没有最终答复",
+    "agentOutput.emptyAll": "还没有可查看的 Agent 最终答复",
+    "agentOutput.hookRequired": "完成答复后会自动保存在这里；需要对应 Agent Hook 正常工作。",
+    "agentOutput.loadFailed": "加载 Agent 答复失败",
+    "agentOutput.loadMore": "加载更多",
+    "agentOutput.copy": "复制答复",
+    "agentOutput.historyTruncated": "较早的答复已按输出大小限制清理。",
+    "agentOutput.responseTruncated": "这条答复已达到保存大小上限。",
     "debug.eventsCount": "{count} 个 hook 事件",
     "debug.clearEvents": "清除事件",
     "debug.providerFilter": "Provider 过滤",
@@ -1487,6 +1515,20 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.terminal": "Terminal",
     "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
+    "tabs.agentOutput": "Agent output",
+    "agentOutput.title": "Agent final responses",
+    "agentOutput.scope": "Response history scope",
+    "agentOutput.current": "Current session",
+    "agentOutput.all": "All history",
+    "agentOutput.responseCount": "{count} responses",
+    "agentOutput.emptyCurrent": "No final response for the current session yet",
+    "agentOutput.emptyAll": "No Agent final responses are available yet",
+    "agentOutput.hookRequired": "Completed responses are saved here automatically when the corresponding Agent Hook is working.",
+    "agentOutput.loadFailed": "Failed to load Agent responses",
+    "agentOutput.loadMore": "Load more",
+    "agentOutput.copy": "Copy response",
+    "agentOutput.historyTruncated": "Older responses were removed by the output size limit.",
+    "agentOutput.responseTruncated": "This response reached the saved output size limit.",
     "debug.eventsCount": "{count} hook events",
     "debug.clearEvents": "Clear events",
     "debug.providerFilter": "Provider filter",

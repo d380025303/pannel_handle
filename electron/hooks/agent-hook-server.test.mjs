@@ -13,7 +13,8 @@ function createServer() {
     getSession: vi.fn((id) => id === session.id ? session : undefined),
     getSessions: vi.fn(() => [session]),
     broadcastAgentStatus: vi.fn(),
-    broadcastAgentHookDebug: vi.fn()
+    broadcastAgentHookDebug: vi.fn(),
+    recordAgentResponse: vi.fn()
   };
   const agentTokenStatsService = {
     handleHook: vi.fn()
@@ -100,6 +101,50 @@ describe("agent-hook-server", () => {
       status: "completed",
       eventName: "Stop"
     }));
+  });
+
+  it.each([
+    ["claude", "Stop"],
+    ["codex", "Stop"],
+    ["codebuddy", "Stop"],
+    ["qoder", "Stop"],
+    ["opencode", "session.idle"]
+  ])("records the complete final response for %s", (provider, eventName) => {
+    const { server, terminalManager } = createServer();
+    const content = `# 完成\n\n${"长答复".repeat(300)}`;
+
+    server.handleAgentHook(provider, {
+      hook_event_name: eventName,
+      event_name: eventName,
+      session_id: `${provider}-1`,
+      turn_id: "turn-1",
+      pannel_handle_session_id: "run-1",
+      last_assistant_message: content
+    });
+
+    expect(terminalManager.recordAgentResponse).toHaveBeenCalledWith("run-1", {
+      id: `${provider}:${provider}-1:turn-1`,
+      dedupeKey: `${provider}:${provider}-1:turn-1`,
+      content
+    });
+  });
+
+  it("does not record prompts or empty completion events as final responses", () => {
+    const { server, terminalManager } = createServer();
+
+    server.handleAgentHook("codex", {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "codex-1",
+      pannel_handle_session_id: "run-1",
+      prompt: "请修复问题"
+    });
+    server.handleAgentHook("codex", {
+      hook_event_name: "Stop",
+      session_id: "codex-1",
+      pannel_handle_session_id: "run-1"
+    });
+
+    expect(terminalManager.recordAgentResponse).not.toHaveBeenCalled();
   });
 
   it("maps Codex clear SessionStart to cleared without an activity summary", () => {

@@ -68,6 +68,16 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("agentOutputApi", {
+  list: (options) => ipcRenderer.invoke("agent-output-history:list", options),
+  hasAny: () => ipcRenderer.invoke("agent-output-history:has-any"),
+  onChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("agent-output-history:changed", listener);
+    return () => ipcRenderer.removeListener("agent-output-history:changed", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("launchTemplateApi", {
   list: () => ipcRenderer.invoke("launch-templates:list"),
   create: (input) => ipcRenderer.invoke("launch-templates:create", input),

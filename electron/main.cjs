@@ -158,6 +158,7 @@ if (!gotSingleInstanceLock) {
     mobileAccessStore.load();
     agentOutputHistoryStore = createAgentOutputHistoryStore({
       historyFile: path.join(app.getPath("userData"), "listener-agent-history.json"),
+      onChanged: (payload) => windowManager.broadcast("agent-output-history:changed", payload),
       getPolicy: () => {
         const config = configStore.getConfig();
         return {
@@ -380,6 +381,7 @@ if (!gotSingleInstanceLock) {
       workBuddyCheckinService,
       agentTokenStatsStore,
       agentTokenStatsService,
+      agentOutputHistoryStore,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,
