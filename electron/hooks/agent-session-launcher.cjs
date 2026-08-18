@@ -1,4 +1,5 @@
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const os = require("node:os");
 
 const AGENT_COMMANDS = Object.freeze({
   claude: "claude",
@@ -90,8 +91,14 @@ function createAgentSessionLauncher({
   remoteAgentBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
-  getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+  getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  getHomeDirectory = () => os.homedir()
 }) {
+  function resolveDefaultWorkingDirectory(session) {
+    if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
+    return { ...session, cwd: getHomeDirectory() };
+  }
+
   function resolveLocalShell(session) {
     if (session.type !== "windows" || session.shell) return session;
     return { ...session, shell: getDefaultShell() };
@@ -268,7 +275,7 @@ function createAgentSessionLauncher({
   async function createSession(options = {}) {
     let request = { ...options, type: options.type || "windows" };
     if (!request.agentProvider) return terminalManager.createSession(request);
-    request = resolveLocalShell(request);
+    request = resolveLocalShell(resolveDefaultWorkingDirectory(request));
     validateAgentSession(request);
     if (request.type === "ssh") {
       const localBridge = request.agentLocation === "local";

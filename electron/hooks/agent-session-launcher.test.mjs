@@ -123,6 +123,25 @@ describe("agent-session-launcher", () => {
     }));
   });
 
+  it("defaults a Windows Agent session to the current user directory", async () => {
+    const getHomeDirectory = vi.fn(() => "C:\\Users\\tester");
+    const mocks = createMocks({ getHomeDirectory });
+
+    await mocks.launcher.createSession({ type: "windows", agentProvider: "codex", persist: false });
+
+    expect(getHomeDirectory).toHaveBeenCalledTimes(1);
+    expect(mocks.hookConfigManager.inspect).toHaveBeenCalledWith(
+      { type: "windows", path: "C:\\Users\\tester" },
+      ["codex"]
+    );
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: "C:\\Users\\tester",
+      agentProvider: "codex",
+      persist: false,
+      runtimeInitialCommand: "codex"
+    }));
+  });
+
   it("forwards transient creation to the terminal manager", async () => {
     const mocks = createMocks();
 

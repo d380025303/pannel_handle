@@ -326,20 +326,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     }
 
     setQuickAgentError(null);
-    const activeSession = terminalSessions.activeSession;
-    const defaultPath = activeSession?.type === "windows" && activeSession.cwd !== "~"
-      ? activeSession.cwd
-      : undefined;
-
     try {
-      const selection = await window.hookConfigApi.selectProjectDirectory(defaultPath);
-      if (selection.canceled) return;
-      const normalizedPath = selection.path.replace(/[\\/]+$/, "");
-      const directoryName = normalizedPath.split(/[\\/]/).pop() || selection.path;
       await terminalSessions.createSession({
         selectedShellId: "powershell",
-        title: `${getAgentProviderLabel(provider)} · ${directoryName}`,
-        cwd: selection.path,
+        title: getAgentProviderLabel(provider),
         agentProvider: provider,
         persist: false
       });
