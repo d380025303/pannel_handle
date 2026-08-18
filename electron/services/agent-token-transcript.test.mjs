@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { parseTranscriptText } = require("./agent-token-transcript.cjs");
+const { createIncrementalTranscriptParser, parseTranscriptText } = require("./agent-token-transcript.cjs");
 
 describe("agent token transcript parser", () => {
   it("reads the latest cumulative Codex token event", () => {
@@ -43,5 +43,30 @@ describe("agent token transcript parser", () => {
 
     expect(result.tokens).toEqual({ inputTokens: 140, cachedInputTokens: 90, cacheWriteInputTokens: 0, outputTokens: 35, reasoningOutputTokens: 14, totalTokens: 175 });
     expect(result.models).toEqual(["glm-5.2"]);
+  });
+
+  it("updates an incremental CodeBuddy message instead of double counting it", () => {
+    const parser = createIncrementalTranscriptParser("codebuddy");
+    parser.pushLine(JSON.stringify({ providerData: { messageId: "response-a", model: "glm-5.2", usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110 } } }));
+    parser.pushLine("incomplete-json");
+    parser.pushLine(JSON.stringify({ providerData: { messageId: "response-a", model: "glm-5.2", usage: { inputTokens: 100, outputTokens: 25, totalTokens: 125 } } }));
+    parser.pushLine(JSON.stringify({ providerData: { messageId: "response-b", model: "glm-5.2", usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 } } }));
+
+    expect(parser.getResult()).toEqual({
+      tokens: { inputTokens: 120, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0, totalTokens: 150 },
+      models: ["glm-5.2"]
+    });
+  });
+
+  it("keeps the latest cumulative Codex usage when parsing incrementally", () => {
+    const parser = createIncrementalTranscriptParser("codex");
+    parser.pushLine(JSON.stringify({ type: "session_meta", payload: { model: "gpt-5.6" } }));
+    parser.pushLine(JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 10, output_tokens: 2 } } } }));
+    parser.pushLine(JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 20, output_tokens: 7 } } } }));
+
+    expect(parser.getResult()).toMatchObject({
+      tokens: { inputTokens: 20, outputTokens: 7, totalTokens: 27 },
+      models: ["gpt-5.6"]
+    });
   });
 });

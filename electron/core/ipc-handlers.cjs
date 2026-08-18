@@ -50,7 +50,7 @@ function getDownloadFileName(fileName, remotePath) {
   return baseName || "download";
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
   const downloadOwners = new Map();
 
   async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
@@ -432,6 +432,7 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("agent-token-stats:get", (_event, options) => agentTokenStatsStore.getDashboard(options));
+  ipcMain.handle("agent-token-live:get", (_event, { sessionId }) => agentTokenStatsService.getLive(sessionId));
   ipcMain.handle("agent-token-stats:clear", () => {
     agentTokenStatsStore.clear();
     return true;

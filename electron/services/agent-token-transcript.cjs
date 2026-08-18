@@ -85,21 +85,60 @@ function addTokens(target, source) {
   return target;
 }
 
+function createIncrementalTranscriptParser(provider) {
+  if (!['codex', 'codebuddy'].includes(provider)) {
+    throw new Error(`Unsupported live token provider: ${provider}`);
+  }
+  let latestCodexTokens = null;
+  const codeBuddyMessages = new Map();
+  const models = new Set();
+
+  function pushLine(line) {
+    let item;
+    try { item = JSON.parse(line); } catch { return false; }
+    if (provider === "codex") {
+      if (item?.type === "session_meta" && item.payload?.model) models.add(String(item.payload.model));
+      if (item?.type !== "event_msg" || item.payload?.type !== "token_count") return false;
+      const tokens = normalizeCodexUsage(item.payload.info?.total_token_usage ?? item.payload.info?.totalTokenUsage);
+      if (!tokens) return false;
+      latestCodexTokens = tokens;
+      return true;
+    }
+
+    const providerData = item?.providerData;
+    const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
+    const messageId = String(providerData?.messageId || item?.message?.id || "").trim();
+    if (!usage || !messageId) return false;
+    codeBuddyMessages.set(messageId, normalizeCodeBuddyUsage(usage));
+    if (providerData?.model) models.add(String(providerData.model));
+    return true;
+  }
+
+  function getResult() {
+    if (provider === "codex") {
+      return latestCodexTokens ? { tokens: cloneTokens(latestCodexTokens), models: [...models] } : null;
+    }
+    if (codeBuddyMessages.size === 0) return null;
+    const tokens = emptyTokens();
+    for (const usage of codeBuddyMessages.values()) addTokens(tokens, usage);
+    return { tokens, models: [...models] };
+  }
+
+  return { pushLine, getResult };
+}
+
+function cloneTokens(tokens) {
+  return Object.fromEntries(TOKEN_FIELDS.map(field => [field, safeInteger(tokens?.[field])]));
+}
+
 function parseTranscriptText(provider, text) {
   const lines = String(text || "").split(/\r?\n/).filter(Boolean);
-  if (provider === "codex") {
-    let latest = null;
-    const models = new Set();
-    for (const line of lines) {
-      let item;
-      try { item = JSON.parse(line); } catch { continue; }
-      if (item?.type === "session_meta" && item.payload?.model) models.add(String(item.payload.model));
-      if (item?.type === "event_msg" && item.payload?.type === "token_count") {
-        latest = normalizeCodexUsage(item.payload.info?.total_token_usage ?? item.payload.info?.totalTokenUsage);
-      }
-    }
-    if (!latest) throw new Error("Codex transcript does not contain token usage yet.");
-    return { tokens: latest, models: [...models] };
+  if (provider === "codex" || provider === "codebuddy") {
+    const parser = createIncrementalTranscriptParser(provider);
+    for (const line of lines) parser.pushLine(line);
+    const result = parser.getResult();
+    if (!result) throw new Error(`${provider === "codex" ? "Codex" : "CodeBuddy"} transcript does not contain token usage yet.`);
+    return result;
   }
 
   if (provider === "claude") {
@@ -120,26 +159,6 @@ function parseTranscriptText(provider, text) {
     return { tokens: totals, models: [...models] };
   }
 
-  if (provider === "codebuddy") {
-    const messages = new Map();
-    const models = new Set();
-    for (const line of lines) {
-      let item;
-      try { item = JSON.parse(line); } catch { continue; }
-      const providerData = item?.providerData;
-      const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
-      if (!usage) continue;
-      const messageId = String(providerData?.messageId || item?.message?.id || "").trim();
-      if (!messageId) continue;
-      messages.set(messageId, normalizeCodeBuddyUsage(usage));
-      if (providerData?.model) models.add(String(providerData.model));
-    }
-    if (messages.size === 0) throw new Error("CodeBuddy transcript does not contain token usage yet.");
-    const totals = emptyTokens();
-    for (const usage of messages.values()) addTokens(totals, usage);
-    return { tokens: totals, models: [...models] };
-  }
-
   throw new Error(`Unsupported token statistics provider: ${provider}`);
 }
 
@@ -151,6 +170,8 @@ function parseTranscriptFile(provider, transcriptPath) {
 module.exports = {
   TOKEN_FIELDS,
   addTokens,
+  cloneTokens,
+  createIncrementalTranscriptParser,
   emptyTokens,
   normalizeClaudeUsage,
   normalizeCodeBuddyUsage,

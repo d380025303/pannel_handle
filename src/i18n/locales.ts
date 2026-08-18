@@ -231,6 +231,23 @@ export type TranslationKey =
   | "tokenStats.ended"
   | "tokenStats.previous"
   | "tokenStats.next"
+  | "tokenLive.title"
+  | "tokenLive.loading"
+  | "tokenLive.waiting"
+  | "tokenLive.unavailable"
+  | "tokenLive.unavailableHint"
+  | "tokenLive.sessionInput"
+  | "tokenLive.sessionOutput"
+  | "tokenLive.cachedInput"
+  | "tokenLive.reasoningOutput"
+  | "tokenLive.turnOutput"
+  | "tokenLive.outputRate"
+  | "tokenLive.model"
+  | "tokenLive.updatedAt"
+  | "tokenLive.state.waiting"
+  | "tokenLive.state.generating"
+  | "tokenLive.state.completed"
+  | "tokenLive.state.unavailable"
   | "terminal.exited"
   | "terminal.imagePasteFailed"
   | "composer.inputLabel"
@@ -763,6 +780,23 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.ended": "已结束",
     "tokenStats.previous": "上一页",
     "tokenStats.next": "下一页",
+    "tokenLive.title": "{provider} 实时 Token",
+    "tokenLive.loading": "正在读取 Token...",
+    "tokenLive.waiting": "等待 Token 数据",
+    "tokenLive.unavailable": "Token 暂不可用",
+    "tokenLive.unavailableHint": "暂时无法读取会话 transcript，Agent 和终端运行不受影响。",
+    "tokenLive.sessionInput": "会话累计输入",
+    "tokenLive.sessionOutput": "会话累计输出",
+    "tokenLive.cachedInput": "缓存输入",
+    "tokenLive.reasoningOutput": "推理输出",
+    "tokenLive.turnOutput": "本轮输出",
+    "tokenLive.outputRate": "平均输出速率",
+    "tokenLive.model": "模型",
+    "tokenLive.updatedAt": "更新时间",
+    "tokenLive.state.waiting": "等待首次 usage 数据",
+    "tokenLive.state.generating": "当前轮次生成中",
+    "tokenLive.state.completed": "当前轮次已完成",
+    "tokenLive.state.unavailable": "实时数据暂不可用",
     "terminal.exited": "[进程已退出，退出码 {exitCode}]",
     "terminal.imagePasteFailed": "[图片粘贴失败: {message}]",
     "composer.inputLabel": "终端输入",
@@ -1287,6 +1321,23 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.ended": "Ended",
     "tokenStats.previous": "Previous",
     "tokenStats.next": "Next",
+    "tokenLive.title": "{provider} live tokens",
+    "tokenLive.loading": "Reading tokens...",
+    "tokenLive.waiting": "Waiting for token data",
+    "tokenLive.unavailable": "Tokens unavailable",
+    "tokenLive.unavailableHint": "The session transcript is temporarily unavailable. Agent and terminal operation are unaffected.",
+    "tokenLive.sessionInput": "Session input",
+    "tokenLive.sessionOutput": "Session output",
+    "tokenLive.cachedInput": "Cached input",
+    "tokenLive.reasoningOutput": "Reasoning output",
+    "tokenLive.turnOutput": "Current-turn output",
+    "tokenLive.outputRate": "Average output rate",
+    "tokenLive.model": "Model",
+    "tokenLive.updatedAt": "Updated",
+    "tokenLive.state.waiting": "Waiting for the first usage record",
+    "tokenLive.state.generating": "Current turn is generating",
+    "tokenLive.state.completed": "Current turn completed",
+    "tokenLive.state.unavailable": "Live data is temporarily unavailable",
     "terminal.exited": "[Process exited with code {exitCode}]",
     "terminal.imagePasteFailed": "[Image paste failed: {message}]",
     "composer.inputLabel": "Terminal input",

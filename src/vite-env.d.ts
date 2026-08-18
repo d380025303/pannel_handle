@@ -569,10 +569,23 @@ export type AgentTokenDashboard = {
   limit: number;
 };
 
+export type AgentTokenLiveSnapshot = {
+  panelSessionId: string;
+  provider: "codex" | "codebuddy";
+  state: "waiting" | "generating" | "completed" | "unavailable";
+  tokens: AgentTokenTotals;
+  turnOutputTokens: number;
+  outputTokensPerSecond: number;
+  models: string[];
+  updatedAt: number;
+};
+
 export type AgentTokenStatsApi = {
   getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
+  onLiveChanged: (callback: (payload: AgentTokenLiveSnapshot) => void) => () => void;
 };
 
 export type RemoteAgentAuditEvent = {

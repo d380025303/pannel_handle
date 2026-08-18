@@ -168,11 +168,17 @@ contextBridge.exposeInMainWorld("workBuddyCheckinApi", {
 
 contextBridge.exposeInMainWorld("agentTokenStatsApi", {
   getDashboard: (options) => ipcRenderer.invoke("agent-token-stats:get", options),
+  getLive: (sessionId) => ipcRenderer.invoke("agent-token-live:get", { sessionId }),
   clear: () => ipcRenderer.invoke("agent-token-stats:clear"),
   onChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("agent-token-stats:changed", listener);
     return () => ipcRenderer.removeListener("agent-token-stats:changed", listener);
+  },
+  onLiveChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("agent-token-live:changed", listener);
+    return () => ipcRenderer.removeListener("agent-token-live:changed", listener);
   }
 });
 

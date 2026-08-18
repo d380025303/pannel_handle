@@ -241,7 +241,8 @@ if (!gotSingleInstanceLock) {
     agentTokenStatsService = createAgentTokenStatsService({
       terminalManager,
       statsStore: agentTokenStatsStore,
-      sshSessionRuntime
+      sshSessionRuntime,
+      broadcast: windowManager.broadcast
     });
     remoteFileService = createRemoteFileService({
       terminalManager,
@@ -373,6 +374,7 @@ if (!gotSingleInstanceLock) {
       agentUsageService,
       workBuddyCheckinService,
       agentTokenStatsStore,
+      agentTokenStatsService,
       hookConfigManager,
       remoteHookConfigService,
       gitStatusService,
@@ -417,6 +419,9 @@ app.on("window-all-closed", () => {
   }
   if (agentUsageService) {
     agentUsageService.shutdown();
+  }
+  if (agentTokenStatsService) {
+    agentTokenStatsService.shutdown();
   }
   if (gitStatusService) {
     gitStatusService.shutdown();
