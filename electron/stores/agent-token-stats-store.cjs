@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const { TOKEN_FIELDS, emptyTokens, safeInteger } = require("../services/agent-token-transcript.cjs");
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy"];
 
 function cloneTokens(tokens) {
   return Object.fromEntries(TOKEN_FIELDS.map(field => [field, safeInteger(tokens?.[field])]));
@@ -46,7 +47,7 @@ function createAgentTokenStatsStore({ statsFile, now = () => Date.now(), onChang
   }
 
   function update({ provider, agentSessionId, panelSessionId, templateId, title, cwd, location, models = [], tokens, startedAt, timestamp = now() }) {
-    if (!['codex', 'claude'].includes(provider) || !agentSessionId) return undefined;
+    if (!TOKEN_STATS_PROVIDERS.includes(provider) || !agentSessionId) return undefined;
     const baseId = `${provider}:${agentSessionId}`;
     const rawTokens = cloneTokens(tokens);
     let record = data.records[baseId];
@@ -108,7 +109,7 @@ function createAgentTokenStatsStore({ statsFile, now = () => Date.now(), onChang
 
   function getDashboard(options = {}) {
     const range = ['7d', '30d', 'all'].includes(options.range) ? options.range : '30d';
-    const provider = ['codex', 'claude'].includes(options.provider) ? options.provider : 'all';
+    const provider = TOKEN_STATS_PROVIDERS.includes(options.provider) ? options.provider : 'all';
     const limit = Math.min(200, Math.max(1, safeInteger(options.limit) || 50));
     const offset = Math.max(0, safeInteger(options.offset));
     const days = range === '7d' ? 7 : range === '30d' ? 30 : null;
@@ -120,7 +121,7 @@ function createAgentTokenStatsStore({ statsFile, now = () => Date.now(), onChang
     for (const record of records) addInto(summary.tokens, record.tokens);
     summary.averageTokens = records.length ? Math.round(summary.tokens.totalTokens / records.length) : 0;
 
-    const providerBreakdown = ['codex', 'claude'].map(id => {
+    const providerBreakdown = TOKEN_STATS_PROVIDERS.map(id => {
       const providerTokens = emptyTokens();
       const matching = records.filter(record => record.provider === id);
       for (const record of matching) addInto(providerTokens, record.tokens);

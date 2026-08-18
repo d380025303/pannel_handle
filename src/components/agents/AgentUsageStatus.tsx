@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Gauge, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Gauge, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentUsageLimit } from "../../vite-env";
+import type { AgentUsageLimit, WorkBuddyCheckinStatus } from "../../vite-env";
 import type { AgentUsageViewState } from "../../hooks/useAgentUsage";
 
 type AgentUsageStatusProps = {
   state: AgentUsageViewState;
   onRefresh: () => void;
 };
+
+type WorkBuddyCheckinViewState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; value: WorkBuddyCheckinStatus }
+  | { status: "error"; message: string };
 
 function getRemainingClass(remainingPercent: number) {
   if (remainingPercent <= 20) return "danger";
@@ -37,8 +42,11 @@ function getPrimaryLimit(state: AgentUsageViewState): AgentUsageLimit | undefine
 export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [checkinState, setCheckinState] = useState<WorkBuddyCheckinViewState>({ status: "idle" });
+  const [checkinBusy, setCheckinBusy] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const checkinRequestRef = useRef(0);
   const primaryLimit = useMemo(() => getPrimaryLimit(state), [state]);
   const provider = state.status === "ready" ? state.snapshot.provider : state.status === "hidden" ? undefined : state.provider;
   const isCodeBuddy = provider === "codebuddy";
@@ -68,6 +76,27 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
   useEffect(() => {
     if (state.status !== "ready") setOpen(false);
   }, [state.status]);
+
+  const loadWorkBuddyCheckin = useCallback(async () => {
+    const requestId = ++checkinRequestRef.current;
+    setCheckinState({ status: "loading" });
+    try {
+      const value = await window.workBuddyCheckinApi.getStatus();
+      if (checkinRequestRef.current === requestId) setCheckinState({ status: "ready", value });
+    } catch (error) {
+      if (checkinRequestRef.current === requestId) {
+        setCheckinState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && isCodeBuddy) void loadWorkBuddyCheckin();
+    if (!open) {
+      checkinRequestRef.current += 1;
+      setCheckinBusy(false);
+    }
+  }, [isCodeBuddy, loadWorkBuddyCheckin, open]);
 
   if (state.status === "hidden") return null;
 
@@ -109,6 +138,25 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
       .filter(group => group.limits.length > 0)
     : [];
 
+  const claimWorkBuddyCheckin = async () => {
+    if (checkinBusy || checkinState.status !== "ready" || checkinState.value.todayCheckedIn) return;
+    const requestId = ++checkinRequestRef.current;
+    setCheckinBusy(true);
+    try {
+      const result = await window.workBuddyCheckinApi.claim();
+      if (checkinRequestRef.current === requestId) {
+        setCheckinState({ status: "ready", value: result.status });
+        onRefresh();
+      }
+    } catch (error) {
+      if (checkinRequestRef.current === requestId) {
+        setCheckinState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    } finally {
+      if (checkinRequestRef.current === requestId) setCheckinBusy(false);
+    }
+  };
+
   return (
     <div className="agent-usage" ref={rootRef}>
       <button
@@ -147,6 +195,53 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                   total: formatAmount(locale, creditSummary.total)
                 })}</span>
               </div>
+            )}
+            {isCodeBuddy && (
+              <section className="workbuddy-checkin" aria-label={t("usage.workbuddyCheckinTitle")}>
+                <div className="workbuddy-checkin-heading">
+                  <strong>{t("usage.workbuddyCheckinTitle")}</strong>
+                  {checkinState.status === "ready" && checkinState.value.todayCheckedIn && <CheckCircle2 aria-hidden="true" />}
+                </div>
+                {checkinState.status === "loading" && (
+                  <div className="workbuddy-checkin-state" role="status">
+                    <LoaderCircle className="spin" aria-hidden="true" />
+                    <span>{t("usage.workbuddyCheckinLoading")}</span>
+                  </div>
+                )}
+                {checkinState.status === "error" && (
+                  <div className="workbuddy-checkin-error" role="alert">
+                    <span>{t("usage.workbuddyCheckinUnavailable")}</span>
+                    <small title={checkinState.message}>{checkinState.message}</small>
+                    <button type="button" onClick={() => void loadWorkBuddyCheckin()}>{t("usage.workbuddyCheckinRetry")}</button>
+                  </div>
+                )}
+                {checkinState.status === "ready" && !checkinState.value.active && (
+                  <div className="workbuddy-checkin-state">{t("usage.workbuddyCheckinInactive")}</div>
+                )}
+                {checkinState.status === "ready" && checkinState.value.active && (
+                  <div className="workbuddy-checkin-ready">
+                    <span>{checkinState.value.todayCheckedIn
+                      ? t("usage.workbuddyCheckedIn", {
+                        credit: formatAmount(locale, checkinState.value.todayCredit),
+                        days: checkinState.value.streakDays
+                      })
+                      : t("usage.workbuddyCheckinReward", {
+                        credit: formatAmount(locale, checkinState.value.dailyCredit)
+                      })}</span>
+                    <button
+                      type="button"
+                      disabled={checkinBusy || checkinState.value.todayCheckedIn}
+                      onClick={() => void claimWorkBuddyCheckin()}
+                    >
+                      {checkinBusy
+                        ? t("usage.workbuddyCheckingIn")
+                        : checkinState.value.todayCheckedIn
+                          ? t("usage.workbuddyCheckedInButton")
+                          : t("usage.workbuddyCheckinButton")}
+                    </button>
+                  </div>
+                )}
+              </section>
             )}
             {isCodeBuddy && groupedLimits.length === 0 && (
               <div className="agent-usage-empty">{t("usage.noCreditResources")}</div>

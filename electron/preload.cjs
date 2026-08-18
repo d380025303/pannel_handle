@@ -161,6 +161,11 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
   cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
 });
 
+contextBridge.exposeInMainWorld("workBuddyCheckinApi", {
+  getStatus: () => ipcRenderer.invoke("workbuddy-checkin:get-status"),
+  claim: () => ipcRenderer.invoke("workbuddy-checkin:claim")
+});
+
 contextBridge.exposeInMainWorld("agentTokenStatsApi", {
   getDashboard: (options) => ipcRenderer.invoke("agent-token-stats:get", options),
   clear: () => ipcRenderer.invoke("agent-token-stats:clear"),

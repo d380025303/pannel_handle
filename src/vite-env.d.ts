@@ -510,6 +510,26 @@ export type AgentUsageApi = {
   cancel: (sessionId: string) => void;
 };
 
+export type WorkBuddyCheckinStatus = {
+  active: boolean;
+  todayCheckedIn: boolean;
+  streakDays: number;
+  dailyCredit: number;
+  todayCredit: number;
+  totalCredits: number;
+  weekProgress: boolean[];
+};
+
+export type WorkBuddyCheckinResult = {
+  alreadyCheckedIn: boolean;
+  status: WorkBuddyCheckinStatus;
+};
+
+export type WorkBuddyCheckinApi = {
+  getStatus: () => Promise<WorkBuddyCheckinStatus>;
+  claim: () => Promise<WorkBuddyCheckinResult>;
+};
+
 export type AgentTokenTotals = {
   inputTokens: number;
   cachedInputTokens: number;
@@ -521,7 +541,7 @@ export type AgentTokenTotals = {
 
 export type AgentTokenSessionRecord = {
   id: string;
-  provider: "codex" | "claude";
+  provider: "codex" | "claude" | "codebuddy";
   agentSessionId: string;
   panelSessionId: string;
   templateId?: string;
@@ -539,10 +559,10 @@ export type AgentTokenSessionRecord = {
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
-  provider: "all" | "codex" | "claude";
+  provider: "all" | "codex" | "claude" | "codebuddy";
   summary: { sessionCount: number; averageTokens: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
-  providerBreakdown: Array<{ provider: "codex" | "claude"; sessionCount: number; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy"; sessionCount: number; tokens: AgentTokenTotals }>;
   sessions: AgentTokenSessionRecord[];
   totalCount: number;
   offset: number;
@@ -550,7 +570,7 @@ export type AgentTokenDashboard = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
 };
@@ -741,6 +761,7 @@ declare global {
     remoteFileApi: RemoteFileApi;
     remoteSystemApi: RemoteSystemApi;
     agentUsageApi: AgentUsageApi;
+    workBuddyCheckinApi: WorkBuddyCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;
     remoteAgentApi: RemoteAgentApi;
     fileTransferApi: FileTransferApi;

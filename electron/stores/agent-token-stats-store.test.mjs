@@ -43,4 +43,18 @@ describe("agent token statistics store", () => {
     expect(store.getDashboard({ range: "all" }).summary.tokens.totalTokens).toBe(80);
     expect(JSON.parse(readFileSync(statsFile, "utf-8")).version).toBe(1);
   });
+
+  it("includes CodeBuddy sessions in totals, filtering, and provider comparison", () => {
+    const statsFile = path.join(mkdtempSync(path.join(tmpdir(), "token-stats-")), "stats.json");
+    const store = createAgentTokenStatsStore({ statsFile });
+    store.load();
+    store.update({ provider: "codebuddy", agentSessionId: "buddy", panelSessionId: "panel", title: "Buddy", location: "windows", models: ["glm-5.2"], tokens: tokens(240) });
+
+    const dashboard = store.getDashboard({ range: "all", provider: "codebuddy" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(240);
+    expect(dashboard.sessions[0]).toMatchObject({ provider: "codebuddy", models: ["glm-5.2"] });
+    expect(dashboard.providerBreakdown).toEqual([
+      expect.objectContaining({ provider: "codebuddy", sessionCount: 1 })
+    ]);
+  });
 });

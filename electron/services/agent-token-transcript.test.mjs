@@ -25,4 +25,23 @@ describe("agent token transcript parser", () => {
     expect(result.tokens).toEqual({ inputTokens: 64, cachedInputTokens: 30, cacheWriteInputTokens: 20, outputTokens: 11, reasoningOutputTokens: 0, totalTokens: 75 });
     expect(result.models).toEqual(["claude-sonnet"]);
   });
+
+  it("deduplicates CodeBuddy response fragments and reads cached and reasoning tokens", () => {
+    const usage = {
+      requests: 1,
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      inputTokensDetails: [{ cached_tokens: 80 }],
+      outputTokensDetails: [{ reasoning_tokens: 12 }]
+    };
+    const result = parseTranscriptText("codebuddy", [
+      JSON.stringify({ type: "reasoning", providerData: { messageId: "response-a", model: "glm-5.2", usage } }),
+      JSON.stringify({ type: "function_call", providerData: { messageId: "response-a", model: "glm-5.2", usage } }),
+      JSON.stringify({ type: "message", role: "assistant", providerData: { messageId: "response-b", model: "glm-5.2", rawUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, prompt_tokens_details: { cached_tokens: 10 }, completion_tokens_details: { reasoning_tokens: 2 } } } })
+    ].join("\n"));
+
+    expect(result.tokens).toEqual({ inputTokens: 140, cachedInputTokens: 90, cacheWriteInputTokens: 0, outputTokens: 35, reasoningOutputTokens: 14, totalTokens: 175 });
+    expect(result.models).toEqual(["glm-5.2"]);
+  });
 });

@@ -49,6 +49,37 @@ function normalizeClaudeUsage(usage) {
   };
 }
 
+function sumUsageDetail(details, field) {
+  if (!Array.isArray(details)) return 0;
+  return details.reduce((total, detail) => total + safeInteger(detail?.[field]), 0);
+}
+
+function normalizeCodeBuddyUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const inputTokens = safeInteger(usage.inputTokens ?? usage.input_tokens ?? usage.prompt_tokens);
+  const outputTokens = safeInteger(usage.outputTokens ?? usage.output_tokens ?? usage.completion_tokens);
+  const cachedInputTokens = safeInteger(
+    usage.cachedInputTokens ??
+    usage.cached_input_tokens ??
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.prompt_cache_hit_tokens
+  ) || sumUsageDetail(usage.inputTokensDetails, "cached_tokens");
+  const reasoningOutputTokens = safeInteger(
+    usage.reasoningOutputTokens ??
+    usage.reasoning_output_tokens ??
+    usage.completion_tokens_details?.reasoning_tokens ??
+    usage.completion_thinking_tokens
+  ) || sumUsageDetail(usage.outputTokensDetails, "reasoning_tokens");
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens: safeInteger(usage.cacheWriteInputTokens ?? usage.cache_creation_input_tokens ?? usage.prompt_cache_write_tokens),
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: safeInteger(usage.totalTokens ?? usage.total_tokens) || inputTokens + outputTokens
+  };
+}
+
 function addTokens(target, source) {
   for (const field of TOKEN_FIELDS) target[field] += safeInteger(source?.[field]);
   return target;
@@ -89,6 +120,26 @@ function parseTranscriptText(provider, text) {
     return { tokens: totals, models: [...models] };
   }
 
+  if (provider === "codebuddy") {
+    const messages = new Map();
+    const models = new Set();
+    for (const line of lines) {
+      let item;
+      try { item = JSON.parse(line); } catch { continue; }
+      const providerData = item?.providerData;
+      const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
+      if (!usage) continue;
+      const messageId = String(providerData?.messageId || item?.message?.id || "").trim();
+      if (!messageId) continue;
+      messages.set(messageId, normalizeCodeBuddyUsage(usage));
+      if (providerData?.model) models.add(String(providerData.model));
+    }
+    if (messages.size === 0) throw new Error("CodeBuddy transcript does not contain token usage yet.");
+    const totals = emptyTokens();
+    for (const usage of messages.values()) addTokens(totals, usage);
+    return { tokens: totals, models: [...models] };
+  }
+
   throw new Error(`Unsupported token statistics provider: ${provider}`);
 }
 
@@ -102,6 +153,7 @@ module.exports = {
   addTokens,
   emptyTokens,
   normalizeClaudeUsage,
+  normalizeCodeBuddyUsage,
   normalizeCodexUsage,
   parseTranscriptFile,
   parseTranscriptText,

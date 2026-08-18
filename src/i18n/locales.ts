@@ -181,6 +181,16 @@ export type TranslationKey =
   | "usage.category.extra"
   | "usage.category.bonus"
   | "usage.category.other"
+  | "usage.workbuddyCheckinTitle"
+  | "usage.workbuddyCheckinLoading"
+  | "usage.workbuddyCheckinUnavailable"
+  | "usage.workbuddyCheckinRetry"
+  | "usage.workbuddyCheckinInactive"
+  | "usage.workbuddyCheckinReward"
+  | "usage.workbuddyCheckedIn"
+  | "usage.workbuddyCheckinButton"
+  | "usage.workbuddyCheckedInButton"
+  | "usage.workbuddyCheckingIn"
   | "tokenStats.title"
   | "tokenStats.open"
   | "tokenStats.description"
@@ -703,9 +713,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.category.extra": "加量包",
     "usage.category.bonus": "奖励额度",
     "usage.category.other": "其他额度",
+    "usage.workbuddyCheckinTitle": "WorkBuddy 每日签到",
+    "usage.workbuddyCheckinLoading": "正在读取签到状态...",
+    "usage.workbuddyCheckinUnavailable": "暂时无法读取 WorkBuddy 签到状态",
+    "usage.workbuddyCheckinRetry": "重试",
+    "usage.workbuddyCheckinInactive": "当前签到活动未开放",
+    "usage.workbuddyCheckinReward": "今日可领取 {credit} Credits",
+    "usage.workbuddyCheckedIn": "今日已领取 {credit} Credits，连续签到 {days} 天",
+    "usage.workbuddyCheckinButton": "立即签到",
+    "usage.workbuddyCheckedInButton": "今日已签到",
+    "usage.workbuddyCheckingIn": "签到中...",
     "tokenStats.title": "Token 统计",
     "tokenStats.open": "打开 Token 统计",
-    "tokenStats.description": "查看 Codex 与 Claude 的会话消耗趋势和明细",
+    "tokenStats.description": "查看 Codex、Claude 与 CodeBuddy 的会话消耗趋势和明细",
     "tokenStats.back": "返回终端",
     "tokenStats.range": "统计时间范围",
     "tokenStats.last7Days": "最近 7 天",
@@ -732,7 +752,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.sessionDetails": "会话明细",
     "tokenStats.totalRecords": "共 {count} 条",
     "tokenStats.noData": "还没有 Token 统计",
-    "tokenStats.noDataHint": "从 Pannel Handle 启动 Codex 或 Claude，完成回复后会自动记录。",
+    "tokenStats.noDataHint": "从 Pannel Handle 启动 Codex、Claude 或 CodeBuddy，完成回复后会自动记录。",
     "tokenStats.time": "更新时间",
     "tokenStats.session": "会话",
     "tokenStats.location": "位置",
@@ -1217,9 +1237,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.category.extra": "Add-on packages",
     "usage.category.bonus": "Bonus credits",
     "usage.category.other": "Other credits",
+    "usage.workbuddyCheckinTitle": "WorkBuddy daily check-in",
+    "usage.workbuddyCheckinLoading": "Reading check-in status...",
+    "usage.workbuddyCheckinUnavailable": "WorkBuddy check-in is unavailable",
+    "usage.workbuddyCheckinRetry": "Retry",
+    "usage.workbuddyCheckinInactive": "The daily check-in activity is not active",
+    "usage.workbuddyCheckinReward": "Claim {credit} Credits today",
+    "usage.workbuddyCheckedIn": "Claimed {credit} Credits today · {days}-day streak",
+    "usage.workbuddyCheckinButton": "Check in",
+    "usage.workbuddyCheckedInButton": "Checked in today",
+    "usage.workbuddyCheckingIn": "Checking in...",
     "tokenStats.title": "Token statistics",
     "tokenStats.open": "Open token statistics",
-    "tokenStats.description": "Review Codex and Claude session usage, trends, and details",
+    "tokenStats.description": "Review Codex, Claude, and CodeBuddy session usage, trends, and details",
     "tokenStats.back": "Back to terminals",
     "tokenStats.range": "Statistics date range",
     "tokenStats.last7Days": "Last 7 days",
@@ -1246,7 +1276,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.sessionDetails": "Session details",
     "tokenStats.totalRecords": "{count} records",
     "tokenStats.noData": "No token statistics yet",
-    "tokenStats.noDataHint": "Start Codex or Claude from Pannel Handle. Usage appears after a response completes.",
+    "tokenStats.noDataHint": "Start Codex, Claude, or CodeBuddy from Pannel Handle. Usage appears after a response completes.",
     "tokenStats.time": "Updated",
     "tokenStats.session": "Session",
     "tokenStats.location": "Location",

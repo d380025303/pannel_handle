@@ -1531,6 +1531,99 @@ button.agent-usage-status[aria-expanded="true"] {
 .agent-usage-credit-summary.warning span { color: var(--color-warning-text); }
 .agent-usage-credit-summary.danger span { color: var(--color-danger-text); }
 
+.workbuddy-checkin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-control);
+}
+
+.workbuddy-checkin-heading,
+.workbuddy-checkin-state,
+.workbuddy-checkin-ready {
+  display: flex;
+  align-items: center;
+}
+
+.workbuddy-checkin-heading {
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.workbuddy-checkin-heading svg,
+.workbuddy-checkin-state svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workbuddy-checkin-heading svg {
+  color: var(--color-ok-text);
+}
+
+.workbuddy-checkin-state {
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.workbuddy-checkin-ready {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workbuddy-checkin-ready > span {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workbuddy-checkin-ready button,
+.workbuddy-checkin-error button {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-strong);
+  background: var(--color-accent);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.workbuddy-checkin-ready button:disabled {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-muted);
+  background: var(--color-bg-hover);
+  cursor: default;
+}
+
+.workbuddy-checkin-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  color: var(--color-danger-text);
+  font-size: 11px;
+}
+
+.workbuddy-checkin-error small {
+  grid-column: 1;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbuddy-checkin-error button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
 .agent-usage-limit-group {
   display: flex;
   flex-direction: column;
@@ -1664,6 +1757,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-bar { height: 9px; overflow: hidden; border-radius: 999px; background: var(--color-bg-control); }
 .token-provider-bar span { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--color-accent); }
 .token-provider-bar.claude span { background: #d97745; }
+.token-provider-bar.codebuddy span { background: #00a6a6; }
 
 .token-stats-table-panel { margin-top: 12px; padding: 0; overflow: hidden; }
 .token-stats-table-heading { justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--color-border); }
@@ -1681,6 +1775,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-session-status { display: inline-flex; padding: 3px 7px; border-radius: 999px; font-size: 11px; text-transform: capitalize; }
 .token-provider-pill { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
 .token-provider-pill.claude { color: #e08a5b; background: rgba(217, 119, 69, 0.14); }
+.token-provider-pill.codebuddy { color: #19b8b8; background: rgba(0, 166, 166, 0.14); }
 .token-session-status.active { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
 .token-session-status.ended { color: var(--color-text-muted); background: var(--color-bg-control); }
 .token-stats-breakdown { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsageSnapshot } from "../../vite-env";
 import { AgentUsageStatus } from "./AgentUsageStatus";
 
@@ -69,7 +69,39 @@ function codeBuddySnapshot(): AgentUsageSnapshot {
 }
 
 describe("AgentUsageStatus", () => {
-  afterEach(cleanup);
+  beforeEach(() => {
+    Object.defineProperty(window, "workBuddyCheckinApi", {
+      configurable: true,
+      value: {
+        getStatus: vi.fn(async () => ({
+          active: true,
+          todayCheckedIn: false,
+          streakDays: 2,
+          dailyCredit: 100,
+          todayCredit: 0,
+          totalCredits: 200,
+          weekProgress: [true, false, false, false, false, false, false]
+        })),
+        claim: vi.fn(async () => ({
+          alreadyCheckedIn: false,
+          status: {
+            active: true,
+            todayCheckedIn: true,
+            streakDays: 3,
+            dailyCredit: 100,
+            todayCredit: 100,
+            totalCredits: 300,
+            weekProgress: [true, true, false, false, false, false, false]
+          }
+        }))
+      }
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    Reflect.deleteProperty(window, "workBuddyCheckinApi");
+  });
 
   it("hides non-Codex state and renders loading and retry states", () => {
     const onRefresh = vi.fn();
@@ -129,7 +161,7 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByRole("button", { name: "Codex 剩余 20%" }).classList.contains("danger")).toBe(true);
   });
 
-  it("shows CodeBuddy total credits and grouped package details", () => {
+  it("shows CodeBuddy total credits, grouped packages, and WorkBuddy check-in", async () => {
     render(
       <AgentUsageStatus
         state={{ status: "ready", snapshot: codeBuddySnapshot(), refreshing: false }}
@@ -144,5 +176,46 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByText("Free plan")).not.toBeNull();
     expect(screen.getByText("Bonus")).not.toBeNull();
     expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+    await waitFor(() => expect(document.querySelector(".workbuddy-checkin-ready")?.textContent).toContain("100 Credits"));
+    expect(window.workBuddyCheckinApi.getStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("claims once, renders the checked-in state, and refreshes quota", async () => {
+    const onRefresh = vi.fn();
+    render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: codeBuddySnapshot(), refreshing: false }}
+        onRefresh={onRefresh}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /750 Credits/ }));
+    await waitFor(() => expect(document.querySelector(".workbuddy-checkin-ready button")).not.toBeNull());
+    const checkinButton = document.querySelector<HTMLButtonElement>(".workbuddy-checkin-ready button");
+    expect(checkinButton?.disabled).toBe(false);
+    fireEvent.click(checkinButton!);
+
+    await waitFor(() => expect(window.workBuddyCheckinApi.claim).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.querySelector<HTMLButtonElement>(".workbuddy-checkin-ready button")?.disabled).toBe(true));
+    expect(document.querySelector(".workbuddy-checkin-ready")?.textContent).toContain("100 Credits");
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps quota visible and retries when WorkBuddy status is unavailable", async () => {
+    vi.mocked(window.workBuddyCheckinApi.getStatus)
+      .mockRejectedValueOnce(new Error("WorkBuddy is not installed"));
+    render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: codeBuddySnapshot(), refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /750 Credits/ }));
+    await waitFor(() => expect(document.querySelector(".workbuddy-checkin-error")?.textContent).toContain("WorkBuddy is not installed"));
+    expect(screen.getByText("Free plan")).not.toBeNull();
+    fireEvent.click(document.querySelector<HTMLButtonElement>(".workbuddy-checkin-error button")!);
+    await waitFor(() => expect(window.workBuddyCheckinApi.getStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(document.querySelector(".workbuddy-checkin-ready")).not.toBeNull());
   });
 });

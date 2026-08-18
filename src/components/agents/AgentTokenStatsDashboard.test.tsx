@@ -10,7 +10,8 @@ const getDashboard = vi.fn(async () => ({
   summary: { sessionCount: 0, averageTokens: 0, tokens: emptyTokens },
   dailyTrend: [], providerBreakdown: [
     { provider: "codex", sessionCount: 0, tokens: emptyTokens },
-    { provider: "claude", sessionCount: 0, tokens: emptyTokens }
+    { provider: "claude", sessionCount: 0, tokens: emptyTokens },
+    { provider: "codebuddy", sessionCount: 0, tokens: emptyTokens }
   ],
   sessions: [], totalCount: 0, offset: 0, limit: 50
 }));
@@ -41,5 +42,12 @@ describe("AgentTokenStatsDashboard", () => {
     await screen.findByText("还没有 Token 统计");
     fireEvent.change(screen.getByLabelText("统计时间范围"), { target: { value: "7d" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ range: "7d" })));
+  });
+
+  it("offers CodeBuddy as a provider filter", async () => {
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    await screen.findByText("CodeBuddy");
+    fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codebuddy" } });
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "codebuddy" })));
   });
 });

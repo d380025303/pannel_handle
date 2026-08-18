@@ -22,6 +22,7 @@ const { createRemoteSystemService } = require("./services/remote-system-service.
 const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/agent-token-stats-service.cjs");
+const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
@@ -52,6 +53,7 @@ let fileWatchManager = null;
 let remoteSystemService = null;
 let remoteAgentBridgeService = null;
 let agentUsageService = null;
+let workBuddyCheckinService = null;
 let agentTokenStatsStore = null;
 let agentTokenStatsService = null;
 let sshHookTunnelService = null;
@@ -235,6 +237,7 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       sshSessionRuntime
     });
+    workBuddyCheckinService = createWorkBuddyCheckinService();
     agentTokenStatsService = createAgentTokenStatsService({
       terminalManager,
       statsStore: agentTokenStatsStore,
@@ -368,6 +371,7 @@ if (!gotSingleInstanceLock) {
       fileWatchManager,
       remoteSystemService,
       agentUsageService,
+      workBuddyCheckinService,
       agentTokenStatsStore,
       hookConfigManager,
       remoteHookConfigService,

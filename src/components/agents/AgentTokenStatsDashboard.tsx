@@ -12,6 +12,11 @@ function formatDate(value: number, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(value);
 }
 
+function providerName(provider: "codex" | "claude" | "codebuddy") {
+  if (provider === "codebuddy") return "CodeBuddy";
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
 function TokenBreakdown({ tokens, locale }: { tokens: AgentTokenTotals; locale: string }) {
   const { t } = useI18n();
   return (
@@ -65,7 +70,7 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
         <div><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><BarChart3 aria-hidden="true" /><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
           <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>
-          <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option></select>
+          <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option></select>
           <button className="icon-button" type="button" onClick={() => void refresh()} title={t("common.refresh")} disabled={loading}><RefreshCw className={loading ? "spin" : ""} aria-hidden="true" /></button>
           <button className={`token-stats-clear${confirmClear ? " confirm" : ""}`} type="button" onClick={() => void clearAll()} onBlur={() => setConfirmClear(false)} disabled={clearing}><Trash2 aria-hidden="true" />{confirmClear ? t("tokenStats.confirmClear") : t("tokenStats.clear")}</button>
         </div>
@@ -82,12 +87,12 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
 
           <section className="token-stats-visuals">
             <article className="token-stats-panel"><h2>{t("tokenStats.dailyTrend")}</h2><TrendChart values={dashboard.dailyTrend} locale={locale} /></article>
-            <article className="token-stats-panel"><h2>{t("tokenStats.providerCompare")}</h2><div className="token-stats-provider-bars">{dashboard.providerBreakdown.map(item => <div key={item.provider}><div><strong>{item.provider === "codex" ? "Codex" : "Claude"}</strong><span>{formatTokens(item.tokens.totalTokens, locale)} · {item.sessionCount} {t("tokenStats.sessionsUnit")}</span></div><div className={`token-provider-bar ${item.provider}`}><span style={{ width: `${item.tokens.totalTokens / maxProviderTokens * 100}%` }} /></div></div>)}</div></article>
+            <article className="token-stats-panel"><h2>{t("tokenStats.providerCompare")}</h2><div className="token-stats-provider-bars">{dashboard.providerBreakdown.map(item => <div key={item.provider}><div><strong>{providerName(item.provider)}</strong><span>{formatTokens(item.tokens.totalTokens, locale)} · {item.sessionCount} {t("tokenStats.sessionsUnit")}</span></div><div className={`token-provider-bar ${item.provider}`}><span style={{ width: `${item.tokens.totalTokens / maxProviderTokens * 100}%` }} /></div></div>)}</div></article>
           </section>
 
           <section className="token-stats-panel token-stats-table-panel">
             <div className="token-stats-table-heading"><h2>{t("tokenStats.sessionDetails")}</h2><span>{t("tokenStats.totalRecords", { count: dashboard.totalCount })}</span></div>
-            {dashboard.sessions.length === 0 ? <div className="token-stats-empty"><BarChart3 aria-hidden="true" /><strong>{t("tokenStats.noData")}</strong><span>{t("tokenStats.noDataHint")}</span></div> : <div className="token-stats-table-wrap"><table><thead><tr><th>{t("tokenStats.time")}</th><th>{t("tokenStats.provider")}</th><th>{t("tokenStats.session")}</th><th>{t("tokenStats.location")}</th><th>{t("tokenStats.model")}</th><th>{t("tokenStats.tokens")}</th><th>{t("tokenStats.status")}</th></tr></thead><tbody>{dashboard.sessions.map(record => <tr key={record.id}><td>{formatDate(record.updatedAt, locale)}</td><td><span className={`token-provider-pill ${record.provider}`}>{record.provider}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><span className={`token-session-status ${record.status}`}>{record.status === "active" ? t("tokenStats.active") : t("tokenStats.ended")}</span></td></tr>)}</tbody></table></div>}
+            {dashboard.sessions.length === 0 ? <div className="token-stats-empty"><BarChart3 aria-hidden="true" /><strong>{t("tokenStats.noData")}</strong><span>{t("tokenStats.noDataHint")}</span></div> : <div className="token-stats-table-wrap"><table><thead><tr><th>{t("tokenStats.time")}</th><th>{t("tokenStats.provider")}</th><th>{t("tokenStats.session")}</th><th>{t("tokenStats.location")}</th><th>{t("tokenStats.model")}</th><th>{t("tokenStats.tokens")}</th><th>{t("tokenStats.status")}</th></tr></thead><tbody>{dashboard.sessions.map(record => <tr key={record.id}><td>{formatDate(record.updatedAt, locale)}</td><td><span className={`token-provider-pill ${record.provider}`}>{providerName(record.provider)}</span></td><td><strong title={record.cwd}>{record.title}</strong><small>{record.cwd}</small></td><td>{record.location.toUpperCase()}</td><td>{record.models.join(", ") || "—"}</td><td><TokenBreakdown tokens={record.tokens} locale={locale} /></td><td><span className={`token-session-status ${record.status}`}>{record.status === "active" ? t("tokenStats.active") : t("tokenStats.ended")}</span></td></tr>)}</tbody></table></div>}
             {dashboard.totalCount > dashboard.limit && <div className="token-stats-pagination"><button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t("tokenStats.previous")}</button><span>{Math.floor(offset / 50) + 1} / {Math.ceil(dashboard.totalCount / 50)}</span><button type="button" disabled={offset + 50 >= dashboard.totalCount} onClick={() => setOffset(offset + 50)}>{t("tokenStats.next")}</button></div>}
           </section>
         </div>

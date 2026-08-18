@@ -3,6 +3,7 @@ const { parseTranscriptFile, parseTranscriptText } = require("./agent-token-tran
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -75,7 +76,7 @@ function createAgentTokenStatsService({ terminalManager, statsStore, sshSessionR
   }
 
   function collect({ provider, input, session }) {
-    if (!['codex', 'claude'].includes(provider) || !session || !input) return;
+    if (!TOKEN_STATS_PROVIDERS.includes(provider) || !session || !input) return;
     const agentSessionId = input.session_id || input.sessionId;
     const transcriptPath = input.transcript_path || input.transcriptPath;
     if (!agentSessionId || !transcriptPath) return;
@@ -118,7 +119,7 @@ function createAgentTokenStatsService({ terminalManager, statsStore, sshSessionR
     handleHook({ provider, input, session }) {
       const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
       const agentSessionId = input?.session_id || input?.sessionId;
-      if (['codex', 'claude'].includes(provider) && agentSessionId) {
+      if (TOKEN_STATS_PROVIDERS.includes(provider) && agentSessionId) {
         const key = `${provider}:${agentSessionId}`;
         if (!startedAtBySession.has(key)) startedAtBySession.set(key, Date.now());
         if (eventName === "SessionStart" || eventName === "UserPromptSubmit") captureBaseline({ provider, input, session });
