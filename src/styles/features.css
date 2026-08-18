@@ -2408,6 +2408,23 @@ button.agent-usage-status[aria-expanded="true"] {
   font-size: 10px;
 }
 
+.agent-output-response > header time {
+  margin-right: auto;
+}
+
+.agent-output-phase {
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-hover);
+  font-size: 9px;
+}
+
+.agent-output-phase.final {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
 .agent-output-response > header button {
   display: inline-flex;
   width: 27px;

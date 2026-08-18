@@ -242,9 +242,11 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     const input = options && typeof options === "object" ? options : {};
     const scope = input.scope === "current" ? "current" : "all";
     const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+    const templateId = typeof input.templateId === "string" ? input.templateId : undefined;
     return agentOutputHistoryStore.listResponses({
       scope,
       sessionId,
+      templateId,
       offset: input.offset,
       limit: input.limit
     });

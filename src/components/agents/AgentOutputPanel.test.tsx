@@ -16,7 +16,10 @@ const currentRun: AgentOutputRun = {
   finishedAt: null,
   exitCode: null,
   responsesTruncated: false,
-  responses: [{ id: "turn-1", createdAt: 200, content: "# First answer\n\nReadable content", truncated: false }]
+  responses: [
+    { id: "plan-1", createdAt: 150, content: "## Plan\n\nInspect the call chain.", phase: "commentary", truncated: false },
+    { id: "turn-1", createdAt: 200, content: "# First answer\n\nReadable content", phase: "final", truncated: false }
+  ]
 };
 
 const closedRun: AgentOutputRun = {
@@ -25,7 +28,7 @@ const closedRun: AgentOutputRun = {
   templateId: undefined,
   title: "Closed quick Agent",
   finishedAt: 400,
-  responses: [{ id: "turn-2", createdAt: 300, content: "Persisted answer", truncated: false }]
+  responses: [{ id: "turn-2", createdAt: 300, content: "Persisted answer", phase: "final", truncated: false }]
 };
 
 const list = vi.fn(async (options?: { scope?: "current" | "all" }) => (
@@ -34,7 +37,7 @@ const list = vi.fn(async (options?: { scope?: "current" | "all" }) => (
     : { runs: [currentRun], total: 1 }
 ));
 const writeText = vi.fn(async () => true);
-let historyListener: ((payload: { sessionId: string; timestamp: number }) => void) | undefined;
+let historyListener: ((payload: { sessionId: string; templateId?: string; timestamp: number }) => void) | undefined;
 
 describe("AgentOutputPanel", () => {
   afterEach(cleanup);
@@ -64,13 +67,18 @@ describe("AgentOutputPanel", () => {
     });
   });
 
-  it("renders the current final response as readable Markdown and copies it", async () => {
-    render(<I18nProvider locale="en-US"><AgentOutputPanel activeSessionId="run-1" /></I18nProvider>);
+  it("renders progress and final content as readable Markdown and copies it", async () => {
+    render(<I18nProvider locale="en-US"><AgentOutputPanel activeSessionId="run-1" activeTemplateId="template-1" /></I18nProvider>);
 
+    expect(await screen.findByRole("heading", { name: "Plan" })).toBeTruthy();
+    expect(screen.getByText("Inspect the call chain.")).toBeTruthy();
+    expect(screen.getByText("Progress")).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "First answer" })).toBeTruthy();
     expect(screen.getByText("Readable content")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(currentRun.responses[0].content));
+    expect(screen.getByText("Final response")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Copy content" })[1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(currentRun.responses[1].content));
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "run-1", templateId: "template-1" }));
   });
 
   it("switches to all history and shows closed one-off sessions", async () => {
@@ -83,12 +91,12 @@ describe("AgentOutputPanel", () => {
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "all", offset: 0, limit: 50 }));
   });
 
-  it("reloads the active session when a response change arrives", async () => {
-    render(<I18nProvider locale="en-US"><AgentOutputPanel activeSessionId="run-1" /></I18nProvider>);
+  it("reloads the active template when another instance writes content", async () => {
+    render(<I18nProvider locale="en-US"><AgentOutputPanel activeSessionId="run-1" activeTemplateId="template-1" /></I18nProvider>);
     await screen.findByText("Readable content");
     const callsBefore = list.mock.calls.length;
 
-    historyListener?.({ sessionId: "run-1", timestamp: 500 });
+    historyListener?.({ sessionId: "run-2", templateId: "template-1", timestamp: 500 });
 
     await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(callsBefore));
   });

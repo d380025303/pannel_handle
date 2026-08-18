@@ -65,7 +65,10 @@ function toPublicRun(entry) {
     finishedAt: entry.finishedAt,
     exitCode: entry.exitCode,
     responsesTruncated: entry.responsesTruncated === true,
-    responses: Array.isArray(entry.responses) ? entry.responses.map(({ dedupeKey: _dedupeKey, ...response }) => ({ ...response })) : []
+    responses: Array.isArray(entry.responses) ? entry.responses.map(({ dedupeKey: _dedupeKey, ...response }) => ({
+      ...response,
+      phase: response.phase === "commentary" ? "commentary" : "final"
+    })) : []
   };
 }
 
@@ -100,9 +103,9 @@ function createAgentOutputHistoryStore({
     if (dirty) save();
   }
 
-  function notifyChanged(sessionId) {
+  function notifyChanged(sessionId, templateId) {
     try {
-      onChanged({ sessionId, timestamp: now() });
+      onChanged({ sessionId, templateId: templateId || undefined, timestamp: now() });
     } catch (err) {
       console.error("Failed to notify Agent output history change:", err);
     }
@@ -156,22 +159,35 @@ function createAgentOutputHistoryStore({
 
     const content = String(response.content || "").trim();
     if (!content) return undefined;
-    const createdAt = Number.isFinite(response.createdAt) ? response.createdAt : now();
     const dedupeKey = typeof response.dedupeKey === "string" && response.dedupeKey.trim()
       ? response.dedupeKey.trim()
       : undefined;
+    const existingIndex = dedupeKey
+      ? active.entry.responses.findIndex(current => current.dedupeKey === dedupeKey)
+      : -1;
+    const createdAt = Number.isFinite(response.createdAt)
+      ? response.createdAt
+      : existingIndex >= 0 ? active.entry.responses[existingIndex].createdAt : now();
     const limited = truncateUtf8(content, active.policy.maxOutputBytes);
     const item = {
       id: String(response.id || dedupeKey || `${session.id}:${createdAt}:${active.entry.responses.length}`),
       createdAt,
       content: limited.value,
+      phase: response.phase === "commentary" ? "commentary" : "final",
       truncated: limited.truncated,
       ...(dedupeKey ? { dedupeKey } : {})
     };
-    const existingIndex = dedupeKey
-      ? active.entry.responses.findIndex(current => current.dedupeKey === dedupeKey)
-      : -1;
     if (existingIndex >= 0) {
+      const existingItem = active.entry.responses[existingIndex];
+      if (
+        existingItem.id === item.id &&
+        existingItem.createdAt === item.createdAt &&
+        existingItem.content === item.content &&
+        (existingItem.phase || "final") === item.phase &&
+        existingItem.truncated === item.truncated
+      ) {
+        return { ...item, dedupeKey: undefined };
+      }
       active.entry.responses[existingIndex] = item;
     } else {
       active.entry.responses.push(item);
@@ -189,7 +205,7 @@ function createAgentOutputHistoryStore({
 
     storeEntry(active);
     flush();
-    notifyChanged(session.id);
+    notifyChanged(session.id, session.templateId);
     return { ...item, dedupeKey: undefined };
   }
 
@@ -201,7 +217,7 @@ function createAgentOutputHistoryStore({
     storeEntry(active);
     activeRuns.delete(sessionId);
     flush();
-    notifyChanged(sessionId);
+    notifyChanged(sessionId, active.entry.templateId);
   }
 
   function list(templateId) {
@@ -209,13 +225,35 @@ function createAgentOutputHistoryStore({
     return Array.isArray(entries) ? entries.map(entry => ({ ...entry })) : [];
   }
 
-  function listResponses({ scope = "all", sessionId, offset = 0, limit = 50 } = {}) {
+  function sortRuns(entries) {
+    return [...entries].sort((left, right) => {
+      const leftTime = left.responses?.at(-1)?.createdAt || left.startedAt || 0;
+      const rightTime = right.responses?.at(-1)?.createdAt || right.startedAt || 0;
+      return rightTime - leftTime;
+    });
+  }
+
+  function listResponses({ scope = "all", sessionId, templateId, offset = 0, limit = 50 } = {}) {
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
     const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
     if (scope === "current") {
       const active = activeRuns.get(sessionId);
-      if (active) {
-        return { runs: [toPublicRun(active.entry)], total: 1 };
+      const key = templateId
+        ? `terminal:${templateId}`
+        : active?.key;
+      if (key) {
+        const entriesById = new Map();
+        for (const entry of Array.isArray(histories[key]) ? histories[key] : []) {
+          if (entry?.id && Array.isArray(entry.responses) && entry.responses.length > 0) entriesById.set(entry.id, entry);
+        }
+        for (const candidate of activeRuns.values()) {
+          if (candidate.key === key && candidate.entry.responses.length > 0) entriesById.set(candidate.entry.id, candidate.entry);
+        }
+        const current = sortRuns(entriesById.values());
+        return {
+          runs: current.slice(safeOffset, safeOffset + safeLimit).map(toPublicRun),
+          total: current.length
+        };
       }
       for (const entries of Object.values(histories)) {
         const entry = Array.isArray(entries) ? entries.find(item => item?.id === sessionId) : undefined;
@@ -236,11 +274,7 @@ function createAgentOutputHistoryStore({
     for (const active of activeRuns.values()) {
       if (active.entry.responses.length > 0) entriesById.set(active.entry.id, active.entry);
     }
-    const all = [...entriesById.values()].sort((left, right) => {
-      const leftTime = left.responses?.at(-1)?.createdAt || left.startedAt || 0;
-      const rightTime = right.responses?.at(-1)?.createdAt || right.startedAt || 0;
-      return rightTime - leftTime;
-    });
+    const all = sortRuns(entriesById.values());
     return {
       runs: all.slice(safeOffset, safeOffset + safeLimit).map(toPublicRun),
       total: all.length

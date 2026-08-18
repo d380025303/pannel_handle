@@ -7,12 +7,13 @@ import { MarkdownBlock } from "../shared/MarkdownBlock";
 
 type AgentOutputPanelProps = {
   activeSessionId?: string;
+  activeTemplateId?: string;
   onHistoryAvailabilityChange?: (available: boolean) => void;
 };
 
 const PAGE_SIZE = 50;
 
-export function AgentOutputPanel({ activeSessionId, onHistoryAvailabilityChange }: AgentOutputPanelProps) {
+export function AgentOutputPanel({ activeSessionId, activeTemplateId, onHistoryAvailabilityChange }: AgentOutputPanelProps) {
   const { t } = useI18n();
   const [scope, setScope] = useState<"current" | "all">("current");
   const [runs, setRuns] = useState<AgentOutputRun[]>([]);
@@ -36,6 +37,7 @@ export function AgentOutputPanel({ activeSessionId, onHistoryAvailabilityChange 
       const result = await window.agentOutputApi.list({
         scope,
         sessionId: activeSessionId,
+        templateId: activeTemplateId,
         offset: append ? runs.length : 0,
         limit: PAGE_SIZE
       });
@@ -48,18 +50,18 @@ export function AgentOutputPanel({ activeSessionId, onHistoryAvailabilityChange 
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [activeSessionId, onHistoryAvailabilityChange, runs.length, scope]);
+  }, [activeSessionId, activeTemplateId, onHistoryAvailabilityChange, runs.length, scope]);
 
   useEffect(() => {
     void load(false);
-  }, [activeSessionId, scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeSessionId, activeTemplateId, scope]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => window.agentOutputApi.onChanged((payload) => {
-    if (scope === "all" || payload.sessionId === activeSessionId) {
+    if (scope === "all" || payload.sessionId === activeSessionId || (activeTemplateId && payload.templateId === activeTemplateId)) {
       void load(false);
     }
     onHistoryAvailabilityChange?.(true);
-  }), [activeSessionId, load, onHistoryAvailabilityChange, scope]);
+  }), [activeSessionId, activeTemplateId, load, onHistoryAvailabilityChange, scope]);
 
   const copyResponse = useCallback(async (id: string, content: string) => {
     if (await window.clipboardApi.writeText(content)) {
@@ -118,6 +120,9 @@ export function AgentOutputPanel({ activeSessionId, onHistoryAvailabilityChange 
               {run.responses.map((response) => (
                 <article className="agent-output-response" key={response.id}>
                   <header>
+                    <span className={`agent-output-phase ${response.phase}`}>
+                      {t(response.phase === "commentary" ? "agentOutput.commentary" : "agentOutput.final")}
+                    </span>
                     <time>{new Date(response.createdAt).toLocaleString()}</time>
                     <button type="button" title={t("agentOutput.copy")} aria-label={t("agentOutput.copy")} onClick={() => void copyResponse(response.id, response.content)}>
                       {copiedId === response.id ? <Check aria-hidden="true" /> : <Clipboard aria-hidden="true" />}
@@ -130,7 +135,7 @@ export function AgentOutputPanel({ activeSessionId, onHistoryAvailabilityChange 
             </div>
           </details>
         ))}
-        {!loading && !error && scope === "all" && runs.length < total && (
+        {!loading && !error && runs.length < total && (
           <button className="agent-output-load-more" type="button" disabled={loadingMore} onClick={() => void load(true)}>
             {loadingMore ? t("common.loading") : t("agentOutput.loadMore")}
           </button>

@@ -672,6 +672,7 @@ export type AgentOutputResponse = {
   id: string;
   createdAt: number;
   content: string;
+  phase: "commentary" | "final";
   truncated: boolean;
 };
 
@@ -689,9 +690,9 @@ export type AgentOutputRun = {
 };
 
 export type AgentOutputApi = {
-  list: (options?: { scope?: "current" | "all"; sessionId?: string; offset?: number; limit?: number }) => Promise<{ runs: AgentOutputRun[]; total: number }>;
+  list: (options?: { scope?: "current" | "all"; sessionId?: string; templateId?: string; offset?: number; limit?: number }) => Promise<{ runs: AgentOutputRun[]; total: number }>;
   hasAny: () => Promise<boolean>;
-  onChanged: (callback: (payload: { sessionId: string; timestamp: number }) => void) => () => void;
+  onChanged: (callback: (payload: { sessionId: string; templateId?: string; timestamp: number }) => void) => () => void;
 };
 
 export type WindowApi = {

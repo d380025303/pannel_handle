@@ -774,6 +774,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
               {activeRightTool === "agentOutput" ? (
                 <AgentOutputPanel
                   activeSessionId={terminalSessions.activeId}
+                  activeTemplateId={terminalSessions.activeSession?.templateId}
                   onHistoryAvailabilityChange={setAgentOutputHistoryAvailable}
                 />
               ) : activeRightTool === "files" && showFilesPanel ? (
