@@ -15,9 +15,12 @@ function createServer() {
     broadcastAgentStatus: vi.fn(),
     broadcastAgentHookDebug: vi.fn()
   };
-  const server = createAgentHookServer({ terminalManager });
+  const agentTokenStatsService = {
+    handleHook: vi.fn()
+  };
+  const server = createAgentHookServer({ terminalManager, agentTokenStatsService });
 
-  return { server, session, terminalManager };
+  return { server, session, terminalManager, agentTokenStatsService };
 }
 
 describe("agent-hook-server", () => {
@@ -438,7 +441,6 @@ describe("agent-hook-server", () => {
   });
 
   it.each([
-    ["SessionStart", {}, "running"],
     ["UserPromptSubmit", { prompt: "检查构建" }, "running"],
     ["PreToolUse", { tool_name: "Bash" }, "running"],
     ["PermissionRequest", { tool_name: "Bash" }, "waiting_for_permission"],
@@ -467,6 +469,35 @@ describe("agent-hook-server", () => {
       status: expectedStatus,
       eventName
     }));
+  });
+
+  it("keeps a CodeBuddy startup idle while preserving session bookkeeping", () => {
+    const { server, session, terminalManager, agentTokenStatsService } = createServer();
+    const input = {
+      hook_event_name: "SessionStart",
+      source: "startup",
+      model: "hy3",
+      session_id: "codebuddy-1",
+      pannel_handle_session_id: "run-1"
+    };
+
+    const handled = server.handleAgentHook("codebuddy", input);
+
+    expect(handled).toBe(true);
+    expect(session.agentStatus).toBe("cleared");
+    expect(session.agentRuntimeProvider).toBe("codebuddy");
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "codebuddy",
+      status: "cleared",
+      eventName: "SessionStart",
+      activitySummary: undefined
+    }));
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith({
+      provider: "codebuddy",
+      input,
+      session
+    });
   });
 
   it("maps a CodeBuddy clear SessionStart to cleared without a stale summary", () => {

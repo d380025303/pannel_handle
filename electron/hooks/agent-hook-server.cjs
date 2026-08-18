@@ -402,7 +402,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     const eventName = getEventName(input);
     const notificationType = input.notification_type || input.notificationType;
 
-    if (eventName === "SessionStart" && input.source === "clear") {
+    if (eventName === "SessionStart") {
       return "cleared";
     }
     if (eventName === "PermissionRequest") {
@@ -418,7 +418,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       return "failed";
     }
     if (
-      eventName === "SessionStart" ||
       eventName === "UserPromptSubmit" ||
       eventName === "PreToolUse" ||
       eventName === "PostToolUse"
