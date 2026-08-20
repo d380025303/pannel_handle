@@ -28,13 +28,18 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     const isUser = payload.role === "user";
     if (isUser && !options.includeUser) return null;
     if (!isUser && payload.role !== "assistant") return null;
-    if (!isUser && payload.phase !== "commentary" && payload.phase !== "final") return null;
+    const assistantKind = payload.phase === "commentary"
+      ? "commentary"
+      : payload.phase === "final" || payload.phase === "final_answer"
+        ? "final"
+        : null;
+    if (!isUser && !assistantKind) return null;
     const text = getText(payload.content);
     if (!text) return null;
     return {
-      id: String(payload.id || item.id || `${isUser ? "user" : payload.phase}:${text}`),
+      id: String(payload.id || item.id || `${isUser ? "user" : assistantKind}:${text}`),
       provider,
-      kind: isUser ? "user" : payload.phase,
+      kind: isUser ? "user" : assistantKind,
       text,
       timestamp: normalizeTimestamp(item.timestamp)
     };

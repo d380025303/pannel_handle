@@ -30,6 +30,7 @@ function createAgentConversationManager({ broadcast }) {
     if (provider !== "codex" && provider !== "codebuddy") return;
     const existingTurn = turns.get(sessionId);
     const messages = existingTurn?.messages || [];
+    const currentTurnStartIndex = messages.length;
     const prompt = String(userMessage || "").trim();
     if (prompt) {
       const id = String(userMessageId || `user:${timestamp}:${prompt}`);
@@ -43,7 +44,8 @@ function createAgentConversationManager({ broadcast }) {
       provider,
       status: supported ? "running" : "unsupported",
       supported: Boolean(supported),
-      messages
+      messages,
+      currentTurnStartIndex
     });
     if (activeSessionId === sessionId) sendSnapshot();
   }
@@ -60,9 +62,21 @@ function createAgentConversationManager({ broadcast }) {
     if (activeSessionId === sessionId) sendSnapshot();
   }
 
-  function completeTurn(sessionId) {
+  function completeTurn(sessionId, finalMessage) {
     const turn = turns.get(sessionId);
     if (!turn || !turn.supported) return;
+    const finalText = typeof finalMessage?.text === "string" ? finalMessage.text.trim() : "";
+    const currentMessages = turn.messages.slice(turn.currentTurnStartIndex);
+    const hasCurrentFinal = currentMessages.some(message => message.provider === "codex" && message.kind === "final");
+    if (turn.provider === "codex" && finalText && !hasCurrentFinal) {
+      turn.messages.push({
+        id: String(finalMessage.id || `stop:${finalText}`),
+        provider: "codex",
+        kind: "final",
+        text: finalText,
+        timestamp: Number.isFinite(finalMessage.timestamp) ? finalMessage.timestamp : Date.now()
+      });
+    }
     turn.status = "completed";
     if (activeSessionId === sessionId) sendSnapshot();
   }

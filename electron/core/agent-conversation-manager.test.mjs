@@ -67,6 +67,25 @@ describe("Agent conversation manager", () => {
     expect(manager.getSnapshot().turn).toBeNull();
   });
 
+  it("adds the Stop reply only when the current turn has no parsed final message", () => {
+    const { manager } = createHarness();
+    manager.setActiveSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Plan", provider: "codex", supported: true, userMessage: "first" });
+    manager.appendMessages("panel-1", [{ id: "progress", provider: "codex", kind: "commentary", text: "working", timestamp: 1 }]);
+    manager.completeTurn("panel-1", { id: "stop:first", provider: "codex", text: "first result", timestamp: 2 });
+    manager.completeTurn("panel-1", { id: "stop:first-repeat", provider: "codex", text: "first result", timestamp: 3 });
+
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Plan", provider: "codex", supported: true, userMessage: "second" });
+    manager.appendMessages("panel-1", [{ id: "parsed-final", provider: "codex", kind: "final", text: "second result", timestamp: 4 }]);
+    manager.completeTurn("panel-1", { id: "stop:second", provider: "codex", text: "second result", timestamp: 5 });
+
+    const finalMessages = manager.getSnapshot().turn.messages.filter(message => message.kind === "final");
+    expect(finalMessages.map(message => [message.id, message.text])).toEqual([
+      ["stop:first", "first result"],
+      ["parsed-final", "second result"]
+    ]);
+  });
+
   it("follows session selection and exposes unsupported remote turns", () => {
     const { manager, broadcast } = createHarness();
     manager.setActiveSession("panel-1");

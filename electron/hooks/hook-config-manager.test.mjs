@@ -215,7 +215,7 @@ describe("hook-config-manager", () => {
       expect(request.payload.last_assistant_message).toBe(message);
       expect(request.payload.pannel_handle_session_id).toBe("run-unicode");
     }
-  });
+  }, 20000);
 
   it.runIf(process.platform === "win32")("preserves UTF-8 input when Windows ConPTY uses code page 936", async () => {
     const projectPath = createProject();

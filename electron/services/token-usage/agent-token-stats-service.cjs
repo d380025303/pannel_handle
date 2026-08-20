@@ -392,6 +392,24 @@ function createAgentTokenStatsService({
     emitLive(tracker);
   }
 
+  function getCodexStopFinalMessage(provider, input) {
+    if (provider !== "codex") return null;
+    const text = input?.last_assistant_message ?? input?.lastAssistantMessage;
+    if (typeof text !== "string" || !text.trim()) return null;
+    const messageId = input?.event_id || input?.eventId || input?.turn_id || input?.turnId;
+    return {
+      id: `stop:${messageId || now()}`,
+      provider: "codex",
+      text: text.trim(),
+      timestamp: now()
+    };
+  }
+
+  function completeConversationTurn(sessionId, finalMessage) {
+    if (finalMessage) conversationSink?.completeTurn?.(sessionId, finalMessage);
+    else conversationSink?.completeTurn?.(sessionId);
+  }
+
   return {
     handleHook({ provider, input, session }) {
       const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
@@ -417,9 +435,10 @@ function createAgentTokenStatsService({
       }
       if (tracker && eventName === "UserPromptSubmit") void startLiveTurn(tracker);
       if (tracker && eventName === "Stop") {
-        void completeLiveTurn(tracker).finally(() => conversationSink?.completeTurn?.(session.id));
+        const finalMessage = getCodexStopFinalMessage(provider, input);
+        void completeLiveTurn(tracker).finally(() => completeConversationTurn(session.id, finalMessage));
       } else if ((provider === "codex" || provider === "codebuddy") && eventName === "Stop") {
-        conversationSink?.completeTurn?.(session.id);
+        completeConversationTurn(session.id, getCodexStopFinalMessage(provider, input));
       }
 
       if (eventName === "Stop" || eventName === "SessionEnd") collect({ provider, input, session });

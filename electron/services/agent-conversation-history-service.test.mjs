@@ -18,7 +18,7 @@ function createFixture() {
     JSON.stringify({ type: "response_item", timestamp: "2026-08-20T01:00:00Z", payload: { id: "u1", type: "message", role: "user", content: [{ type: "input_text", text: "Codex question" }] } }),
     JSON.stringify({ type: "response_item", timestamp: "2026-08-20T01:01:00Z", payload: { id: "r1", type: "reasoning", summary: "private" } }),
     JSON.stringify({ type: "response_item", timestamp: "2026-08-20T01:02:00Z", payload: { id: "a1", type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "Codex progress" }] } }),
-    JSON.stringify({ type: "response_item", timestamp: "2026-08-20T01:03:00Z", payload: { id: "a2", type: "message", role: "assistant", phase: "final", content: [{ type: "output_text", text: "Codex answer" }] } })
+    JSON.stringify({ type: "response_item", timestamp: "2026-08-20T01:03:00Z", payload: { id: "a2", type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "Codex answer" }] } })
   ].join("\n"), "utf-8");
 
   const database = new DatabaseSync(path.join(codexRoot, "state_5.sqlite"));

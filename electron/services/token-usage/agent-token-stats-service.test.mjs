@@ -79,6 +79,43 @@ describe("agent token live statistics", () => {
     expect(sink.completeTurn).toHaveBeenCalledWith("panel-1");
   });
 
+  it("passes the Codex Stop reply to conversation completion as a final fallback", async () => {
+    const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn() };
+    const harness = createHarness({ initial: codexLine(100, 20), conversationSink: sink });
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "SessionStart" }, session: harness.session });
+    await flush();
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "UserPromptSubmit", turn_id: "turn-1" }, session: harness.session });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+
+    harness.service.handleHook({
+      provider: "codex",
+      input: { ...harness.input, hook_event_name: "Stop", turn_id: "turn-1", last_assistant_message: "final fallback" },
+      session: harness.session
+    });
+
+    await vi.waitFor(() => expect(sink.completeTurn).toHaveBeenCalledWith("panel-1", expect.objectContaining({
+      id: "stop:turn-1",
+      provider: "codex",
+      text: "final fallback"
+    })));
+  });
+
+  it("emits current Codex final_answer transcript records as final replies", async () => {
+    const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn() };
+    const harness = createHarness({ initial: codexLine(100, 20), conversationSink: sink });
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "SessionStart" }, session: harness.session });
+    await flush();
+    harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "UserPromptSubmit" }, session: harness.session });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+    harness.files.append(`${JSON.stringify({ type: "response_item", payload: { type: "message", id: "current-final", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "current answer" }] } })}\n`);
+
+    await harness.intervals[0]();
+
+    await vi.waitFor(() => expect(sink.appendMessages).toHaveBeenCalledWith("panel-1", [
+      expect.objectContaining({ id: "current-final", kind: "final", text: "current answer" })
+    ]));
+  });
+
   it.each(["codex", "codebuddy"])("preserves %s conversations until the panel session ends", async (provider) => {
     const sink = { clearSession: vi.fn() };
     const harness = createHarness({ initial: codexLine(100, 20), conversationSink: sink });

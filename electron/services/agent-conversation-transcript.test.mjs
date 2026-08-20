@@ -35,6 +35,17 @@ describe("Agent conversation transcript parser", () => {
     }))).toEqual([expect.objectContaining({ id: "two", kind: "final", text: "处理完成。" })]);
   });
 
+  it("normalizes current Codex final_answer messages to final replies", () => {
+    const parser = createAgentConversationTranscriptParser("codex");
+
+    expect(parser.pushLine(JSON.stringify({
+      type: "response_item",
+      payload: { type: "message", id: "current-final", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "current answer" }] }
+    }))).toEqual([
+      expect.objectContaining({ id: "current-final", kind: "final", text: "current answer" })
+    ]);
+  });
+
   it("ignores Codex reasoning, tools, users, and unclassified assistant messages", () => {
     const parser = createAgentConversationTranscriptParser("codex");
     const lines = [
