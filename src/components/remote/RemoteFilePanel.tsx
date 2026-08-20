@@ -276,6 +276,7 @@ export function RemoteFilePanel({
   }, []);
   const [downloadTransfer, setDownloadTransfer] = useState<DownloadTransferState | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
+  const [deleteDialogEntry, setDeleteDialogEntry] = useState<RemoteFileEntry | null>(null);
   const [fileSort, setFileSort] = useState(session?.fileSort ?? { key: "name" as const, direction: "asc" as const });
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [pathHistoryIndex, setPathHistoryIndex] = useState(-1);
@@ -1230,11 +1231,8 @@ export function RemoteFilePanel({
     onFocusTerminal?.();
   }, [closeFileContextMenu, onFocusTerminal, session, sessionId]);
 
-  const handleDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
-    closeFileContextMenu();
+  const performDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
     if (!sessionId) return;
-    const confirmation = session?.type === "windows" ? t("confirm.trashEntry", { name: entry.name }) : t("confirm.deleteEntry", { name: entry.name });
-    if (!window.confirm(confirmation)) return;
     try {
       await window.remoteFileApi.deleteEntry(sessionId, entry.path);
       const parentDirectory = findCachedParentPath(entry.path);
@@ -1264,7 +1262,19 @@ export function RemoteFilePanel({
     } catch (err) {
       setError(getErrorMessage(err));
     }
-  }, [closeFileContextMenu, currentPath, findCachedParentPath, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, session?.type, sessionId, t, updateDirectories]);
+  }, [currentPath, findCachedParentPath, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, sessionId, updateDirectories]);
+
+  const requestDeleteEntry = useCallback((entry: RemoteFileEntry) => {
+    closeFileContextMenu();
+    setDeleteDialogEntry(entry);
+  }, [closeFileContextMenu]);
+
+  const confirmDeleteEntry = useCallback(() => {
+    const entry = deleteDialogEntry;
+    if (!entry) return;
+    setDeleteDialogEntry(null);
+    void performDeleteEntry(entry);
+  }, [deleteDialogEntry, performDeleteEntry]);
 
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
@@ -1910,7 +1920,7 @@ export function RemoteFilePanel({
             <span>{t("files.copyPath")}</span>
           </button>
           {(!treeRoot || !sameTreePath(contextEntry.path, treeRoot.path)) && (
-            <button type="button" role="menuitem" onClick={() => void handleDeleteEntry(contextEntry)}>
+            <button type="button" role="menuitem" onClick={() => requestDeleteEntry(contextEntry)}>
               <Trash2 aria-hidden="true" />
               <span>{t("files.deleteEntry")}</span>
             </button>
@@ -2101,6 +2111,32 @@ export function RemoteFilePanel({
             <button type="button" onClick={() => void mutationConflict.retry("skip")}>{t("files.skip")}</button>
             <button type="button" onClick={() => void mutationConflict.retry("rename")}>{t("files.autoRename")}</button>
             <button type="button" onClick={() => setMutationConflict(null)}>{t("common.cancel")}</button>
+          </div>
+        </div>
+      </div>
+    )}
+    {deleteDialogEntry && (
+      <div
+        className="modal-overlay"
+        onClick={() => setDeleteDialogEntry(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setDeleteDialogEntry(null);
+        }}
+      >
+        <div
+          className="file-operation-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("files.deleteEntry")}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h2>{t("files.deleteEntry")}</h2>
+          <p>{session?.type === "windows"
+            ? t("confirm.trashEntry", { name: deleteDialogEntry.name })
+            : t("confirm.deleteEntry", { name: deleteDialogEntry.name })}</p>
+          <div className="file-operation-actions">
+            <button type="button" autoFocus onClick={() => setDeleteDialogEntry(null)}>{t("common.cancel")}</button>
+            <button className="danger" type="button" onClick={confirmDeleteEntry}>{t("common.delete")}</button>
           </div>
         </div>
       </div>

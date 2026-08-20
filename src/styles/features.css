@@ -5627,6 +5627,14 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-bg-control);
 }
 .file-operation-actions button:hover { border-color: var(--color-accent); }
+.file-operation-actions button.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger-text);
+}
+.file-operation-actions button.danger:hover {
+  border-color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
 .remote-conflict-dialog { width: min(920px, calc(100vw - 32px)); }
 .remote-conflict-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .remote-conflict-columns section { min-width: 0; }
