@@ -156,7 +156,9 @@ describe("session-store", () => {
       { id: "1", title: "Old", type: "ssh", cwd: "/srv/old", agentProvider: "codex", sshConfig: { host: "old.example.com" } },
       { id: "2", title: "Local", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", localAgentCwd: " C:\\local work ", sshConfig: { host: "new.example.com" } },
       { id: "3", title: "Unsupported", type: "ssh", cwd: "/srv/app", agentProvider: "claude", agentLocation: "local", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } },
-      { id: "4", title: "Remote", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } }
+      { id: "4", title: "Remote", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } },
+      { id: "5", title: "Windows", type: "ssh", cwd: "C:\\repo", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "win.example.com", remotePlatform: "windows" } },
+      { id: "6", title: "Auto", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "auto.example.com", remotePlatform: "auto" } }
     ]), "utf-8");
 
     const sessions = createStore(sessionsFile).loadLibrary();
@@ -167,6 +169,8 @@ describe("session-store", () => {
     expect(sessions[2].agentLocation).toBe("remote");
     expect(sessions[2].localAgentCwd).toBeUndefined();
     expect(sessions[3].localAgentCwd).toBeUndefined();
+    expect(sessions[4].sshConfig.remotePlatform).toBe("windows");
+    expect(sessions[5].sshConfig.remotePlatform).toBeUndefined();
   });
 
   it("adds, updates, removes, and persists library sessions", () => {

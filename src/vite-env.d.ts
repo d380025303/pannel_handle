@@ -6,6 +6,8 @@ export type QuickCommand = {
   mode?: 'auto-enter' | 'write' | 'one-time';
 };
 
+export type RemotePlatform = "auto" | "linux" | "windows";
+
 export type SshConfig = {
   host: string;
   username?: string;
@@ -17,6 +19,7 @@ export type SshConfig = {
   hasSecret?: boolean;
   secret?: string;
   clearSecret?: boolean;
+  remotePlatform?: RemotePlatform;
 };
 
 export type TerminalSession = {

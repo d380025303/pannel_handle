@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, SshConfig } from "../../vite-env";
+import type { AgentLocation, AgentProvider, RemotePlatform, SshConfig } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
@@ -41,6 +41,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [sshIdentityFile, setSshIdentityFile] = useState("");
   const [sshSecret, setSshSecret] = useState("");
   const [sshRemark, setSshRemark] = useState("");
+  const [remotePlatform, setRemotePlatform] = useState<RemotePlatform>("auto");
   const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -75,7 +76,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
           port: Number(sshPort) || 22,
           identityFile: sshIdentityFile.trim() || undefined,
           secret: sshSecret || undefined,
-          remark: sshRemark.trim() || undefined
+          remark: sshRemark.trim() || undefined,
+          remotePlatform
         } : undefined
       });
     } catch (err: any) {
@@ -204,6 +206,14 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   rows={2}
                 />
               </label>
+              <label className="modal-field">
+                <span className="modal-label">{t("session.remotePlatform")}</span>
+                <select className="modal-input" value={remotePlatform} onChange={(event) => setRemotePlatform(event.target.value as RemotePlatform)}>
+                  <option value="auto">{t("session.remotePlatformAuto")}</option>
+                  <option value="linux">Linux</option>
+                  <option value="windows">Windows</option>
+                </select>
+              </label>
               <input
                 className="modal-input"
                 placeholder={t("session.namePlaceholder")}
@@ -214,7 +224,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 <span className="modal-label">{agentProvider && agentLocation === "local" ? t("session.remoteCwd") : t("session.cwd")}</span>
                 <input
                   className="modal-input"
-                  placeholder="/srv/app"
+                  placeholder={remotePlatform === "windows" ? "C:\\projects\\myapp" : "/srv/app"}
                   value={cwd}
                   onChange={(e) => setCwd(e.target.value)}
                 />

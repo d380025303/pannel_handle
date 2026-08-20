@@ -15,11 +15,11 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function isPathInside(root, candidate) {
+function isLinuxPathInside(root, candidate) {
   return candidate === root || candidate.startsWith(root === "/" ? "/" : `${root}/`);
 }
 
-function normalizeRoot(value) {
+function normalizeLinuxRoot(value) {
   const root = path.posix.normalize(String(value || "").trim());
   if (!root || !root.startsWith("/") || root.includes("\0")) {
     throw new Error("本地 Agent 的远程工作目录必须是绝对 Linux 路径。");
@@ -27,14 +27,102 @@ function normalizeRoot(value) {
   return root;
 }
 
-function normalizeToolPath(root, value = ".") {
+function normalizeLinuxToolPath(root, value = ".") {
   const input = String(value || ".").trim() || ".";
   if (input.includes("\0")) throw new Error("远程路径无效。");
   const candidate = path.posix.normalize(input.startsWith("/") ? input : path.posix.join(root, input));
-  if (!isPathInside(root, candidate)) {
+  if (!isLinuxPathInside(root, candidate)) {
     throw new Error("远程路径必须位于会话工作目录内。");
   }
   return candidate;
+}
+
+function powershellQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function encodePowerShell(script) {
+  return Buffer.from(String(script), "utf16le").toString("base64");
+}
+
+function normalizeRemotePlatform(value) {
+  return value === "windows" || value === "linux" ? value : "auto";
+}
+
+function normalizeWindowsRemotePath(value) {
+  let input = String(value || "").trim().replace(/\//g, "\\");
+  if (/^\\[A-Za-z]:\\/.test(input)) input = input.slice(1);
+  if (!/^[A-Za-z]:\\/.test(input) || input.startsWith("\\\\") || input.includes("\0")) {
+    throw new Error("本地 Agent 的远程工作目录必须是 Windows 盘符绝对路径。");
+  }
+  const normalized = path.win32.normalize(input).replace(/\\/g, "/");
+  return normalized.length > 3 ? normalized.replace(/\/+$/, "") : normalized;
+}
+
+function isPathInside(root, candidate, platform = "linux") {
+  if (platform !== "windows") return isLinuxPathInside(root, candidate);
+  const rootPath = root.replace(/\//g, "\\");
+  const candidatePath = candidate.replace(/\//g, "\\");
+  const relative = path.win32.relative(rootPath, candidatePath);
+  return relative === "" || (!relative.startsWith(`..${path.win32.sep}`) && relative !== ".." && !path.win32.isAbsolute(relative));
+}
+
+function normalizeRoot(value, platform = "linux") {
+  return platform === "windows" ? normalizeWindowsRemotePath(value) : normalizeLinuxRoot(value);
+}
+
+function normalizeToolPath(root, value = ".", platform = "linux") {
+  if (platform !== "windows") return normalizeLinuxToolPath(root, value);
+  const rootPath = normalizeWindowsRemotePath(root);
+  const input = String(value || ".").trim() || ".";
+  if (input.includes("\0")) throw new Error("远程路径无效。");
+  const normalizedInput = input.replace(/\//g, "\\");
+  const candidate = /^[A-Za-z]:\\/.test(normalizedInput) || /^\\[A-Za-z]:\\/.test(normalizedInput)
+    ? normalizeWindowsRemotePath(normalizedInput)
+    : path.win32.resolve(rootPath.replace(/\//g, "\\"), normalizedInput).replace(/\\/g, "/");
+  if (!isPathInside(rootPath, candidate, platform)) {
+    throw new Error("远程路径必须位于会话工作目录内。");
+  }
+  return candidate;
+}
+
+function normalizeResolvedPath(value, platform) {
+  return platform === "windows" ? normalizeWindowsRemotePath(value) : path.posix.normalize(String(value));
+}
+
+function dirnameRemote(value, platform) {
+  return platform === "windows"
+    ? path.win32.dirname(value.replace(/\//g, "\\")).replace(/\\/g, "/")
+    : path.posix.dirname(value);
+}
+
+function basenameRemote(value, platform) {
+  return platform === "windows"
+    ? path.win32.basename(value.replace(/\//g, "\\"))
+    : path.posix.basename(value);
+}
+
+function joinRemote(value, name, platform) {
+  return platform === "windows"
+    ? path.win32.join(value.replace(/\//g, "\\"), name).replace(/\\/g, "/")
+    : path.posix.join(value, name);
+}
+
+function buildRemoteCommand(platform, cwd, command) {
+  if (platform === "windows") {
+    const script = [
+      `$ErrorActionPreference = 'Continue'`,
+      `Set-Location -LiteralPath ${powershellQuote(cwd.replace(/\//g, "\\"))}`,
+      `$global:LASTEXITCODE = $null`,
+      String(command),
+      `$pannelHandleSucceeded = $?`,
+      `$pannelHandleExitCode = $LASTEXITCODE`,
+      `if ($null -ne $pannelHandleExitCode) { exit $pannelHandleExitCode }`,
+      `if (-not $pannelHandleSucceeded) { exit 1 }`
+    ].join("\n");
+    return `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodePowerShell(script)}`;
+  }
+  return `bash -lc ${shellQuote(`cd ${shellQuote(cwd)} && ${command}`)}`;
 }
 
 function clampInteger(value, fallback, min, max) {
@@ -48,8 +136,9 @@ function toolResult(value, isError = false) {
   return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };
 }
 
-function createRuntimeInstructions({ remoteRoot, hostLabel }) {
-  return `# Remote workspace\n\nThe source of truth is the SSH workspace \`${remoteRoot}\` on \`${hostLabel}\`. This local directory only hosts the Codex session.\n\n1. Inspect remote files with \`remote_context\`, \`remote_list\`, \`remote_search\`, and \`remote_read_text\`.\n2. Change text files with \`remote_apply_patch\`; pass the version returned by the last read for every update or delete.\n3. Run repository commands with \`remote_exec\`. Treat its working directory as \`${remoteRoot}\`.\n4. Re-read a conflicted file before retrying. Finish only after the relevant remote checks pass.\n\nUse the remote tools for project work. Local shell and local files are not the remote project.\n`;
+function createRuntimeInstructions({ remoteRoot, hostLabel, platform = "linux" }) {
+  const shell = platform === "windows" ? "PowerShell on Windows" : "the remote Linux shell";
+  return `# Remote workspace\n\nThe source of truth is the SSH workspace \`${remoteRoot}\` on \`${hostLabel}\`. This local directory only hosts the Codex session. The remote platform is ${platform}, and commands run with ${shell}.\n\n1. Inspect remote files with \`remote_context\`, \`remote_list\`, \`remote_search\`, and \`remote_read_text\`.\n2. Change text files with \`remote_apply_patch\`; pass the version returned by the last read for every update or delete.\n3. Run repository commands with \`remote_exec\`. Treat its working directory as \`${remoteRoot}\`.\n4. Re-read a conflicted file before retrying. Finish only after the relevant remote checks pass.\n\nUse the remote tools for project work. Local shell and local files are not the remote project.\n`;
 }
 
 function createRemoteAgentBridgeService({
@@ -125,10 +214,31 @@ function createRemoteAgentBridgeService({
     return binding;
   }
 
-  async function resolveRealRoot(sessionId, root) {
+  async function detectRemotePlatform(sessionId, configuredPlatform, configuredRoot) {
+    const requested = normalizeRemotePlatform(configuredPlatform);
+    if (requested !== "auto") return requested;
+    const root = String(configuredRoot || "").trim();
+    if (/^\/?[A-Za-z]:[\\/]/.test(root)) return "windows";
+    if (root.startsWith("/")) return "linux";
+    try {
+      await sshSessionRuntime.exec(sessionId, 'cmd.exe /d /s /c "ver"', {
+        actionName: "检测远程 Windows 平台",
+        timeoutMs: 10000
+      });
+      return "windows";
+    } catch {
+      await sshSessionRuntime.exec(sessionId, "uname -s", {
+        actionName: "检测远程 Linux 平台",
+        timeoutMs: 10000
+      });
+      return "linux";
+    }
+  }
+
+  async function resolveRealRoot(sessionId, root, platform) {
     const client = await sshSessionRuntime.createSftpClient(sessionId, { actionName: "验证远程 Agent 工作目录" });
     try {
-      const realRoot = path.posix.normalize(await client.realPath(root));
+      const realRoot = normalizeResolvedPath(await client.realPath(root), platform);
       const stat = await client.stat(realRoot);
       if (!stat || stat.isDirectory === false || stat.type === "-") {
         throw new Error("远程 Agent 工作目录不是目录。");
@@ -140,12 +250,12 @@ function createRemoteAgentBridgeService({
   }
 
   async function assertScopedPath(binding, requestedPath, options = {}) {
-    const candidate = normalizeToolPath(binding.root, requestedPath);
+    const candidate = normalizeToolPath(binding.root, requestedPath, binding.platform);
     const client = await sshSessionRuntime.createSftpClient(binding.sessionId, { actionName: "验证远程路径" });
     try {
       let resolved;
       try {
-        resolved = path.posix.normalize(await client.realPath(candidate));
+        resolved = normalizeResolvedPath(await client.realPath(candidate), binding.platform);
         if (options.requireMissing) {
           const error = new Error("新建文件已经存在，请先读取并携带版本号后再修改。");
           error.code = "REMOTE_PATH_EXISTS";
@@ -154,14 +264,14 @@ function createRemoteAgentBridgeService({
       } catch (error) {
         if (error?.code === "REMOTE_PATH_EXISTS") throw error;
         if (!options.allowMissing) throw error;
-        const parent = path.posix.dirname(candidate);
-        const realParent = path.posix.normalize(await client.realPath(parent));
-        if (!isPathInside(binding.realRoot, realParent)) {
+        const parent = dirnameRemote(candidate, binding.platform);
+        const realParent = normalizeResolvedPath(await client.realPath(parent), binding.platform);
+        if (!isPathInside(binding.realRoot, realParent, binding.platform)) {
           throw new Error("远程路径通过符号链接越出了工作目录。");
         }
-        resolved = path.posix.join(realParent, path.posix.basename(candidate));
+        resolved = joinRemote(realParent, basenameRemote(candidate, binding.platform), binding.platform);
       }
-      if (!isPathInside(binding.realRoot, resolved)) {
+      if (!isPathInside(binding.realRoot, resolved, binding.platform)) {
         throw new Error("远程路径通过符号链接越出了工作目录。");
       }
       return candidate;
@@ -249,14 +359,23 @@ function createRemoteAgentBridgeService({
     const query = String(args.query || "").trim();
     if (!query || query.length > 500) throw new Error("搜索词无效。");
     const limit = clampInteger(args.limit, 200, 1, 500);
-    const excludes = "-path './.git' -o -path './node_modules' -o -path './dist' -o -path './build'";
     let command;
-    if (args.mode === "files") {
-      command = `cd ${shellQuote(root)} && find . \\( ${excludes} \\) -prune -o -type f -print | grep -iF -- ${shellQuote(query)} | head -n ${limit}`;
+    if (binding.platform === "windows") {
+      const filter = `$_.FullName -notmatch '[\\\\/](?:\\.git|node_modules|dist|build)(?:[\\\\/]|$)'`;
+      if (args.mode === "files") {
+        command = `Get-ChildItem -LiteralPath . -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { ${filter} } | ForEach-Object { [IO.Path]::GetRelativePath((Get-Location).Path, $_.FullName) } | Where-Object { $_.IndexOf(${powershellQuote(query)}, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | Select-Object -First ${limit}`;
+      } else {
+        command = `if (Get-Command rg -ErrorAction SilentlyContinue) { & rg --line-number --hidden --glob '!/.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --max-count ${limit} --fixed-strings -- ${powershellQuote(query)} . | Select-Object -First ${limit} } else { Get-ChildItem -LiteralPath . -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { ${filter} } | Select-String -SimpleMatch -Pattern ${powershellQuote(query)} -ErrorAction SilentlyContinue | Select-Object -First ${limit} | ForEach-Object { \"$($_.Path):$($_.LineNumber):$($_.Line)\" } }`;
+      }
     } else {
-      command = `cd ${shellQuote(root)} && if command -v rg >/dev/null 2>&1; then rg --line-number --hidden --glob '!/.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --max-count ${limit} --fixed-strings -- ${shellQuote(query)} .; else grep -RInF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build -m ${limit} -- ${shellQuote(query)} .; fi | head -n ${limit}`;
+      const excludes = "-path './.git' -o -path './node_modules' -o -path './dist' -o -path './build'";
+      if (args.mode === "files") {
+        command = `find . \\( ${excludes} \\) -prune -o -type f -print | grep -iF -- ${shellQuote(query)} | head -n ${limit}`;
+      } else {
+        command = `if command -v rg >/dev/null 2>&1; then rg --line-number --hidden --glob '!/.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!build/**' --max-count ${limit} --fixed-strings -- ${shellQuote(query)} .; else grep -RInF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build -m ${limit} -- ${shellQuote(query)} .; fi | head -n ${limit}`;
+      }
     }
-    const output = await sshSessionRuntime.exec(binding.sessionId, `bash -lc ${shellQuote(command)}`, {
+    const output = await sshSessionRuntime.exec(binding.sessionId, buildRemoteCommand(binding.platform, root, command), {
       actionName: "远程 Agent 搜索",
       timeoutMs: 30000,
       allowExitCodes: [0, 1]
@@ -314,7 +433,7 @@ function createRemoteAgentBridgeService({
     if (!command || command.length > 200000) throw new Error("远程命令无效。");
     const cwd = await assertScopedPath(binding, args.cwd || ".");
     const timeoutMs = clampInteger(args.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS, 1000, MAX_COMMAND_TIMEOUT_MS);
-    const remoteCommand = `bash -lc ${shellQuote(`cd ${shellQuote(cwd)} && ${command}`)}`;
+    const remoteCommand = buildRemoteCommand(binding.platform, cwd, command);
     let stdout = "";
     let stderr = "";
     let truncated = false;
@@ -438,7 +557,7 @@ function createRemoteAgentBridgeService({
   async function callTool(binding, name, args, requestId) {
     if (name === "remote_context") {
       const session = terminalManager.getSession(binding.sessionId);
-      return { sessionId: binding.sessionId, type: "ssh", host: session.sshConfig?.host, username: session.sshConfig?.username, root: binding.root };
+      return { sessionId: binding.sessionId, type: "ssh", platform: binding.platform, host: session.sshConfig?.host, username: session.sshConfig?.username, root: binding.root };
     }
     if (name === "remote_list") {
       return withOperation(binding, name, args.path || ".", async () => {
@@ -598,11 +717,12 @@ function createRemoteAgentBridgeService({
     await start();
     const session = terminalManager.getSession(sessionId);
     if (!session || session.type !== "ssh") throw new Error("本地 Agent 只能绑定正在运行的 SSH 会话。");
-    const root = normalizeRoot(session.cwd);
-    const realRoot = await resolveRealRoot(sessionId, root);
+    const platform = await detectRemotePlatform(sessionId, session.sshConfig?.remotePlatform, session.cwd);
+    const root = normalizeRoot(session.cwd, platform);
+    const realRoot = await resolveRealRoot(sessionId, root, platform);
     await closeBinding(sessionId);
     const hostLabel = `${session.sshConfig?.username ? `${session.sshConfig.username}@` : ""}${session.sshConfig?.host || "SSH"}`;
-    const runtimeInstructions = createRuntimeInstructions({ remoteRoot: root, hostLabel });
+    const runtimeInstructions = createRuntimeInstructions({ remoteRoot: root, hostLabel, platform });
     const configuredLocalAgentCwd = String(session.localAgentCwd || "").trim();
     let workspacePath;
     let managedWorkspace = false;
@@ -637,6 +757,7 @@ function createRemoteAgentBridgeService({
     const binding = {
       token,
       sessionId,
+      platform,
       root,
       realRoot,
       workspacePath,
@@ -724,7 +845,9 @@ function createRemoteAgentBridgeService({
 module.exports = {
   MCP_PROTOCOL_VERSION,
   REMOTE_AGENT_TOKEN_ENV,
+  buildRemoteCommand,
   createRemoteAgentBridgeService,
   createRuntimeInstructions,
+  normalizeRoot,
   normalizeToolPath
 };

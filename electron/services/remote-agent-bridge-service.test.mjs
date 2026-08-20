@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
+  buildRemoteCommand,
   createRemoteAgentBridgeService,
   createRuntimeInstructions,
+  normalizeRoot,
   normalizeToolPath
 } = require("./remote-agent-bridge-service.cjs");
 
@@ -80,11 +82,57 @@ describe("remote-agent-bridge-service", () => {
     expect(() => normalizeToolPath("/srv/app", "/etc/passwd")).toThrow("工作目录内");
   });
 
+  it("normalizes Windows drive paths and enforces a case-insensitive workspace boundary", () => {
+    expect(normalizeRoot("c:\\Work Space\\repo\\", "windows")).toBe("c:/Work Space/repo");
+    expect(normalizeToolPath("C:/Work Space/repo", "src\\main.ts", "windows")).toBe("C:/Work Space/repo/src/main.ts");
+    expect(normalizeToolPath("C:/Work Space/repo", "c:/work space/REPO/docs/readme.md", "windows")).toBe("c:/work space/REPO/docs/readme.md");
+    expect(() => normalizeToolPath("C:/Work Space/repo", "..\\secret.txt", "windows")).toThrow("工作目录内");
+    expect(() => normalizeToolPath("C:/Work Space/repo", "D:\\other", "windows")).toThrow("工作目录内");
+    expect(() => normalizeRoot("\\\\server\\share", "windows")).toThrow("盘符绝对路径");
+  });
+
+  it("wraps Windows commands in explicit encoded PowerShell with the requested working directory", () => {
+    const command = buildRemoteCommand("windows", "C:/Work Space/O'Brien", "git status --short");
+    expect(command).toMatch(/^powershell\.exe .* -EncodedCommand /);
+    const encoded = command.split(" ").at(-1);
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("Set-Location -LiteralPath 'C:\\Work Space\\O''Brien'");
+    expect(script).toContain("git status --short");
+    expect(script).toContain("exit $pannelHandleExitCode");
+  });
+
   it("writes focused runtime instructions for the remote source of truth", () => {
     const content = createRuntimeInstructions({ remoteRoot: "/srv/app", hostLabel: "deploy@example.com" });
     expect(content).toContain("The source of truth is the SSH workspace `/srv/app`");
     expect(content).toContain("remote_apply_patch");
     expect(content).toContain("Finish only after the relevant remote checks pass");
+  });
+
+  it("binds a local Codex session to a Windows SSH workspace", async () => {
+    const harness = createHarness({
+      cwd: "C:\\Work Space\\repo",
+      sshConfig: { host: "windows.example.com", username: "builder", remotePlatform: "windows" }
+    });
+
+    const binding = await harness.service.createBinding("run-1");
+
+    expect(binding.developerInstructions || readFileSync(path.join(binding.workspacePath, "AGENTS.md"), "utf-8")).toContain("remote platform is windows");
+
+    const context = await post(binding, { id: 1, method: "tools/call", params: { name: "remote_context", arguments: {} } });
+    expect((await context.json()).result.content[0].text).toContain('"platform": "windows"');
+
+    const search = await post(binding, {
+      id: 2,
+      method: "tools/call",
+      params: { name: "remote_search", arguments: { query: "needle", path: "src", mode: "text" } }
+    });
+    expect((await search.json()).result.isError).not.toBe(true);
+    const remoteCommand = harness.sshSessionRuntime.exec.mock.calls.at(-1)[1];
+    const script = Buffer.from(remoteCommand.split(" ").at(-1), "base64").toString("utf16le");
+    expect(script).toContain("Set-Location -LiteralPath 'C:\\Work Space\\repo\\src'");
+    expect(script).toContain("Select-String -SimpleMatch");
+
+    await harness.service.shutdown();
   });
 
   it("uses a selected local Agent directory without writing or deleting bridge files there", async () => {

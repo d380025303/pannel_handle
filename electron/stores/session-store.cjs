@@ -79,6 +79,10 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
         ? existingConfig.extraArgs.map(arg => String(arg).trim()).filter(Boolean)
         : [];
     const remark = typeof config.remark === "string" ? config.remark.trim() : (existingConfig.remark || "");
+    const requestedRemotePlatform = config.remotePlatform || existingConfig.remotePlatform;
+    const remotePlatform = requestedRemotePlatform === "windows" || requestedRemotePlatform === "linux"
+      ? requestedRemotePlatform
+      : undefined;
 
     const encryptedSecret = config.clearSecret
       ? undefined
@@ -93,6 +97,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       identityFile,
       extraArgs,
       remark,
+      ...(remotePlatform ? { remotePlatform } : {}),
       encryptedSecret
     };
   }

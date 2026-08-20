@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, QuickCommand, SshConfig, TerminalSession } from "../../vite-env";
+import type { AgentLocation, AgentProvider, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
@@ -37,6 +37,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
   const [sshRemark, setSshRemark] = useState(session.sshConfig?.remark || "");
+  const [remotePlatform, setRemotePlatform] = useState<RemotePlatform>(session.sshConfig?.remotePlatform || "auto");
   const [showAdvancedSsh, setShowAdvancedSsh] = useState(false);
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
@@ -65,7 +66,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         identityFile: sshIdentityFile.trim() || undefined,
         secret: clearSshSecret ? undefined : sshSecret || undefined,
         clearSecret: clearSshSecret,
-        remark: sshRemark.trim() || undefined
+        remark: sshRemark.trim() || undefined,
+        remotePlatform
       } : undefined,
       tags
       );
@@ -223,13 +225,21 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                       rows={2}
                     />
                   </label>
+                  <label className="modal-field">
+                    <span className="modal-label">{t("session.remotePlatform")}</span>
+                    <select className="modal-input" value={remotePlatform} onChange={(event) => setRemotePlatform(event.target.value as RemotePlatform)}>
+                      <option value="auto">{t("session.remotePlatformAuto")}</option>
+                      <option value="linux">Linux</option>
+                      <option value="windows">Windows</option>
+                    </select>
+                  </label>
                 </>
               )}
               <label className="modal-field">
                 <span className="modal-label">{agentProvider && agentLocation === "local" ? t("session.remoteCwd") : t("session.cwd")}</span>
                 <input
                   className="modal-input"
-                  placeholder="/srv/app"
+                  placeholder={remotePlatform === "windows" ? "C:\\projects\\myapp" : "/srv/app"}
                   value={editCwd}
                   onChange={(e) => setEditCwd(e.target.value)}
                 />

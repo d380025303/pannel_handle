@@ -107,6 +107,8 @@ export type TranslationKey =
   | "session.identityFile"
   | "session.cwd"
   | "session.remoteCwd"
+  | "session.remotePlatform"
+  | "session.remotePlatformAuto"
   | "session.localAgentCwd"
   | "session.localAgentCwdPlaceholder"
   | "session.localAgentCwdHint"
@@ -759,6 +761,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.identityFile": "密钥路径",
     "session.cwd": "工作目录",
     "session.remoteCwd": "远端工作目录",
+    "session.remotePlatform": "远程操作系统",
+    "session.remotePlatformAuto": "自动检测",
     "session.localAgentCwd": "本机 Agent 工作目录（可选）",
     "session.localAgentCwdPlaceholder": "未选择时使用应用临时目录",
     "session.localAgentCwdHint": "本机 Codex 将从此目录启动；远端操作范围仍由远端工作目录决定。",
@@ -1403,6 +1407,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.identityFile": "Identity file",
     "session.cwd": "Working directory",
     "session.remoteCwd": "Remote working directory",
+    "session.remotePlatform": "Remote operating system",
+    "session.remotePlatformAuto": "Auto-detect",
     "session.localAgentCwd": "Local Agent working directory (optional)",
     "session.localAgentCwdPlaceholder": "Use the app-managed temporary directory when empty",
     "session.localAgentCwdHint": "Local Codex starts here; remote operations remain scoped to the remote working directory.",
