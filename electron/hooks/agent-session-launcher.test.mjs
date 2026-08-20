@@ -243,6 +243,7 @@ describe("agent-session-launcher", () => {
     const remoteAgentBridgeService = {
       createBinding: vi.fn(async () => ({
         workspacePath: "C:\\runtime\\run-1",
+        developerInstructions: "Use the remote workspace's scoped tools.\nDo not edit local files.",
         url: "http://127.0.0.1:4568/mcp",
         token: "secret-token",
         tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
@@ -269,9 +270,14 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.startDeferredSession).toHaveBeenCalledWith("run-1", expect.objectContaining({
       terminalTransport: "local-agent",
       runtimeCwd: "C:\\runtime\\run-1",
+      runtimeShell: "powershell.exe",
       runtimeEnv: { PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "secret-token" },
-      runtimeInitialCommand: expect.stringContaining("mcp_servers.pannel_handle_remote.url")
+      runtimeInitialCommand: expect.stringMatching(/mcp_servers\.pannel_handle_remote\.url.*developer_instructions/)
     }));
+    expect(mocks.hookConfigManager.inspect).toHaveBeenCalledWith(
+      { type: "windows", path: "C:\\runtime\\run-1" },
+      ["codex"]
+    );
   });
 
   it("cleans up a failed new SSH session and its saved template", async () => {

@@ -10,6 +10,7 @@ type CreateSessionOptions = {
   initialCommand?: string;
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
+  localAgentCwd?: string;
   sshConfig?: SshConfig;
   tags?: string[];
   persist?: boolean;
@@ -114,7 +115,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, sshConfig, tags, persist }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, tags, persist }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -126,6 +127,7 @@ export function useTerminalSessions() {
       ...(initialCommand ? { initialCommand } : {}),
       ...(agentProvider ? { agentProvider } : {}),
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
+      ...(isSsh && agentProvider === "codex" && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       tags,
       ...(typeof persist === "boolean" ? { persist } : {})
     });
@@ -139,13 +141,14 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
     await window.terminalApi.updateSession(id, {
       title,
       cwd,
       initialCommand: initialCommand.trim(),
       agentProvider: agentProvider ?? null,
       agentLocation: agentProvider ? agentLocation ?? null : null,
+      localAgentCwd: agentProvider === "codex" && agentLocation === "local" ? localAgentCwd ?? null : null,
       sshConfig,
       quickCommands,
       tags
@@ -159,7 +162,7 @@ export function useTerminalSessions() {
     if (!id || !session) return;
     const newCmd: QuickCommand = { id: generateId(), command, mode };
     const updated = [...(session.quickCommands ?? []), newCmd];
-    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, updated, session.sshConfig, session.tags);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, session.localAgentCwd, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
   const removeQuickCommandFromActiveSession = useCallback(async (commandId: string) => {
@@ -167,7 +170,7 @@ export function useTerminalSessions() {
     const session = activeSession;
     if (!id || !session) return;
     const updated = (session.quickCommands ?? []).filter((qc) => qc.id !== commandId);
-    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, updated, session.sshConfig, session.tags);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, session.localAgentCwd, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
   const setActivePreferredDiskMountPoint = useCallback(async (mountPoint: string) => {

@@ -4,6 +4,7 @@ import { useI18n } from "../../i18n";
 import type { AgentLocation, AgentProvider, SshConfig } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
+import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { TagInput } from "../shared/TagInput";
 
 export type CreateSessionRequest = {
@@ -13,6 +14,7 @@ export type CreateSessionRequest = {
   initialCommand?: string;
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
+  localAgentCwd?: string;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -31,6 +33,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [commandInput, setCommandInput] = useState("");
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>();
   const [agentLocation, setAgentLocation] = useState<AgentLocation>("local");
+  const [localAgentCwd, setLocalAgentCwd] = useState("");
   const [selectedShellId, setSelectedShellId] = useState("powershell");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
@@ -62,6 +65,9 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         initialCommand: commandInput.trim() || undefined,
         agentProvider,
         agentLocation: isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
+        localAgentCwd: isSsh && agentProvider === "codex" && agentLocation === "local"
+          ? localAgentCwd.trim() || undefined
+          : undefined,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
@@ -205,7 +211,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 onChange={(e) => setTitle(e.target.value)}
               />
               <label className="modal-field">
-                <span className="modal-label">{t("session.cwd")}</span>
+                <span className="modal-label">{agentProvider && agentLocation === "local" ? t("session.remoteCwd") : t("session.cwd")}</span>
                 <input
                   className="modal-input"
                   placeholder="/srv/app"
@@ -213,6 +219,9 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   onChange={(e) => setCwd(e.target.value)}
                 />
               </label>
+              {agentProvider === "codex" && agentLocation === "local" && (
+                <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />
+              )}
               <label className="modal-field">
                   <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea

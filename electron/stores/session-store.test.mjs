@@ -154,15 +154,19 @@ describe("session-store", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([
       { id: "1", title: "Old", type: "ssh", cwd: "/srv/old", agentProvider: "codex", sshConfig: { host: "old.example.com" } },
-      { id: "2", title: "Local", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "new.example.com" } },
-      { id: "3", title: "Unsupported", type: "ssh", cwd: "/srv/app", agentProvider: "claude", agentLocation: "local", sshConfig: { host: "new.example.com" } }
+      { id: "2", title: "Local", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", localAgentCwd: " C:\\local work ", sshConfig: { host: "new.example.com" } },
+      { id: "3", title: "Unsupported", type: "ssh", cwd: "/srv/app", agentProvider: "claude", agentLocation: "local", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } },
+      { id: "4", title: "Remote", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } }
     ]), "utf-8");
 
     const sessions = createStore(sessionsFile).loadLibrary();
 
     expect(sessions[0].agentLocation).toBe("remote");
     expect(sessions[1].agentLocation).toBe("local");
+    expect(sessions[1].localAgentCwd).toBe("C:\\local work");
     expect(sessions[2].agentLocation).toBe("remote");
+    expect(sessions[2].localAgentCwd).toBeUndefined();
+    expect(sessions[3].localAgentCwd).toBeUndefined();
   });
 
   it("adds, updates, removes, and persists library sessions", () => {

@@ -382,8 +382,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [agentConversation, remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, quickCommands, sshConfig, tags);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, quickCommands, sshConfig, tags);
     setEditDialogSession(null);
   }, [terminalSessions]);
 

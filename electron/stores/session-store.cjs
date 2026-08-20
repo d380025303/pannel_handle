@@ -113,6 +113,9 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     const agentLocation = template.type === "ssh" && agentProvider
       ? (template.agentLocation === "local" && agentProvider === "codex" ? "local" : "remote")
       : undefined;
+    const localAgentCwd = template.type === "ssh" && agentProvider === "codex" && agentLocation === "local" && typeof template.localAgentCwd === "string"
+      ? template.localAgentCwd.trim() || undefined
+      : undefined;
     return {
       id: template.id,
       title: template.title,
@@ -127,6 +130,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       initialCommand: template.initialCommand,
       agentProvider,
       agentLocation,
+      localAgentCwd,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

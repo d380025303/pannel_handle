@@ -368,6 +368,17 @@
   gap: 8px;
 }
 
+.local-agent-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.modal-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
 .hook-provider-list {
   gap: 8px;
 }

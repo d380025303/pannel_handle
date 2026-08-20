@@ -66,20 +66,24 @@ function buildSshCommandCheckWarningCommand(provider, error) {
 }
 
 function buildLocalCodexStartCommand(binding) {
-  const workspacePath = String(binding.workspacePath || "").replace(/"/g, '""');
-  return [
+  const powerShellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+  const args = [
     "codex",
     "-C",
-    `"${workspacePath}"`,
+    powerShellQuote(binding.workspacePath),
     "-s",
     "read-only",
     "-a",
     "on-request",
     "-c",
-    `mcp_servers.pannel_handle_remote.url="${binding.url}"`,
+    powerShellQuote(`mcp_servers.pannel_handle_remote.url=${JSON.stringify(binding.url)}`),
     "-c",
-    `mcp_servers.pannel_handle_remote.bearer_token_env_var="${binding.tokenEnv}"`
-  ].join(" ");
+    powerShellQuote(`mcp_servers.pannel_handle_remote.bearer_token_env_var=${JSON.stringify(binding.tokenEnv)}`)
+  ];
+  if (binding.developerInstructions) {
+    args.push("-c", powerShellQuote(`developer_instructions=${JSON.stringify(binding.developerInstructions)}`));
+  }
+  return args.join(" ");
 }
 
 function createAgentSessionLauncher({
@@ -92,6 +96,7 @@ function createAgentSessionLauncher({
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  getLocalBridgeShell = () => "powershell.exe",
   getHomeDirectory = () => os.homedir()
 }) {
   function resolveDefaultWorkingDirectory(session) {
@@ -232,7 +237,7 @@ function createAgentSessionLauncher({
     try {
       validateAgentSession(session);
       if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
-      assertLocalCommand({ ...session, type: "windows", shell: getDefaultShell() });
+      assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
       binding = await remoteAgentBridgeService.createBinding(session.id);
       const preCommand = String(session.initialCommand || "").trim();
       if (preCommand) {
@@ -241,7 +246,7 @@ function createAgentSessionLauncher({
       await ensureLocalHookAt(binding.workspacePath, "codex");
       return terminalManager.startDeferredSession(session.id, {
         terminalTransport: "local-agent",
-        runtimeShell: getDefaultShell(),
+        runtimeShell: getLocalBridgeShell(),
         runtimeCwd: binding.workspacePath,
         runtimeEnv: { [binding.tokenEnv]: binding.token },
         runtimeInitialCommand: buildLocalCodexStartCommand(binding)

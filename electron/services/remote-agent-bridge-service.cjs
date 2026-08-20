@@ -601,22 +601,47 @@ function createRemoteAgentBridgeService({
     const root = normalizeRoot(session.cwd);
     const realRoot = await resolveRealRoot(sessionId, root);
     await closeBinding(sessionId);
-    const token = crypto.randomBytes(32).toString("base64url");
-    const workspacePath = path.resolve(workspacesRoot, sessionId);
-    const relativeWorkspace = path.relative(path.resolve(workspacesRoot), workspacePath);
-    if (!relativeWorkspace || relativeWorkspace.startsWith("..") || path.isAbsolute(relativeWorkspace)) {
-      throw new Error("本地 Agent 临时目录无效。");
-    }
-    await fsApi.promises.rm(workspacePath, { recursive: true, force: true });
-    await fsApi.promises.mkdir(workspacePath, { recursive: true });
     const hostLabel = `${session.sshConfig?.username ? `${session.sshConfig.username}@` : ""}${session.sshConfig?.host || "SSH"}`;
-    await fsApi.promises.writeFile(path.join(workspacePath, "AGENTS.md"), createRuntimeInstructions({ remoteRoot: root, hostLabel }), "utf-8");
+    const runtimeInstructions = createRuntimeInstructions({ remoteRoot: root, hostLabel });
+    const configuredLocalAgentCwd = String(session.localAgentCwd || "").trim();
+    let workspacePath;
+    let managedWorkspace = false;
+    let developerInstructions;
+    if (configuredLocalAgentCwd) {
+      if (!path.win32.isAbsolute(configuredLocalAgentCwd)) {
+        throw new Error("本机 Agent 工作目录必须是 Windows 绝对路径。");
+      }
+      workspacePath = path.win32.resolve(configuredLocalAgentCwd);
+      let stat;
+      try {
+        stat = await fsApi.promises.stat(workspacePath);
+      } catch (error) {
+        throw new Error(`本机 Agent 工作目录不可访问：${error?.message || error}`);
+      }
+      if (!stat.isDirectory()) {
+        throw new Error("本机 Agent 工作目录不是文件夹。");
+      }
+      developerInstructions = runtimeInstructions;
+    } else {
+      workspacePath = path.resolve(workspacesRoot, sessionId);
+      const relativeWorkspace = path.relative(path.resolve(workspacesRoot), workspacePath);
+      if (!relativeWorkspace || relativeWorkspace.startsWith("..") || path.isAbsolute(relativeWorkspace)) {
+        throw new Error("本地 Agent 临时目录无效。");
+      }
+      await fsApi.promises.rm(workspacePath, { recursive: true, force: true });
+      await fsApi.promises.mkdir(workspacePath, { recursive: true });
+      await fsApi.promises.writeFile(path.join(workspacePath, "AGENTS.md"), runtimeInstructions, "utf-8");
+      managedWorkspace = true;
+    }
+    const token = crypto.randomBytes(32).toString("base64url");
     const binding = {
       token,
       sessionId,
       root,
       realRoot,
       workspacePath,
+      managedWorkspace,
+      developerInstructions,
       sshSecret: sshSessionRuntime.getSecret(session.sshConfig),
       activeCommands: new Map(),
       sessionMutationAllowed: false,
@@ -627,6 +652,7 @@ function createRemoteAgentBridgeService({
     bindingsBySession.set(sessionId, binding);
     return {
       workspacePath,
+      developerInstructions,
       url: `http://127.0.0.1:${port}/mcp`,
       token,
       tokenEnv: REMOTE_AGENT_TOKEN_ENV
@@ -663,11 +689,13 @@ function createRemoteAgentBridgeService({
     auditBySession.delete(binding.sessionId);
     for (const handle of binding.activeCommands.values()) handle.cancel();
     binding.activeCommands.clear();
-    const root = path.resolve(workspacesRoot);
-    const target = path.resolve(binding.workspacePath);
-    const relative = path.relative(root, target);
-    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
-      await fsApi.promises.rm(target, { recursive: true, force: true }).catch(() => {});
+    if (binding.managedWorkspace) {
+      const root = path.resolve(workspacesRoot);
+      const target = path.resolve(binding.workspacePath);
+      const relative = path.relative(root, target);
+      if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+        await fsApi.promises.rm(target, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }
 

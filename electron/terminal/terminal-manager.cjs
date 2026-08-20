@@ -568,6 +568,7 @@ function createTerminalManager({
       initialCommand: options.initialCommand,
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
+      localAgentCwd: options.localAgentCwd,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -624,10 +625,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -663,6 +664,10 @@ function createTerminalManager({
     if (typeof agentLocation !== "undefined") {
       session.agentLocation = agentLocation || undefined;
       libraryUpdates.agentLocation = agentLocation || null;
+    }
+    if (typeof localAgentCwd !== "undefined") {
+      session.localAgentCwd = localAgentCwd || undefined;
+      libraryUpdates.localAgentCwd = localAgentCwd || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();

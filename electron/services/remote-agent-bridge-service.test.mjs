@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,14 +13,15 @@ const {
 
 const tempDirs = [];
 
-function createHarness() {
+function createHarness(sessionOverrides = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "pannel-handle-remote-agent-"));
   tempDirs.push(tempDir);
   const session = {
     id: "run-1",
     type: "ssh",
     cwd: "/srv/app",
-    sshConfig: { host: "example.com", username: "deploy" }
+    sshConfig: { host: "example.com", username: "deploy" },
+    ...sessionOverrides
   };
   const sftp = {
     realPath: vi.fn(async (value) => value),
@@ -84,6 +85,33 @@ describe("remote-agent-bridge-service", () => {
     expect(content).toContain("The source of truth is the SSH workspace `/srv/app`");
     expect(content).toContain("remote_apply_patch");
     expect(content).toContain("Finish only after the relevant remote checks pass");
+  });
+
+  it("uses a selected local Agent directory without writing or deleting bridge files there", async () => {
+    const base = mkdtempSync(path.join(tmpdir(), "pannel-handle-local-agent-"));
+    tempDirs.push(base);
+    const localAgentCwd = path.join(base, "local workspace");
+    mkdirSync(localAgentCwd);
+    const sentinel = path.join(localAgentCwd, "keep.txt");
+    writeFileSync(sentinel, "keep", "utf-8");
+    const harness = createHarness({ localAgentCwd });
+
+    const binding = await harness.service.createBinding("run-1");
+
+    expect(binding.workspacePath).toBe(localAgentCwd);
+    expect(binding.developerInstructions).toContain("SSH workspace `/srv/app`");
+    expect(existsSync(path.join(localAgentCwd, "AGENTS.md"))).toBe(false);
+
+    await harness.service.closeBinding("run-1");
+    expect(readFileSync(sentinel, "utf-8")).toBe("keep");
+    await harness.service.shutdown();
+  });
+
+  it("rejects an invalid selected local Agent directory instead of falling back", async () => {
+    const harness = createHarness({ localAgentCwd: "relative\\workspace" });
+
+    await expect(harness.service.createBinding("run-1")).rejects.toThrow("Windows 绝对路径");
+    await harness.service.shutdown();
   });
 
   it("serves authenticated MCP tools and scopes a session mutation approval", async () => {

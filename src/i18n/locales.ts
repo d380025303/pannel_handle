@@ -106,6 +106,10 @@ export type TranslationKey =
   | "session.advancedSsh"
   | "session.identityFile"
   | "session.cwd"
+  | "session.remoteCwd"
+  | "session.localAgentCwd"
+  | "session.localAgentCwdPlaceholder"
+  | "session.localAgentCwdHint"
   | "session.initialCommand"
   | "session.initialCommandPlaceholder"
   | "session.agentCli"
@@ -754,6 +758,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.advancedSsh": "高级选项",
     "session.identityFile": "密钥路径",
     "session.cwd": "工作目录",
+    "session.remoteCwd": "远端工作目录",
+    "session.localAgentCwd": "本机 Agent 工作目录（可选）",
+    "session.localAgentCwdPlaceholder": "未选择时使用应用临时目录",
+    "session.localAgentCwdHint": "本机 Codex 将从此目录启动；远端操作范围仍由远端工作目录决定。",
     "session.initialCommand": "初始命令",
     "session.initialCommandPlaceholder": "输入初始命令（可选），如：{example}",
     "session.agentCli": "Agent CLI",
@@ -1394,6 +1402,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.advancedSsh": "Advanced Settings",
     "session.identityFile": "Identity file",
     "session.cwd": "Working directory",
+    "session.remoteCwd": "Remote working directory",
+    "session.localAgentCwd": "Local Agent working directory (optional)",
+    "session.localAgentCwdPlaceholder": "Use the app-managed temporary directory when empty",
+    "session.localAgentCwdHint": "Local Codex starts here; remote operations remain scoped to the remote working directory.",
     "session.initialCommand": "Initial command",
     "session.initialCommandPlaceholder": "Enter an optional initial command, for example: {example}",
     "session.agentCli": "Agent CLI",
