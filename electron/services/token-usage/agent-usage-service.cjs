@@ -1,6 +1,6 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
-const { readCodeBuddyUsage } = require("./codebuddy-usage-client.cjs");
+const { readCodeBuddyUsage } = require("../codebuddy-usage-client.cjs");
 
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
 const CODEBUDDY_CACHE_TTL_MS = 30 * 1000;

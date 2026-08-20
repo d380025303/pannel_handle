@@ -7,7 +7,7 @@ const {
   emptyTokens,
   normalizeCapabilityUsage,
   safeInteger
-} = require("../services/agent-token-transcript.cjs");
+} = require("../services/token-usage/agent-token-transcript.cjs");
 
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy"];
 const SCHEMA_VERSION = 1;

@@ -152,11 +152,33 @@ function normalizeCapabilityName(name) {
 
 function skillNamesFromInput(input) {
   const text = typeof input === "string" ? input : JSON.stringify(input || {});
+  const hasReadIntent = /(?:\bGet-Content\b|\breadFile(?:Sync)?\s*\(|(?:^|[\s;&|])(?:cat|type|sed|head|tail|bat)(?:\.exe)?\s)/i.test(text);
+  if (!hasReadIntent) return [];
   const normalized = text.replace(/\\\\/g, "/").replace(/\\/g, "/");
   const names = new Set();
   const pattern = /\/skills\/(?:[^\s"'`/]+\/)*([^\s"'`/]+)\/SKILL\.md/gi;
   for (const match of normalized.matchAll(pattern)) names.add(match[1]);
   return [...names];
+}
+
+function skillNamesFromInjectedMessage(payload) {
+  if (payload?.type !== "message" || payload.role !== "user") return [];
+  const content = Array.isArray(payload.content)
+    ? payload.content.map(part => typeof part === "string" ? part : part?.text || "").join("\n")
+    : String(payload.content || "");
+  const names = new Set();
+  for (const block of content.matchAll(/<skill>([\s\S]*?)<\/skill>/gi)) {
+    const name = /<name>\s*([^<]+?)\s*<\/name>/i.exec(block[1])?.[1];
+    const normalized = normalizeCapabilityName(name);
+    if (normalized) names.add(normalized);
+  }
+  return [...names];
+}
+
+function codexToolOutputSucceeded(payload) {
+  if (payload?.isError === true || payload?.is_error === true || /^(?:failed|error)$/i.test(String(payload?.status || ""))) return false;
+  const output = typeof payload?.output === "string" ? payload.output : JSON.stringify(payload?.output ?? "");
+  return !/(?:Script failed|Script error|Exit code:\s*[1-9]\d*|Process exited with code\s+[1-9]\d*)/i.test(output);
 }
 
 function createIncrementalTranscriptParser(provider) {
@@ -170,11 +192,14 @@ function createIncrementalTranscriptParser(provider) {
   const skillCalls = new Map();
   const mcpCalls = new Map();
   const seenCalls = new Set();
+  const pendingSkillReads = new Map();
   let anonymousCallIndex = 0;
 
   function incrementSkill(name) {
     const normalized = normalizeCapabilityName(name);
-    if (normalized) skillCalls.set(normalized, 1 + (skillCalls.get(normalized) || 0));
+    if (!normalized || skillCalls.has(normalized)) return false;
+    skillCalls.set(normalized, 1);
+    return true;
   }
 
   function incrementMcp(name) {
@@ -185,7 +210,7 @@ function createIncrementalTranscriptParser(provider) {
     tools.set(parsed.tool, 1 + (tools.get(parsed.tool) || 0));
   }
 
-  function recordToolCall(name, input, id, index = 0) {
+  function recordToolCall(name, input, id, index = 0, { deferSkillReads = false } = {}) {
     const normalizedName = String(name || "").trim();
     const key = String(id || `anonymous:${anonymousCallIndex++}`).trim();
     const dedupeKey = `${key}:${index}`;
@@ -198,14 +223,13 @@ function createIncrementalTranscriptParser(provider) {
     }
     if (/^skill$/i.test(normalizedName)) {
       const skillName = input?.skill || input?.name;
-      if (skillName) {
-        incrementSkill(skillName);
-        changed = true;
-      }
+      if (skillName) changed = incrementSkill(skillName) || changed;
     }
-    for (const skillName of skillNamesFromInput(input)) {
-      incrementSkill(skillName);
-      changed = true;
+    const skillNames = skillNamesFromInput(input);
+    if (deferSkillReads && skillNames.length) {
+      pendingSkillReads.set(key, skillNames);
+    } else {
+      for (const skillName of skillNames) changed = incrementSkill(skillName) || changed;
     }
     return changed;
   }
@@ -213,9 +237,24 @@ function createIncrementalTranscriptParser(provider) {
   function recordCodexTools(item) {
     if (item?.type !== "response_item") return false;
     const payload = item.payload || {};
+    if (payload.type === "message") {
+      let changed = false;
+      for (const skillName of skillNamesFromInjectedMessage(payload)) changed = incrementSkill(skillName) || changed;
+      return changed;
+    }
+    if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
+      const callId = String(payload.call_id || payload.id || "").trim();
+      const skillNames = pendingSkillReads.get(callId);
+      if (!skillNames) return false;
+      pendingSkillReads.delete(callId);
+      if (!codexToolOutputSucceeded(payload)) return false;
+      let changed = false;
+      for (const skillName of skillNames) changed = incrementSkill(skillName) || changed;
+      return changed;
+    }
     if (payload.type !== "function_call" && payload.type !== "custom_tool_call") return false;
     const callId = payload.call_id || payload.id || item.id;
-    let changed = recordToolCall(payload.name, payload.arguments ?? payload.input, callId);
+    let changed = recordToolCall(payload.name, payload.arguments ?? payload.input, callId, 0, { deferSkillReads: true });
     if (payload.type === "custom_tool_call") {
       const input = String(payload.input || "");
       let index = 1;

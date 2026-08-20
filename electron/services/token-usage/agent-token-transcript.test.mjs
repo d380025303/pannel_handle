@@ -18,6 +18,7 @@ describe("agent token transcript parser", () => {
     const result = parseTranscriptText("codex", [
       JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "one", name: "exec", input: "const a = await tools.mcp__logView__search_logs({}); const b = await tools.mcp__logView__tail_log({});" } }),
       JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "two", name: "exec", input: "Get-Content C:\\\\Users\\\\me\\\\.codex\\\\skills\\\\diagnosing-bugs\\\\SKILL.md" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "two", output: "Script completed\nExit code: 0" } }),
       JSON.stringify({ type: "response_item", payload: { type: "message", content: "mcp__fake__mentioned and skills/fake/SKILL.md" } })
     ].join("\n"));
 
@@ -26,6 +27,29 @@ describe("agent token transcript parser", () => {
       availability: "available",
       totalCalls: 2,
       servers: [{ name: "logView", count: 2, tools: [{ name: "search_logs", count: 1 }, { name: "tail_log", count: 1 }] }]
+    });
+  });
+
+  it("counts each successfully loaded Codex skill once per session", () => {
+    const result = parseTranscriptText("codex", [
+      JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "<skill>\n<name>ktcrm-front-automation</name>\n<path>C:\\\\repo\\\\skills\\\\ktcrm-front-automation\\\\SKILL.md</path>\n</skill>" }] } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "read-one", name: "exec", input: "Get-Content C:\\\\Users\\\\me\\\\.codex\\\\skills\\\\diagnosing-bugs\\\\SKILL.md" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "read-one", output: "Script completed\nExit code: 0" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "read-two", name: "exec", input: "Get-Content C:\\\\Users\\\\me\\\\.codex\\\\skills\\\\diagnosing-bugs\\\\SKILL.md | Select-Object -Skip 200" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "read-two", output: "Script completed\nExit code: 0" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "write", name: "exec", input: "const patch = '*** Add File: C:\\\\repo\\\\skills\\\\draft-skill\\\\SKILL.md'; await tools.apply_patch(patch);" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "write", output: "Done!" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "failed-read", name: "exec", input: "Get-Content C:\\\\Users\\\\me\\\\.codex\\\\skills\\\\missing-skill\\\\SKILL.md" } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "failed-read", output: "Script failed\nExit code: 1" } })
+    ].join("\n"));
+
+    expect(result.capabilities.skills).toEqual({
+      availability: "available",
+      totalCalls: 2,
+      items: [
+        { name: "diagnosing-bugs", count: 1 },
+        { name: "ktcrm-front-automation", count: 1 }
+      ]
     });
   });
 
@@ -47,7 +71,8 @@ describe("agent token transcript parser", () => {
       usage: { input_tokens: 3, output_tokens: 2 },
       content: [
         { type: "tool_use", id: "tool-a", name: "mcp__jira__get_issue", input: {} },
-        { type: "tool_use", id: "tool-b", name: "Skill", input: { skill: "code-review" } }
+        { type: "tool_use", id: "tool-b", name: "Skill", input: { skill: "code-review" } },
+        { type: "tool_use", id: "tool-c", name: "Skill", input: { skill: "code-review" } }
       ]
     };
     const result = parseTranscriptText("claude", [

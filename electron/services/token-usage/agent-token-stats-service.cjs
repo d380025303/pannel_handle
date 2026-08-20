@@ -11,9 +11,9 @@ const {
   parseTranscriptText,
   safeInteger
 } = require("./agent-token-transcript.cjs");
-const { subtractCapabilities } = require("../stores/agent-token-stats-store.cjs");
-const { toWslHostPath } = require("./remote-file-service.cjs");
-const { createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
+const { subtractCapabilities } = require("../../stores/agent-token-stats-store.cjs");
+const { toWslHostPath } = require("../remote-file-service.cjs");
+const { createAgentConversationTranscriptParser } = require("../agent-conversation-transcript.cjs");
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
