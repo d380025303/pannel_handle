@@ -41,7 +41,22 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
       if (task.direction === "upload") {
         const stat = await fsApi.promises.stat(task.request.localPath);
         update(task, { totalBytes: Number(stat.size || 0), transferredBytes: 0, percent: 0 });
-        const result = await remoteFileService.uploadFile(task.sessionId, task.request.localPath, task.request.remoteDir, task.request.conflictPolicy || "cancel");
+        const result = await remoteFileService.uploadFile(
+          task.sessionId,
+          task.request.localPath,
+          task.request.remoteDir,
+          task.request.conflictPolicy || "cancel",
+          {
+            onProgress: (progress) => {
+              if (task.status !== "running") return;
+              update(task, {
+                transferredBytes: progress.transferredBytes,
+                totalBytes: progress.totalBytes,
+                percent: progress.percent
+              });
+            }
+          }
+        );
         if (result.status === "conflict") {
           update(task, { status: "conflict", remotePath: result.remotePath });
           return;

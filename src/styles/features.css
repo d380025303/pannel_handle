@@ -2310,6 +2310,8 @@ button.agent-usage-status[aria-expanded="true"] {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  container-name: right-tools;
+  container-type: inline-size;
   border-left: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
@@ -5988,7 +5990,7 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 .agent-conversation-panel {
   display: grid;
-  grid-template-columns: minmax(170px, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -5996,6 +5998,10 @@ button.agent-usage-status[aria-expanded="true"] {
   color: var(--color-text);
   background: var(--color-bg-panel);
   box-sizing: border-box;
+}
+
+.agent-conversation-panel.history-open {
+  grid-template-columns: minmax(170px, 40%) minmax(0, 1fr);
 }
 
 .agent-conversation-detail {
@@ -6016,6 +6022,10 @@ button.agent-usage-status[aria-expanded="true"] {
   min-height: 0;
   background: color-mix(in srgb, var(--color-bg-panel) 88%, var(--color-bg-app));
   border-right: 1px solid var(--color-border);
+}
+
+.agent-conversation-history[hidden] {
+  display: none;
 }
 
 .agent-conversation-history-filters {
@@ -6175,12 +6185,17 @@ button.agent-usage-status[aria-expanded="true"] {
 
 .agent-conversation-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 0 5px 0 10px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-titlebar);
+}
+
+.agent-conversation-header-actions {
+  display: flex;
+  align-items: center;
 }
 
 .agent-conversation-heading {
@@ -6228,6 +6243,7 @@ button.agent-usage-status[aria-expanded="true"] {
   color: var(--color-warning-text);
 }
 
+.agent-conversation-history-toggle,
 .agent-conversation-search-toggle {
   display: grid;
   place-items: center;
@@ -6241,11 +6257,14 @@ button.agent-usage-status[aria-expanded="true"] {
   cursor: pointer;
 }
 
-.agent-conversation-search-toggle:hover {
+.agent-conversation-history-toggle:hover,
+.agent-conversation-search-toggle:hover,
+.agent-conversation-history-toggle[aria-expanded="true"] {
   color: var(--color-text);
   background: var(--color-bg-hover);
 }
 
+.agent-conversation-history-toggle svg,
 .agent-conversation-search-toggle svg {
   width: 15px;
   height: 15px;
@@ -6386,6 +6405,7 @@ button.agent-usage-status[aria-expanded="true"] {
   padding: 9px;
   background: color-mix(in srgb, var(--color-bg-app) 80%, transparent);
   border-radius: 5px;
+  scrollbar-width: thin;
 }
 
 .agent-conversation-message code {
@@ -6409,6 +6429,71 @@ button.agent-usage-status[aria-expanded="true"] {
   color: var(--color-text-muted);
   text-align: center;
   font-size: 12px;
+}
+
+@container right-tools (max-width: 520px) {
+  .agent-conversation-panel.history-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 168px minmax(0, 1fr);
+  }
+
+  .agent-conversation-history {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .agent-conversation-history-filters {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 8px;
+    padding: 7px 8px;
+  }
+
+  .agent-conversation-history-options {
+    justify-content: flex-end;
+  }
+
+  .agent-conversation-history-search {
+    grid-column: 1 / -1;
+  }
+
+  .agent-conversation-history-list {
+    padding: 5px 8px;
+  }
+
+  .agent-conversation-history-item {
+    margin-bottom: 4px;
+    padding: 7px 8px;
+  }
+
+  .agent-conversation-messages {
+    padding: 10px;
+  }
+
+  .agent-conversation-message {
+    padding: 10px 11px;
+  }
+}
+
+@container right-tools (max-width: 340px) {
+  .agent-conversation-panel.history-open {
+    grid-template-rows: 200px minmax(0, 1fr);
+  }
+
+  .agent-conversation-history-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-conversation-history-options {
+    justify-content: space-between;
+  }
+
+  .agent-conversation-history-search {
+    grid-column: auto;
+  }
+
+  .agent-conversation-status {
+    display: none;
+  }
 }
 .idea-run-panel {
   height: 100%;

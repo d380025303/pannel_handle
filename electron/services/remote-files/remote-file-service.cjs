@@ -8,6 +8,7 @@ const SftpClient = require("ssh2-sftp-client");
 const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
+const TRANSFER_PROGRESS_INTERVAL_MS = 250;
 const MEDIA_PROTOCOL = "pannel-media";
 const IMAGE_MIME_BY_EXTENSION = new Map([
   [".png", "image/png"],
@@ -55,6 +56,24 @@ function isLikelyBinary(buffer) {
 
 function getContentVersion(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function createTransferProgressReporter(onProgress, initialTotalBytes) {
+  if (typeof onProgress !== "function") return null;
+  let lastPercent;
+  let lastReportedAt = 0;
+  return (transferredBytes, reportedTotalBytes = initialTotalBytes, force = false) => {
+    const totalBytes = Math.max(0, Number(reportedTotalBytes) || Number(initialTotalBytes) || 0);
+    const normalizedTransferredBytes = Math.max(0, Number(transferredBytes) || 0);
+    const percent = totalBytes > 0
+      ? Math.min(100, Math.round((normalizedTransferredBytes / totalBytes) * 100))
+      : null;
+    const now = Date.now();
+    if (!force && percent === lastPercent && now - lastReportedAt < TRANSFER_PROGRESS_INTERVAL_MS) return;
+    lastPercent = percent;
+    lastReportedAt = now;
+    onProgress({ transferredBytes: normalizedTransferredBytes, totalBytes, percent });
+  };
 }
 
 function decodeTextBuffer(buffer) {
@@ -593,25 +612,53 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (typeof stat.isFile === "function" && !stat.isFile()) {
       throw new Error("Only files can be uploaded. Directory upload is not supported.");
     }
+    return stat;
   }
 
-  async function uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy = "cancel") {
+  async function uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy = "cancel", options = {}) {
     const fileName = path.basename(localPath);
     const target = await resolveConflictPath(sessionId, session, remoteDir, fileName, conflictPolicy);
     if (target.status === "conflict" || target.status === "skipped") return { status: target.status, remotePath: target.path };
+    const totalBytes = Math.max(0, Number(options.totalBytes) || 0);
+    const reportProgress = createTransferProgressReporter(options.onProgress, totalBytes);
+    reportProgress?.(0, totalBytes, true);
     if (session.type !== "ssh") {
-      await fsApi.promises.copyFile(localPath, toLocalHostPath(session, target.path));
+      if (!reportProgress) {
+        await fsApi.promises.copyFile(localPath, toLocalHostPath(session, target.path));
+        return { status: "completed", remotePath: target.path };
+      }
+      const source = fsApi.createReadStream(localPath);
+      const destination = fsApi.createWriteStream(toLocalHostPath(session, target.path));
+      let transferredBytes = 0;
+      source.on("data", (chunk) => {
+        transferredBytes += chunk.length;
+        reportProgress(transferredBytes, totalBytes);
+      });
+      await pipeline(source, destination);
+      reportProgress(totalBytes, totalBytes, true);
       return { status: "completed", remotePath: target.path };
     }
     const client = await getClient(sessionId);
-    await client.fastPut(localPath, target.path);
+    if (reportProgress) {
+      await client.fastPut(localPath, target.path, {
+        step: (transferredBytes, _chunk, reportedTotalBytes) => {
+          reportProgress(transferredBytes, Number(reportedTotalBytes) || totalBytes);
+        }
+      });
+      reportProgress(totalBytes, totalBytes, true);
+    } else {
+      await client.fastPut(localPath, target.path);
+    }
     return { status: "completed", remotePath: target.path };
   }
 
-  async function uploadFile(sessionId, localPath, remoteDir, conflictPolicy = "cancel") {
+  async function uploadFile(sessionId, localPath, remoteDir, conflictPolicy = "cancel", options = {}) {
     const session = getSession(sessionId);
-    await validateLocalUploadPath(localPath);
-    return uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy);
+    const stat = await validateLocalUploadPath(localPath);
+    return uploadValidatedFile(sessionId, session, localPath, remoteDir, conflictPolicy, {
+      ...options,
+      totalBytes: Number(stat.size) || 0
+    });
   }
 
   async function uploadFiles(sessionId, localPaths, remoteDir) {

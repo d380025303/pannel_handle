@@ -520,6 +520,76 @@ describe("remote-file-service", () => {
     }
   });
 
+  it("reports intermediate progress while uploading a Windows file", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-progress-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-progress-dst-"));
+    const sourceFile = path.join(sourceDir, "large.dump");
+    const content = Buffer.alloc(2 * 1024 * 1024, 7);
+    fs.writeFileSync(sourceFile, content);
+    const progress = [];
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: targetDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.uploadFile("run-1", sourceFile, targetDir, "cancel", {
+        onProgress: (event) => progress.push(event)
+      })).resolves.toEqual({ status: "completed", remotePath: path.join(targetDir, "large.dump") });
+
+      expect(progress[0]).toEqual({ transferredBytes: 0, totalBytes: content.length, percent: 0 });
+      expect(progress.some((event) => event.transferredBytes > 0 && event.transferredBytes < content.length)).toBe(true);
+      expect(progress.at(-1)).toEqual({ transferredBytes: content.length, totalBytes: content.length, percent: 100 });
+      expect(Buffer.compare(fs.readFileSync(path.join(targetDir, "large.dump")), content)).toBe(0);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports intermediate progress while uploading through a WSL path", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-wsl-upload-progress-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-wsl-upload-progress-dst-"));
+    const sourceFile = path.join(sourceDir, "large.dump");
+    const targetFile = path.join(targetDir, "large.dump");
+    const content = Buffer.alloc(128 * 1024, 3);
+    fs.writeFileSync(sourceFile, content);
+    const progress = [];
+    try {
+      const missingTarget = Object.assign(new Error("missing"), { code: "ENOENT" });
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({
+          id: "run-1",
+          type: "wsl",
+          cwd: "/home/me/project",
+          wslDistro: "Ubuntu-24.04"
+        }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock(),
+        fsApi: {
+          promises: {
+            stat: () => fs.promises.stat(sourceFile),
+            lstat: vi.fn(async () => { throw missingTarget; })
+          },
+          createReadStream: () => fs.createReadStream(sourceFile),
+          createWriteStream: () => fs.createWriteStream(targetFile)
+        }
+      });
+
+      await expect(service.uploadFile("run-1", sourceFile, "/home/me/project", "cancel", {
+        onProgress: (event) => progress.push(event)
+      })).resolves.toEqual({ status: "completed", remotePath: "/home/me/project/large.dump" });
+
+      expect(progress.some((event) => event.transferredBytes > 0 && event.transferredBytes < content.length)).toBe(true);
+      expect(progress.at(-1)).toEqual({ transferredBytes: content.length, totalBytes: content.length, percent: 100 });
+      expect(Buffer.compare(fs.readFileSync(targetFile), content)).toBe(0);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects directory uploads before copying any Windows files", async () => {
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-src-"));
     const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-dst-"));
@@ -536,6 +606,31 @@ describe("remote-file-service", () => {
 
       await expect(service.uploadFiles("run-1", [firstFile, childDir], targetDir)).rejects.toThrow("Directory upload");
       expect(fs.existsSync(path.join(targetDir, "first.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not report upload progress while waiting for conflict resolution", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-conflict-src-"));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-upload-conflict-dst-"));
+    const sourceFile = path.join(sourceDir, "same.txt");
+    fs.writeFileSync(sourceFile, "source", "utf-8");
+    fs.writeFileSync(path.join(targetDir, "same.txt"), "target", "utf-8");
+    const onProgress = vi.fn();
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: targetDir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      await expect(service.uploadFile("run-1", sourceFile, targetDir, "cancel", { onProgress })).resolves.toEqual({
+        status: "conflict",
+        remotePath: path.join(targetDir, "same.txt")
+      });
+      expect(onProgress).not.toHaveBeenCalled();
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
       fs.rmSync(targetDir, { recursive: true, force: true });
@@ -567,6 +662,43 @@ describe("remote-file-service", () => {
       ]);
       expect(sftp.fastPut).toHaveBeenCalledWith(firstFile, "/home/deploy/first.txt");
       expect(sftp.fastPut).toHaveBeenCalledWith(secondFile, "/home/deploy/second.txt");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports SSH upload progress from fastPut", async () => {
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-ssh-upload-progress-"));
+    const sourceFile = path.join(sourceDir, "remote.bin");
+    fs.writeFileSync(sourceFile, Buffer.alloc(10));
+    const progress = [];
+    try {
+      const session = {
+        id: "run-1",
+        type: "ssh",
+        sshConfig: { host: "example.com", extraArgs: [] }
+      };
+      const sftp = createSftpMock({
+        fastPut: vi.fn(async (_localPath, _remotePath, options) => {
+          options.step(6, 6, 10);
+        })
+      });
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager(session),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => sftp
+      });
+
+      await service.uploadFile("run-1", sourceFile, "/home/deploy", "cancel", {
+        onProgress: (event) => progress.push(event)
+      });
+
+      expect(sftp.fastPut).toHaveBeenCalledWith(sourceFile, "/home/deploy/remote.bin", expect.objectContaining({ step: expect.any(Function) }));
+      expect(progress).toEqual([
+        { transferredBytes: 0, totalBytes: 10, percent: 0 },
+        { transferredBytes: 6, totalBytes: 10, percent: 60 },
+        { transferredBytes: 10, totalBytes: 10, percent: 100 }
+      ]);
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

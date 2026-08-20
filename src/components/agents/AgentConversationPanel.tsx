@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, History, Search, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -76,6 +76,7 @@ export function AgentConversationPanel({
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
@@ -99,6 +100,10 @@ export function AgentConversationPanel({
     setHistoryMessages([]);
     setMessageCursor(null);
   }, [hasLive, session?.id]);
+
+  useEffect(() => {
+    setHistoryOpen(false);
+  }, [session?.id, snapshot?.activeSessionId]);
 
   const loadHistory = useCallback(async (cursor: string | null = null, append = false) => {
     if (!session) return;
@@ -300,8 +305,8 @@ export function AgentConversationPanel({
   }
 
   return (
-    <section className={`agent-conversation-panel${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
-      <aside className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"}>
+    <section className={`agent-conversation-panel${historyOpen ? " history-open" : ""}${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
+      <aside id="agent-conversation-history" className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"} hidden={!historyOpen}>
         <div className="agent-conversation-history-filters">
           <div className="agent-conversation-history-provider" role="group" aria-label={isEnglish ? "Provider" : "Agent 类型"}>
             {(["all", "codex", "codebuddy"] as const).map(provider => (
@@ -348,9 +353,22 @@ export function AgentConversationPanel({
             <span className="agent-conversation-title">{detailTitle || (isEnglish ? "Agent conversation" : "Agent 对话")}</span>
             {(turn || selectedHistory) && <span className={`agent-conversation-status ${showingLive ? turn?.status : "completed"}`}>{statusText}</span>}
           </div>
-          <button className="agent-conversation-search-toggle" type="button" title={isEnglish ? "Search content" : "搜索内容"} aria-label={isEnglish ? "Search content" : "搜索内容"} onClick={openSearch}>
-            <Search aria-hidden="true" />
-          </button>
+          <div className="agent-conversation-header-actions">
+            <button
+              className="agent-conversation-history-toggle"
+              type="button"
+              title={historyOpen ? (isEnglish ? "Collapse conversation history" : "收起对话历史") : (isEnglish ? "Expand conversation history" : "展开对话历史")}
+              aria-label={historyOpen ? (isEnglish ? "Collapse conversation history" : "收起对话历史") : (isEnglish ? "Expand conversation history" : "展开对话历史")}
+              aria-controls="agent-conversation-history"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen(current => !current)}
+            >
+              <History aria-hidden="true" />
+            </button>
+            <button className="agent-conversation-search-toggle" type="button" title={isEnglish ? "Search content" : "搜索内容"} aria-label={isEnglish ? "Search content" : "搜索内容"} onClick={openSearch}>
+              <Search aria-hidden="true" />
+            </button>
+          </div>
         </header>
         {searchOpen && (
           <div className="agent-conversation-search" role="search" aria-label={isEnglish ? "Content search" : "内容搜索"}>

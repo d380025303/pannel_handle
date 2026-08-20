@@ -9,6 +9,33 @@ function deferred() {
 }
 
 describe("file-transfer-manager", () => {
+  it("updates a running upload from service progress", async () => {
+    const upload = deferred();
+    const remoteFileService = {
+      uploadFile: vi.fn((_sessionId, _localPath, _remoteDir, _conflictPolicy, options) => {
+        options?.onProgress({ transferredBytes: 5, totalBytes: 10, percent: 50 });
+        return upload.promise;
+      }),
+      cancelDownload: vi.fn()
+    };
+    const manager = createFileTransferManager({
+      remoteFileService,
+      broadcast: vi.fn(),
+      fsApi: { promises: { stat: vi.fn(async () => ({ size: 10 })) } }
+    });
+
+    manager.enqueueUploads("s1", ["C:\\large.dump"], "/target");
+    await vi.waitFor(() => expect(manager.list()[0]).toEqual(expect.objectContaining({
+      status: "running",
+      transferredBytes: 5,
+      totalBytes: 10,
+      percent: 50
+    })));
+
+    upload.resolve({ status: "completed", remotePath: "/target/large.dump" });
+    await vi.waitFor(() => expect(manager.list()[0].status).toBe("completed"));
+  });
+
   it("runs at most two transfers and starts the next queued task", async () => {
     const runs = [deferred(), deferred(), deferred()];
     const remoteFileService = {
@@ -50,7 +77,13 @@ describe("file-transfer-manager", () => {
     await vi.waitFor(() => expect(manager.list()[0].status).toBe("conflict"));
     expect(manager.resolveConflict(task.id, "rename")).toBe(true);
     await vi.waitFor(() => expect(manager.list()[0].status).toBe("completed"));
-    expect(remoteFileService.uploadFile).toHaveBeenLastCalledWith("s1", "C:\\a.txt", "/target", "rename");
+    expect(remoteFileService.uploadFile).toHaveBeenLastCalledWith(
+      "s1",
+      "C:\\a.txt",
+      "/target",
+      "rename",
+      expect.objectContaining({ onProgress: expect.any(Function) })
+    );
   });
 
   it("keeps only the configured number of completed tasks", async () => {
@@ -72,8 +105,12 @@ describe("file-transfer-manager", () => {
 
   it("does not retry a canceled upload until its in-flight copy has settled", async () => {
     const upload = deferred();
+    let uploadOptions;
     const remoteFileService = {
-      uploadFile: vi.fn(() => upload.promise),
+      uploadFile: vi.fn((_sessionId, _localPath, _remoteDir, _conflictPolicy, options) => {
+        uploadOptions = options;
+        return upload.promise;
+      }),
       cancelDownload: vi.fn()
     };
     const manager = createFileTransferManager({
@@ -85,6 +122,8 @@ describe("file-transfer-manager", () => {
     const [task] = manager.enqueueUploads("s1", ["C:\\a.txt"], "/target");
     await vi.waitFor(() => expect(manager.list()[0].status).toBe("running"));
     expect(await manager.cancel(task.id)).toBe(true);
+    uploadOptions.onProgress({ transferredBytes: 5, totalBytes: 10, percent: 50 });
+    expect(manager.list()[0]).toEqual(expect.objectContaining({ status: "canceled", transferredBytes: 0, percent: 0 }));
     expect(manager.retry(task.id)).toBe(false);
 
     upload.resolve({ status: "completed", remotePath: "/target/a.txt" });

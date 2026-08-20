@@ -68,6 +68,7 @@ describe("AgentConversationPanel", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
     fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
     expect(await screen.findByText("Historical answer")).toBeTruthy();
     expect(screen.getByText("Historical question")).toBeTruthy();
@@ -123,6 +124,37 @@ describe("AgentConversationPanel", () => {
     expect(document.querySelector(".agent-conversation-panel")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
     expect(screen.queryByRole("button", { name: "返回当前会话" })).toBeNull();
+  });
+
+  it("shows only conversation details by default and toggles history accessibly", async () => {
+    const { rerender } = render(
+      <AgentConversationPanel
+        snapshot={baseSnapshot}
+        session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }}
+      />
+    );
+
+    const expandButton = screen.getByRole("button", { name: "展开对话历史" });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("complementary", { name: "对话历史" })).toBeNull();
+    expect(document.querySelector(".agent-conversation-detail")).toBeTruthy();
+
+    fireEvent.click(expandButton);
+    const collapseButton = screen.getByRole("button", { name: "收起对话历史" });
+    expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("complementary", { name: "对话历史" })).toBeTruthy();
+
+    fireEvent.click(collapseButton);
+    expect(screen.getByRole("button", { name: "展开对话历史" }).getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    rerender(
+      <AgentConversationPanel
+        snapshot={{ ...baseSnapshot, activeSessionId: "panel-2", turn: { ...baseSnapshot.turn!, sessionId: "panel-2" } }}
+        session={{ id: "panel-2", title: "Other", shell: "pwsh", cwd: "C:\\other", createdAt: 2, type: "windows" }}
+      />
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开对话历史" }).getAttribute("aria-expanded")).toBe("false"));
   });
 
   it("shows an empty state when the active session has no conversation", () => {
