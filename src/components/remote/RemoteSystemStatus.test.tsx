@@ -9,6 +9,7 @@ const metrics: RemoteSystemMetrics = {
   sampledAt: 1,
   network: { receivedBytesPerSecond: 1024, transmittedBytesPerSecond: 2048 },
   memory: { usedBytes: 4 * 1024 ** 3, totalBytes: 8 * 1024 ** 3 },
+  cpu: { usedPercent: 42.4 },
   disks: [
     {
       filesystem: "/dev/sdb1",
@@ -17,7 +18,12 @@ const metrics: RemoteSystemMetrics = {
       usedBytes: 80 * 1024 ** 3,
       totalBytes: 100 * 1024 ** 3,
       availableBytes: 20 * 1024 ** 3,
-      usedPercent: 80
+      usedPercent: 80,
+      io: {
+        busyPercent: 12.4,
+        readBytesPerSecond: 3 * 1024 ** 2,
+        writeBytesPerSecond: 512 * 1024
+      }
     },
     {
       filesystem: "/dev/sda1",
@@ -26,7 +32,8 @@ const metrics: RemoteSystemMetrics = {
       usedBytes: 35 * 1024 ** 3,
       totalBytes: 50 * 1024 ** 3,
       availableBytes: 15 * 1024 ** 3,
-      usedPercent: 70
+      usedPercent: 70,
+      io: { busyPercent: null, readBytesPerSecond: null, writeBytesPerSecond: null }
     }
   ]
 };
@@ -44,10 +51,13 @@ describe("RemoteSystemStatus", () => {
     );
 
     const trigger = screen.getByRole("button", { name: /当前为 \/data/ });
-    expect(trigger.textContent).toContain("/data 80%");
+    expect(screen.getByTitle("CPU：当前利用率 42%").textContent).toContain("CPU 42%");
+    expect(trigger.textContent).toContain("/data 80% · I/O 12%");
+    expect(trigger.title).toContain("读 3.00 MB/s，写 512 KB/s");
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog", { name: "全部磁盘目录" })).not.toBeNull();
     expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("option", { name: /\/dev\/sdb1/ }).textContent).toContain("I/O 忙碌 12%");
 
     fireEvent.click(screen.getByRole("option", { name: /\/dev\/sda1/ }));
     expect(onSelectDisk).toHaveBeenCalledWith("/");
@@ -60,7 +70,7 @@ describe("RemoteSystemStatus", () => {
         onSelectDisk={onSelectDisk}
       />
     );
-    expect(screen.getByRole("button", { name: /当前为 \/$/ }).textContent).toContain("/ 70%");
+    expect(screen.getByRole("button", { name: /当前为 \/$/ }).textContent).toContain("/ 70% · I/O --");
   });
 
   it("falls back to the highest-use disk while retaining an unavailable preference", () => {

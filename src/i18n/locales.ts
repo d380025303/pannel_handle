@@ -451,6 +451,7 @@ export type TranslationKey =
   | "system.unavailable"
   | "system.metrics"
   | "system.networkTitle"
+  | "system.cpuTitle"
   | "system.diskTitle"
   | "system.diskMissing"
   | "system.diskLabel"
@@ -458,6 +459,7 @@ export type TranslationKey =
   | "system.diskSelect"
   | "system.diskListTitle"
   | "system.diskUsage"
+  | "system.diskIo"
   | "system.memoryTitle"
   | "picker.libraryTitle"
   | "picker.restoreTitle"
@@ -1097,13 +1099,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.unavailable": "服务器监控不可用",
     "system.metrics": "SSH 服务器指标",
     "system.networkTitle": "网络：下载 {download}，上传 {upload}",
-    "system.diskTitle": "磁盘 {mountPoint}：已用 {usedPercent}%，剩余 {available}",
+    "system.cpuTitle": "CPU：当前利用率 {percent}",
+    "system.diskTitle": "磁盘 {mountPoint}：已用 {usedPercent}%，剩余 {available}；I/O 忙碌 {ioBusy}，读 {read}，写 {write}",
     "system.diskMissing": "未找到磁盘指标",
     "system.diskLabel": "磁盘 --",
     "system.diskRemaining": "余 {available}",
     "system.diskSelect": "选择要展示的磁盘，当前为 {mountPoint}",
     "system.diskListTitle": "全部磁盘目录",
     "system.diskUsage": "已用 {used} / {total}，剩余 {available}",
+    "system.diskIo": "I/O 忙碌 {busy}，读 {read}，写 {write}",
     "system.memoryTitle": "内存：已用 {used} / {total}，{percent}",
     "picker.libraryTitle": "会话库",
     "picker.restoreTitle": "恢复会话",
@@ -1735,13 +1739,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.unavailable": "Server monitoring is unavailable",
     "system.metrics": "SSH server metrics",
     "system.networkTitle": "Network: down {download}, up {upload}",
-    "system.diskTitle": "Disk {mountPoint}: used {usedPercent}%, remaining {available}",
+    "system.cpuTitle": "CPU: current utilization {percent}",
+    "system.diskTitle": "Disk {mountPoint}: used {usedPercent}%, remaining {available}; I/O busy {ioBusy}, read {read}, write {write}",
     "system.diskMissing": "No disk metrics found",
     "system.diskLabel": "Disk --",
     "system.diskRemaining": "{available} left",
     "system.diskSelect": "Select the displayed disk, currently {mountPoint}",
     "system.diskListTitle": "All disk mount points",
     "system.diskUsage": "Used {used} / {total}, {available} available",
+    "system.diskIo": "I/O busy {busy}, read {read}, write {write}",
     "system.memoryTitle": "Memory: used {used} / {total}, {percent}",
     "picker.libraryTitle": "Session Library",
     "picker.restoreTitle": "Restore Sessions",

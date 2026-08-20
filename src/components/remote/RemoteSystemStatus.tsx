@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { Check, HardDrive, MemoryStick, Network } from "lucide-react";
+import { Check, Cpu, HardDrive, MemoryStick, Network } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { RemoteDiskMetrics, RemoteSystemMetrics } from "../../vite-env";
 
@@ -34,6 +34,10 @@ function formatRate(value: number | null) {
 
 function formatPercent(used: number, total: number) {
   return total > 0 ? `${Math.round((used / total) * 100)}%` : "--";
+}
+
+function formatLivePercent(value: number | null) {
+  return value === null ? "--" : `${Math.round(value)}%`;
 }
 
 function findDisplayedDisk(disks: RemoteDiskMetrics[], preferredDiskMountPoint?: string) {
@@ -118,13 +122,17 @@ export function RemoteSystemStatus({ state, preferredDiskMountPoint, onSelectDis
     );
   }
 
-  const { network, memory } = state.metrics;
+  const { cpu, network, memory } = state.metrics;
+  const cpuPercent = formatLivePercent(cpu.usedPercent);
   const memoryPercent = formatPercent(memory.usedBytes, memory.totalBytes);
   const diskTitle = displayedDisk
     ? t("system.diskTitle", {
       mountPoint: displayedDisk.mountPoint,
       usedPercent: displayedDisk.usedPercent,
-      available: formatBytes(displayedDisk.availableBytes)
+      available: formatBytes(displayedDisk.availableBytes),
+      ioBusy: formatLivePercent(displayedDisk.io.busyPercent),
+      read: formatRate(displayedDisk.io.readBytesPerSecond),
+      write: formatRate(displayedDisk.io.writeBytesPerSecond)
     })
     : t("system.diskMissing");
 
@@ -141,6 +149,10 @@ export function RemoteSystemStatus({ state, preferredDiskMountPoint, onSelectDis
         <span>↓ {formatRate(network.receivedBytesPerSecond)}</span>
         <span>↑ {formatRate(network.transmittedBytesPerSecond)}</span>
       </span>
+      <span className="remote-system-metric" title={t("system.cpuTitle", { percent: cpuPercent })}>
+        <Cpu aria-hidden="true" />
+        <span>CPU {cpuPercent}</span>
+      </span>
       <span className="remote-system-metric remote-system-disk">
         <button
           ref={triggerRef}
@@ -156,7 +168,11 @@ export function RemoteSystemStatus({ state, preferredDiskMountPoint, onSelectDis
           onClick={() => setDiskListOpen((open) => !open)}
         >
           <HardDrive aria-hidden="true" />
-          <span>{displayedDisk ? `${displayedDisk.mountPoint} ${displayedDisk.usedPercent}%` : t("system.diskLabel")}</span>
+          <span>
+            {displayedDisk
+              ? `${displayedDisk.mountPoint} ${displayedDisk.usedPercent}% · I/O ${formatLivePercent(displayedDisk.io.busyPercent)}`
+              : t("system.diskLabel")}
+          </span>
           {displayedDisk && (
             <span className="remote-system-detail">
               {t("system.diskRemaining", { available: formatBytes(displayedDisk.availableBytes) })}
@@ -215,6 +231,13 @@ export function RemoteSystemStatus({ state, preferredDiskMountPoint, onSelectDis
                       used: formatBytes(disk.usedBytes),
                       total: formatBytes(disk.totalBytes),
                       available: formatBytes(disk.availableBytes)
+                    })}
+                  </small>
+                  <small>
+                    {t("system.diskIo", {
+                      busy: formatLivePercent(disk.io.busyPercent),
+                      read: formatRate(disk.io.readBytesPerSecond),
+                      write: formatRate(disk.io.writeBytesPerSecond)
                     })}
                   </small>
                 </button>

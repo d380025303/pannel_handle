@@ -219,6 +219,11 @@ export type RemoteDiskMetrics = {
   totalBytes: number;
   availableBytes: number;
   usedPercent: number;
+  io: {
+    busyPercent: number | null;
+    readBytesPerSecond: number | null;
+    writeBytesPerSecond: number | null;
+  };
 };
 
 export type RemoteSystemMetrics = {
@@ -230,6 +235,9 @@ export type RemoteSystemMetrics = {
   memory: {
     usedBytes: number;
     totalBytes: number;
+  };
+  cpu: {
+    usedPercent: number | null;
   };
   disks: RemoteDiskMetrics[];
 };

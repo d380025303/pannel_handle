@@ -30,8 +30,14 @@ const LINUX_METRICS_COMMAND = [
   "cat /proc/net/dev",
   `printf '${SECTION_MARKER} memory\\n'`,
   "cat /proc/meminfo",
+  `printf '${SECTION_MARKER} cpu\\n'`,
+  "cat /proc/stat 2>/dev/null || :",
   `printf '${SECTION_MARKER} disk\\n'`,
-  "df -PTk 2>/dev/null || :"
+  "df -PTk 2>/dev/null || :",
+  `printf '${SECTION_MARKER} mountinfo\\n'`,
+  "cat /proc/self/mountinfo 2>/dev/null || :",
+  `printf '${SECTION_MARKER} diskio\\n'`,
+  "cat /proc/diskstats 2>/dev/null || :"
 ].join("; ");
 
 function splitSections(output) {
@@ -76,6 +82,55 @@ function parseMemory(lines = []) {
   };
 }
 
+function parseCpu(lines = []) {
+  const line = lines.find((value) => /^cpu\s+/.test(value));
+  if (!line) return null;
+  const fields = line.trim().split(/\s+/).slice(1, 9).map(Number);
+  if (fields.length < 4 || fields.some(Number.isNaN)) return null;
+  const totalTicks = fields.reduce((sum, value) => sum + value, 0);
+  const idleTicks = fields[3] + (fields[4] || 0);
+  return { totalTicks, idleTicks };
+}
+
+function decodeMountField(value) {
+  return String(value || "").replace(/\\([0-7]{3})/g, (_match, octal) => (
+    String.fromCharCode(Number.parseInt(octal, 8))
+  ));
+}
+
+function parseMountDevices(lines = []) {
+  const devices = {};
+  for (const line of lines) {
+    const separatorIndex = line.indexOf(" - ");
+    if (separatorIndex < 0) continue;
+    const fields = line.slice(0, separatorIndex).trim().split(/\s+/);
+    if (fields.length < 5 || !/^\d+:\d+$/.test(fields[2])) continue;
+    devices[decodeMountField(fields[4])] = fields[2];
+  }
+  return devices;
+}
+
+function parseDiskIo(lines = []) {
+  const devices = {};
+  for (const line of lines) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 14) continue;
+    const major = Number(fields[0]);
+    const minor = Number(fields[1]);
+    const readSectors = Number(fields[5]);
+    const writeSectors = Number(fields[9]);
+    const busyMilliseconds = Number(fields[12]);
+    if (![major, minor, readSectors, writeSectors, busyMilliseconds].every(Number.isFinite)) continue;
+    devices[`${major}:${minor}`] = {
+      device: fields[2],
+      readSectors,
+      writeSectors,
+      busyMilliseconds
+    };
+  }
+  return devices;
+}
+
 function parseDisks(lines = []) {
   const disks = [];
   for (const line of lines.slice(1)) {
@@ -110,7 +165,37 @@ function parseLinuxMetrics(output) {
   return {
     network: parseNetwork(sections.network),
     memory: parseMemory(sections.memory),
-    disks: parseDisks(sections.disk)
+    cpu: parseCpu(sections.cpu),
+    disks: parseDisks(sections.disk),
+    mountDevices: parseMountDevices(sections.mountinfo),
+    diskIo: parseDiskIo(sections.diskio)
+  };
+}
+
+function calculateRate(current, previous, elapsedSeconds, multiplier = 1) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || elapsedSeconds <= 0 || current < previous) {
+    return null;
+  }
+  return ((current - previous) * multiplier) / elapsedSeconds;
+}
+
+function calculateCpuUsedPercent(current, previous) {
+  if (!current || !previous) return null;
+  const totalDelta = current.totalTicks - previous.totalTicks;
+  const idleDelta = current.idleTicks - previous.idleTicks;
+  if (totalDelta <= 0 || idleDelta < 0 || idleDelta > totalDelta) return null;
+  return Math.min(100, Math.max(0, ((totalDelta - idleDelta) / totalDelta) * 100));
+}
+
+function calculateDiskMetrics(current, previous, elapsedSeconds) {
+  if (!current || !previous || elapsedSeconds <= 0) {
+    return { busyPercent: null, readBytesPerSecond: null, writeBytesPerSecond: null };
+  }
+  const busyRate = calculateRate(current.busyMilliseconds, previous.busyMilliseconds, elapsedSeconds);
+  return {
+    busyPercent: busyRate === null ? null : Math.min(100, Math.max(0, busyRate / 10)),
+    readBytesPerSecond: calculateRate(current.readSectors, previous.readSectors, elapsedSeconds, 512),
+    writeBytesPerSecond: calculateRate(current.writeSectors, previous.writeSectors, elapsedSeconds, 512)
   };
 }
 
@@ -123,7 +208,7 @@ function createRemoteSystemService({
   now = () => Date.now()
 }) {
   const clients = new Map();
-  const networkSamples = new Map();
+  const metricSamples = new Map();
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
     terminalManager,
     sessionStore,
@@ -159,7 +244,7 @@ function createRemoteSystemService({
           entry.client = client;
           client.on("close", () => {
             clients.delete(sessionId);
-            networkSamples.delete(sessionId);
+            metricSamples.delete(sessionId);
           });
           settled = true;
           resolve(client);
@@ -202,28 +287,48 @@ function createRemoteSystemService({
     getSession(sessionId);
     const parsed = parseLinuxMetrics(await exec(sessionId, LINUX_METRICS_COMMAND));
     const sampledAt = now();
-    const previous = networkSamples.get(sessionId);
+    const previous = metricSamples.get(sessionId);
     const elapsedSeconds = previous ? (sampledAt - previous.sampledAt) / 1000 : 0;
-    const receivedBytesPerSecond = elapsedSeconds > 0
-      ? Math.max(0, (parsed.network.receivedBytes - previous.receivedBytes) / elapsedSeconds)
-      : null;
-    const transmittedBytesPerSecond = elapsedSeconds > 0
-      ? Math.max(0, (parsed.network.transmittedBytes - previous.transmittedBytes) / elapsedSeconds)
-      : null;
-    networkSamples.set(sessionId, { sampledAt, ...parsed.network });
+    const receivedBytesPerSecond = calculateRate(
+      parsed.network.receivedBytes,
+      previous?.network.receivedBytes,
+      elapsedSeconds
+    );
+    const transmittedBytesPerSecond = calculateRate(
+      parsed.network.transmittedBytes,
+      previous?.network.transmittedBytes,
+      elapsedSeconds
+    );
+    metricSamples.set(sessionId, {
+      sampledAt,
+      network: parsed.network,
+      cpu: parsed.cpu,
+      diskIo: parsed.diskIo
+    });
 
     return {
       sampledAt,
       network: { receivedBytesPerSecond, transmittedBytesPerSecond },
       memory: parsed.memory,
-      disks: parsed.disks
+      cpu: { usedPercent: calculateCpuUsedPercent(parsed.cpu, previous?.cpu) },
+      disks: parsed.disks.map((disk) => {
+        const deviceKey = parsed.mountDevices[disk.mountPoint];
+        return {
+          ...disk,
+          io: calculateDiskMetrics(
+            deviceKey ? parsed.diskIo[deviceKey] : undefined,
+            deviceKey ? previous?.diskIo?.[deviceKey] : undefined,
+            elapsedSeconds
+          )
+        };
+      })
     };
   }
 
   async function disconnect(sessionId) {
     const entry = clients.get(sessionId);
     clients.delete(sessionId);
-    networkSamples.delete(sessionId);
+    metricSamples.delete(sessionId);
     if (entry) {
       try {
         if (entry.client) {
@@ -247,6 +352,8 @@ function createRemoteSystemService({
 
 module.exports = {
   LINUX_METRICS_COMMAND,
+  calculateCpuUsedPercent,
+  calculateDiskMetrics,
   createRemoteSystemService,
   parseLinuxMetrics
 };
