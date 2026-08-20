@@ -18,7 +18,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -319,6 +319,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("workbuddy-checkin:claim", () => workBuddyCheckinService.claim());
 
   ipcMain.handle("agent-conversation:get-snapshot", () => agentConversationManager.getSnapshot());
+  ipcMain.handle("agent-conversation:list-history", (_event, input) => agentConversationHistoryService.listHistory(input));
+  ipcMain.handle("agent-conversation:get-history-messages", (_event, input) => agentConversationHistoryService.getHistoryMessages(input));
   ipcMain.on("agent-conversation:set-active-session", (_event, sessionId) => {
     agentConversationManager.setActiveSession(sessionId);
   });

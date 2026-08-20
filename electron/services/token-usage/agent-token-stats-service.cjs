@@ -412,7 +412,10 @@ function createAgentTokenStatsService({
           sessionId: session.id,
           sessionTitle: session.title,
           provider,
-          supported: Boolean(tracker)
+          supported: Boolean(tracker),
+          userMessage: input.prompt,
+          userMessageId: input.event_id || input.eventId || input.turn_id || input.turnId,
+          timestamp: now()
         });
       }
       if (tracker && eventName === "UserPromptSubmit") void startLiveTurn(tracker);

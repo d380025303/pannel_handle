@@ -5980,7 +5980,7 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 .agent-conversation-panel {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 40%) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -5990,8 +5990,179 @@ button.agent-usage-status[aria-expanded="true"] {
   box-sizing: border-box;
 }
 
-.agent-conversation-panel.searching {
+.agent-conversation-detail {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.agent-conversation-panel.searching .agent-conversation-detail {
   grid-template-rows: 42px 36px minmax(0, 1fr);
+}
+
+.agent-conversation-history {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  background: color-mix(in srgb, var(--color-bg-panel) 88%, var(--color-bg-app));
+  border-right: 1px solid var(--color-border);
+}
+
+.agent-conversation-history-filters {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.agent-conversation-history-provider {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.agent-conversation-history-provider button,
+.agent-conversation-history-options button,
+.agent-conversation-history-more,
+.agent-conversation-messages-more {
+  min-width: 0;
+  padding: 5px 7px;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.agent-conversation-history-provider button.active,
+.agent-conversation-history-options button.active,
+.agent-conversation-history-provider button:hover,
+.agent-conversation-history-options button:hover,
+.agent-conversation-history-more:hover,
+.agent-conversation-messages-more:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+}
+
+.agent-conversation-history-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.agent-conversation-history-options label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.agent-conversation-history-search {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-control);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+}
+
+.agent-conversation-history-search svg {
+  width: 13px;
+  height: 13px;
+}
+
+.agent-conversation-history-search input {
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  color: var(--color-text);
+  font-size: 11px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.agent-conversation-history-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.agent-conversation-history-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 5px;
+  padding: 8px;
+  color: var(--color-text);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.agent-conversation-history-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.agent-conversation-history-item.active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+}
+
+.agent-conversation-history-item > span {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-conversation-history-item strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-conversation-history-item > small,
+.agent-conversation-history-item time {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-conversation-history-empty,
+.agent-conversation-history-error {
+  padding: 12px 8px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.agent-conversation-history-error {
+  color: var(--color-danger);
+}
+
+.agent-conversation-history-more,
+.agent-conversation-messages-more {
+  display: block;
+  margin: 8px auto;
 }
 
 .agent-conversation-header {
@@ -6175,6 +6346,12 @@ button.agent-usage-status[aria-expanded="true"] {
 
 .agent-conversation-message.final {
   border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+}
+
+.agent-conversation-message.user {
+  margin-left: 12%;
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-control));
+  border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
 }
 
 .agent-conversation-message-kind {

@@ -477,7 +477,7 @@ export type AgentStatusPayload = {
 export type AgentConversationMessage = {
   id: string;
   provider: "codex" | "codebuddy";
-  kind: "commentary" | "final" | "reply";
+  kind: "user" | "commentary" | "final" | "reply";
   text: string;
   timestamp: number;
 };
@@ -496,9 +496,56 @@ export type AgentConversationSnapshot = {
   turn: AgentConversationTurn | null;
 };
 
+export type AgentConversationHistoryItem = {
+  ref: string;
+  provider: "codex" | "codebuddy";
+  title: string;
+  preview: string;
+  cwd: string;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+};
+
+export type AgentConversationHistoryError = {
+  provider: "codex" | "codebuddy";
+  message: string;
+};
+
+export type AgentConversationHistoryListInput = {
+  panelSessionId: string;
+  providers?: Array<"codex" | "codebuddy">;
+  scope?: "cwd" | "all";
+  includeArchived?: boolean;
+  query?: string;
+  cursor?: string | null;
+  limit?: number;
+};
+
+export type AgentConversationHistoryListResult = {
+  items: AgentConversationHistoryItem[];
+  nextCursor: string | null;
+  errors: AgentConversationHistoryError[];
+};
+
+export type AgentConversationHistoryMessagesInput = {
+  panelSessionId: string;
+  conversationRef: string;
+  cursor?: string | null;
+  limit?: number;
+};
+
+export type AgentConversationHistoryMessagesResult = {
+  conversationRef: string;
+  messages: AgentConversationMessage[];
+  nextCursor: string | null;
+};
+
 export type AgentConversationApi = {
   setActiveSession: (sessionId?: string) => void;
   getSnapshot: () => Promise<AgentConversationSnapshot>;
+  listHistory: (input: AgentConversationHistoryListInput) => Promise<AgentConversationHistoryListResult>;
+  getHistoryMessages: (input: AgentConversationHistoryMessagesInput) => Promise<AgentConversationHistoryMessagesResult>;
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   onSnapshot: (callback: (snapshot: AgentConversationSnapshot) => void) => () => void;
 };

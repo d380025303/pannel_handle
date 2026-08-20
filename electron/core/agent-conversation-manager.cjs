@@ -26,16 +26,24 @@ function createAgentConversationManager({ broadcast }) {
     sendSnapshot();
   }
 
-  function startTurn({ sessionId, sessionTitle, provider, supported }) {
+  function startTurn({ sessionId, sessionTitle, provider, supported, userMessage, userMessageId, timestamp = Date.now() }) {
     if (provider !== "codex" && provider !== "codebuddy") return;
     const existingTurn = turns.get(sessionId);
+    const messages = existingTurn?.messages || [];
+    const prompt = String(userMessage || "").trim();
+    if (prompt) {
+      const id = String(userMessageId || `user:${timestamp}:${prompt}`);
+      if (!messages.some(message => message.id === id)) {
+        messages.push({ id, provider, kind: "user", text: prompt, timestamp });
+      }
+    }
     turns.set(sessionId, {
       sessionId,
       sessionTitle: String(sessionTitle || provider),
       provider,
       status: supported ? "running" : "unsupported",
       supported: Boolean(supported),
-      messages: existingTurn?.messages || []
+      messages
     });
     if (activeSessionId === sessionId) sendSnapshot();
   }

@@ -772,7 +772,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onSummaryChange={handleGitSummaryChange}
                 />
               ) : activeRightTool === "conversation" ? (
-                <AgentConversationPanel snapshot={agentConversation.snapshot} />
+                <AgentConversationPanel snapshot={agentConversation.snapshot} session={terminalSessions.activeSession} />
               ) : activeRightTool === "idea" ? (
                 <IdeaRunPanel />
               ) : (

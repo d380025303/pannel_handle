@@ -22,15 +22,57 @@ const baseSnapshot: AgentConversationSnapshot = {
 
 describe("AgentConversationPanel", () => {
   const openExternal = vi.fn();
+  const listHistory = vi.fn();
+  const getHistoryMessages = vi.fn();
 
   beforeEach(() => {
     Object.defineProperty(window, "agentConversationApi", {
       configurable: true,
       value: {
-        openExternal
+        openExternal,
+        listHistory,
+        getHistoryMessages
       }
     });
     Object.defineProperty(window, "requestAnimationFrame", { configurable: true, value: (callback: FrameRequestCallback) => { callback(0); return 1; } });
+  });
+
+  it("lists native history and opens a selected conversation without exposing file paths", async () => {
+    listHistory.mockResolvedValue({
+      items: [{
+        ref: "codebuddy:buddy-one",
+        provider: "codebuddy",
+        title: "Buddy history",
+        preview: "Question",
+        cwd: "C:\\work",
+        createdAt: 1,
+        updatedAt: 2,
+        archived: false
+      }],
+      nextCursor: null,
+      errors: []
+    });
+    getHistoryMessages.mockResolvedValue({
+      conversationRef: "codebuddy:buddy-one",
+      messages: [
+        { id: "answer", provider: "codebuddy", kind: "reply", text: "Historical answer", timestamp: 2 },
+        { id: "question", provider: "codebuddy", kind: "user", text: "Historical question", timestamp: 1 }
+      ],
+      nextCursor: null
+    });
+
+    render(
+      <AgentConversationPanel
+        snapshot={{ activeSessionId: "panel-1", turn: null }}
+        session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
+    expect(await screen.findByText("Historical answer")).toBeTruthy();
+    expect(screen.getByText("Historical question")).toBeTruthy();
+    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy"], scope: "cwd" }));
+    expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
   });
 
   afterEach(() => {

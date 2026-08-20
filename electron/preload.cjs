@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld("terminalApi", {
 contextBridge.exposeInMainWorld("agentConversationApi", {
   setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId),
   getSnapshot: () => ipcRenderer.invoke("agent-conversation:get-snapshot"),
+  listHistory: (input) => ipcRenderer.invoke("agent-conversation:list-history", input),
+  getHistoryMessages: (input) => ipcRenderer.invoke("agent-conversation:get-history-messages", input),
   openExternal: (url) => ipcRenderer.invoke("external-link:open", url),
   onSnapshot: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot);

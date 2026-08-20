@@ -476,11 +476,12 @@ function createTerminalManager({
       ]);
     }
 
+    session.runtimeCwd = options.runtimeCwd || (session.type === "wsl" ? os.homedir() : session.cwd);
     const term = pty.spawn(options.runtimeShell || session.shell, args, {
       name: "xterm-256color",
       cols: options.cols || 100,
       rows: options.rows || 30,
-      cwd: options.runtimeCwd || (session.type === "wsl" ? os.homedir() : session.cwd),
+      cwd: session.runtimeCwd,
       env: { ...env, ...(options.runtimeEnv || {}) }
     });
 

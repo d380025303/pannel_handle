@@ -11,6 +11,15 @@ function createHarness() {
 }
 
 describe("Agent conversation manager", () => {
+  it("adds the submitted user prompt to the live conversation once", () => {
+    const { manager } = createHarness();
+    manager.setActiveSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Main", provider: "codex", supported: true, userMessage: "Fix the tests", userMessageId: "turn-1", timestamp: 10 });
+    manager.startTurn({ sessionId: "panel-1", sessionTitle: "Main", provider: "codex", supported: true, userMessage: "Fix the tests", userMessageId: "turn-1", timestamp: 10 });
+    expect(manager.getSnapshot().turn.messages).toEqual([
+      { id: "turn-1", provider: "codex", kind: "user", text: "Fix the tests", timestamp: 10 }
+    ]);
+  });
   it("broadcasts the selected session snapshot without creating a separate window", () => {
     const { manager, broadcast } = createHarness();
 

@@ -2,9 +2,17 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createAgentConversationTranscriptParser } = require("./agent-conversation-transcript.cjs");
+const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it("parses user-visible Codex history while excluding reasoning and tools", () => {
+    const messages = parseAgentConversationText("codex", [
+      JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00Z", payload: { id: "u1", type: "message", role: "user", content: [{ type: "input_text", text: "question" }] } }),
+      JSON.stringify({ type: "response_item", payload: { id: "r1", type: "reasoning", role: "assistant", content: [{ type: "output_text", text: "private" }] } }),
+      JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:01Z", payload: { id: "a1", type: "message", role: "assistant", phase: "final", content: [{ type: "output_text", text: "answer" }] } })
+    ].join("\n"), { includeUser: true });
+    expect(messages.map(message => [message.kind, message.text])).toEqual([["user", "question"], ["final", "answer"]]);
+  });
   it("extracts Codex commentary and final messages without event duplicates", () => {
     const parser = createAgentConversationTranscriptParser("codex");
     const commentary = {

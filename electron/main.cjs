@@ -22,6 +22,7 @@ const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cj
 const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/token-usage/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
+const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
@@ -69,6 +70,7 @@ let mobileAccessStore = null;
 let mobileRemoteService = null;
 let terminalStateHub = null;
 let agentConversationManager = null;
+let agentConversationHistoryService = null;
 let ideaModule = null;
 
 registerRemoteFileScheme(protocol);
@@ -197,6 +199,11 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       sessionStore,
       knownHostStore
+    });
+    agentConversationHistoryService = createAgentConversationHistoryService({
+      terminalManager,
+      sshSessionRuntime,
+      homeDir: app.getPath("home")
     });
     agentUsageService = createAgentUsageService({
       terminalManager,
@@ -341,6 +348,7 @@ if (!gotSingleInstanceLock) {
       dingTalkNotificationManager,
       windowManager,
       agentConversationManager,
+      agentConversationHistoryService,
       clipboard,
       clipboardImageService,
       dialog,
