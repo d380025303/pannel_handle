@@ -403,9 +403,6 @@ function createAgentTokenStatsService({
       }
 
       const tracker = ensureLiveTracker({ provider, input, session });
-      if ((provider === "codex" || provider === "codebuddy") && eventName === "SessionStart") {
-        conversationSink?.clearSession?.(session.id);
-      }
       if (tracker && eventName === "SessionStart") void pollLive(tracker);
       if ((provider === "codex" || provider === "codebuddy") && eventName === "UserPromptSubmit") {
         conversationSink?.startTurn?.({

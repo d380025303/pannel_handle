@@ -64,7 +64,7 @@ describe("agent token live statistics", () => {
     const harness = createHarness({ initial: oldMessage + codexLine(100, 20), conversationSink: sink });
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "SessionStart" }, session: harness.session });
     await flush();
-    expect(sink.clearSession).toHaveBeenCalledWith("panel-1");
+    expect(sink.clearSession).not.toHaveBeenCalled();
     expect(sink.appendMessages).not.toHaveBeenCalled();
 
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "UserPromptSubmit" }, session: harness.session });
@@ -77,6 +77,28 @@ describe("agent token live statistics", () => {
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "Stop" }, session: harness.session });
     await flush();
     expect(sink.completeTurn).toHaveBeenCalledWith("panel-1");
+  });
+
+  it.each(["codex", "codebuddy"])("preserves %s conversations until the panel session ends", async (provider) => {
+    const sink = { clearSession: vi.fn() };
+    const harness = createHarness({ initial: codexLine(100, 20), conversationSink: sink });
+    const session = { ...harness.session, agentProvider: provider };
+
+    harness.service.handleHook({
+      provider,
+      input: { ...harness.input, hook_event_name: "SessionStart" },
+      session
+    });
+    await flush();
+
+    expect(sink.clearSession).not.toHaveBeenCalled();
+
+    harness.service.markEnded(session.id);
+
+    expect(harness.statsStore.markEnded).toHaveBeenCalledWith("panel-1");
+    expect(sink.clearSession).toHaveBeenCalledTimes(1);
+    expect(sink.clearSession).toHaveBeenCalledWith("panel-1");
+    expect(harness.service.getLive("panel-1")).toBeNull();
   });
 
   it("marks pure remote SSH turns as unsupported without polling the transcript", () => {
