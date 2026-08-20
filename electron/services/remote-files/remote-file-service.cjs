@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const SftpClient = require("ssh2-sftp-client");
-const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
+const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const MEDIA_PROTOCOL = "pannel-media";

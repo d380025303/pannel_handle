@@ -9,14 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const {
   MAX_DIFF_ROWS,
-  createGitStatusService,
+  createGitService,
   parseBranchList,
   parseHistory,
   parsePorcelainStatus,
   parsePorcelainV2,
   parseStashList,
   parseUnifiedDiff
-} = require("./git-status-service.cjs");
+} = require("./git-service.cjs");
 
 const temporaryDirectories = [];
 
@@ -89,7 +89,7 @@ function createRepository() {
     directory,
     session,
     terminalManager,
-    service: createGitStatusService({ terminalManager, sessionStore: {} })
+    service: createGitService({ terminalManager, sessionStore: {} })
   };
 }
 
@@ -161,7 +161,7 @@ describe("git command routing", () => {
   it("runs non-interactive porcelain v2 status on Windows and WSL", async () => {
     const status = ["# branch.oid abc", "# branch.head main", "1 .M N... 100644 100644 100644 abc def README.md", ""].join("\0");
     const windowsSpawn = createSpawnMock([{ stdout: status }]);
-    const windowsService = createGitStatusService({
+    const windowsService = createGitService({
       terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn: windowsSpawn
@@ -171,7 +171,7 @@ describe("git command routing", () => {
     expect(windowsSpawn.calls[0].options.env.GIT_TERMINAL_PROMPT).toBe("0");
 
     const wslSpawn = createSpawnMock([{ stdout: status }]);
-    const wslService = createGitStatusService({
+    const wslService = createGitService({
       terminalManager: createTerminalManager({ id: "wsl", type: "wsl", cwd: "/work/repo", wslDistro: "Ubuntu-24.04" }),
       sessionStore: {},
       spawn: wslSpawn
@@ -187,7 +187,7 @@ describe("git command routing", () => {
       { stdout: "/work/alpha\ntrue\n" },
       { code: 128 }
     ]);
-    const service = createGitStatusService({
+    const service = createGitService({
       terminalManager: createTerminalManager({ id: "wsl-scan", type: "wsl", cwd: "/work", wslDistro: "Ubuntu-24.04" }),
       sessionStore: {},
       spawn: wslSpawn
@@ -204,7 +204,7 @@ describe("git command routing", () => {
   it("quotes SSH directories and supports cancellable streaming execution", async () => {
     const status = ["# branch.oid abc", "# branch.head main", "? remote.txt", ""].join("\0");
     const sshRuntime = createSshRuntimeMock({ stdout: status });
-    const service = createGitStatusService({
+    const service = createGitService({
       terminalManager: createTerminalManager({ id: "ssh", type: "ssh", cwd: "/srv/app's repo" }),
       sessionStore: {},
       sshSessionRuntime: sshRuntime
@@ -220,7 +220,7 @@ describe("git command routing", () => {
       { stdout: "/srv/app's workspace/alpha\ntrue\n" }
     ]);
     const session = { id: "ssh-scan", type: "ssh", cwd: "/srv/app's workspace" };
-    const service = createGitStatusService({
+    const service = createGitService({
       terminalManager: createTerminalManager(session),
       sessionStore: {},
       sshSessionRuntime: sshRuntime
@@ -236,7 +236,7 @@ describe("git command routing", () => {
 
   it("uses scoped diff, stash index restoration, and contextual discard commands", async () => {
     const spawn = createSpawnMock(Array.from({ length: 5 }, () => ({ stdout: "" })));
-    const service = createGitStatusService({
+    const service = createGitService({
       terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn
@@ -257,7 +257,7 @@ describe("git command routing", () => {
   });
 
   it("rejects unsafe paths and refs", async () => {
-    const service = createGitStatusService({
+    const service = createGitService({
       terminalManager: createTerminalManager({ id: "win", type: "windows", cwd: "C:\\work\\repo" }),
       sessionStore: {},
       spawn: createSpawnMock()
@@ -284,7 +284,7 @@ describe("real temporary repository workflow", () => {
     git(nested, "init");
     git(aggregate, "init", "--bare", bare);
     const session = { id: "aggregate-session", type: "windows", cwd: aggregate };
-    const service = createGitStatusService({ terminalManager: createTerminalManager(session), sessionStore: {} });
+    const service = createGitService({ terminalManager: createTerminalManager(session), sessionStore: {} });
 
     const result = await service.discoverRepositories(session.id);
 

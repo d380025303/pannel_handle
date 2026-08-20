@@ -1,7 +1,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const { spawn: defaultSpawn } = require("node:child_process");
-const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
+const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const STATUS_TIMEOUT_MS = 10000;
 const WRITE_TIMEOUT_MS = 30000;
@@ -425,7 +425,7 @@ async function mapWithConcurrency(values, concurrency, mapper) {
   return results;
 }
 
-function createGitStatusService({
+function createGitService({
   terminalManager,
   sessionStore,
   knownHostStore,
@@ -1000,7 +1000,7 @@ module.exports = {
   MAX_DIFF_ROWS,
   HISTORY_PAGE_SIZE,
   REPOSITORY_DISCOVERY_CONCURRENCY,
-  createGitStatusService,
+  createGitService,
   parsePorcelainStatus,
   parsePorcelainV2,
   parseUnifiedDiff,

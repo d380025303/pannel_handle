@@ -1,6 +1,5 @@
 const path = require("node:path");
-const { Readable } = require("node:stream");
-const { app, BrowserWindow, clipboard, dialog, Notification, protocol, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
 const { registerIpcHandlers } = require("./core/ipc-handlers.cjs");
 const { createWindowManager } = require("./core/window-manager.cjs");
 const { createAgentConversationManager } = require("./core/agent-conversation-manager.cjs");
@@ -11,14 +10,12 @@ const { createRemoteHookConfigService } = require("./hooks/remote-hook-config-se
 const { createAgentNotificationManager } = require("./notifications/agent-notification-manager.cjs");
 const { createDingTalkNotificationManager } = require("./notifications/ding-talk-notification-manager.cjs");
 const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
-const { createGitStatusService } = require("./services/git-status-service.cjs");
+const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
-const { MEDIA_PROTOCOL, createRemoteFileService } = require("./services/remote-file-service.cjs");
-const { createFileTransferManager } = require("./services/file-transfer-manager.cjs");
-const { createFileWatchManager } = require("./services/file-watch-manager.cjs");
+const { createRemoteFilesModule, registerRemoteFileScheme } = require("./services/remote-files/index.cjs");
 const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
@@ -26,7 +23,7 @@ const { createRemoteAgentBridgeService } = require("./services/remote-agent-brid
 const { createAgentUsageService } = require("./services/token-usage/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
-const { createIdeaBridgeService } = require("./services/idea-bridge-service.cjs");
+const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
@@ -49,9 +46,7 @@ let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
 let agentHookServer = null;
-let remoteFileService = null;
-let fileTransferManager = null;
-let fileWatchManager = null;
+let remoteFilesModule = null;
 let remoteSystemService = null;
 let skillsService = null;
 let mcpConfigService = null;
@@ -67,46 +62,16 @@ let hookConfigManager = null;
 let agentNotificationManager = null;
 let agentSessionLauncher = null;
 let dingTalkNotificationManager = null;
-let gitStatusService = null;
+let gitModule = null;
 let projectSearchService = null;
 let clipboardImageService = null;
 let mobileAccessStore = null;
 let mobileRemoteService = null;
 let terminalStateHub = null;
 let agentConversationManager = null;
-let ideaBridgeService = null;
+let ideaModule = null;
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: MEDIA_PROTOCOL,
-  privileges: {
-    standard: true,
-    secure: true,
-    supportFetchAPI: true,
-    stream: true
-  }
-}]);
-
-function registerMediaPreviewProtocol() {
-  protocol.registerStreamProtocol(MEDIA_PROTOCOL, (request, callback) => {
-    try {
-      if (!remoteFileService) {
-        throw new Error("Media preview service is not available.");
-      }
-      const rangeHeader = request.headers?.Range || request.headers?.range;
-      callback(remoteFileService.createPreviewStreamResponse(request.url, rangeHeader));
-    } catch (err) {
-      callback({
-        statusCode: 404,
-        headers: {
-          "Cache-Control": "no-store",
-          "Content-Type": "text/plain",
-          "Content-Length": "0"
-        },
-        data: Readable.from([])
-      });
-    }
-  });
-}
+registerRemoteFileScheme(protocol);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -199,8 +164,8 @@ if (!gotSingleInstanceLock) {
         if (dingTalkNotificationManager) {
           dingTalkNotificationManager.clearSession(id);
         }
-        if (remoteFileService) {
-          void remoteFileService.disconnect(id);
+        if (remoteFilesModule) {
+          void remoteFilesModule.disconnectSession(id);
         }
         if (remoteSystemService) {
           void remoteSystemService.disconnect(id);
@@ -245,13 +210,22 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast,
       conversationSink: agentConversationManager
     });
-    remoteFileService = createRemoteFileService({
+    remoteFilesModule = createRemoteFilesModule({
+      app,
+      nativeImage,
+      ipcMain,
+      protocol,
+      dialog,
       terminalManager,
       sessionStore,
       knownHostStore,
       sshSessionRuntime,
-      shellApi: shell
+      shellApi: shell,
+      windowManager,
+      broadcast: windowManager.broadcast,
+      fallbackIconPath: path.join(__dirname, "..", "build", "icon.png")
     });
+    const remoteFileService = remoteFilesModule.fileService;
     remoteAgentBridgeService = createRemoteAgentBridgeService({
       terminalManager,
       sshSessionRuntime,
@@ -260,12 +234,6 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
-    fileTransferManager = createFileTransferManager({
-      remoteFileService,
-      broadcast: windowManager.broadcast
-    });
-    fileWatchManager = createFileWatchManager({ terminalManager, broadcast: windowManager.broadcast });
-    registerMediaPreviewProtocol();
     clipboardImageService = createClipboardImageService({
       clipboard,
       terminalManager,
@@ -341,7 +309,8 @@ if (!gotSingleInstanceLock) {
         }
       }
     });
-    gitStatusService = createGitStatusService({
+    gitModule = createGitModule({
+      ipcMain,
       terminalManager,
       sessionStore,
       knownHostStore,
@@ -351,14 +320,15 @@ if (!gotSingleInstanceLock) {
       terminalManager,
       remoteFileService
     });
-    ideaBridgeService = createIdeaBridgeService({
+    ideaModule = createIdeaModule({
+      ipcMain,
       discoveryDir: path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "Pannel Handle", "idea-bridge", "instances"),
       broadcast: windowManager.broadcast
     });
     sessionStore.loadLibrary();
     await agentHookServer.start();
     await remoteAgentBridgeService.start();
-    await ideaBridgeService.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
+    await ideaModule.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
       terminalManager,
@@ -375,9 +345,7 @@ if (!gotSingleInstanceLock) {
       clipboardImageService,
       dialog,
       shellApi: shell,
-      remoteFileService,
-      fileTransferManager,
-      fileWatchManager,
+      disconnectFileSession: remoteFilesModule.disconnectSession,
       remoteSystemService,
       skillsService,
       mcpConfigService,
@@ -387,11 +355,9 @@ if (!gotSingleInstanceLock) {
       agentTokenStatsService,
       hookConfigManager,
       remoteHookConfigService,
-      gitStatusService,
       projectSearchService,
       mobileRemoteService,
-      remoteAgentBridgeService,
-      ideaBridgeService
+      remoteAgentBridgeService
     });
     windowManager.createWindow();
 
@@ -413,14 +379,8 @@ app.on("window-all-closed", () => {
   if (terminalManager) {
     terminalManager.shutdown();
   }
-  if (fileTransferManager) {
-    void fileTransferManager.shutdown();
-  }
-  if (remoteFileService) {
-    void remoteFileService.shutdown();
-  }
-  if (fileWatchManager) {
-    void fileWatchManager.shutdown();
+  if (remoteFilesModule) {
+    void remoteFilesModule.shutdown();
   }
   if (remoteSystemService) {
     void remoteSystemService.shutdown();
@@ -428,8 +388,8 @@ app.on("window-all-closed", () => {
   if (remoteAgentBridgeService) {
     void remoteAgentBridgeService.shutdown();
   }
-  if (ideaBridgeService) {
-    void ideaBridgeService.shutdown();
+  if (ideaModule) {
+    void ideaModule.shutdown();
   }
   if (agentUsageService) {
     agentUsageService.shutdown();
@@ -443,8 +403,8 @@ app.on("window-all-closed", () => {
   if (agentTokenStatsStore) {
     agentTokenStatsStore.close();
   }
-  if (gitStatusService) {
-    gitStatusService.shutdown();
+  if (gitModule) {
+    gitModule.shutdown();
   }
   if (sshHookTunnelService) {
     void sshHookTunnelService.shutdown();

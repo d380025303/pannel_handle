@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { normalizeWslPath, toWslHostPath } = require("./remote-file-service.cjs");
+const { normalizeWslPath, toWslHostPath } = require("./remote-files/index.cjs");
 
 const DEFAULT_EXCLUDED_DIRS = new Set([
   ".git",

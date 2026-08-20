@@ -1,8 +1,5 @@
-const { app, ipcMain, nativeImage } = require("electron");
+const { ipcMain } = require("electron");
 const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { startNativeFileDrag } = require("./native-file-drag.cjs");
 const { openExternalHttpUrl } = require("./external-link.cjs");
 const { VALID_LOCALES, VALID_THEME_IDS } = require("../stores/config-store.cjs");
 
@@ -21,88 +18,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function sanitizeLocalPaths(localPaths) {
-  if (!Array.isArray(localPaths)) {
-    throw new Error("Local file paths are required.");
-  }
-  const paths = localPaths
-    .filter((filePath) => typeof filePath === "string")
-    .map((filePath) => filePath.trim())
-    .filter(Boolean);
-  if (paths.length === 0) {
-    throw new Error("No valid local file paths found. Only local files can be uploaded.");
-  }
-  return paths;
-}
-
-function getDownloadFileName(fileName, remotePath) {
-  const fallback = path.posix.basename(String(remotePath || "download").replace(/\\/g, "/")) || "download";
-  const rawName = String(fileName || fallback).trim() || fallback;
-  const baseName = path.basename(rawName).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
-  return baseName || "download";
-}
-
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, clipboard, clipboardImageService, dialog, shellApi, remoteFileService, fileTransferManager, fileWatchManager, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, gitStatusService, projectSearchService, mobileRemoteService, remoteAgentBridgeService, ideaBridgeService }) {
-  const downloadOwners = new Map();
-
-  async function runDownload(event, { transferId, sessionId, remotePath, localPath, fileName }) {
-    const id = String(transferId || "").trim();
-    if (!id) throw new Error("A download transfer ID is required.");
-    if (downloadOwners.has(id) || Array.from(downloadOwners.values()).includes(event.sender.id)) {
-      throw new Error("Another download is already in progress.");
-    }
-    downloadOwners.set(id, event.sender.id);
-    let lastProgressAt = 0;
-    const sendProgress = (payload) => {
-      const now = Date.now();
-      if (payload.percent !== 100 && now - lastProgressAt < 80) return;
-      lastProgressAt = now;
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("remote-files:download-progress", {
-          ...payload,
-          sessionId,
-          remotePath,
-          fileName,
-          status: "running"
-        });
-      }
-    };
-    const cancelWhenDestroyed = () => void remoteFileService.cancelDownload(id);
-    event.sender.once("destroyed", cancelWhenDestroyed);
-    try {
-      const downloaded = await remoteFileService.downloadFile(sessionId, remotePath, localPath, {
-        transferId: id,
-        onProgress: sendProgress
-      });
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("remote-files:download-progress", {
-          transferId: id,
-          sessionId,
-          remotePath,
-          fileName,
-          status: "completed"
-        });
-      }
-      return { canceled: false, ...downloaded };
-    } catch (err) {
-      const canceled = err?.code === "DOWNLOAD_CANCELED";
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("remote-files:download-progress", {
-          transferId: id,
-          sessionId,
-          remotePath,
-          fileName,
-          status: canceled ? "canceled" : "failed",
-          error: canceled ? undefined : getErrorMessage(err)
-        });
-      }
-      if (canceled) return { canceled: true, transferId: id };
-      throw err;
-    } finally {
-      event.sender.removeListener("destroyed", cancelWhenDestroyed);
-      downloadOwners.delete(id);
-    }
-  }
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -219,8 +135,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("sessions:close", async (_event, id) => {
     const sessions = terminalManager.closeSession(id);
-    if (remoteFileService) {
-      await remoteFileService.disconnect(id);
+    if (disconnectFileSession) {
+      await disconnectFileSession(id);
     }
     if (remoteSystemService) {
       await remoteSystemService.disconnect(id);
@@ -233,26 +149,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
   ipcMain.handle("remote-agent:approval-list", () => remoteAgentBridgeService.listPendingApprovals());
   ipcMain.handle("remote-agent:approval-resolve", (_event, { id, decision }) => remoteAgentBridgeService.resolveApproval(id, decision));
-
-  const ideaId = (value, name) => {
-    const id = String(value || "").trim();
-    if (!id || id.length > 512) throw new Error(`${name} is required.`);
-    return id;
-  };
-  ipcMain.handle("idea-bridge:snapshot", () => ideaBridgeService.getSnapshot());
-  ipcMain.handle("idea-bridge:start", (_event, { bridgeId, projectId, configurationId, mode }) => {
-    if (mode !== "run" && mode !== "debug") throw new Error("IDEA execution mode must be run or debug.");
-    return ideaBridgeService.startConfiguration(ideaId(bridgeId, "bridgeId"), ideaId(projectId, "projectId"), ideaId(configurationId, "configurationId"), mode);
-  });
-  ipcMain.handle("idea-bridge:stop", (_event, { bridgeId, instanceId }) => {
-    return ideaBridgeService.stopExecution(ideaId(bridgeId, "bridgeId"), ideaId(instanceId, "instanceId"));
-  });
-  ipcMain.handle("idea-bridge:stop-all", (_event, { bridgeId, projectId, configurationId }) => {
-    return ideaBridgeService.stopAll(ideaId(bridgeId, "bridgeId"), ideaId(projectId, "projectId"), ideaId(configurationId, "configurationId"));
-  });
-  ipcMain.handle("idea-bridge:restart", (_event, { bridgeId, instanceId }) => {
-    return ideaBridgeService.restartExecution(ideaId(bridgeId, "bridgeId"), ideaId(instanceId, "instanceId"));
-  });
 
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     if (typeof text !== "string" || text.length === 0) {
@@ -301,138 +197,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("mobile-access:revoke-device", (_event, deviceId) => mobileRemoteService.revokeDevice(deviceId));
   ipcMain.handle("mobile-access:disconnect-device", () => mobileRemoteService.disconnectActiveDevice());
 
-  ipcMain.handle("remote-files:home", (_event, { sessionId }) => {
-    return remoteFileService.getHome(sessionId);
-  });
-
-  ipcMain.handle("remote-files:list", (_event, { sessionId, remotePath }) => {
-    return remoteFileService.list(sessionId, remotePath);
-  });
-
-  ipcMain.handle("remote-files:read-text", (_event, { sessionId, remotePath }) => {
-    return remoteFileService.readText(sessionId, remotePath);
-  });
-
-  ipcMain.handle("remote-files:preview-file", (_event, { sessionId, remotePath }) => {
-    return remoteFileService.previewFile(sessionId, remotePath);
-  });
-
-  ipcMain.handle("remote-files:release-preview", (_event, { previewId }) => {
-    return remoteFileService.releasePreview(previewId);
-  });
-
-  ipcMain.handle("remote-files:write-text", (_event, { sessionId, remotePath, content, expectedVersion, options }) => {
-    return remoteFileService.writeText(sessionId, remotePath, content, expectedVersion, options);
-  });
-
-  ipcMain.handle("remote-files:create", (_event, { sessionId, parentPath, name, kind, conflictPolicy }) => {
-    return remoteFileService.createEntry(sessionId, parentPath, name, kind, conflictPolicy);
-  });
-
-  ipcMain.handle("remote-files:move", (_event, { sessionId, sourcePath, targetDirectory, name, conflictPolicy }) => {
-    return remoteFileService.moveEntry(sessionId, sourcePath, targetDirectory, name, conflictPolicy);
-  });
-
-  ipcMain.handle("remote-files:choose-root", async (event, { sessionId, currentRoot }) => {
-    const session = terminalManager.getSession(sessionId);
-    if (!session || session.type !== "windows") return { canceled: true };
-    const ownerWindow = windowManager.getWindowFromEvent(event);
-    const result = await dialog.showOpenDialog(ownerWindow, {
-      defaultPath: currentRoot,
-      properties: ["openDirectory"]
-    });
-    return result.canceled || result.filePaths.length === 0
-      ? { canceled: true }
-      : { canceled: false, path: result.filePaths[0] };
-  });
-
-  ipcMain.handle("remote-files:upload-file", async (event, { sessionId, remoteDir }) => {
-    const ownerWindow = windowManager.getWindowFromEvent(event);
-    const result = await dialog.showOpenDialog(ownerWindow, {
-      properties: ["openFile"]
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-      return { canceled: true };
-    }
-    const uploaded = await remoteFileService.uploadFile(sessionId, result.filePaths[0], remoteDir);
-    return { canceled: false, ...uploaded };
-  });
-
-  ipcMain.handle("remote-files:upload-files", async (_event, { sessionId, remoteDir, localPaths }) => {
-    const uploaded = await remoteFileService.uploadFiles(sessionId, sanitizeLocalPaths(localPaths), remoteDir);
-    return { canceled: false, uploaded };
-  });
-
-  ipcMain.handle("remote-files:download-file", async (event, { transferId, sessionId, remotePath, fileName }) => {
-    const ownerWindow = windowManager.getWindowFromEvent(event);
-    const result = await dialog.showSaveDialog(ownerWindow, {
-      defaultPath: fileName || "download"
-    });
-    if (result.canceled || !result.filePath) {
-      return { canceled: true };
-    }
-    return runDownload(event, { transferId, sessionId, remotePath, localPath: result.filePath, fileName });
-  });
-
-  ipcMain.handle("remote-files:start-download-drag", async (event, { transferId, sessionId, remotePath, fileName }) => {
-    const tempRoot = path.join(os.tmpdir(), "pannel-handle-drag-downloads");
-    await fs.promises.mkdir(tempRoot, { recursive: true });
-    const tempDir = await fs.promises.mkdtemp(path.join(tempRoot, "drag-"));
-    const localPath = path.join(tempDir, getDownloadFileName(fileName, remotePath));
-    const downloaded = await runDownload(event, { transferId, sessionId, remotePath, localPath, fileName });
-    if (downloaded.canceled) return downloaded;
-    await startNativeFileDrag({
-      app,
-      nativeImage,
-      sender: event.sender,
-      filePath: downloaded.localPath,
-      fallbackIconPath: path.join(__dirname, "..", "..", "build", "icon.png")
-    });
-    return { canceled: false, ...downloaded };
-  });
-
-  ipcMain.handle("remote-files:cancel-download", (event, { transferId }) => {
-    const id = String(transferId || "");
-    if (downloadOwners.get(id) !== event.sender.id) return false;
-    return remoteFileService.cancelDownload(id);
-  });
-
-  ipcMain.handle("remote-files:open-in-explorer", (_event, { sessionId, remotePath }) => {
-    return remoteFileService.openInExplorer(sessionId, remotePath);
-  });
-
-  ipcMain.handle("remote-files:delete", (_event, { sessionId, remotePath, options }) => {
-    return remoteFileService.deleteEntry(sessionId, remotePath, options);
-  });
-  ipcMain.handle("remote-files:watch", (_event, { sessionId, directories }) => fileWatchManager.setDirectories(sessionId, directories));
-  ipcMain.handle("remote-files:unwatch", (_event, { sessionId }) => fileWatchManager.stop(sessionId));
-
-  ipcMain.handle("file-transfers:list", () => fileTransferManager.list());
-
-  ipcMain.handle("file-transfers:choose-upload", async (event, { sessionId, remoteDir }) => {
-    const ownerWindow = windowManager.getWindowFromEvent(event);
-    const result = await dialog.showOpenDialog(ownerWindow, { properties: ["openFile", "multiSelections"] });
-    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
-    return { canceled: false, tasks: fileTransferManager.enqueueUploads(sessionId, result.filePaths, remoteDir) };
-  });
-
-  ipcMain.handle("file-transfers:upload-paths", (_event, { sessionId, remoteDir, localPaths }) => ({
-    canceled: false,
-    tasks: fileTransferManager.enqueueUploads(sessionId, sanitizeLocalPaths(localPaths), remoteDir)
-  }));
-
-  ipcMain.handle("file-transfers:choose-download", async (event, { sessionId, remotePath, fileName }) => {
-    const ownerWindow = windowManager.getWindowFromEvent(event);
-    const result = await dialog.showSaveDialog(ownerWindow, { defaultPath: fileName || "download" });
-    if (result.canceled || !result.filePath) return { canceled: true };
-    return { canceled: false, task: fileTransferManager.enqueueDownload(sessionId, remotePath, result.filePath, fileName) };
-  });
-
-  ipcMain.handle("file-transfers:cancel", (_event, { id }) => fileTransferManager.cancel(id));
-  ipcMain.handle("file-transfers:retry", (_event, { id }) => fileTransferManager.retry(id));
-  ipcMain.handle("file-transfers:resolve-conflict", (_event, { id, policy }) => fileTransferManager.resolveConflict(id, policy));
-  ipcMain.handle("file-transfers:clear", (_event, { id }) => fileTransferManager.clear(id));
-
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
   });
@@ -460,106 +224,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("agent-token-stats:clear", () => {
     agentTokenStatsStore.clear();
     return true;
-  });
-
-  ipcMain.handle("git:status", (_event, { target }) => {
-    return gitStatusService.getStatus(target);
-  });
-
-  ipcMain.handle("git:snapshot", (_event, { target }) => {
-    return gitStatusService.getSnapshot(target);
-  });
-
-  ipcMain.handle("git:workspace-snapshot", (_event, { sessionId }) => {
-    return gitStatusService.getWorkspaceSnapshot(sessionId);
-  });
-
-  ipcMain.handle("git:diff", (_event, { target, request, file }) => {
-    return gitStatusService.getDiff(target, request || file);
-  });
-
-  ipcMain.handle("git:branches", (_event, { target }) => {
-    return gitStatusService.getBranches(target);
-  });
-
-  ipcMain.handle("git:remotes", (_event, { target }) => {
-    return gitStatusService.getRemotes(target);
-  });
-
-  ipcMain.handle("git:checkout-branch", (_event, { target, branch, operationId }) => {
-    return gitStatusService.checkoutBranch(target, branch, operationId);
-  });
-
-  ipcMain.handle("git:create-branch", (_event, { target, branchName, operationId }) => {
-    return gitStatusService.createBranch(target, branchName, operationId);
-  });
-
-  ipcMain.handle("git:stashes", (_event, { target }) => {
-    return gitStatusService.getStashes(target);
-  });
-
-  ipcMain.handle("git:history", (_event, { target, options }) => {
-    return gitStatusService.getHistory(target, options);
-  });
-
-  ipcMain.handle("git:stage-files", (_event, { target, paths, operationId }) => {
-    return gitStatusService.stageFiles(target, paths, operationId);
-  });
-
-  ipcMain.handle("git:stage-all", (_event, { target, operationId }) => {
-    return gitStatusService.stageAll(target, operationId);
-  });
-
-  ipcMain.handle("git:unstage-files", (_event, { target, paths, operationId }) => {
-    return gitStatusService.unstageFiles(target, paths, operationId);
-  });
-
-  ipcMain.handle("git:unstage-all", (_event, { target, operationId }) => {
-    return gitStatusService.unstageAll(target, operationId);
-  });
-
-  ipcMain.handle("git:discard-working-tree", (_event, { target, file, operationId }) => {
-    return gitStatusService.discardWorkingTree(target, file, operationId);
-  });
-
-  ipcMain.handle("git:commit", (_event, { target, message, operationId }) => {
-    return gitStatusService.commit(target, message, operationId);
-  });
-
-  ipcMain.handle("git:fetch", (_event, { target, remote, operationId }) => {
-    return gitStatusService.fetchRemote(target, remote, operationId);
-  });
-
-  ipcMain.handle("git:pull", (_event, { target, operationId }) => {
-    return gitStatusService.pullBranch(target, operationId);
-  });
-
-  ipcMain.handle("git:push", (_event, { target, remote, operationId }) => {
-    return gitStatusService.pushBranch(target, remote, operationId);
-  });
-
-  ipcMain.handle("git:stash-changes", (_event, { target, message, operationId }) => {
-    return gitStatusService.stashChanges(target, message, operationId);
-  });
-
-  ipcMain.handle("git:apply-stash", (_event, { target, ref, operationId }) => {
-    return gitStatusService.applyStash(target, ref, operationId);
-  });
-
-  ipcMain.handle("git:pop-stash", (_event, { target, ref, operationId }) => {
-    return gitStatusService.popStash(target, ref, operationId);
-  });
-
-  ipcMain.handle("git:drop-stash", (_event, { target, ref, operationId }) => {
-    return gitStatusService.dropStash(target, ref, operationId);
-  });
-
-  ipcMain.handle("git:revert-file", (_event, { target, file, operationId }) => {
-    return gitStatusService.revertFile(target, file, operationId);
-  });
-
-  ipcMain.handle("git:cancel-operation", (_event, { operationId }) => {
-    return gitStatusService.cancelOperation(operationId);
   });
 
   ipcMain.handle("project-search:list-directories", (_event, { sessionId, rootPath }) => {

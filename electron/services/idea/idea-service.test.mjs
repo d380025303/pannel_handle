@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import bridgeModule from "./idea-bridge-service.cjs";
+import bridgeModule from "./idea-service.cjs";
 
 const { createIdeaBridgeService, validateDiscovery } = bridgeModule;
 const tempDirs = [];

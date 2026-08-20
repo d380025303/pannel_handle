@@ -12,7 +12,7 @@ const {
   safeInteger
 } = require("./agent-token-transcript.cjs");
 const { subtractCapabilities } = require("../../stores/agent-token-stats-store.cjs");
-const { toWslHostPath } = require("../remote-file-service.cjs");
+const { toWslHostPath } = require("../remote-files/index.cjs");
 const { createAgentConversationTranscriptParser } = require("../agent-conversation-transcript.cjs");
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
