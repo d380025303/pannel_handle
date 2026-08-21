@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useAgentTokenStats, type TokenStatsProvider, type TokenStatsRange } from "../../hooks/useAgentTokenStats";
 import type { AgentCapabilityUsage, AgentTokenTotals } from "../../vite-env";
+import { mcpServerDisplayName } from "./agentCapabilityLabels";
 
 function formatTokens(value: number, locale: string) {
   return new Intl.NumberFormat(locale, { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
@@ -97,7 +98,7 @@ function CapabilityDetails({ capabilities }: { capabilities: AgentCapabilityUsag
         {capabilities.mcp.availability === "unavailable"
           ? <p>{t("tokenStats.capabilityUnavailable")}</p>
           : capabilities.mcp.servers.length
-            ? <ul>{capabilities.mcp.servers.map(server => <li key={server.name}><span><strong>{server.name}</strong><small>{server.tools.map(tool => `${tool.name} ×${tool.count}`).join(" · ")}</small></span><b>{server.count}</b></li>)}</ul>
+            ? <ul>{capabilities.mcp.servers.map(server => <li key={server.name}><span><strong>{mcpServerDisplayName(server.name, t)}</strong><small>{server.tools.map(tool => `${tool.name} ×${tool.count}`).join(" · ")}</small></span><b>{server.count}</b></li>)}</ul>
             : <p>{t("tokenStats.noMcp")}</p>}
       </section>
       <small>{t("tokenStats.transcriptDetected")}</small>
@@ -105,10 +106,10 @@ function CapabilityDetails({ capabilities }: { capabilities: AgentCapabilityUsag
   );
 }
 
-function RankingList({ items, emptyText }: { items: Array<{ name: string; count: number }>; emptyText: string }) {
+function RankingList({ items, emptyText, nameFor = (name) => name }: { items: Array<{ name: string; count: number }>; emptyText: string; nameFor?: (name: string) => string }) {
   if (!items.length) return <div className="token-stats-chart-empty">{emptyText}</div>;
   const max = Math.max(1, ...items.map(item => item.count));
-  return <div className="token-capability-ranking">{items.slice(0, 8).map(item => <div key={item.name}><span><strong>{item.name}</strong><b>{item.count}</b></span><i><span style={{ width: `${item.count / max * 100}%` }} /></i></div>)}</div>;
+  return <div className="token-capability-ranking">{items.slice(0, 8).map(item => <div key={item.name}><span><strong>{nameFor(item.name)}</strong><b>{item.count}</b></span><i><span style={{ width: `${item.count / max * 100}%` }} /></i></div>)}</div>;
 }
 
 export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
@@ -159,7 +160,7 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
 
           <section className="token-stats-visuals token-capability-visuals">
             <article className="token-stats-panel"><h2>{t("tokenStats.topSkills")}</h2><RankingList items={dashboard.topSkills} emptyText={t("tokenStats.noSkills")} /></article>
-            <article className="token-stats-panel"><h2>{t("tokenStats.topMcp")}</h2><RankingList items={dashboard.topMcpServers} emptyText={t("tokenStats.noMcp")} /></article>
+            <article className="token-stats-panel"><h2>{t("tokenStats.topMcp")}</h2><RankingList items={dashboard.topMcpServers} emptyText={t("tokenStats.noMcp")} nameFor={(name) => mcpServerDisplayName(name, t)} /></article>
           </section>
 
           <section className="token-stats-panel token-stats-table-panel">

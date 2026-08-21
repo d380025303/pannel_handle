@@ -54,4 +54,24 @@ describe("AgentTokenLiveStatus", () => {
     );
     expect(screen.getByText("Token 暂不可用")).toBeTruthy();
   });
+
+  it("uses the localized display name for the internal remote bridge", () => {
+    const remoteSnapshot = {
+      ...snapshot,
+      capabilities: {
+        ...snapshot.capabilities,
+        mcp: { availability: "available" as const, totalCalls: 2, servers: [{ name: "pannel_handle_remote", count: 2, tools: [{ name: "remote_exec", count: 2 }] }] }
+      }
+    };
+    render(
+      <I18nProvider locale="en-US">
+        <AgentTokenLiveStatus state={{ status: "ready", snapshot: remoteSnapshot }} />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Codex live tokens" }));
+    expect(screen.getByText("Pannel Handle Remote Bridge")).toBeTruthy();
+    expect(screen.queryByText("pannel_handle_remote")).toBeNull();
+    expect(screen.getByText("remote_exec ×2")).toBeTruthy();
+  });
 });

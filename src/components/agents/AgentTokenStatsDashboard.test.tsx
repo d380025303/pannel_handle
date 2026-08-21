@@ -120,4 +120,28 @@ describe("AgentTokenStatsDashboard", () => {
     expect(screen.getByText("search_logs ×3")).toBeTruthy();
     expect(document.querySelector(".token-capability-row td")?.getAttribute("colspan")).toBe("7");
   });
+
+  it("uses the localized display name for the internal remote bridge", async () => {
+    getDashboard.mockResolvedValueOnce({
+      ...defaultDashboard,
+      summary: { ...defaultDashboard.summary, sessionCount: 1, mcpCalls: 4 },
+      topMcpServers: [{ name: "pannel_handle_remote", count: 4, tools: [{ name: "remote_exec", count: 4 }] }],
+      sessions: [{
+        id: "codex:remote", provider: "codex", agentSessionId: "remote", panelSessionId: "panel", title: "Remote", cwd: "/", location: "ssh",
+        models: ["gpt-5.6"], startedAt: 1, updatedAt: Date.now(), endedAt: null, tokens: emptyTokens,
+        capabilities: {
+          skills: { availability: "available", totalCalls: 0, items: [] },
+          mcp: { availability: "available", totalCalls: 4, servers: [{ name: "pannel_handle_remote", count: 4, tools: [{ name: "remote_exec", count: 4 }] }] }
+        }
+      }],
+      totalCount: 1
+    });
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+
+    expect(await screen.findByText("Pannel Handle 远程桥")).toBeTruthy();
+    expect(screen.queryByText("pannel_handle_remote")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "查看技能与 MCP" }));
+    expect(screen.getAllByText("Pannel Handle 远程桥")).toHaveLength(2);
+    expect(screen.getByText("remote_exec ×4")).toBeTruthy();
+  });
 });

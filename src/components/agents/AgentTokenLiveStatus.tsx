@@ -3,6 +3,7 @@ import { Activity, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentTokenLiveViewState } from "../../hooks/useAgentTokenLive";
 import type { AgentCapabilityUsage } from "../../vite-env";
+import { mcpServerDisplayName } from "./agentCapabilityLabels";
 
 function formatTokens(value: number, locale: string) {
   return new Intl.NumberFormat(locale, {
@@ -45,7 +46,7 @@ function CapabilitySection({ capabilities }: { capabilities: AgentCapabilityUsag
         : capabilities.mcp.servers.length
           ? <div className="agent-mcp-live-list">{capabilities.mcp.servers.map(server => (
             <div key={server.name}>
-              <strong>{server.name}<small>{server.count}</small></strong>
+              <strong>{mcpServerDisplayName(server.name, t)}<small>{server.count}</small></strong>
               <span>{server.tools.map(tool => `${tool.name} ×${tool.count}`).join(" · ")}</span>
             </div>
           ))}</div>

@@ -5,6 +5,7 @@ export const DEFAULT_LOCALE: Locale = "zh-CN";
 export type TranslationParams = Record<string, string | number>;
 
 export type TranslationKey =
+  | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
   | "settings.title"
   | "settings.mobileTitle"
@@ -659,6 +660,7 @@ export const VALID_LOCALES = new Set<Locale>(LOCALE_OPTIONS.map((locale) => loca
 
 export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
+    "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
     "settings.title": "设置",
     "settings.mobileTitle": "局域网移动终端",
@@ -1305,6 +1307,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "theme.light": "浅色"
   },
   "en-US": {
+    "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
     "settings.title": "Settings",
     "settings.mobileTitle": "LAN Mobile Terminal",
