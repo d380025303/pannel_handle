@@ -29,20 +29,53 @@ function TokenBreakdown({ tokens, locale }: { tokens: AgentTokenTotals; locale: 
 
 function TrendChart({ values, locale }: { values: Array<{ date: string; tokens: AgentTokenTotals }>; locale: string }) {
   const { t } = useI18n();
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const max = Math.max(1, ...values.map(item => item.tokens.totalTokens));
   const points = values.map((item, index) => {
     const x = values.length <= 1 ? 50 : (index / (values.length - 1)) * 100;
     const y = 92 - (item.tokens.totalTokens / max) * 78;
-    return `${x},${y}`;
-  }).join(" ");
+    return { ...item, x, y };
+  });
   if (values.length === 0) return <div className="token-stats-chart-empty">{t("tokenStats.noTrend")}</div>;
+  const activePoint = activeIndex === null ? null : points[activeIndex];
+  const tooltipTransform = activePoint
+    ? `translate(${activePoint.x <= 10 ? "0" : activePoint.x >= 90 ? "-100%" : "-50%"}, ${activePoint.y <= 30 ? "12px" : "calc(-100% - 12px)"})`
+    : undefined;
   return (
     <div className="token-stats-trend">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={t("tokenStats.dailyTrend")}>
-        <line x1="0" y1="92" x2="100" y2="92" />
-        <polyline points={points} />
-      </svg>
-      <div className="token-stats-trend-labels"><span>{values[0].date}</span><strong>{formatTokens(max, locale)}</strong><span>{values.at(-1)?.date}</span></div>
+      <div className="token-stats-trend-plot">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={t("tokenStats.dailyTrend")}>
+          <line x1="0" y1="92" x2="100" y2="92" />
+          <polyline points={points.map(point => `${point.x},${point.y}`).join(" ")} />
+        </svg>
+        {points.map((point, index) => (
+          <button
+            className="token-stats-trend-point"
+            type="button"
+            key={point.date}
+            style={{ left: `${point.x}%`, top: `${point.y}%` }}
+            aria-label={`${point.date}: ${t("tokenStats.total")} ${point.tokens.totalTokens.toLocaleString(locale)}`}
+            onMouseEnter={() => setActiveIndex(index)}
+            onMouseLeave={() => setActiveIndex(null)}
+            onFocus={() => setActiveIndex(index)}
+            onBlur={() => setActiveIndex(null)}
+          />
+        ))}
+        {activePoint && (
+          <div
+            className="token-stats-trend-tooltip"
+            role="tooltip"
+            style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%`, transform: tooltipTransform }}
+          >
+            <strong>{activePoint.date}</strong>
+            <div><span>{t("tokenStats.total")}</span><b>{activePoint.tokens.totalTokens.toLocaleString(locale)}</b></div>
+            <div><span>{t("tokenStats.input")}</span><b>{activePoint.tokens.inputTokens.toLocaleString(locale)}</b></div>
+            <div><span>{t("tokenStats.cached")}</span><b>{activePoint.tokens.cachedInputTokens.toLocaleString(locale)}</b></div>
+            <div><span>{t("tokenStats.output")}</span><b>{activePoint.tokens.outputTokens.toLocaleString(locale)}</b></div>
+          </div>
+        )}
+      </div>
+      <div className="token-stats-trend-labels"><span>{values[0].date}</span><span>{values.at(-1)?.date}</span></div>
     </div>
   );
 }

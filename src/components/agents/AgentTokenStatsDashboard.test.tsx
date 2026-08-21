@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentTokenStatsDashboard } from "./AgentTokenStatsDashboard";
 import { I18nProvider } from "../../i18n";
@@ -53,6 +53,46 @@ describe("AgentTokenStatsDashboard", () => {
     await screen.findByText("CodeBuddy");
     fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codebuddy" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "codebuddy" })));
+  });
+
+  it("shows only date labels below the trend and reveals token details on hover", async () => {
+    getDashboard.mockResolvedValueOnce({
+      ...defaultDashboard,
+      dailyTrend: [
+        { date: "2026-08-17", tokens: { ...emptyTokens, inputTokens: 60, cachedInputTokens: 20, outputTokens: 40, totalTokens: 100 } },
+        { date: "2026-08-18", tokens: { ...emptyTokens, inputTokens: 120, cachedInputTokens: 30, outputTokens: 80, totalTokens: 200 } }
+      ]
+    });
+    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+
+    const point = await screen.findByRole("button", { name: "2026-08-17: Total tokens 100" });
+    expect(document.querySelector(".token-stats-trend-labels")?.textContent).toBe("2026-08-172026-08-18");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.mouseEnter(point);
+    const tooltip = screen.getByRole("tooltip");
+    expect(within(tooltip).getByText("2026-08-17")).toBeTruthy();
+    expect(within(tooltip).getByText("Total tokens").nextElementSibling?.textContent).toBe("100");
+    expect(within(tooltip).getByText("Input").nextElementSibling?.textContent).toBe("60");
+    expect(within(tooltip).getByText("Cached input").nextElementSibling?.textContent).toBe("20");
+    expect(within(tooltip).getByText("Output").nextElementSibling?.textContent).toBe("40");
+
+    fireEvent.mouseLeave(point);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("shows trend details when a data point receives keyboard focus", async () => {
+    getDashboard.mockResolvedValueOnce({
+      ...defaultDashboard,
+      dailyTrend: [{ date: "2026-08-17", tokens: { ...emptyTokens, inputTokens: 60, outputTokens: 40, totalTokens: 100 } }]
+    });
+    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+
+    const point = await screen.findByRole("button", { name: "2026-08-17: Total tokens 100" });
+    fireEvent.focus(point);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+    fireEvent.blur(point);
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("shows aggregate capability calls and expands per-session details", async () => {
