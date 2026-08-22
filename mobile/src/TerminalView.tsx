@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { applyTerminalModifiers } from "./protocol";
+import { createTerminalTouchScroller } from "./terminalTouchScroll";
 import { PROTOCOL_VERSION, type ClientMessage, type RuntimeSession, type ServerMessage } from "./types";
 
 type TerminalMessage = Extract<ServerMessage,
@@ -68,6 +69,22 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
     terminal.open(container);
     terminalRef.current = terminal;
     fitRef.current = fitAddon;
+    const touchScroller = createTerminalTouchScroller({
+      getLineHeight: () => {
+        const screenHeight = terminal.element?.querySelector<HTMLElement>(".xterm-screen")?.getBoundingClientRect().height;
+        return (screenHeight || container.clientHeight) / terminal.rows;
+      },
+      scrollLines: (lines) => terminal.scrollLines(lines)
+    });
+    const handleTouchStart = (event: TouchEvent) => touchScroller.start(event.touches);
+    const handleTouchMove = (event: TouchEvent) => {
+      if (touchScroller.move(event.touches) && event.cancelable) event.preventDefault();
+    };
+    const handleTouchEnd = () => touchScroller.end();
+    terminal.element?.addEventListener("touchstart", handleTouchStart, { passive: true });
+    terminal.element?.addEventListener("touchmove", handleTouchMove, { passive: false });
+    terminal.element?.addEventListener("touchend", handleTouchEnd, { passive: true });
+    terminal.element?.addEventListener("touchcancel", handleTouchEnd, { passive: true });
     const inputDisposable = terminal.onData(sendInput);
     const unsubscribe = onTerminalMessage((message) => {
       if (message.type === "terminal.snapshot" && message.snapshot.sessionId === session.id) {
@@ -99,6 +116,10 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
     });
     terminal.focus();
     return () => {
+      terminal.element?.removeEventListener("touchstart", handleTouchStart);
+      terminal.element?.removeEventListener("touchmove", handleTouchMove);
+      terminal.element?.removeEventListener("touchend", handleTouchEnd);
+      terminal.element?.removeEventListener("touchcancel", handleTouchEnd);
       unsubscribe();
       inputDisposable.dispose();
       terminal.dispose();
