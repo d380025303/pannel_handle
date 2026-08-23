@@ -18,8 +18,8 @@ const { createAgentConversationTranscriptParser } = require("../agent-conversati
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;

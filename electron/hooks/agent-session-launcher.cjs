@@ -6,7 +6,8 @@ const AGENT_COMMANDS = Object.freeze({
   codex: "codex",
   codebuddy: "codebuddy",
   opencode: "opencode",
-  qoder: "qoder"
+  qoder: "qoder",
+  qwen: "qwen"
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
@@ -24,6 +25,9 @@ function getAgentCommand(provider) {
 }
 
 function getAgentInstallHint(provider) {
+  if (provider === "qwen") {
+    return " 请先运行 npm install -g @qwen-code/qwen-code。";
+  }
   return provider === "codebuddy"
     ? " 请先运行 npm install -g @tencent-ai/codebuddy-code。"
     : "";
@@ -125,6 +129,9 @@ function createAgentSessionLauncher({
   function validateAgentSession(session) {
     if (!session.agentProvider) return;
     getAgentCommand(session.agentProvider);
+    if (session.type === "ssh" && session.agentProvider === "qwen") {
+      throw new Error("Qwen Code 首期仅支持 Windows 和 WSL 会话。");
+    }
     const cwd = String(session.cwd || "").trim();
     if (!cwd || cwd === "~") {
       throw new Error("选择 Agent CLI 时必须填写明确的项目工作目录。");

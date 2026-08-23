@@ -9,7 +9,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     codex: new Map(),
     codebuddy: new Map(),
     opencode: new Map(),
-    qoder: new Map()
+    qoder: new Map(),
+    qwen: new Map()
   };
   let hookServer = null;
   let claudeHookUrl = "";
@@ -451,6 +452,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     if (provider === "qoder") {
       return mapQoderHookStatus(input);
     }
+    if (provider === "qwen") {
+      return mapQoderHookStatus(input);
+    }
     if (provider === "codebuddy") {
       return mapCodeBuddyHookStatus(input);
     }
@@ -563,6 +567,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/qoder-hook") {
         handleRequest("qoder", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/qwen-hook") {
+        handleRequest("qwen", req, res);
         return;
       }
 

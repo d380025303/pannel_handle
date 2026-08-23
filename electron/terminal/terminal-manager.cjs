@@ -823,14 +823,15 @@ function createTerminalManager({
   function trackCodexTerminalCommand(session, data) {
     const isCodex = session.agentRuntimeProvider === "codex" || session.agentProvider === "codex";
     const isQoder = session.agentRuntimeProvider === "qoder" || session.agentProvider === "qoder";
-    if (!isCodex && !isQoder) {
+    const isQwen = session.agentRuntimeProvider === "qwen" || session.agentProvider === "qwen";
+    if (!isCodex && !isQoder && !isQwen) {
       session.agentCommandState = undefined;
       return;
     }
 
     const result = consumeAgentCommandInput(session.agentCommandState, data);
     session.agentCommandState = result.state;
-    const provider = isCodex ? "codex" : "qoder";
+    const provider = isCodex ? "codex" : isQoder ? "qoder" : "qwen";
     for (let index = 0; index < result.clearSubmissions; index += 1) {
       session.agentStatus = "cleared";
       broadcastAgentStatus({

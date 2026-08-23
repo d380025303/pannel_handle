@@ -56,7 +56,8 @@ describe("TitleBar session actions", () => {
       "Codex",
       "CodeBuddy",
       "OpenCode",
-      "Qoder"
+      "Qoder",
+      "Qwen Code"
     ]);
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));

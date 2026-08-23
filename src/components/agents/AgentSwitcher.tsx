@@ -79,7 +79,7 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
       </button>
       {open && (
         <div className="agent-switcher-menu" role="menu" aria-label={t("agentSwitch.menu")}>
-          {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider).map(option => (
+          {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider && !(session.type === "ssh" && option.value === "qwen")).map(option => (
             <button key={option.value} type="button" role="menuitem" onClick={() => void switchTo(option.value)}>
               {option.label}
             </button>

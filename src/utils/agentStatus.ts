@@ -47,6 +47,7 @@ function getAgentName(status: AgentStatusPayload) {
   if (status.provider === "codebuddy") return "CodeBuddy";
   if (status.provider === "opencode") return "OpenCode";
   if (status.provider === "qoder") return "Qoder";
+  if (status.provider === "qwen") return "Qwen Code";
   return "Claude";
 }
 

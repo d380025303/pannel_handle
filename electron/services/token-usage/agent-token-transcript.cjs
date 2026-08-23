@@ -82,6 +82,33 @@ function normalizeQoderTokenUsage(usage) {
   };
 }
 
+function normalizeQwenUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const inputTokens = safeInteger(
+    usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokenCount
+  );
+  const cachedInputTokens = safeInteger(
+    usage.cached_input_tokens ?? usage.cachedInputTokens ?? usage.cache_read_input_tokens ?? usage.cachedContentTokenCount
+  );
+  const cacheWriteInputTokens = safeInteger(
+    usage.cache_write_input_tokens ?? usage.cacheWriteInputTokens ?? usage.cache_creation_input_tokens
+  );
+  const outputTokens = safeInteger(
+    usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens ?? usage.candidatesTokenCount
+  );
+  const reasoningOutputTokens = safeInteger(
+    usage.reasoning_output_tokens ?? usage.reasoningOutputTokens ?? usage.thoughts_token_count ?? usage.thoughtsTokenCount
+  );
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: safeInteger(usage.total_tokens ?? usage.totalTokens ?? usage.totalTokenCount) || inputTokens + outputTokens
+  };
+}
+
 function sumUsageDetail(details, field) {
   if (!Array.isArray(details)) return 0;
   return details.reduce((total, detail) => total + safeInteger(detail?.[field]), 0);
@@ -215,13 +242,14 @@ function codexToolOutputSucceeded(payload) {
 }
 
 function createIncrementalTranscriptParser(provider) {
-  if (!["codex", "claude", "codebuddy", "qoder"].includes(provider)) {
+  if (!["codex", "claude", "codebuddy", "qoder", "qwen"].includes(provider)) {
     throw new Error(`Unsupported live token provider: ${provider}`);
   }
   let latestCodexTokens = null;
   const claudeMessages = new Map();
   const codeBuddyMessages = new Map();
   const qoderMessages = new Map();
+  const qwenMessages = new Map();
   const models = new Set();
   const skillCalls = new Map();
   const mcpCalls = new Map();
@@ -316,6 +344,24 @@ function createIncrementalTranscriptParser(provider) {
     return recordToolCall(name, item?.input || item?.arguments || providerData.input || providerData.arguments, providerData.callId || item?.call_id || item?.id);
   }
 
+  function recordQwenTools(item) {
+    if (item?.type !== "assistant") return false;
+    let changed = false;
+    const blocks = [
+      ...(Array.isArray(item.message?.content) ? item.message.content : []),
+      ...(Array.isArray(item.message?.parts) ? item.message.parts : [])
+    ];
+    for (const block of blocks) {
+      const call = block?.functionCall || block?.function_call;
+      if (block?.type === "tool_use") {
+        changed = recordToolCall(block.name, block.input, block.id || item.uuid) || changed;
+      } else if (call?.name) {
+        changed = recordToolCall(call.name, call.args ?? call.arguments, call.id || block.id || item.uuid) || changed;
+      }
+    }
+    return changed;
+  }
+
   function pushLine(line) {
     let item;
     try { item = JSON.parse(line); } catch { return false; }
@@ -349,6 +395,16 @@ function createIncrementalTranscriptParser(provider) {
       return true;
     }
 
+    if (provider === "qwen") {
+      const capabilityChanged = recordQwenTools(item);
+      if (item?.type !== "assistant" || !item.message?.usage) return capabilityChanged;
+      const messageId = String(item.message.id || item.uuid || "").trim();
+      if (!messageId) return capabilityChanged;
+      qwenMessages.set(messageId, normalizeQwenUsage(item.message.usage));
+      if (item.message.model) models.add(String(item.message.model));
+      return true;
+    }
+
     const providerData = item?.providerData;
     const capabilityChanged = recordCodeBuddyTools(item);
     const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
@@ -366,7 +422,7 @@ function createIncrementalTranscriptParser(provider) {
         ? { tokens: cloneTokens(latestCodexTokens || emptyTokens()), models: [...models], capabilities }
         : null;
     }
-    const messages = provider === "claude" ? claudeMessages : provider === "qoder" ? qoderMessages : codeBuddyMessages;
+    const messages = provider === "claude" ? claudeMessages : provider === "qoder" ? qoderMessages : provider === "qwen" ? qwenMessages : codeBuddyMessages;
     if (messages.size === 0 && !capabilities.skills.totalCalls && !capabilities.mcp.totalCalls) return null;
     const tokens = emptyTokens();
     for (const usage of messages.values()) addTokens(tokens, usage);
@@ -382,11 +438,11 @@ function cloneTokens(tokens) {
 
 function parseTranscriptText(provider, text) {
   const lines = String(text || "").split(/\r?\n/).filter(Boolean);
-  if (["codex", "claude", "codebuddy", "qoder"].includes(provider)) {
+  if (["codex", "claude", "codebuddy", "qoder", "qwen"].includes(provider)) {
     const parser = createIncrementalTranscriptParser(provider);
     for (const line of lines) parser.pushLine(line);
     const result = parser.getResult();
-    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : "CodeBuddy"} transcript does not contain usage yet.`);
+    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "qwen" ? "Qwen Code" : "CodeBuddy"} transcript does not contain usage yet.`);
     return result;
   }
 
@@ -408,6 +464,7 @@ module.exports = {
   normalizeClaudeUsage,
   normalizeCodeBuddyUsage,
   normalizeQoderTokenUsage,
+  normalizeQwenUsage,
   normalizeCapabilityUsage,
   normalizeCodexUsage,
   parseTranscriptFile,

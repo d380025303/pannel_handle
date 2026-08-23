@@ -172,7 +172,7 @@ describe("hook-config-manager", () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });
 
-    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "codebuddy", "opencode", "qoder"]);
+    const result = manager.install({ type: "windows", path: projectPath }, ["claude", "codex", "codebuddy", "opencode", "qoder", "qwen"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.claude.status).toBe("installed");
@@ -180,6 +180,7 @@ describe("hook-config-manager", () => {
     expect(result.providers.codebuddy.status).toBe("installed");
     expect(result.providers.opencode.status).toBe("installed");
     expect(result.providers.qoder.status).toBe("installed");
+    expect(result.providers.qwen.status).toBe("installed");
     expect(result.providers.opencode.configPath).toBeUndefined();
     expect(result.providers.opencode.managedHookCount).toBe(1);
     expect(fs.existsSync(path.join(projectPath, ".claude", "pannel-handle-hook.ps1"))).toBe(true);
@@ -189,7 +190,10 @@ describe("hook-config-manager", () => {
     expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "pannel-handle-hook.ps1"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".qwen", "settings.json"))).toBe(true);
+    expect(fs.existsSync(path.join(projectPath, ".qwen", "pannel-handle-hook.ps1"))).toBe(true);
     expect(manager.inspect({ type: "windows", path: projectPath }, ["qoder"]).providers.qoder.status).toBe("installed");
+    expect(manager.inspect({ type: "windows", path: projectPath }, ["qwen"]).providers.qwen.status).toBe("installed");
   });
 
   it.runIf(process.platform === "win32")("preserves UTF-8 payloads in installed Windows hooks", async () => {
@@ -200,7 +204,8 @@ describe("hook-config-manager", () => {
       ["claude", ".claude", "pannel-handle-hook.ps1", "/claude-hook"],
       ["codex", ".codex", "pannel-handle-hook.ps1", "/codex-hook"],
       ["codebuddy", ".codebuddy", "pannel-handle-codebuddy-hook.ps1", "/codebuddy-hook"],
-      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"]
+      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"],
+      ["qwen", ".qwen", "pannel-handle-hook.ps1", "/qwen-hook"]
     ];
 
     expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
@@ -225,7 +230,8 @@ describe("hook-config-manager", () => {
       ["claude", ".claude", "pannel-handle-hook.ps1", "/claude-hook"],
       ["codex", ".codex", "pannel-handle-hook.ps1", "/codex-hook"],
       ["codebuddy", ".codebuddy", "pannel-handle-codebuddy-hook.ps1", "/codebuddy-hook"],
-      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"]
+      ["qoder", ".qoder", "pannel-handle-hook.ps1", "/qoder-hook"],
+      ["qwen", ".qwen", "pannel-handle-hook.ps1", "/qwen-hook"]
     ];
 
     expect(manager.install({ type: "windows", path: projectPath }, cases.map(([provider]) => provider)).ok).toBe(true);
@@ -547,15 +553,18 @@ describe("hook-config-manager", () => {
     };
     const manager = createHookConfigManager({ assetsDir, spawnSync });
 
-    const result = manager.install({ type: "wsl", path: projectPath, wslDistro: "Ubuntu" }, ["qoder", "codebuddy"]);
+    const result = manager.install({ type: "wsl", path: projectPath, wslDistro: "Ubuntu" }, ["qoder", "codebuddy", "qwen"]);
 
     expect(result.ok).toBe(true);
     expect(result.providers.qoder.status).toBe("installed");
     expect(result.providers.codebuddy.status).toBe("installed");
+    expect(result.providers.qwen.status).toBe("installed");
     expect(files.has(path.posix.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".qoder", "pannel-handle-hook.sh"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".codebuddy", "settings.local.json"))).toBe(true);
     expect(files.has(path.posix.join(projectPath, ".codebuddy", "pannel-handle-codebuddy-hook.sh"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".qwen", "settings.json"))).toBe(true);
+    expect(files.has(path.posix.join(projectPath, ".qwen", "pannel-handle-hook.sh"))).toBe(true);
   });
 
   it("builds SSH Linux hook config with a session tunnel command", () => {

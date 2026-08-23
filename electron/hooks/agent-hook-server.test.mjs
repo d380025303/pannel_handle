@@ -44,6 +44,25 @@ describe("agent-hook-server", () => {
     }));
   });
 
+  it("maps Qwen Code permission and completion hooks", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+
+    for (const [eventName, expectedStatus] of [["PermissionRequest", "waiting_for_permission"], ["Stop", "completed"]]) {
+      expect(server.handleAgentHook("qwen", {
+        hook_event_name: eventName,
+        session_id: "qwen-1",
+        transcript_path: "C:\\work\\qwen.jsonl",
+        pannel_handle_session_id: "run-1"
+      })).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "qwen",
+        status: expectedStatus,
+        eventName
+      }));
+    }
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "qwen" }));
+  });
+
   it("maps Codex PreToolUse request_user_input to waiting_for_permission", () => {
     const { server, terminalManager } = createServer();
 

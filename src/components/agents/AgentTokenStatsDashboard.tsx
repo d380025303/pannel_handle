@@ -13,9 +13,10 @@ function formatDate(value: number, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(value);
 }
 
-function providerName(provider: "codex" | "claude" | "codebuddy" | "qoder") {
+function providerName(provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen") {
   if (provider === "codebuddy") return "CodeBuddy";
   if (provider === "qoder") return "Qoder";
+  if (provider === "qwen") return "Qwen Code";
   return provider === "codex" ? "Codex" : "Claude";
 }
 
@@ -137,7 +138,7 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
         <div><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><BarChart3 aria-hidden="true" /><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
           <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>
-          <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="qoder">Qoder</option></select>
+          <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="qoder">Qoder</option><option value="qwen">Qwen Code</option></select>
           <button className="icon-button" type="button" onClick={() => void refresh()} title={t("common.refresh")} disabled={loading}><RefreshCw className={loading ? "spin" : ""} aria-hidden="true" /></button>
           <button className={`token-stats-clear${confirmClear ? " confirm" : ""}`} type="button" onClick={() => void clearAll()} onBlur={() => setConfirmClear(false)} disabled={clearing}><Trash2 aria-hidden="true" />{confirmClear ? t("tokenStats.confirmClear") : t("tokenStats.clear")}</button>
         </div>

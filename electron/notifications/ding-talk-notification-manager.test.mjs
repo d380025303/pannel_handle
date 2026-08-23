@@ -72,7 +72,8 @@ describe("DingTalk webhook", () => {
     ["codex", "Codex"],
     ["codebuddy", "CodeBuddy"],
     ["opencode", "OpenCode"],
-    ["qoder", "Qoder"]
+    ["qoder", "Qoder"],
+    ["qwen", "Qwen Code"]
   ])("builds minimal markdown for %s", (provider, providerName) => {
     const message = buildDingTalkMessage(status("waiting_for_permission", provider, {
       toolName: "shell_command",

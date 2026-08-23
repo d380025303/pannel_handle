@@ -42,7 +42,7 @@ function downgradeProviderConstraints(databaseFile) {
       const replacement = `${table}_provider_v1`;
       database.exec(schema
         .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
-        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder')", "provider IN ('codex', 'claude', 'codebuddy')"));
+        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')", "provider IN ('codex', 'claude', 'codebuddy')"));
       const columns = database.prepare(`PRAGMA table_info(${table})`).all().map(column => `"${column.name}"`).join(", ");
       database.exec(`INSERT INTO ${replacement} (${columns}) SELECT ${columns} FROM ${table}`);
       database.exec(`DROP TABLE ${table}`);
@@ -109,6 +109,19 @@ describe("agent token statistics SQLite store", () => {
     expect(dashboard.sessions[0]).toMatchObject({ provider: "qoder", models: ["qoder-model"] });
     expect(dashboard.providerBreakdown).toEqual([
       expect.objectContaining({ provider: "qoder", sessionCount: 1 })
+    ]);
+    store.close();
+  });
+
+  it("includes Qwen Code sessions in totals, filtering, and provider comparison", () => {
+    const { store } = fixture();
+    store.update({ provider: "qwen", agentSessionId: "qwen", panelSessionId: "panel", title: "Qwen Code", location: "wsl", models: ["qwen3-coder-plus"], tokens: tokens(210) });
+
+    const dashboard = store.getDashboard({ range: "all", provider: "qwen" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(210);
+    expect(dashboard.sessions[0]).toMatchObject({ provider: "qwen", models: ["qwen3-coder-plus"] });
+    expect(dashboard.providerBreakdown).toEqual([
+      expect.objectContaining({ provider: "qwen", sessionCount: 1 })
     ]);
     store.close();
   });

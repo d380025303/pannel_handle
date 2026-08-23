@@ -2449,6 +2449,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-bar.claude span { background: #d97745; }
 .token-provider-bar.codebuddy span { background: #00a6a6; }
 .token-provider-bar.qoder span { background: #8b5cf6; }
+.token-provider-bar.qwen span { background: #22c55e; }
 
 .token-stats-table-panel { margin-top: 12px; padding: 0; overflow: hidden; }
 .token-stats-table-heading { justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--color-border); }
@@ -2466,6 +2467,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-pill.claude { color: #e08a5b; background: rgba(217, 119, 69, 0.14); }
 .token-provider-pill.codebuddy { color: #19b8b8; background: rgba(0, 166, 166, 0.14); }
 .token-provider-pill.qoder { color: #a78bfa; background: rgba(139, 92, 246, 0.14); }
+.token-provider-pill.qwen { color: #4ade80; background: rgba(34, 197, 94, 0.14); }
 .token-stats-breakdown { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
 .token-stats-breakdown small { color: var(--color-text-muted); }
 .token-stats-empty,
@@ -5812,6 +5814,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .debug-provider.qoder {
   color: var(--color-warning-text);
   background: var(--color-warning-bg);
+}
+
+.debug-provider.qwen {
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
 }
 
 .debug-handled {

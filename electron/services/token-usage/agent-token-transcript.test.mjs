@@ -117,6 +117,31 @@ describe("agent token transcript parser", () => {
     expect(result.models).toEqual(["auto"]);
   });
 
+  it("deduplicates Qwen Code messages and normalizes cache and reasoning usage", () => {
+    const message = {
+      id: "qwen-a",
+      model: "qwen3-coder-plus",
+      usage: {
+        input_tokens: 100,
+        cached_input_tokens: 60,
+        cache_creation_input_tokens: 5,
+        output_tokens: 20,
+        thoughts_token_count: 7,
+        total_tokens: 120
+      },
+      content: [{ type: "tool_use", id: "tool-a", name: "mcp__jira__get_issue", input: {} }]
+    };
+    const result = parseTranscriptText("qwen", [
+      JSON.stringify({ type: "assistant", uuid: "row-a", message }),
+      JSON.stringify({ type: "assistant", uuid: "row-b", message }),
+      JSON.stringify({ type: "assistant", uuid: "row-c", message: { id: "qwen-b", model: "qwen3-coder-plus", usage: { promptTokenCount: 10, candidatesTokenCount: 3, totalTokenCount: 13 }, parts: [] } })
+    ].join("\n"));
+
+    expect(result.tokens).toEqual({ inputTokens: 110, cachedInputTokens: 60, cacheWriteInputTokens: 5, outputTokens: 23, reasoningOutputTokens: 7, totalTokens: 133 });
+    expect(result.models).toEqual(["qwen3-coder-plus"]);
+    expect(result.capabilities.mcp.servers[0]).toMatchObject({ name: "jira", count: 1, tools: [{ name: "get_issue", count: 1 }] });
+  });
+
   it("deduplicates CodeBuddy response fragments and reads cached and reasoning tokens", () => {
     const usage = {
       requests: 1,

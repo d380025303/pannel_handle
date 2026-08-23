@@ -81,8 +81,33 @@ describe("agent-session-launcher", () => {
       codex: "codex",
       codebuddy: "codebuddy",
       opencode: "opencode",
-      qoder: "qoder"
+      qoder: "qoder",
+      qwen: "qwen"
     });
+  });
+
+  it("starts Qwen Code on Windows and shows its official install command when missing", async () => {
+    const mocks = createMocks();
+
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "qwen" });
+    expect(mocks.spawnSync).toHaveBeenCalledWith("where.exe", ["qwen"], expect.any(Object));
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: "qwen",
+      runtimeInitialCommand: expect.stringContaining("qwen")
+    }));
+
+    const missing = createMocks();
+    missing.spawnSync.mockReturnValue({ status: 1 });
+    await expect(missing.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "qwen" }))
+      .rejects.toThrow("npm install -g @qwen-code/qwen-code");
+  });
+
+  it("rejects Qwen Code SSH sessions before creating a terminal", async () => {
+    const mocks = createMocks();
+
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qwen", sshConfig: { host: "example.com" } }))
+      .rejects.toThrow("Qwen Code 首期仅支持 Windows 和 WSL 会话");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
 
   it("uses cmd syntax for a Windows Agent pre-command", () => {

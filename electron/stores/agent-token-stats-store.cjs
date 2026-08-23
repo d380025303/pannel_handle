@@ -9,8 +9,8 @@ const {
   safeInteger
 } = require("../services/token-usage/agent-token-transcript.cjs");
 
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder"];
-const SCHEMA_VERSION = 2;
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen"];
+const SCHEMA_VERSION = 3;
 const LEGACY_STORE_VERSIONS = [1, 2];
 const TOKEN_COLUMNS = {
   inputTokens: "input_tokens",
@@ -119,7 +119,7 @@ function createAgentTokenStatsStore({
 
       CREATE TABLE IF NOT EXISTS token_sessions (
         id TEXT PRIMARY KEY,
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')),
         agent_session_id TEXT NOT NULL,
         panel_session_id TEXT NOT NULL,
         template_id TEXT,
@@ -169,13 +169,13 @@ function createAgentTokenStatsStore({
 
       CREATE TABLE IF NOT EXISTS token_daily (
         date TEXT NOT NULL,
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')),
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
         PRIMARY KEY (date, provider)
       );
 
       CREATE TABLE IF NOT EXISTS token_baselines (
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')),
         agent_session_id TEXT NOT NULL,
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
         capabilities_json TEXT NOT NULL,
@@ -185,18 +185,18 @@ function createAgentTokenStatsStore({
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
-  function migrateProviderConstraints() {
+  function migrateProviderConstraints(fromConstraint, toConstraint, suffix) {
     const tables = ["token_sessions", "token_daily", "token_baselines"];
     database.exec("PRAGMA foreign_keys = OFF");
     transaction(() => {
       for (const table of tables) {
         const schema = database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)?.sql;
         if (!schema) continue;
-        const replacement = `${table}_provider_v2`;
+        const replacement = `${table}_provider_${suffix}`;
         const migratedSchema = schema
           .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
-          .replace("provider IN ('codex', 'claude', 'codebuddy')", "provider IN ('codex', 'claude', 'codebuddy', 'qoder')");
-        if (!migratedSchema.includes("provider IN ('codex', 'claude', 'codebuddy', 'qoder')") || !new RegExp(`^CREATE TABLE\\s+${replacement}\\b`, "i").test(migratedSchema)) {
+          .replace(fromConstraint, toConstraint);
+        if (!migratedSchema.includes(toConstraint) || !new RegExp(`^CREATE TABLE\\s+${replacement}\\b`, "i").test(migratedSchema)) {
           throw new Error(`Could not migrate ${table} provider constraint.`);
         }
         database.exec(migratedSchema);
@@ -391,7 +391,20 @@ function createAgentTokenStatsStore({
       if (currentVersion > SCHEMA_VERSION) {
         throw new Error(`Unsupported Agent token statistics database version: ${currentVersion}.`);
       }
-      if (currentVersion === 1) migrateProviderConstraints();
+      if (currentVersion === 1) {
+        migrateProviderConstraints(
+          "provider IN ('codex', 'claude', 'codebuddy')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder')",
+          "v2"
+        );
+      }
+      if (currentVersion <= 2) {
+        migrateProviderConstraints(
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')",
+          "v3"
+        );
+      }
       createSchema();
       importLegacyJson();
       loadError = null;
