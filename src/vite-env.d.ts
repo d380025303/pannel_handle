@@ -596,11 +596,27 @@ export type AgentUsageCreditSummary = {
   unit: "Credits";
 };
 
+export type AgentUsageResetCredit = {
+  id: string;
+  status: "available" | "redeeming" | "redeemed" | "unknown";
+  resetType: "codexRateLimits" | "unknown";
+  grantedAt: number;
+  title?: string;
+  description?: string;
+  expiresAt?: number;
+};
+
+export type AgentUsageResetCreditsSummary = {
+  availableCount: number;
+  credits?: AgentUsageResetCredit[];
+};
+
 export type AgentUsageSnapshot = {
   provider: "codex" | "codebuddy";
   fetchedAt: number;
   primaryLimitId: string;
   summary?: AgentUsageCreditSummary;
+  resetCredits?: AgentUsageResetCreditsSummary;
   limits: AgentUsageLimit[];
 };
 

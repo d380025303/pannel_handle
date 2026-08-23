@@ -71,6 +71,18 @@ describe("agent-usage-service", () => {
           limitName: "GPT Spark",
           primary: { usedPercent: -5, windowDurationMins: null, resetsAt: null }
         }
+      },
+      rateLimitResetCredits: {
+        availableCount: 2,
+        credits: [{
+          id: "reset-1",
+          title: " Weekly reset ",
+          description: " Resets eligible Codex limits. ",
+          status: "available",
+          resetType: "codexRateLimits",
+          grantedAt: 300,
+          expiresAt: 400
+        }]
       }
     }, 1234)).toEqual({
       provider: "codex",
@@ -91,8 +103,54 @@ describe("agent-usage-service", () => {
           usedPercent: 0,
           remainingPercent: 100
         }
-      ]
+      ],
+      resetCredits: {
+        availableCount: 2,
+        credits: [{
+          id: "reset-1",
+          title: "Weekly reset",
+          description: "Resets eligible Codex limits.",
+          status: "available",
+          resetType: "codexRateLimits",
+          grantedAt: 300000,
+          expiresAt: 400000
+        }]
+      }
     });
+  });
+
+  it("keeps reset-credit counts without details and ignores malformed reset-credit data", () => {
+    expect(normalizeRateLimitResponse({
+      ...rateLimitResult(),
+      rateLimitResetCredits: { availableCount: 0, credits: null }
+    }, 10)).toMatchObject({
+      resetCredits: { availableCount: 0 }
+    });
+
+    const partial = normalizeRateLimitResponse({
+      ...rateLimitResult(),
+      rateLimitResetCredits: {
+        availableCount: 3.8,
+        credits: [
+          { id: "missing-grant", status: "available", resetType: "codexRateLimits" },
+          { id: "valid", status: "future-status", resetType: "future-type", grantedAt: 500 }
+        ]
+      }
+    }, 10);
+    expect(partial.resetCredits).toEqual({
+      availableCount: 3,
+      credits: [{
+        id: "valid",
+        status: "unknown",
+        resetType: "unknown",
+        grantedAt: 500000
+      }]
+    });
+
+    expect(normalizeRateLimitResponse({
+      ...rateLimitResult(),
+      rateLimitResetCredits: { availableCount: -1 }
+    }, 10).resetCredits).toBeUndefined();
   });
 
   it("falls back to the historical single-bucket response and rejects unusable data", () => {

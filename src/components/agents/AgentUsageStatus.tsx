@@ -53,6 +53,9 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
     ? state.snapshot.summary
     : undefined;
+  const resetCredits = state.status === "ready" && state.snapshot.provider === "codex"
+    ? state.snapshot.resetCredits
+    : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -195,6 +198,34 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                   total: formatAmount(locale, creditSummary.total)
                 })}</span>
               </div>
+            )}
+            {resetCredits && (
+              <section className="codex-reset-credits" aria-label={t("usage.resetCreditsTitle")}>
+                <div className="codex-reset-credits-heading">
+                  <strong>{t("usage.resetCreditsTitle")}</strong>
+                  <span>{t("usage.resetCreditsAvailable", { count: resetCredits.availableCount })}</span>
+                </div>
+                {resetCredits.availableCount === 0 && (
+                  <div className="agent-usage-empty">{t("usage.resetCreditsEmpty")}</div>
+                )}
+                {resetCredits.credits?.map(credit => (
+                  <article className="codex-reset-credit" key={credit.id}>
+                    <div className="codex-reset-credit-heading">
+                      <strong>{credit.title || t("usage.resetCreditFallback")}</strong>
+                      <span className={`codex-reset-credit-status ${credit.status}`}>
+                        {t(`usage.resetCreditStatus.${credit.status}`)}
+                      </span>
+                    </div>
+                    {credit.description && <p>{credit.description}</p>}
+                    <div className="codex-reset-credit-meta">
+                      <span>{t("usage.resetCreditGrantedAt", { time: formatTimestamp(locale, credit.grantedAt) })}</span>
+                      <span>{credit.expiresAt
+                        ? t("usage.resetCreditExpiresAt", { time: formatTimestamp(locale, credit.expiresAt) })
+                        : t("usage.resetCreditNoExpiration")}</span>
+                    </div>
+                  </article>
+                ))}
+              </section>
             )}
             {isCodeBuddy && (
               <section className="workbuddy-checkin" aria-label={t("usage.workbuddyCheckinTitle")}>

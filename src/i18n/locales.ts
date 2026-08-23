@@ -174,6 +174,17 @@ export type TranslationKey =
   | "usage.used"
   | "usage.resetsAt"
   | "usage.resetUnavailable"
+  | "usage.resetCreditsTitle"
+  | "usage.resetCreditsAvailable"
+  | "usage.resetCreditsEmpty"
+  | "usage.resetCreditFallback"
+  | "usage.resetCreditGrantedAt"
+  | "usage.resetCreditExpiresAt"
+  | "usage.resetCreditNoExpiration"
+  | "usage.resetCreditStatus.available"
+  | "usage.resetCreditStatus.redeeming"
+  | "usage.resetCreditStatus.redeemed"
+  | "usage.resetCreditStatus.unknown"
   | "usage.updatedAt"
   | "usage.codebuddyLoading"
   | "usage.codebuddyUnavailable"
@@ -829,6 +840,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.used": "已用 {used}%",
     "usage.resetsAt": "{time} 重置",
     "usage.resetUnavailable": "重置时间未知",
+    "usage.resetCreditsTitle": "重置额度",
+    "usage.resetCreditsAvailable": "{count} 个可用",
+    "usage.resetCreditsEmpty": "当前没有可用重置额度",
+    "usage.resetCreditFallback": "重置额度",
+    "usage.resetCreditGrantedAt": "授予于 {time}",
+    "usage.resetCreditExpiresAt": "有效期至 {time}",
+    "usage.resetCreditNoExpiration": "长期有效",
+    "usage.resetCreditStatus.available": "可用",
+    "usage.resetCreditStatus.redeeming": "兑换中",
+    "usage.resetCreditStatus.redeemed": "已兑换",
+    "usage.resetCreditStatus.unknown": "状态未知",
     "usage.updatedAt": "更新于 {time}",
     "usage.codebuddyLoading": "正在读取 CodeBuddy 额度...",
     "usage.codebuddyUnavailable": "CodeBuddy 额度暂不可用",
@@ -1476,6 +1498,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.used": "{used}% used",
     "usage.resetsAt": "Resets {time}",
     "usage.resetUnavailable": "Reset time unavailable",
+    "usage.resetCreditsTitle": "Reset credits",
+    "usage.resetCreditsAvailable": "{count} available",
+    "usage.resetCreditsEmpty": "No reset credits available",
+    "usage.resetCreditFallback": "Reset credit",
+    "usage.resetCreditGrantedAt": "Granted {time}",
+    "usage.resetCreditExpiresAt": "Expires {time}",
+    "usage.resetCreditNoExpiration": "No expiration",
+    "usage.resetCreditStatus.available": "Available",
+    "usage.resetCreditStatus.redeeming": "Redeeming",
+    "usage.resetCreditStatus.redeemed": "Redeemed",
+    "usage.resetCreditStatus.unknown": "Status unknown",
     "usage.updatedAt": "Updated {time}",
     "usage.codebuddyLoading": "Reading CodeBuddy quota...",
     "usage.codebuddyUnavailable": "CodeBuddy quota unavailable",

@@ -68,6 +68,24 @@ function codeBuddySnapshot(): AgentUsageSnapshot {
   };
 }
 
+function resetCreditSnapshot(availableCount = 2): AgentUsageSnapshot {
+  return {
+    ...snapshot(),
+    resetCredits: {
+      availableCount,
+      credits: availableCount > 0 ? [{
+        id: "reset-1",
+        title: "每周重置奖励",
+        description: "可重置符合条件的 Codex 限额。",
+        status: "available",
+        resetType: "codexRateLimits",
+        grantedAt: new Date("2026-08-20T08:00:00Z").getTime(),
+        expiresAt: new Date("2026-09-01T08:00:00Z").getTime()
+      }] : []
+    }
+  };
+}
+
 describe("AgentUsageStatus", () => {
   beforeEach(() => {
     Object.defineProperty(window, "workBuddyCheckinApi", {
@@ -161,6 +179,40 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByRole("button", { name: "Codex 剩余 20%" }).classList.contains("danger")).toBe(true);
   });
 
+  it("shows Codex reset-credit counts and optional details without exposing actions", () => {
+    const { rerender } = render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: resetCreditSnapshot(), refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+    fireEvent.click(document.querySelector<HTMLButtonElement>(".agent-usage-status")!);
+
+    const resetCredits = document.querySelector(".codex-reset-credits");
+    expect(resetCredits?.textContent).toContain("2 个可用");
+    expect(resetCredits?.textContent).toContain("每周重置奖励");
+    expect(resetCredits?.textContent).toContain("可重置符合条件的 Codex 限额。");
+    expect(resetCredits?.textContent).toContain("可用");
+    expect(resetCredits?.querySelector("button")).toBeNull();
+
+    rerender(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: resetCreditSnapshot(0), refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+    expect(document.querySelector(".codex-reset-credits")?.textContent).toContain("当前没有可用重置额度");
+    expect(document.querySelector(".codex-reset-credit")).toBeNull();
+
+    rerender(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: snapshot(), refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+    expect(document.querySelector(".codex-reset-credits")).toBeNull();
+  });
+
   it("shows CodeBuddy total credits, grouped packages, and WorkBuddy check-in", async () => {
     render(
       <AgentUsageStatus
@@ -176,6 +228,7 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByText("Free plan")).not.toBeNull();
     expect(screen.getByText("Bonus")).not.toBeNull();
     expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+    expect(document.querySelector(".codex-reset-credits")).toBeNull();
     await waitFor(() => expect(document.querySelector(".workbuddy-checkin-ready")?.textContent).toContain("100 Credits"));
     expect(window.workBuddyCheckinApi.getStatus).toHaveBeenCalledTimes(1);
   });

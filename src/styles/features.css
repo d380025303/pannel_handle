@@ -1733,6 +1733,70 @@ button.agent-usage-status[aria-expanded="true"] {
 .agent-usage-credit-summary.warning span { color: var(--color-warning-text); }
 .agent-usage-credit-summary.danger span { color: var(--color-danger-text); }
 
+.codex-reset-credits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-control);
+}
+
+.codex-reset-credits-heading,
+.codex-reset-credit-heading,
+.codex-reset-credit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.codex-reset-credits-heading {
+  font-size: 12px;
+}
+
+.codex-reset-credits-heading > span,
+.codex-reset-credit-status {
+  color: var(--color-ok-text);
+  font-size: 10px;
+}
+
+.codex-reset-credit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.codex-reset-credit-heading {
+  font-size: 11px;
+}
+
+.codex-reset-credit-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-reset-credit-status.redeeming { color: var(--color-warning-text); }
+.codex-reset-credit-status.redeemed,
+.codex-reset-credit-status.unknown { color: var(--color-text-muted); }
+
+.codex-reset-credit p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.codex-reset-credit-meta {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
 .workbuddy-checkin {
   display: flex;
   flex-direction: column;

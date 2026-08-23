@@ -14,6 +14,50 @@ function clampPercent(value) {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
+function normalizeResetCreditTimestamp(value) {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : undefined;
+}
+
+function normalizeResetCreditText(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || undefined;
+}
+
+function normalizeRateLimitResetCredits(value) {
+  if (!value || typeof value !== "object") return undefined;
+  const availableCount = Number(value.availableCount);
+  if (!Number.isFinite(availableCount) || availableCount < 0) return undefined;
+
+  const summary = { availableCount: Math.floor(availableCount) };
+  if (!Array.isArray(value.credits)) return summary;
+
+  summary.credits = value.credits.flatMap((credit) => {
+    if (!credit || typeof credit !== "object") return [];
+    const id = normalizeResetCreditText(credit.id);
+    const grantedAt = normalizeResetCreditTimestamp(credit.grantedAt);
+    if (!id || !grantedAt) return [];
+
+    const status = ["available", "redeeming", "redeemed", "unknown"].includes(credit.status)
+      ? credit.status
+      : "unknown";
+    const resetType = credit.resetType === "codexRateLimits" ? "codexRateLimits" : "unknown";
+    const title = normalizeResetCreditText(credit.title);
+    const description = normalizeResetCreditText(credit.description);
+    const expiresAt = normalizeResetCreditTimestamp(credit.expiresAt);
+    return [{
+      id,
+      status,
+      resetType,
+      grantedAt,
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(expiresAt ? { expiresAt } : {})
+    }];
+  });
+  return summary;
+}
+
 function normalizeRateLimitResponse(result, fetchedAt = Date.now()) {
   const fallback = result?.rateLimits && typeof result.rateLimits === "object"
     ? result.rateLimits
@@ -65,11 +109,13 @@ function normalizeRateLimitResponse(result, fetchedAt = Date.now()) {
     throw new Error("Codex did not return a usable rate-limit window.");
   }
 
+  const resetCredits = normalizeRateLimitResetCredits(result?.rateLimitResetCredits);
   return {
     provider: "codex",
     fetchedAt,
     primaryLimitId: limits.some(limit => limit.id === primaryLimitId) ? primaryLimitId : limits[0].id,
-    limits
+    limits,
+    ...(resetCredits ? { resetCredits } : {})
   };
 }
 
@@ -459,6 +505,7 @@ module.exports = {
   createProcessTransport,
   createSshTransport,
   getProcessInvocation,
+  normalizeRateLimitResetCredits,
   normalizeRateLimitResponse,
   runCodexRateLimitRequest,
   terminateWindowsProcessTree
