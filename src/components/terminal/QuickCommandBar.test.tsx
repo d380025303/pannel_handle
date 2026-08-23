@@ -47,9 +47,19 @@ describe("QuickCommandBar", () => {
 
   it("shows pinned commands first and fills the three direct slots in configured order", () => {
     const { container } = renderBar();
-    const labels = Array.from(container.querySelectorAll(".quick-command-direct .quick-command-label"), (element) => element.textContent);
+    const directButtons = Array.from(container.querySelectorAll(".quick-command-direct"));
+    const labels = directButtons.map((element) => element.querySelector(".quick-command-label")?.textContent);
     expect(labels).toEqual(["pinned command", "first command", "third command"]);
+    expect(directButtons.map((element) => element.classList.contains("pinned"))).toEqual([true, false, false]);
     expect(screen.getByRole("button", { name: /更多/ }).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("marks all three pinned direct commands so responsive styles keep them visible", () => {
+    const { container } = renderBar(commands.slice(0, 3).map((command) => ({ ...command, pinned: true })));
+    const directButtons = Array.from(container.querySelectorAll(".quick-command-direct"));
+
+    expect(directButtons).toHaveLength(3);
+    expect(directButtons.every((element) => element.classList.contains("pinned"))).toBe(true);
   });
 
   it("keeps execution modes and one-time removal behavior", () => {

@@ -64,6 +64,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const resetCredits = state.status === "ready" && state.snapshot.provider === "codex"
     ? state.snapshot.resetCredits
     : undefined;
+  const activities = state.status === "ready" && state.snapshot.provider === "qoder"
+    ? state.snapshot.activities ?? []
+    : [];
+  const activityError = state.status === "ready" && state.snapshot.provider === "qoder"
+    ? state.snapshot.activityError
+    : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -444,6 +450,54 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                 </div>
               </div>
             ))}
+            {isQoder && (
+              <section className="agent-usage-limit-group qoder-activity-quota" aria-label={t("usage.qoderActivities")}>
+                <h4>{t("usage.qoderActivities")}</h4>
+                {activityError ? (
+                  <div className="agent-usage-empty" role="status" title={activityError}>
+                    {t("usage.qoderActivityUnavailable")}
+                  </div>
+                ) : activities.length === 0 ? (
+                  <div className="agent-usage-empty">{t("usage.qoderActivityEmpty")}</div>
+                ) : activities.map(activity => (
+                  <div
+                    className={`agent-usage-limit ${getRemainingClass(activity.remainingPercent)}`}
+                    key={activity.id}
+                    title={activity.description}
+                  >
+                    <div className="agent-usage-limit-heading">
+                      <strong>{activity.name}{activity.tag ? ` · ${activity.tag}` : ""}</strong>
+                      <span>{activity.statusText || t("usage.activityRemaining", {
+                        remaining: formatAmount(locale, activity.remainingAmount)
+                      })}</span>
+                    </div>
+                    <div
+                      className="agent-usage-progress"
+                      role="progressbar"
+                      aria-label={activity.name}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={activity.usedPercent}
+                      aria-valuetext={t("usage.activityUsed", {
+                        used: formatAmount(locale, activity.usedAmount),
+                        total: formatAmount(locale, activity.totalAmount)
+                      })}
+                    >
+                      <span style={{ width: `${activity.usedPercent}%` }} />
+                    </div>
+                    <div className="agent-usage-limit-meta">
+                      <span>{t("usage.activityUsed", {
+                        used: formatAmount(locale, activity.usedAmount),
+                        total: formatAmount(locale, activity.totalAmount)
+                      })}</span>
+                      <span>{activity.expiresAt
+                        ? t("usage.activityExpiresAt", { time: formatTimestamp(locale, activity.expiresAt) })
+                        : t("usage.activityNoExpiration")}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+            )}
           </div>
           <small>{t("usage.updatedAt", { time: formatTimestamp(locale, state.snapshot.fetchedAt) })}</small>
         </div>

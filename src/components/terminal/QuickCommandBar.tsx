@@ -109,7 +109,7 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
       {directCommands.map((command, index) => (
         <button
           key={command.id}
-          className={`quick-command-btn quick-command-direct slot-${index + 1}`}
+          className={`quick-command-btn quick-command-direct slot-${index + 1}${command.pinned ? " pinned" : ""}`}
           type="button"
           title={command.command}
           onClick={() => executeCommand(command)}

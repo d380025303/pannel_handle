@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const {
   createQoderProcessSpawner,
+  normalizeQoderActivities,
   normalizeQoderUsage,
+  readQoderActivities,
   readQoderUsage,
   windowsPathToWsl
 } = require("./qoder-usage-client.cjs");
@@ -71,6 +73,37 @@ describe("qoder-usage-client", () => {
     expect(() => normalizeQoderUsage(null)).toThrow("sign in or update");
   });
 
+  it("normalizes active call quotas without mixing them into Credits", () => {
+    expect(normalizeQoderActivities({ data: { activities: [{
+      activityId: "qwen38_800_invoke",
+      modelName: "Qwen3.8-Max 免费额度",
+      limit: 800,
+      used: 12,
+      remaining: 788,
+      resetStrategy: "NEVER_EXPIRE",
+      statusText: "剩余 788 次",
+      tag: "限时特惠",
+      description: "活动期内每人 800 次免费调用",
+      eligible: true,
+      activityEndAt: 2_000_000_000_000
+    }] } }, 1_000)).toEqual([expect.objectContaining({
+      id: "qwen38_800_invoke",
+      name: "Qwen3.8-Max 免费额度",
+      totalAmount: 800,
+      usedAmount: 12,
+      remainingAmount: 788,
+      usedPercent: 2,
+      remainingPercent: 98,
+      unit: "calls",
+      expiresAt: 2_000_000_000_000
+    })]);
+    expect(normalizeQoderActivities([
+      { activityId: "expired", limit: 10, remaining: 10, activityEndAt: 0.5 },
+      { activityId: "ineligible", limit: 10, remaining: 10, eligible: false },
+      { activityId: "invalid", remaining: 10 }
+    ], 1_000)).toEqual([]);
+  });
+
   it("builds Windows and WSL SDK process launches without forwarding the Windows environment", () => {
     const windowsChild = childProcess();
     const wslChild = childProcess();
@@ -102,12 +135,49 @@ describe("qoder-usage-client", () => {
     expect(windowsPathToWsl("D:\\Users\\me\\payload.json")).toBe("/mnt/d/Users/me/payload.json");
   });
 
+  it("reads sanitized activity output from the helper and cancels its process tree", async () => {
+    const helperChild = childProcess();
+    const spawn = vi.fn(() => helperChild);
+    const response = readQoderActivities({
+      signal: new AbortController().signal,
+      spawn,
+      launch: { command: "electron.exe", args: ["--helper"] }
+    });
+    helperChild.stdout.emit("data", Buffer.from(
+      "PANNEL_HANDLE_QODER_ACTIVITY:{\"activities\":[{\"activityId\":\"qwen38_800_invoke\",\"limit\":800,\"remaining\":800}]}\n"
+    ));
+    helperChild.emit("close", 0);
+    await expect(response).resolves.toEqual([expect.objectContaining({ activityId: "qwen38_800_invoke" })]);
+    expect(spawn).toHaveBeenCalledWith("electron.exe", ["--helper"], expect.objectContaining({ windowsHide: true }));
+
+    const canceledChild = childProcess();
+    const controller = new AbortController();
+    const terminateProcessTree = vi.fn(() => true);
+    const canceled = readQoderActivities({
+      signal: controller.signal,
+      spawn: vi.fn(() => canceledChild),
+      terminateProcessTree,
+      launch: { command: "electron.exe", args: ["--helper"] }
+    });
+    controller.abort();
+    await expect(canceled).rejects.toThrow("canceled");
+    expect(terminateProcessTree).toHaveBeenCalledWith(canceledChild);
+  });
+
   it("uses the official SDK control request and always closes the temporary session", async () => {
     const close = vi.fn(async () => undefined);
     const initializationResult = vi.fn(async () => ({ account: {} }));
     const getUsageInfo = vi.fn(async () => usageInfo());
     const query = vi.fn(() => ({ initializationResult, getUsageInfo, close }));
     const qodercliAuth = vi.fn(() => ({ type: "qodercli" }));
+    const activityReader = vi.fn(async () => [{
+      activityId: "qwen38_800_invoke",
+      modelName: "Qwen3.8-Max Free Quota",
+      limit: 800,
+      used: 0,
+      remaining: 800,
+      eligible: true
+    }]);
 
     await expect(readQoderUsage({
       session: { type: "windows", cwd: "C:\\repo" },
@@ -115,8 +185,14 @@ describe("qoder-usage-client", () => {
       timeoutMs: 1000,
       now: () => 99,
       sdkLoader: async () => ({ query, qodercliAuth }),
-      spawn: vi.fn()
-    })).resolves.toMatchObject({ provider: "qoder", fetchedAt: 99, summary: { remaining: 2500 } });
+      spawn: vi.fn(),
+      activityReader
+    })).resolves.toMatchObject({
+      provider: "qoder",
+      fetchedAt: 99,
+      summary: { remaining: 2500 },
+      activities: [expect.objectContaining({ id: "qwen38_800_invoke", remainingAmount: 800 })]
+    });
 
     expect(qodercliAuth).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0].options).toMatchObject({
@@ -129,6 +205,41 @@ describe("qoder-usage-client", () => {
     });
     expect(initializationResult).toHaveBeenCalledTimes(1);
     expect(getUsageInfo).toHaveBeenCalledTimes(1);
+    expect(activityReader).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Credits when Windows activity quota fails and skips activities for WSL", async () => {
+    const close = vi.fn(async () => undefined);
+    const query = vi.fn(() => ({
+      initializationResult: vi.fn(async () => ({})),
+      getUsageInfo: vi.fn(async () => usageInfo()),
+      close
+    }));
+    const sdkLoader = async () => ({ query, qodercliAuth: () => ({ type: "qodercli" }) });
+    const activityReader = vi.fn(async () => { throw new Error("private API changed"); });
+    await expect(readQoderUsage({
+      session: { type: "windows", cwd: "C:\\repo" },
+      signal: new AbortController().signal,
+      timeoutMs: 1000,
+      sdkLoader,
+      spawn: vi.fn(),
+      activityReader
+    })).resolves.toMatchObject({
+      summary: { remaining: 2500 },
+      activities: [],
+      activityError: "Qoder activity quota is unavailable."
+    });
+
+    const wslActivityReader = vi.fn();
+    await expect(readQoderUsage({
+      session: { type: "wsl", wslDistro: "Ubuntu", cwd: "/srv/app" },
+      signal: new AbortController().signal,
+      timeoutMs: 1000,
+      sdkLoader,
+      spawn: vi.fn(),
+      activityReader: wslActivityReader
+    })).resolves.toMatchObject({ summary: { remaining: 2500 } });
+    expect(wslActivityReader).not.toHaveBeenCalled();
   });
 });

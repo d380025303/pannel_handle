@@ -220,6 +220,13 @@ export type TranslationKey =
   | "usage.qoderRemaining"
   | "usage.qoderTitle"
   | "usage.qoderTotal"
+  | "usage.qoderActivities"
+  | "usage.qoderActivityUnavailable"
+  | "usage.qoderActivityEmpty"
+  | "usage.activityUsed"
+  | "usage.activityRemaining"
+  | "usage.activityExpiresAt"
+  | "usage.activityNoExpiration"
   | "usage.creditRemaining"
   | "usage.creditUsed"
   | "usage.expiresAt"
@@ -917,6 +924,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRemaining": "Qoder 剩余 {remaining} Credits",
     "usage.qoderTitle": "Qoder 额度",
     "usage.qoderTotal": "全部可用额度",
+    "usage.qoderActivities": "活动额度",
+    "usage.qoderActivityUnavailable": "活动额度暂不可用，请刷新后重试",
+    "usage.qoderActivityEmpty": "当前没有可用活动额度",
+    "usage.activityUsed": "{used} / {total} 次",
+    "usage.activityRemaining": "剩余 {remaining} 次",
+    "usage.activityExpiresAt": "将于 {time} 结束",
+    "usage.activityNoExpiration": "暂无结束时间",
     "usage.creditRemaining": "剩余 {remaining} / {total} Credits",
     "usage.creditUsed": "已用 {used} / {total} Credits",
     "usage.expiresAt": "{time} 到期",
@@ -1606,6 +1620,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRemaining": "Qoder {remaining} Credits left",
     "usage.qoderTitle": "Qoder quota",
     "usage.qoderTotal": "Total available quota",
+    "usage.qoderActivities": "Promotional quota",
+    "usage.qoderActivityUnavailable": "Promotional quota is unavailable. Refresh to retry.",
+    "usage.qoderActivityEmpty": "No promotional quota is currently available",
+    "usage.activityUsed": "{used} / {total} calls",
+    "usage.activityRemaining": "{remaining} calls left",
+    "usage.activityExpiresAt": "Ends at {time}",
+    "usage.activityNoExpiration": "No expiration reported",
     "usage.creditRemaining": "{remaining} / {total} Credits left",
     "usage.creditUsed": "{used} / {total} Credits used",
     "usage.expiresAt": "Expires {time}",

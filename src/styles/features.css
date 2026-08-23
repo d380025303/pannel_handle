@@ -1392,6 +1392,11 @@
   max-width: 150px;
 }
 
+.quick-command-direct {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
 .quick-command-more {
   position: relative;
   flex: none;
@@ -1618,19 +1623,19 @@
 }
 
 @container terminal-footer (max-width: 1200px) {
-  .quick-command-direct.slot-3 {
+  .quick-command-direct:not(.pinned).slot-3 {
     display: none;
   }
 }
 
 @container terminal-footer (max-width: 980px) {
-  .quick-command-direct.slot-2 {
+  .quick-command-direct:not(.pinned).slot-2 {
     display: none;
   }
 }
 
 @container terminal-footer (max-width: 760px) {
-  .quick-command-direct.slot-1 {
+  .quick-command-direct:not(.pinned).slot-1 {
     display: none;
   }
 }

@@ -1,5 +1,11 @@
 const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
+
+if (process.argv.includes("--pannel-handle-qoder-activity-helper")) {
+  void require("./services/token-usage/qoder-activity-helper.cjs").runQoderActivityHelper();
+  return;
+}
+
 const { registerIpcHandlers } = require("./core/ipc-handlers.cjs");
 const { createWindowManager } = require("./core/window-manager.cjs");
 const { createAgentConversationManager } = require("./core/agent-conversation-manager.cjs");

@@ -599,6 +599,23 @@ export type AgentUsageCreditSummary = {
   unit: "Credits";
 };
 
+export type AgentUsageActivityQuota = {
+  id: string;
+  name: string;
+  totalAmount: number;
+  usedAmount: number;
+  remainingAmount: number;
+  usedPercent: number;
+  remainingPercent: number;
+  unit: "calls";
+  expiresAt?: number;
+  resetStrategy?: string;
+  statusText?: string;
+  tag?: string;
+  description?: string;
+  detailUrl?: string;
+};
+
 export type AgentUsageResetCredit = {
   id: string;
   status: "available" | "redeeming" | "redeemed" | "unknown";
@@ -620,6 +637,8 @@ export type AgentUsageSnapshot = {
   primaryLimitId: string;
   summary?: AgentUsageCreditSummary;
   resetCredits?: AgentUsageResetCreditsSummary;
+  activities?: AgentUsageActivityQuota[];
+  activityError?: string;
   limits: AgentUsageLimit[];
 };
 
