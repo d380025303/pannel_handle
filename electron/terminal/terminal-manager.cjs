@@ -821,18 +821,21 @@ function createTerminalManager({
   }
 
   function trackCodexTerminalCommand(session, data) {
-    if (session.agentRuntimeProvider !== "codex" && session.agentProvider !== "codex") {
+    const isCodex = session.agentRuntimeProvider === "codex" || session.agentProvider === "codex";
+    const isQoder = session.agentRuntimeProvider === "qoder" || session.agentProvider === "qoder";
+    if (!isCodex && !isQoder) {
       session.agentCommandState = undefined;
       return;
     }
 
     const result = consumeAgentCommandInput(session.agentCommandState, data);
     session.agentCommandState = result.state;
+    const provider = isCodex ? "codex" : "qoder";
     for (let index = 0; index < result.clearSubmissions; index += 1) {
       session.agentStatus = "cleared";
       broadcastAgentStatus({
         id: session.id,
-        provider: "codex",
+        provider,
         status: "cleared",
         eventName: "TerminalCommand"
       });

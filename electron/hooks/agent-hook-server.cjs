@@ -380,6 +380,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     if (eventName === "PostToolUse" && isToolFailure(input)) {
       return "failed";
     }
+    if (eventName === "SessionStart" && input.source === "clear") {
+      return "cleared";
+    }
     if (
       eventName === "SessionStart" ||
       eventName === "UserPromptSubmit" ||
