@@ -106,6 +106,17 @@ describe("agent token transcript parser", () => {
     expect(result.capabilities.mcp.servers[0]).toMatchObject({ name: "jira", count: 1, tools: [{ name: "get_issue", count: 1 }] });
   });
 
+  it("falls back to Qoder credits when token fields are zeroed", () => {
+    const result = parseTranscriptText("qoder", [
+      JSON.stringify({ type: "assistant", uuid: "row-a", message: { id: "qoder-a", model: "auto", usage: { input_tokens: 0, output_tokens: 0, credits: 2.949214285714286 }, content: [] } }),
+      JSON.stringify({ type: "assistant", uuid: "row-b", message: { id: "qoder-b", model: "auto", usage: { input_tokens: 0, output_tokens: 0, credits: 4.478249999999999 }, content: [] } }),
+      JSON.stringify({ type: "assistant", uuid: "row-c", message: { id: "qoder-c", model: "auto", usage: { input_tokens: 0, output_tokens: 0, original_credits: 0.45120428571428567 }, content: [] } })
+    ].join("\n"));
+
+    expect(result.tokens).toEqual({ inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 7, reasoningOutputTokens: 0, totalTokens: 7 });
+    expect(result.models).toEqual(["auto"]);
+  });
+
   it("deduplicates CodeBuddy response fragments and reads cached and reasoning tokens", () => {
     const usage = {
       requests: 1,

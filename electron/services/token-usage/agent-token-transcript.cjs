@@ -54,8 +54,24 @@ function normalizeQoderTokenUsage(usage) {
   const freshInput = safeInteger(usage.input_tokens ?? usage.inputTokens);
   const cachedInputTokens = safeInteger(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens);
   const cacheWriteInputTokens = safeInteger(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens);
-  const inputTokens = freshInput + cachedInputTokens + cacheWriteInputTokens;
   const outputTokens = safeInteger(usage.output_tokens ?? usage.outputTokens);
+  const totalTokenSum = freshInput + cachedInputTokens + cacheWriteInputTokens + outputTokens;
+  // Qoder 转录里的 token 字段恒为 0，实际按 credits 计费；token 全为 0 且有 credits 时回落到 credits。
+  if (totalTokenSum === 0) {
+    const credits = Number(usage.credits ?? usage.original_credits);
+    if (Number.isFinite(credits) && credits > 0) {
+      const creditTokens = Math.round(credits);
+      return {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: creditTokens,
+        reasoningOutputTokens: 0,
+        totalTokens: creditTokens
+      };
+    }
+  }
+  const inputTokens = freshInput + cachedInputTokens + cacheWriteInputTokens;
   return {
     inputTokens,
     cachedInputTokens,
