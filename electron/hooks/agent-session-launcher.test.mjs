@@ -5,8 +5,11 @@ const require = createRequire(import.meta.url);
 const {
   AGENT_COMMANDS,
   buildAgentStartCommand,
-  createAgentSessionLauncher
+  createAgentSessionLauncher,
+  wrapAgentStartCommand
 } = require("./agent-session-launcher.cjs");
+
+const AGENT_EXIT_MARKER = "__PANNEL_HANDLE_AGENT_EXIT__";
 
 function installed(provider) {
   return {
@@ -118,6 +121,17 @@ describe("agent-session-launcher", () => {
       .toBe("codebuddy");
   });
 
+  it.each([
+    [{ type: "windows", shell: "powershell.exe" }, "Write-Output"],
+    [{ type: "windows", shell: "cmd.exe" }, "echo"],
+    [{ type: "wsl" }, "printf"]
+  ])("wraps Agent exit output for %# without embedding the complete marker", (session, outputCommand) => {
+    const command = wrapAgentStartCommand(session, "codex");
+
+    expect(command).toContain(outputCommand);
+    expect(command).not.toContain(AGENT_EXIT_MARKER);
+  });
+
   it("checks and repairs a local hook before creating the terminal", async () => {
     const mocks = createMocks();
     mocks.hookConfigManager.inspect.mockReturnValue({ ok: true, providers: { claude: { status: "needs_repair" } } });
@@ -129,7 +143,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       shell: "C:\\Windows\\System32\\cmd.exe",
       initialCommand: "pnpm install",
-      runtimeInitialCommand: expect.stringContaining("pnpm install && claude & echo __PANNEL_HANDLE_AGENT_EXIT__")
+      runtimeInitialCommand: expect.stringContaining("pnpm install && claude & echo. & echo __PANNEL_HANDLE_AGENT^_EXIT__")
     }));
   });
 
@@ -148,7 +162,7 @@ describe("agent-session-launcher", () => {
       cwd: "C:\\Users\\tester",
       agentProvider: "codex",
       persist: false,
-      runtimeInitialCommand: expect.stringContaining("codex & echo __PANNEL_HANDLE_AGENT_EXIT__")
+      runtimeInitialCommand: expect.stringContaining("codex & echo. & echo __PANNEL_HANDLE_AGENT^_EXIT__")
     }));
   });
 
@@ -165,7 +179,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       agentProvider: "codex",
       persist: false,
-      runtimeInitialCommand: expect.stringContaining("codex & echo __PANNEL_HANDLE_AGENT_EXIT__")
+      runtimeInitialCommand: expect.stringContaining("codex & echo. & echo __PANNEL_HANDLE_AGENT^_EXIT__")
     }));
   });
 
@@ -350,7 +364,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.requestAgentExit).toHaveBeenCalledWith("run-1", 10000);
     expect(mocks.terminalManager.startAgentInSession).toHaveBeenCalledWith("run-1", expect.objectContaining({
       provider: "claude",
-      command: expect.stringContaining("claude & echo __PANNEL_HANDLE_AGENT_EXIT__")
+      command: expect.stringContaining("claude & echo. & echo __PANNEL_HANDLE_AGENT^_EXIT__")
     }));
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
     expect(result[0].agentProvider).toBe("claude");

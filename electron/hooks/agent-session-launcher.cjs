@@ -10,7 +10,8 @@ const AGENT_COMMANDS = Object.freeze({
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
-const AGENT_EXIT_MARKER = "__PANNEL_HANDLE_AGENT_EXIT__";
+const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
+const AGENT_EXIT_MARKER_SUFFIX = "AGENT_EXIT__";
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -58,12 +59,12 @@ function buildAgentStartCommand(session, runtime = {}) {
 
 function wrapAgentStartCommand(session, command) {
   if (session.type === "windows" && isPowerShell(session.shell)) {
-    return `& { ${command} }; Write-Output '${AGENT_EXIT_MARKER}'`;
+    return `& { ${command} }; Write-Output ''; Write-Output ('${AGENT_EXIT_MARKER_PREFIX}' + '${AGENT_EXIT_MARKER_SUFFIX}')`;
   }
   if (session.type === "windows") {
-    return `${command} & echo ${AGENT_EXIT_MARKER}`;
+    return `${command} & echo. & echo ${AGENT_EXIT_MARKER_PREFIX}AGENT^_EXIT__`;
   }
-  return `${command}; printf '\\n%s\\n' '${AGENT_EXIT_MARKER}'`;
+  return `${command}; printf '\\n%s%s\\n' '${AGENT_EXIT_MARKER_PREFIX}' '${AGENT_EXIT_MARKER_SUFFIX}'`;
 }
 
 function buildSshHookWarningCommand(provider, error) {

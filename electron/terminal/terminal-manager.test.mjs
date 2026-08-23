@@ -444,6 +444,20 @@ describe("terminal-manager", () => {
     ]));
   });
 
+  it("ignores an Agent exit marker embedded in an echoed launch command", () => {
+    const { manager, term, broadcast } = createManager();
+    const session = manager.createSession({ title: "Codex", agentProvider: "codex" });
+
+    term.emitData(`PS C:\\work> & { codex }; Write-Output '${AGENT_EXIT_MARKER}'\r\n`);
+
+    expect(manager.getSession(session.id).agentShellReady).toBe(false);
+    expect(broadcast).not.toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      status: "ended"
+    }));
+    expect(manager.getHistory(session.id)).toContain(AGENT_EXIT_MARKER);
+  });
+
   it("times out without starting a replacement when the Agent does not exit", async () => {
     const { manager, term } = createManager();
     const session = manager.createSession({ title: "Agent", agentProvider: "codex" });

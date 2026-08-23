@@ -366,28 +366,38 @@ function createTerminalManager({
   }
 
   function consumeAgentExitMarker(session, data) {
-    let text = `${session.agentMarkerRemainder || ""}${String(data || "")}`;
-    session.agentMarkerRemainder = "";
-    let markerIndex = text.indexOf(AGENT_EXIT_MARKER);
+    let text = "";
+    let candidate = session.agentMarkerRemainder || "";
+    let atLineStart = session.agentMarkerAtLineStart !== false;
     let detected = false;
 
-    while (markerIndex >= 0) {
-      text = `${text.slice(0, markerIndex)}${text.slice(markerIndex + AGENT_EXIT_MARKER.length)}`;
-      detected = true;
-      markerIndex = text.indexOf(AGENT_EXIT_MARKER);
+    for (const character of String(data || "")) {
+      if (candidate) {
+        if (character === AGENT_EXIT_MARKER[candidate.length]) {
+          candidate += character;
+          if (candidate === AGENT_EXIT_MARKER) {
+            candidate = "";
+            detected = true;
+            atLineStart = false;
+          }
+          continue;
+        }
+        text += candidate;
+        candidate = "";
+        atLineStart = false;
+      }
+
+      if (atLineStart && character === AGENT_EXIT_MARKER[0]) {
+        candidate = character;
+        continue;
+      }
+
+      text += character;
+      atLineStart = character === "\r" || character === "\n";
     }
 
-    if (!detected) {
-      const maxPrefixLength = Math.min(text.length, AGENT_EXIT_MARKER.length - 1);
-      for (let length = maxPrefixLength; length > 0; length -= 1) {
-        const suffix = text.slice(-length);
-        if (AGENT_EXIT_MARKER.startsWith(suffix)) {
-          session.agentMarkerRemainder = suffix;
-          text = text.slice(0, -length);
-          break;
-        }
-      }
-    }
+    session.agentMarkerRemainder = candidate;
+    session.agentMarkerAtLineStart = atLineStart;
 
     if (detected) {
       session.agentShellReady = true;
@@ -427,6 +437,7 @@ function createTerminalManager({
     session.sshSecretAttempts = 0;
     session.lastSshSecretPromptSignature = undefined;
     session.agentMarkerRemainder = "";
+    session.agentMarkerAtLineStart = true;
     session.agentShellReady = !session.agentProvider;
     broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
