@@ -171,6 +171,18 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return clipboardImageService.pasteImageToSession(sessionId);
   });
 
+  ipcMain.handle("clipboard:upload-image-to-session", async (event, sessionId) => {
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      properties: ["openFile"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { status: "canceled" };
+    }
+    return clipboardImageService.uploadImageToSession(sessionId, result.filePaths[0]);
+  });
+
   ipcMain.handle("external-link:open", async (_event, url) => {
     try {
       await openExternalHttpUrl(shellApi, url);

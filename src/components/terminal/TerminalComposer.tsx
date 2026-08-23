@@ -204,6 +204,26 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
     }
   };
 
+  const uploadImageFile = async () => {
+    if (!session || imageStatus === "uploading") return;
+    setImageStatus("uploading");
+    setImageMessage(t("composer.uploadingImage"));
+    try {
+      const result = await window.clipboardApi.uploadImageToSession(session.id);
+      if (result.status === "canceled") {
+        setImageStatus("idle");
+        setImageMessage("");
+        return;
+      }
+      insertText(`@${getImageRelativePath(session, result.path)} `);
+      setImageStatus("idle");
+      setImageMessage("");
+    } catch (error) {
+      setImageStatus("error");
+      setImageMessage(t("composer.imageUploadFailed", { message: getErrorMessage(error) }));
+    }
+  };
+
   return (
     <div className="terminal-composer-wrap">
       {mentionVisible && (
@@ -339,9 +359,9 @@ export function TerminalComposer({ session, onFocusTerminal }: TerminalComposerP
               className="terminal-composer-image"
               type="button"
               disabled={!session || imageStatus === "uploading"}
-              title={t("composer.pasteImage")}
-              aria-label={t("composer.pasteImage")}
-              onClick={() => void pasteClipboardImage()}
+              title={t("composer.uploadImage")}
+              aria-label={t("composer.uploadImage")}
+              onClick={() => void uploadImageFile()}
             >
               {imageStatus === "uploading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
             </button>

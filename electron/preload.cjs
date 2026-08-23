@@ -120,7 +120,8 @@ contextBridge.exposeInMainWorld("dingTalkApi", {
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text"),
-  pasteImageToSession: (sessionId) => ipcRenderer.invoke("clipboard:paste-image-to-session", sessionId)
+  pasteImageToSession: (sessionId) => ipcRenderer.invoke("clipboard:paste-image-to-session", sessionId),
+  uploadImageToSession: (sessionId) => ipcRenderer.invoke("clipboard:upload-image-to-session", sessionId)
 });
 
 contextBridge.exposeInMainWorld("externalLinkApi", {

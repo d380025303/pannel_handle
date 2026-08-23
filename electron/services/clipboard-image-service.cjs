@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const IMAGE_DIR_NAME = ".pannel-handle-images";
@@ -7,7 +8,7 @@ function pad(value) {
   return String(value).padStart(2, "0");
 }
 
-function createImageFileName(now = new Date(), randomBytes = crypto.randomBytes) {
+function createImageFileName(now = new Date(), randomBytes = crypto.randomBytes, ext = ".png") {
   const stamp = [
     now.getFullYear(),
     pad(now.getMonth() + 1),
@@ -17,7 +18,7 @@ function createImageFileName(now = new Date(), randomBytes = crypto.randomBytes)
     pad(now.getMinutes()),
     pad(now.getSeconds())
   ].join("");
-  return `image-${stamp}-${randomBytes(3).toString("hex")}.png`;
+  return `image-${stamp}-${randomBytes(3).toString("hex")}${ext}`;
 }
 
 function joinSessionPath(session, basePath, fileName) {
@@ -90,8 +91,37 @@ function createClipboardImageService({
     };
   }
 
+  async function uploadImageToSession(sessionId, localPath) {
+    const session = terminalManager.getSession(sessionId);
+    if (!session) {
+      throw new Error("Session is not running.");
+    }
+
+    let buffer;
+    try {
+      buffer = fs.readFileSync(localPath);
+    } catch (error) {
+      throw new Error(`无法读取图片文件：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      throw new Error("图片文件为空或无法读取。");
+    }
+
+    const ext = path.extname(localPath).toLowerCase() || ".png";
+    const fileName = createImageFileName(now(), randomBytes, ext);
+    const basePath = await resolveSessionWorkingDirectory(session, remoteFileService, sessionId);
+    const remotePath = joinSessionPath(session, basePath, fileName);
+    const saved = await remoteFileService.writeBinaryFile(sessionId, remotePath, buffer);
+    return {
+      status: "saved",
+      path: saved.remotePath,
+      size: buffer.length
+    };
+  }
+
   return {
-    pasteImageToSession
+    pasteImageToSession,
+    uploadImageToSession
   };
 }
 

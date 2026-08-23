@@ -49,6 +49,7 @@ describe("TerminalComposer", () => {
     results: []
   }));
   const pasteImageToSession = vi.fn<ClipboardApi["pasteImageToSession"]>(async () => ({ status: "no_image" }));
+  const uploadImageToSession = vi.fn<ClipboardApi["uploadImageToSession"]>(async () => ({ status: "canceled" }));
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -62,7 +63,7 @@ describe("TerminalComposer", () => {
     });
     window.terminalApi = { write } as unknown as TerminalApi;
     window.projectSearchApi = { searchWorkspaceEntries } as unknown as ProjectSearchApi;
-    window.clipboardApi = { pasteImageToSession } as unknown as ClipboardApi;
+    window.clipboardApi = { pasteImageToSession, uploadImageToSession } as unknown as ClipboardApi;
   });
 
   afterEach(() => {
@@ -226,37 +227,37 @@ describe("TerminalComposer", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
-  it("disables image upload while the clipboard request is pending", async () => {
-    const upload = deferred<Awaited<ReturnType<ClipboardApi["pasteImageToSession"]>>>();
-    pasteImageToSession.mockImplementationOnce(() => upload.promise);
+  it("disables image upload while the upload request is pending", async () => {
+    const upload = deferred<Awaited<ReturnType<ClipboardApi["uploadImageToSession"]>>>();
+    uploadImageToSession.mockImplementationOnce(() => upload.promise);
     renderComposer();
-    const uploadButton = screen.getByRole("button", { name: "上传剪贴板图片" }) as HTMLButtonElement;
+    const uploadButton = screen.getByRole("button", { name: "上传图片" }) as HTMLButtonElement;
 
     fireEvent.click(uploadButton);
 
     expect(uploadButton.disabled).toBe(true);
-    expect(screen.getByRole("status").textContent).toContain("正在上传剪贴板图片...");
+    expect(screen.getByRole("status").textContent).toContain("正在上传图片...");
 
     await act(async () => {
-      upload.resolve({ status: "no_image" });
+      upload.resolve({ status: "saved", path: "C:\\workspace\\.pannel-handle-images\\capture.png", size: 1024 });
       await upload.promise;
     });
     expect(uploadButton.disabled).toBe(false);
   });
 
-  it("reports clipboard upload failures", async () => {
-    pasteImageToSession.mockRejectedValueOnce(new Error("disk full"));
+  it("reports image upload failures", async () => {
+    uploadImageToSession.mockRejectedValueOnce(new Error("disk full"));
     renderComposer();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "上传剪贴板图片" }));
+      fireEvent.click(screen.getByRole("button", { name: "上传图片" }));
       await Promise.resolve();
     });
 
     expect(screen.getByRole("alert").textContent).toContain("图片上传失败：disk full");
   });
 
-  it("shows search and clipboard errors independently", async () => {
+  it("shows search errors from the workspace query", async () => {
     searchWorkspaceEntries.mockRejectedValueOnce(new Error("offline"));
     renderComposer();
     const textarea = screen.getByRole("textbox", { name: "终端输入" });
@@ -265,16 +266,22 @@ describe("TerminalComposer", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(180); });
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByRole("alert").textContent).toContain("搜索失败：offline");
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "上传剪贴板图片" }));
-      await Promise.resolve();
-    });
-    expect(screen.getByRole("alert").textContent).toContain("剪贴板中没有图片");
   });
 
-  it("inserts a saved clipboard image path and clears the upload status", async () => {
-    pasteImageToSession.mockResolvedValueOnce({
+  it("shows image upload errors independently from search errors", async () => {
+    uploadImageToSession.mockRejectedValueOnce(new Error("disk full"));
+    renderComposer();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "上传图片" }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("图片上传失败：disk full");
+  });
+
+  it("inserts a saved uploaded image path and clears the upload status", async () => {
+    uploadImageToSession.mockResolvedValueOnce({
       status: "saved",
       path: "C:\\workspace\\.pannel-handle-images\\capture.png",
       size: 1024
@@ -283,12 +290,26 @@ describe("TerminalComposer", () => {
     const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "上传剪贴板图片" }));
+      fireEvent.click(screen.getByRole("button", { name: "上传图片" }));
       await Promise.resolve();
     });
 
     expect(textarea.value).toBe("@.pannel-handle-images\\capture.png ");
-    expect(screen.queryByText("正在上传剪贴板图片...")).toBeNull();
+    expect(screen.queryByText("正在上传图片...")).toBeNull();
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("clears the upload status without inserting when the dialog is canceled", async () => {
+    uploadImageToSession.mockResolvedValueOnce({ status: "canceled" });
+    renderComposer();
+    const textarea = screen.getByRole("textbox", { name: "终端输入" }) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "上传图片" }));
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("");
+    expect(screen.queryByText("正在上传图片...")).toBeNull();
   });
 });

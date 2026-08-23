@@ -827,6 +827,10 @@ export type ClipboardApi = {
     | { status: "no_image" }
     | { status: "saved"; path: string; size: number }
   >;
+  uploadImageToSession: (sessionId: string) => Promise<
+    | { status: "canceled" }
+    | { status: "saved"; path: string; size: number }
+  >;
 };
 
 export type ExternalLinkApi = {

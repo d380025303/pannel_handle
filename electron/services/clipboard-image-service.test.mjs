@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createClipboardImageService, createImageFileName, resolveSessionWorkingDirectory } from "./clipboard-image-service.cjs";
 
@@ -127,5 +129,42 @@ describe("clipboard-image-service", () => {
       }
     });
     await expect(service.pasteImageToSession("run-1")).rejects.toThrow("remote disk full");
+  });
+
+  it("uploads a local image file preserving its extension", async () => {
+    const payload = Buffer.from([10, 20, 30, 40]);
+    const tempFile = path.join(os.tmpdir(), `clipboard-image-test-${Date.now()}.jpg`);
+    fs.writeFileSync(tempFile, payload);
+
+    const remoteFileService = {
+      getHome: vi.fn(async () => "/home/deploy"),
+      writeBinaryFile: vi.fn(async (_sessionId, remotePath) => ({ remotePath }))
+    };
+    const service = createClipboardImageService({
+      clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: vi.fn(() => ({ id: "run-1", type: "ssh" })) },
+      remoteFileService,
+      now: () => new Date(2026, 5, 17, 15, 30, 0),
+      randomBytes: () => Buffer.from([0xa1, 0xb2, 0xc3])
+    });
+
+    const expectedPath = "/home/deploy/.pannel-handle-images/image-20260617-153000-a1b2c3.jpg";
+    await expect(service.uploadImageToSession("run-1", tempFile)).resolves.toEqual({
+      status: "saved",
+      path: expectedPath,
+      size: 4
+    });
+    expect(remoteFileService.writeBinaryFile).toHaveBeenCalledWith("run-1", expectedPath, payload);
+
+    fs.unlinkSync(tempFile);
+  });
+
+  it("rejects when the local image file cannot be read", async () => {
+    const service = createClipboardImageService({
+      clipboard: { readImage: vi.fn() },
+      terminalManager: { getSession: vi.fn(() => ({ id: "run-1", type: "ssh", cwd: "/srv/app" })) },
+      remoteFileService: { getHome: vi.fn(), writeBinaryFile: vi.fn() }
+    });
+    await expect(service.uploadImageToSession("run-1", "/no/such/file.png")).rejects.toThrow(/无法读取图片文件/);
   });
 });
