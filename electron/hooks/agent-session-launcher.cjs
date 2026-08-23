@@ -6,7 +6,7 @@ const AGENT_COMMANDS = Object.freeze({
   codex: "codex",
   codebuddy: "codebuddy",
   opencode: "opencode",
-  qoder: "qoderclicn"
+  qoder: "qoder"
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);

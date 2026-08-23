@@ -69,7 +69,7 @@ describe("agent-session-launcher", () => {
       codex: "codex",
       codebuddy: "codebuddy",
       opencode: "opencode",
-      qoder: "qoderclicn"
+      qoder: "qoder"
     });
   });
 
@@ -285,7 +285,7 @@ describe("agent-session-launcher", () => {
     mocks.sshSessionRuntime.exec.mockRejectedValue(new Error("not found"));
 
     await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qoder", sshConfig: { host: "example.com" } }))
-      .rejects.toThrow("未在远程 SSH 环境中找到命令：qoderclicn");
+      .rejects.toThrow("未在远程 SSH 环境中找到命令：qoder");
     expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
     expect(mocks.terminalManager.deleteSavedSession).toHaveBeenCalledWith("1");
   });
