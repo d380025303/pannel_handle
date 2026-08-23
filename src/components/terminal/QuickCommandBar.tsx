@@ -94,7 +94,7 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
   const handleAdd = () => {
     const command = addInput.trim();
     if (!command) return;
-    void onAddQuickCommand(command, "one-time");
+    void onAddQuickCommand(command, "auto-enter");
     setAddInput("");
   };
 
