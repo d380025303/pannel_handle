@@ -235,4 +235,131 @@ describe("RemoteFilePanel file activation", () => {
     document.removeEventListener(INPUT_INTERRUPTION_START_EVENT, starts);
     document.removeEventListener(INPUT_INTERRUPTION_END_EVENT, ends);
   });
+
+  it("opens relative Markdown links in another preview tab without navigating the renderer", async () => {
+    const markdownPath = `${rootPath}\\README.md`;
+    const docsPath = `${rootPath}\\docs`;
+    const guidePath = `${docsPath}\\Setup Guide.md`;
+    const previewFile = vi.fn(async (_sessionId: string, path: string) => ({
+      kind: "text" as const,
+      path,
+      content: path === markdownPath ? "[Setup guide](docs/Setup%20Guide.md#install)" : "Guide content"
+    }));
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async (_sessionId: string, path: string) => path === rootPath
+        ? [
+            { name: "README.md", path: markdownPath, type: "file", size: 50, modifiedAt: 0 },
+            { name: "docs", path: docsPath, type: "directory", size: 0, modifiedAt: 0 }
+          ]
+        : [{ name: "Setup Guide.md", path: guidePath, type: "file", size: 20, modifiedAt: 0 }]),
+      previewFile,
+      onDownloadProgress: vi.fn(() => () => undefined),
+      watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true),
+      onChanged: vi.fn(() => () => undefined),
+      onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    const previewHost = document.createElement("div");
+    document.body.append(previewHost);
+    let activePreviewTabId: string | null = null;
+    const onActivePreviewTabChange = vi.fn((tabId: string | null) => {
+      activePreviewTabId = tabId;
+    });
+    const view = render(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    fireEvent.click((await screen.findByTitle(markdownPath)).closest("button")!);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledWith(session.id, markdownPath));
+    view.rerender(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    const link = await screen.findByRole("link", { name: "Setup guide" });
+    expect(fireEvent.click(link)).toBe(false);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledWith(session.id, guidePath));
+    expect(onActivePreviewTabChange).toHaveBeenLastCalledWith(`${session.id}:${guidePath}`);
+    previewHost.remove();
+  });
+
+  it("keeps external and unsafe Markdown links from navigating the renderer", async () => {
+    const markdownPath = `${rootPath}\\README.md`;
+    const previewFile = vi.fn(async (_sessionId: string, path: string) => ({
+      kind: "text" as const,
+      path,
+      content: "[Website](https://example.com/docs) [Outside](../outside.md) [Email](mailto:test@example.com)"
+    }));
+    const openExternal = vi.fn(async (_url: string) => undefined);
+    window.externalLinkApi = { open: openExternal };
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async () => [{ name: "README.md", path: markdownPath, type: "file", size: 50, modifiedAt: 0 }]),
+      previewFile,
+      onDownloadProgress: vi.fn(() => () => undefined),
+      watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true),
+      onChanged: vi.fn(() => () => undefined),
+      onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    const previewHost = document.createElement("div");
+    document.body.append(previewHost);
+    let activePreviewTabId: string | null = null;
+    const onActivePreviewTabChange = (tabId: string | null) => {
+      activePreviewTabId = tabId;
+    };
+    const view = render(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    fireEvent.click((await screen.findByTitle(markdownPath)).closest("button")!);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+      />
+    );
+
+    expect(fireEvent.click(await screen.findByRole("link", { name: "Website" }))).toBe(false);
+    expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
+    expect(fireEvent.click(screen.getByRole("link", { name: "Outside" }))).toBe(false);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Email" }))).toBe(false);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    previewHost.remove();
+  });
 });

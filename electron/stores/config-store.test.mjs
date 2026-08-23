@@ -29,6 +29,7 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       autoRestore: true,
+      autoWorkBuddyCheckin: true,
       debugMode: false,
       lastActiveSessionIds: [],
       themeId: "dark-slate",
@@ -37,18 +38,20 @@ describe("config-store", () => {
     });
   });
 
-  it("loads and persists debugMode, themeId, and locale", () => {
+  it("loads and persists automatic check-in, debugMode, themeId, and locale", () => {
     const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, debugMode: true, themeId: "light", locale: "en-US" }), "utf-8");
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false, autoWorkBuddyCheckin: false, debugMode: true, themeId: "light", locale: "en-US" }), "utf-8");
     const store = createConfigStore({ configFile });
 
     store.loadConfig();
+    expect(store.getConfig().autoWorkBuddyCheckin).toBe(false);
     expect(store.getConfig().debugMode).toBe(true);
     expect(store.getConfig().themeId).toBe("light");
     expect(store.getConfig().locale).toBe("en-US");
 
-    store.updateConfig({ debugMode: false, themeId: "dark-blue", locale: "zh-CN" });
+    store.updateConfig({ autoWorkBuddyCheckin: true, debugMode: false, themeId: "dark-blue", locale: "zh-CN" });
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.autoWorkBuddyCheckin).toBe(true);
     expect(saved.debugMode).toBe(false);
     expect(saved.themeId).toBe("dark-blue");
     expect(saved.locale).toBe("zh-CN");
@@ -147,6 +150,7 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       autoRestore: false,
+      autoWorkBuddyCheckin: true,
       debugMode: true,
       lastActiveSessionIds: [],
       themeId: "light",

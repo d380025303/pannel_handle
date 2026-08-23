@@ -2,7 +2,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 
-export function MarkdownBlock({ content, className, externalLinks = false }: { content: string; className?: string; externalLinks?: boolean }) {
+export function MarkdownBlock({ content, className, externalLinks = false, onLinkClick }: { content: string; className?: string; externalLinks?: boolean; onLinkClick?: (href: string) => void }) {
   if (!content || content === "-") {
     return <div className={className}>{content || "-"}</div>;
   }
@@ -11,14 +11,19 @@ export function MarkdownBlock({ content, className, externalLinks = false }: { c
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
-        components={externalLinks ? {
+        components={externalLinks || onLinkClick ? {
           a: ({ href, children, ...props }) => (
             <a
               {...props}
               href={href}
               onClick={(event) => {
                 event.preventDefault();
-                if (href) void window.externalLinkApi.open(href);
+                if (!href) return;
+                if (onLinkClick) {
+                  onLinkClick(href);
+                } else {
+                  void window.externalLinkApi.open(href);
+                }
               }}
             >
               {children}

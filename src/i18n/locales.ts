@@ -30,6 +30,7 @@ export type TranslationKey =
   | "settings.open"
   | "settings.generalTitle"
   | "settings.autoRestore"
+  | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.theme"
   | "settings.language"
@@ -696,6 +697,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "打开设置",
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
+    "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.theme": "主题",
     "settings.language": "语言",
@@ -1354,6 +1356,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "Open settings",
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
+    "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.theme": "Theme",
     "settings.language": "Language",

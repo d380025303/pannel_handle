@@ -18,7 +18,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -283,6 +283,9 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (partial && typeof partial.autoRestore === "boolean") {
       updates.autoRestore = partial.autoRestore;
     }
+    if (partial && typeof partial.autoWorkBuddyCheckin === "boolean") {
+      updates.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
+    }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
     }
@@ -299,7 +302,11 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);
     }
-    return configStore.getConfig();
+    const config = configStore.getConfig();
+    if (Object.prototype.hasOwnProperty.call(updates, "autoWorkBuddyCheckin")) {
+      workBuddyAutoCheckinService?.setEnabled(config.autoWorkBuddyCheckin);
+    }
+    return config;
   });
 
   ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());

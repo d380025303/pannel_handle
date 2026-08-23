@@ -24,6 +24,7 @@ const { createAgentUsageService } = require("./services/token-usage/agent-usage-
 const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
+const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
@@ -54,6 +55,7 @@ let mcpConfigService = null;
 let remoteAgentBridgeService = null;
 let agentUsageService = null;
 let workBuddyCheckinService = null;
+let workBuddyAutoCheckinService = null;
 let agentTokenStatsStore = null;
 let agentTokenStatsService = null;
 let sshHookTunnelService = null;
@@ -210,6 +212,25 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime
     });
     workBuddyCheckinService = createWorkBuddyCheckinService();
+    workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
+      checkinService: workBuddyCheckinService,
+      notifyFailure: (error) => {
+        const config = configStore.getConfig();
+        const isEnglish = config.locale === "en-US";
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        const message = rawMessage.replace(/[\r\n]+/g, " ").slice(0, 240);
+        console.error("WorkBuddy auto check-in failed:", message);
+        if (Notification.isSupported()) {
+          new Notification({
+            title: isEnglish ? "CodeBuddy auto check-in failed" : "CodeBuddy 自动签到失败",
+            body: isEnglish
+              ? `Please check your WorkBuddy login or network connection. ${message}`
+              : `请检查 WorkBuddy 登录状态或网络连接。${message}`,
+            silent: true
+          }).show();
+        }
+      }
+    });
     agentTokenStatsService = createAgentTokenStatsService({
       terminalManager,
       statsStore: agentTokenStatsStore,
@@ -359,6 +380,7 @@ if (!gotSingleInstanceLock) {
       mcpConfigService,
       agentUsageService,
       workBuddyCheckinService,
+      workBuddyAutoCheckinService,
       agentTokenStatsStore,
       agentTokenStatsService,
       hookConfigManager,
@@ -368,6 +390,7 @@ if (!gotSingleInstanceLock) {
       remoteAgentBridgeService
     });
     windowManager.createWindow();
+    workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -401,6 +424,9 @@ app.on("window-all-closed", () => {
   }
   if (agentUsageService) {
     agentUsageService.shutdown();
+  }
+  if (workBuddyAutoCheckinService) {
+    workBuddyAutoCheckinService.shutdown();
   }
   if (agentTokenStatsService) {
     agentTokenStatsService.shutdown();

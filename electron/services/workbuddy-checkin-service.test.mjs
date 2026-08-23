@@ -179,16 +179,34 @@ describe("workbuddy-checkin-service", () => {
     ]);
   });
 
+  it("shares an in-flight claim between manual and automatic callers", async () => {
+    const transportFactory = vi.fn(() => createAcpTransport());
+    const { calls, httpsRequest } = createHttpsSequence([
+      { body: { code: 0, data: statusData() } },
+      { body: { code: 0, data: { success: true } } },
+      { body: { code: 0, data: statusData({ today_checked_in: true, today_credit: 100 }) } }
+    ]);
+    const service = createWorkBuddyCheckinService({ transportFactory, httpsRequest, timeoutMs: 1000 });
+
+    const [first, second] = await Promise.all([service.claim(), service.claim()]);
+
+    expect(first).toEqual(second);
+    expect(transportFactory).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(3);
+  });
+
   it("reports expired login, inactive activity, and invalid responses", async () => {
     const expired = createHttpsSequence([{ statusCode: 401, body: {} }]);
-    await expect(requestWorkBuddyJson({
+    const expiredError = await requestWorkBuddyJson({
       path: WORKBUDDY_STATUS_PATH,
       token: "secret-token",
       userId: "user-1",
       timeoutMs: 1000,
       maxOutputBytes: 4096,
       httpsRequest: expired.httpsRequest
-    })).rejects.toThrow("expired");
+    }).catch(error => error);
+    expect(expiredError).toMatchObject({ code: "login-expired", retryable: false });
+    expect(expiredError.message).toContain("expired");
 
     const inactive = createHttpsSequence([{ body: { code: 0, data: statusData({ active: false }) } }]);
     await expect(createWorkBuddyCheckinService({

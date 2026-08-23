@@ -15,6 +15,7 @@ function normalizeLocale(locale) {
 function createConfigStore({ configFile }) {
   let config = {
     autoRestore: true,
+    autoWorkBuddyCheckin: true,
     debugMode: false,
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
@@ -25,6 +26,7 @@ function createConfigStore({ configFile }) {
   function serializeConfig() {
     return {
       autoRestore: config.autoRestore,
+      autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       debugMode: config.debugMode,
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
@@ -40,6 +42,7 @@ function createConfigStore({ configFile }) {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         config = {
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
+          autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
@@ -71,6 +74,7 @@ function createConfigStore({ configFile }) {
   function getConfig() {
     return {
       autoRestore: config.autoRestore,
+      autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       debugMode: config.debugMode,
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
@@ -83,6 +87,9 @@ function createConfigStore({ configFile }) {
     if (partial && typeof partial === "object") {
       if (typeof partial.autoRestore === "boolean") {
         config.autoRestore = partial.autoRestore;
+      }
+      if (typeof partial.autoWorkBuddyCheckin === "boolean") {
+        config.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;

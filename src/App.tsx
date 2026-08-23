@@ -99,6 +99,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showMcp, setShowMcp] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
@@ -202,6 +203,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     window.terminalApi.getConfig().then((config) => {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
+        setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
@@ -448,6 +450,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     await window.terminalApi.setConfig({ debugMode: next });
     setDebugMode(next);
   }, []);
+
+  const handleToggleAutoWorkBuddyCheckin = useCallback(async () => {
+    const config = await window.terminalApi.setConfig({ autoWorkBuddyCheckin: !autoWorkBuddyCheckin });
+    setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
+  }, [autoWorkBuddyCheckin]);
 
   const handleThemeChange = useCallback(async (nextThemeId: ThemeId) => {
     const config = await window.terminalApi.setConfig({ themeId: nextThemeId });
@@ -839,11 +846,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       {showSettingsModal && (
         <SettingsModal
           autoRestore={terminalSessions.autoRestore}
+          autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           debugMode={debugMode}
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
+          onToggleAutoWorkBuddyCheckin={handleToggleAutoWorkBuddyCheckin}
           onToggleDebugMode={handleToggleDebugMode}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}

@@ -80,6 +80,7 @@ export type Locale = "zh-CN" | "en-US";
 
 export type AppConfig = {
   autoRestore: boolean;
+  autoWorkBuddyCheckin: boolean;
   debugMode: boolean;
   lastActiveSessionIds: string[];
   themeId: ThemeId;

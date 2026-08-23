@@ -6,6 +6,7 @@ import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { RemoteCodeEditor, type RemoteCodeEditorViewport, type RemoteCodeLanguageMode } from "./RemoteCodeEditor";
 import { beginInputInterruption, endInputInterruption, INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
+import { resolveMarkdownLink } from "../../utils/markdownLink";
 import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
@@ -454,7 +455,9 @@ export function RemoteFilePanel({
   useEffect(() => {
     if (!activePreviewTab) return;
     if (!previewMatches.length) {
-      updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, activePreviewMatch: 0 }));
+      if (activePreviewMatch !== 0) {
+        updatePreviewTab(activePreviewTab.id, (tab) => ({ ...tab, activePreviewMatch: 0 }));
+      }
       return;
     }
     if (activePreviewMatch >= previewMatches.length) {
@@ -931,6 +934,27 @@ export function RemoteFilePanel({
       }));
     }
   }, [expandedPaths, loadTreeDirectory, onActivePreviewTabChange, onCurrentPathChange, sessionId, updatePreviewTab]);
+
+  const handleMarkdownLink = useCallback(async (sourcePath: string, href: string) => {
+    const target = resolveMarkdownLink(sourcePath, href);
+    if (target.kind === "ignore") return;
+    if (target.kind === "external") {
+      void window.externalLinkApi.open(target.url);
+      return;
+    }
+
+    const targetDirectory = parentTreePath(target.path);
+    const nextEntries = await loadDirectory(targetDirectory, true, true);
+    if (!nextEntries) return;
+    const entry = nextEntries.find((item) => sameTreePath(item.path, target.path)) || {
+      name: baseName(target.path),
+      path: target.path,
+      type: "file" as const,
+      size: 0,
+      modifiedAt: 0
+    };
+    await handleOpenEntry(entry, true);
+  }, [handleOpenEntry, loadDirectory]);
 
   useEffect(() => {
     if (!openRequest || !sessionId || openRequest.sessionId !== sessionId) {
@@ -2008,7 +2032,11 @@ export function RemoteFilePanel({
             activePreview.preview.kind === "text" ? (
               viewMode === "preview" && isMarkdownFile(activePreview.fileName) ? (
                 <div className="remote-preview-markdown">
-                  <MarkdownBlock className="remote-preview-markdown-content" content={editorContent} />
+                  <MarkdownBlock
+                    className="remote-preview-markdown-content"
+                    content={editorContent}
+                    onLinkClick={(href) => void handleMarkdownLink(activePreview.path, href)}
+                  />
                 </div>
               ) : (
                 <>

@@ -11,18 +11,37 @@ const WORKBUDDY_CLAIM_PATH = "/v2/billing/meter/daily-checkin";
 const DEFAULT_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
 
+class WorkBuddyCheckinError extends Error {
+  constructor(message, { code = "checkin-failed", retryable = true } = {}) {
+    super(message);
+    this.name = "WorkBuddyCheckinError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+function createCheckinError(message, options) {
+  return new WorkBuddyCheckinError(message, options);
+}
+
 function getWorkBuddyInvocation({
   localAppData = process.env.LOCALAPPDATA,
   existsSync = fs.existsSync
 } = {}) {
   if (!localAppData) {
-    throw new Error("WorkBuddy installation could not be located.");
+    throw createCheckinError("WorkBuddy installation could not be located.", {
+      code: "installation-missing",
+      retryable: false
+    });
   }
   const installRoot = path.join(localAppData, "Programs", "WorkBuddy");
   const command = path.join(installRoot, "WorkBuddy.exe");
   const cliScript = path.join(installRoot, "resources", "app.asar.unpacked", "cli", "bin", "codebuddy");
   if (!existsSync(command) || !existsSync(cliScript)) {
-    throw new Error("WorkBuddy is not installed in the current Windows account.");
+    throw createCheckinError("WorkBuddy is not installed in the current Windows account.", {
+      code: "installation-missing",
+      retryable: false
+    });
   }
   return {
     command,
@@ -91,7 +110,7 @@ function requestWorkBuddyJson({
     let request;
     const timer = setTimeout(() => {
       request?.destroy();
-      finish(new Error("WorkBuddy check-in request timed out."));
+      finish(createCheckinError("WorkBuddy check-in request timed out.", { code: "timeout" }));
     }, timeoutMs);
 
     function finish(error, result) {
@@ -118,7 +137,10 @@ function requestWorkBuddyJson({
         outputBytes += Buffer.byteLength(Buffer.isBuffer(chunk) ? chunk : String(chunk || ""));
         if (outputBytes > maxOutputBytes) {
           request.destroy();
-          finish(new Error("WorkBuddy check-in response exceeded the allowed size."));
+          finish(createCheckinError("WorkBuddy check-in response exceeded the allowed size.", {
+            code: "response-too-large",
+            retryable: false
+          }));
           return;
         }
         output += Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk || "");
@@ -126,17 +148,27 @@ function requestWorkBuddyJson({
       response.on("end", () => {
         if (settled) return;
         if (response.statusCode === 401 || response.statusCode === 403) {
-          finish(new Error("WorkBuddy login has expired. Please sign in to WorkBuddy again."));
+          finish(createCheckinError("WorkBuddy login has expired. Please sign in to WorkBuddy again.", {
+            code: "login-expired",
+            retryable: false
+          }));
           return;
         }
         if (response.statusCode !== 200) {
-          finish(new Error(`WorkBuddy check-in service returned HTTP ${response.statusCode || 0}.`));
+          const statusCode = response.statusCode || 0;
+          finish(createCheckinError(`WorkBuddy check-in service returned HTTP ${statusCode}.`, {
+            code: "http-error",
+            retryable: statusCode >= 500 || statusCode === 0
+          }));
           return;
         }
         try {
           finish(undefined, JSON.parse(output));
         } catch {
-          finish(new Error("WorkBuddy returned an invalid check-in response."));
+          finish(createCheckinError("WorkBuddy returned an invalid check-in response.", {
+            code: "invalid-response",
+            retryable: true
+          }));
         }
       });
     });
@@ -150,7 +182,11 @@ function normalizeWorkBuddyCheckinStatus(result) {
     const message = typeof result?.msg === "string" && result.msg.trim()
       ? result.msg.trim()
       : "WorkBuddy rejected the check-in status request.";
-    throw new Error(message);
+    const rejected = result?.code !== 0;
+    throw createCheckinError(message, {
+      code: rejected ? "status-rejected" : "invalid-response",
+      retryable: !rejected
+    });
   }
   const data = result.data;
   const weekProgress = Array.isArray(data.week_progress)
@@ -172,7 +208,7 @@ function assertClaimSucceeded(result) {
   const message = typeof result?.msg === "string" && result.msg.trim()
     ? result.msg.trim()
     : "WorkBuddy rejected the daily check-in request.";
-  throw new Error(message);
+  throw createCheckinError(message, { code: "claim-rejected", retryable: false });
 }
 
 function createWorkBuddyCheckinService({
@@ -181,9 +217,21 @@ function createWorkBuddyCheckinService({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES
 } = {}) {
+  let claimInFlight = null;
+
   async function getCredentials() {
-    const transport = transportFactory();
-    return runCodeBuddyUserInfoRequest(transport, { timeoutMs, maxOutputBytes });
+    try {
+      const transport = transportFactory();
+      return await runCodeBuddyUserInfoRequest(transport, { timeoutMs, maxOutputBytes });
+    } catch (error) {
+      if (error instanceof WorkBuddyCheckinError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const loginUnavailable = /login|sign in|unauthori[sz]ed|credential/i.test(message);
+      throw createCheckinError(message, {
+        code: loginUnavailable ? "login-expired" : "credentials-unavailable",
+        retryable: !loginUnavailable
+      });
+    }
   }
 
   async function requestStatus(credentials) {
@@ -201,14 +249,17 @@ function createWorkBuddyCheckinService({
     return requestStatus(await getCredentials());
   }
 
-  async function claim() {
+  async function performClaim() {
     const credentials = await getCredentials();
     const current = await requestStatus(credentials);
     if (current.todayCheckedIn) {
       return { alreadyCheckedIn: true, status: current };
     }
     if (!current.active) {
-      throw new Error("The WorkBuddy daily check-in activity is not active.");
+      throw createCheckinError("The WorkBuddy daily check-in activity is not active.", {
+        code: "activity-inactive",
+        retryable: false
+      });
     }
     const result = await requestWorkBuddyJson({
       path: WORKBUDDY_CLAIM_PATH,
@@ -224,12 +275,22 @@ function createWorkBuddyCheckinService({
     };
   }
 
+  function claim() {
+    if (!claimInFlight) {
+      claimInFlight = performClaim().finally(() => {
+        claimInFlight = null;
+      });
+    }
+    return claimInFlight;
+  }
+
   return { getStatus, claim };
 }
 
 module.exports = {
   DEFAULT_MAX_OUTPUT_BYTES,
   DEFAULT_TIMEOUT_MS,
+  WorkBuddyCheckinError,
   WORKBUDDY_CLAIM_PATH,
   WORKBUDDY_HOST,
   WORKBUDDY_STATUS_PATH,

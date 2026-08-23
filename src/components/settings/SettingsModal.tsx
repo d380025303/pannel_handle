@@ -7,11 +7,13 @@ import { MobileAccessSettings } from "./MobileAccessSettings";
 
 type SettingsModalProps = {
   autoRestore: boolean;
+  autoWorkBuddyCheckin: boolean;
   debugMode: boolean;
   themeId: ThemeId;
   locale: Locale;
   themes: AppTheme[];
   onToggleAutoRestore: () => void;
+  onToggleAutoWorkBuddyCheckin: () => void;
   onToggleDebugMode: () => void;
   onThemeChange: (themeId: ThemeId) => void;
   onLocaleChange: (locale: Locale) => void;
@@ -20,11 +22,13 @@ type SettingsModalProps = {
 
 export function SettingsModal({
   autoRestore,
+  autoWorkBuddyCheckin,
   debugMode,
   themeId,
   locale,
   themes,
   onToggleAutoRestore,
+  onToggleAutoWorkBuddyCheckin,
   onToggleDebugMode,
   onThemeChange,
   onLocaleChange,
@@ -158,6 +162,16 @@ export function SettingsModal({
                   />
                   <span className="auto-restore-track" />
                   <span className="auto-restore-text">{t("settings.autoRestore")}</span>
+                </label>
+                <label className="auto-restore-label">
+                  <input
+                    type="checkbox"
+                    className="auto-restore-checkbox"
+                    checked={autoWorkBuddyCheckin}
+                    onChange={onToggleAutoWorkBuddyCheckin}
+                  />
+                  <span className="auto-restore-track" />
+                  <span className="auto-restore-text">{t("settings.autoWorkBuddyCheckin")}</span>
                 </label>
                 <label className="auto-restore-label">
                   <input

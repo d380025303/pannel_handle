@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import { APP_THEMES } from "../../themes";
@@ -10,20 +11,24 @@ vi.mock("./MobileAccessSettings", () => ({
   MobileAccessSettings: () => null
 }));
 
-function renderSettingsModal() {
+function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsModal>> = {}) {
+  const onToggleAutoWorkBuddyCheckin = vi.fn();
   return render(
     <I18nProvider locale="zh-CN">
       <SettingsModal
         autoRestore
+        autoWorkBuddyCheckin
         debugMode={false}
         themeId="dark-slate"
         locale="zh-CN"
         themes={APP_THEMES}
         onToggleAutoRestore={vi.fn()}
+        onToggleAutoWorkBuddyCheckin={onToggleAutoWorkBuddyCheckin}
         onToggleDebugMode={vi.fn()}
         onThemeChange={vi.fn()}
         onLocaleChange={vi.fn()}
         onCancel={vi.fn()}
+        {...overrides}
       />
     </I18nProvider>
   );
@@ -49,6 +54,16 @@ describe("SettingsModal collapsible sections", () => {
 
     expect(screen.getByRole("button", { name: "常用配置" }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("启动时自动恢复")).toBeTruthy();
+  });
+
+  it("toggles CodeBuddy automatic check-in", () => {
+    const onToggleAutoWorkBuddyCheckin = vi.fn();
+    renderSettingsModal({ onToggleAutoWorkBuddyCheckin });
+
+    const toggle = screen.getByRole("checkbox", { name: "CodeBuddy 自动签到" });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(onToggleAutoWorkBuddyCheckin).toHaveBeenCalledTimes(1);
   });
 
   it("supports click and Enter while keeping aria-expanded in sync", () => {
