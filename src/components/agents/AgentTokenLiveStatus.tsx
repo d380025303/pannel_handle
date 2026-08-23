@@ -12,11 +12,12 @@ function formatTokens(value: number, locale: string) {
   }).format(value);
 }
 
-function providerName(provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen" | "copilot") {
+function providerName(provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini") {
   if (provider === "codebuddy") return "CodeBuddy";
   if (provider === "qoder") return "Qoder";
-  if (provider === "qwen") return "Qwen Code";
   if (provider === "copilot") return "GitHub Copilot";
+  if (provider === "qwen") return "Qwen Code";
+  if (provider === "gemini") return "Gemini CLI";
   return provider === "codex" ? "Codex" : "Claude";
 }
 

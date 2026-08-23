@@ -5,6 +5,14 @@ const require = createRequire(import.meta.url);
 const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it("parses Gemini user and assistant messages and deduplicates updates", () => {
+    const messages = parseAgentConversationText("gemini", [
+      JSON.stringify({ id: "u1", type: "user", content: "问题", timestamp: "2026-01-01T00:00:00Z" }),
+      JSON.stringify({ id: "a1", type: "gemini", content: "答案", timestamp: "2026-01-01T00:00:01Z" }),
+      JSON.stringify({ id: "a1", type: "gemini", content: "答案更新", timestamp: "2026-01-01T00:00:02Z" })
+    ].join("\n"), { includeUser: true });
+    expect(messages.map(message => [message.kind, message.text])).toEqual([["user", "问题"], ["reply", "答案"]]);
+  });
   it("parses user-visible Codex history while excluding reasoning and tools", () => {
     const messages = parseAgentConversationText("codex", [
       JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00Z", payload: { id: "u1", type: "message", role: "user", content: [{ type: "input_text", text: "question" }] } }),

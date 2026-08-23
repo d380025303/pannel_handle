@@ -112,6 +112,12 @@ describe("agent-notification-manager", () => {
     expect(notifications[0].options.title).toMatch(/^Qwen Code /);
   });
 
+  it("uses the Gemini CLI provider name", () => {
+    const { manager, notifications } = createHarness();
+    manager.handleStatus(status("completed", "gemini"));
+    expect(notifications[0].options.title).toMatch(/^Gemini CLI /);
+  });
+
   it("uses the CodeBuddy provider name", () => {
     const { manager, notifications } = createHarness();
 

@@ -109,6 +109,23 @@ function normalizeQwenUsage(usage) {
   };
 }
 
+function normalizeGeminiUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const reportedInput = safeInteger(usage.input ?? usage.inputTokens ?? usage.promptTokenCount);
+  const cachedInputTokens = safeInteger(usage.cached ?? usage.cachedInputTokens ?? usage.cachedContentTokenCount);
+  const inputTokens = Math.max(0, reportedInput - cachedInputTokens);
+  const outputTokens = safeInteger(usage.output ?? usage.outputTokens ?? usage.candidatesTokenCount);
+  const reasoningOutputTokens = safeInteger(usage.thoughts ?? usage.reasoningOutputTokens ?? usage.thoughtsTokenCount);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens: 0,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: safeInteger(usage.total ?? usage.totalTokens ?? usage.totalTokenCount) || reportedInput + outputTokens
+  };
+}
+
 function sumUsageDetail(details, field) {
   if (!Array.isArray(details)) return 0;
   return details.reduce((total, detail) => total + safeInteger(detail?.[field]), 0);
@@ -242,7 +259,7 @@ function codexToolOutputSucceeded(payload) {
 }
 
 function createIncrementalTranscriptParser(provider) {
-  if (!["codex", "claude", "codebuddy", "qoder", "qwen"].includes(provider)) {
+  if (!["codex", "claude", "codebuddy", "qoder", "qwen", "gemini"].includes(provider)) {
     throw new Error(`Unsupported live token provider: ${provider}`);
   }
   let latestCodexTokens = null;
@@ -250,6 +267,7 @@ function createIncrementalTranscriptParser(provider) {
   const codeBuddyMessages = new Map();
   const qoderMessages = new Map();
   const qwenMessages = new Map();
+  const geminiMessages = new Map();
   const models = new Set();
   const skillCalls = new Map();
   const mcpCalls = new Map();
@@ -362,6 +380,36 @@ function createIncrementalTranscriptParser(provider) {
     return changed;
   }
 
+  function recordGeminiMessage(item) {
+    if (!item || item.type !== "gemini") return false;
+    const messageId = String(item.id || "").trim();
+    if (!messageId) return false;
+    geminiMessages.set(messageId, normalizeGeminiUsage(item.tokens));
+    if (item.model) models.add(String(item.model));
+    for (const [index, call] of (Array.isArray(item.toolCalls) ? item.toolCalls : []).entries()) {
+      recordToolCall(call?.name, call?.args ?? call?.arguments, call?.id || messageId, index);
+    }
+    return true;
+  }
+
+  function applyGeminiRecord(item) {
+    if (Array.isArray(item?.$set?.messages)) {
+      geminiMessages.clear();
+      for (const message of item.$set.messages) recordGeminiMessage(message);
+      return true;
+    }
+    const rewindId = item?.$rewindTo?.id ?? item?.$rewindTo;
+    if (rewindId) {
+      let remove = false;
+      for (const id of [...geminiMessages.keys()]) {
+        if (id === String(rewindId)) remove = true;
+        if (remove) geminiMessages.delete(id);
+      }
+      return true;
+    }
+    return recordGeminiMessage(item);
+  }
+
   function pushLine(line) {
     let item;
     try { item = JSON.parse(line); } catch { return false; }
@@ -405,6 +453,8 @@ function createIncrementalTranscriptParser(provider) {
       return true;
     }
 
+    if (provider === "gemini") return applyGeminiRecord(item);
+
     const providerData = item?.providerData;
     const capabilityChanged = recordCodeBuddyTools(item);
     const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
@@ -422,7 +472,15 @@ function createIncrementalTranscriptParser(provider) {
         ? { tokens: cloneTokens(latestCodexTokens || emptyTokens()), models: [...models], capabilities }
         : null;
     }
-    const messages = provider === "claude" ? claudeMessages : provider === "qoder" ? qoderMessages : provider === "qwen" ? qwenMessages : codeBuddyMessages;
+    const messages = provider === "claude"
+      ? claudeMessages
+      : provider === "qoder"
+        ? qoderMessages
+        : provider === "qwen"
+          ? qwenMessages
+          : provider === "gemini"
+            ? geminiMessages
+            : codeBuddyMessages;
     if (messages.size === 0 && !capabilities.skills.totalCalls && !capabilities.mcp.totalCalls) return null;
     const tokens = emptyTokens();
     for (const usage of messages.values()) addTokens(tokens, usage);
@@ -438,11 +496,25 @@ function cloneTokens(tokens) {
 
 function parseTranscriptText(provider, text) {
   const lines = String(text || "").split(/\r?\n/).filter(Boolean);
-  if (["codex", "claude", "codebuddy", "qoder", "qwen"].includes(provider)) {
+  if (["codex", "claude", "codebuddy", "qoder", "qwen", "gemini"].includes(provider)) {
     const parser = createIncrementalTranscriptParser(provider);
+    if (provider === "gemini") {
+      try {
+        const legacy = JSON.parse(String(text || ""));
+        if (Array.isArray(legacy)) {
+          parser.pushLine(JSON.stringify({ $set: { messages: legacy } }));
+          const result = parser.getResult();
+          if (result) return result;
+        } else if (Array.isArray(legacy?.messages)) {
+          parser.pushLine(JSON.stringify({ $set: { messages: legacy.messages } }));
+          const result = parser.getResult();
+          if (result) return result;
+        }
+      } catch { /* Current Gemini transcripts are JSONL. */ }
+    }
     for (const line of lines) parser.pushLine(line);
     const result = parser.getResult();
-    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "qwen" ? "Qwen Code" : "CodeBuddy"} transcript does not contain usage yet.`);
+    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "qwen" ? "Qwen Code" : provider === "gemini" ? "Gemini CLI" : "CodeBuddy"} transcript does not contain usage yet.`);
     return result;
   }
 
@@ -465,6 +537,7 @@ module.exports = {
   normalizeCodeBuddyUsage,
   normalizeQoderTokenUsage,
   normalizeQwenUsage,
+  normalizeGeminiUsage,
   normalizeCapabilityUsage,
   normalizeCodexUsage,
   parseTranscriptFile,

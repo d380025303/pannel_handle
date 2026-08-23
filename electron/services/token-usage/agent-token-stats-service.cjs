@@ -19,8 +19,8 @@ const { createCopilotOtelParser, getCopilotOtelPath } = require("./copilot-otel.
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen", "copilot"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen", "copilot"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -193,7 +193,7 @@ function createAgentTokenStatsService({
     tracker.offset = 0;
     tracker.pendingBytes = Buffer.alloc(0);
     tracker.parser = tracker.provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(tracker.provider);
-    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy"
+    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini"
       ? createAgentConversationTranscriptParser(tracker.provider)
       : null;
   }
@@ -217,7 +217,7 @@ function createAgentTokenStatsService({
         offset: 0,
         pendingBytes: Buffer.alloc(0),
         parser: provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(provider),
-        conversationParser: provider === "codex" || provider === "codebuddy"
+        conversationParser: provider === "codex" || provider === "codebuddy" || provider === "gemini"
           ? createAgentConversationTranscriptParser(provider)
           : null,
         conversationActive: false,
@@ -419,14 +419,14 @@ function createAgentTokenStatsService({
     emitLive(tracker);
   }
 
-  function getCodexStopFinalMessage(provider, input) {
-    if (provider !== "codex") return null;
-    const text = input?.last_assistant_message ?? input?.lastAssistantMessage;
+  function getStopFinalMessage(provider, input) {
+    if (provider !== "codex" && provider !== "gemini") return null;
+    const text = input?.prompt_response ?? input?.last_assistant_message ?? input?.lastAssistantMessage;
     if (typeof text !== "string" || !text.trim()) return null;
     const messageId = input?.event_id || input?.eventId || input?.turn_id || input?.turnId;
     return {
       id: `stop:${messageId || now()}`,
-      provider: "codex",
+      provider,
       text: text.trim(),
       timestamp: now()
     };
@@ -446,12 +446,12 @@ function createAgentTokenStatsService({
       if (TOKEN_STATS_PROVIDERS.includes(provider) && agentSessionId) {
         const key = `${provider}:${agentSessionId}`;
         if (!startedAtBySession.has(key)) startedAtBySession.set(key, now());
-        if (provider !== "copilot" && (eventName === "SessionStart" || eventName === "UserPromptSubmit")) captureBaseline({ provider, input, session });
+        if (provider !== "copilot" && (eventName === "SessionStart" || eventName === "UserPromptSubmit" || eventName === "BeforeAgent")) captureBaseline({ provider, input, session });
       }
 
       const tracker = ensureLiveTracker({ provider, input, session });
       if (tracker && eventName === "SessionStart") void pollLive(tracker);
-      if ((provider === "codex" || provider === "codebuddy") && eventName === "UserPromptSubmit") {
+      if ((provider === "codex" || provider === "codebuddy" || provider === "gemini") && (eventName === "UserPromptSubmit" || eventName === "BeforeAgent")) {
         conversationSink?.startTurn?.({
           sessionId: session.id,
           sessionTitle: session.title,
@@ -462,15 +462,15 @@ function createAgentTokenStatsService({
           timestamp: now()
         });
       }
-      if (tracker && eventName === "UserPromptSubmit") void startLiveTurn(tracker);
-      if (tracker && eventName === "Stop") {
-        const finalMessage = getCodexStopFinalMessage(provider, input);
+      if (tracker && (eventName === "UserPromptSubmit" || eventName === "BeforeAgent")) void startLiveTurn(tracker);
+      if (tracker && (eventName === "Stop" || eventName === "AfterAgent")) {
+        const finalMessage = getStopFinalMessage(provider, input);
         void completeLiveTurn(tracker).finally(() => completeConversationTurn(session.id, finalMessage));
-      } else if ((provider === "codex" || provider === "codebuddy") && eventName === "Stop") {
-        completeConversationTurn(session.id, getCodexStopFinalMessage(provider, input));
+      } else if ((provider === "codex" || provider === "codebuddy" || provider === "gemini") && (eventName === "Stop" || eventName === "AfterAgent")) {
+        completeConversationTurn(session.id, getStopFinalMessage(provider, input));
       }
 
-      if (provider !== "copilot" && (eventName === "Stop" || eventName === "SessionEnd")) collect({ provider, input, session });
+      if (provider !== "copilot" && (eventName === "Stop" || eventName === "AfterAgent" || eventName === "SessionEnd")) collect({ provider, input, session });
     },
     getLive(panelSessionId) {
       const tracker = liveTrackers.get(String(panelSessionId || ""));

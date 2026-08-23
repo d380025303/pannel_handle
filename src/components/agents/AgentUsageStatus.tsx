@@ -58,6 +58,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const isCodeBuddy = provider === "codebuddy";
   const isQoder = provider === "qoder";
   const isCopilot = provider === "copilot";
+  const isGemini = provider === "gemini";
   const isCreditProvider = isCodeBuddy || isQoder;
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
     ? state.snapshot.summary
@@ -132,7 +133,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
     return (
       <div className="agent-usage-status loading" role="status">
         <LoaderCircle className="spin" aria-hidden="true" />
-        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : isQoder ? "usage.qoderLoading" : "usage.loading")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : isQoder ? "usage.qoderLoading" : isGemini ? "usage.geminiLoading" : "usage.loading")}</span>
       </div>
     );
   }
@@ -142,12 +143,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : "usage.retry")}
+        title={t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
         onClick={onRefresh}
         disabled={isCopilot}
       >
         <Gauge aria-hidden="true" />
-        <span>{t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : "usage.unavailable")}</span>
+        <span>{t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : isGemini ? "usage.geminiUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }
@@ -160,7 +161,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const triggerLabel = creditSummary
     ? t(isQoder ? "usage.qoderRemaining" : "usage.codebuddyRemaining", { remaining: formatAmount(locale, creditSummary.remaining) })
     : t("usage.remaining", { remaining: primaryLimit?.remainingPercent ?? 0 });
-  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : isQoder ? "usage.qoderTitle" : "usage.title");
+  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : isQoder ? "usage.qoderTitle" : isGemini ? "usage.geminiTitle" : "usage.title");
   const groupedLimits = state.status === "ready" && isCreditProvider
     ? (["base", "extra", "bonus", "organization", "other"] as const)
       .map(category => ({ category, limits: state.snapshot.limits.filter(limit => limit.category === category) }))

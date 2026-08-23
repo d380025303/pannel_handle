@@ -9,8 +9,8 @@ const {
   safeInteger
 } = require("../services/token-usage/agent-token-transcript.cjs");
 
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen", "copilot"];
-const SCHEMA_VERSION = 4;
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
+const SCHEMA_VERSION = 5;
 const LEGACY_STORE_VERSIONS = [1, 2];
 const TOKEN_COLUMNS = {
   inputTokens: "input_tokens",
@@ -119,7 +119,7 @@ function createAgentTokenStatsStore({
 
       CREATE TABLE IF NOT EXISTS token_sessions (
         id TEXT PRIMARY KEY,
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen', 'copilot')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen', 'gemini')),
         agent_session_id TEXT NOT NULL,
         panel_session_id TEXT NOT NULL,
         template_id TEXT,
@@ -169,13 +169,13 @@ function createAgentTokenStatsStore({
 
       CREATE TABLE IF NOT EXISTS token_daily (
         date TEXT NOT NULL,
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen', 'copilot')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen', 'gemini')),
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
         PRIMARY KEY (date, provider)
       );
 
       CREATE TABLE IF NOT EXISTS token_baselines (
-        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen', 'copilot')),
+        provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen', 'gemini')),
         agent_session_id TEXT NOT NULL,
         ${TOKEN_FIELDS.map(field => `${TOKEN_COLUMNS[field]} INTEGER NOT NULL DEFAULT 0`).join(",\n        ")},
         capabilities_json TEXT NOT NULL,
@@ -401,15 +401,22 @@ function createAgentTokenStatsStore({
       if (currentVersion <= 2) {
         migrateProviderConstraints(
           "provider IN ('codex', 'claude', 'codebuddy', 'qoder')",
-          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot')",
           "v3"
         );
       }
       if (currentVersion <= 3) {
         migrateProviderConstraints(
-          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')",
-          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen', 'copilot')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen')",
           "v4"
+        );
+      }
+      if (currentVersion <= 4) {
+        migrateProviderConstraints(
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen')",
+          "provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen', 'gemini')",
+          "v5"
         );
       }
       createSchema();

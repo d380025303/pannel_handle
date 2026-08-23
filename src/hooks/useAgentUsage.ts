@@ -7,19 +7,20 @@ export const QODER_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 
 export type AgentUsageViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" }
+  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot"
+  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini"
     ? session.agentProvider
     : undefined;
   const isSupported = provider === "codex"
     || provider === "copilot"
     || (provider === "codebuddy" && session?.type === "windows")
-    || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"));
+    || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
+    || (provider === "gemini" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });
   const requestSequenceRef = useRef(0);
   const sessionIdRef = useRef(sessionId);

@@ -82,33 +82,39 @@ describe("agent-session-launcher", () => {
       codebuddy: "codebuddy",
       opencode: "opencode",
       qoder: "qoder",
+      copilot: "copilot",
       qwen: "qwen",
-      copilot: "copilot"
+      gemini: "gemini"
     });
   });
 
-  it("starts Qwen Code on Windows and shows its official install command when missing", async () => {
-    const mocks = createMocks();
+  it("requires Gemini CLI 0.26.0 or newer on Windows", async () => {
+    const old = createMocks({
+      spawnSync: vi.fn((command) => command === "where.exe"
+        ? { status: 0, stdout: "gemini.cmd" }
+        : { status: 0, stdout: "0.25.9" })
+    });
+    await expect(old.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "gemini" }))
+      .rejects.toThrow("最低 0.26.0");
 
-    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "qwen" });
-    expect(mocks.spawnSync).toHaveBeenCalledWith("where.exe", ["qwen"], expect.any(Object));
-    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
-      agentProvider: "qwen",
-      runtimeInitialCommand: expect.stringContaining("qwen")
-    }));
-
-    const missing = createMocks();
-    missing.spawnSync.mockReturnValue({ status: 1 });
-    await expect(missing.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "qwen" }))
-      .rejects.toThrow("npm install -g @qwen-code/qwen-code");
+    const current = createMocks({
+      spawnSync: vi.fn((command) => command === "where.exe"
+        ? { status: 0, stdout: "gemini.cmd" }
+        : { status: 0, stdout: "0.56.0" })
+    });
+    await expect(current.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "gemini" })).resolves.toMatchObject({ agentProvider: "gemini" });
   });
 
-  it("rejects Qwen Code SSH sessions before creating a terminal", async () => {
-    const mocks = createMocks();
-
-    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qwen", sshConfig: { host: "example.com" } }))
-      .rejects.toThrow("Qwen Code 首期仅支持 Windows 和 WSL 会话");
-    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  it("rejects Windows Gemini shims and SSH Gemini sessions", async () => {
+    const wsl = createMocks({
+      spawnSync: vi.fn((command, args) => command === "wsl.exe" && String(args.at(-1)).includes("resolved=")
+        ? { status: 126, stderr: "WINDOWS_SHIM" }
+        : { status: 0, stdout: "/mnt/c/Users/me/gemini" })
+    });
+    await expect(wsl.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "gemini" }))
+      .rejects.toThrow("原生 Gemini CLI");
+    await expect(wsl.launcher.createSession({ type: "ssh", cwd: "/work", agentProvider: "gemini" }))
+      .rejects.toThrow("仅支持 Windows 和 WSL");
   });
 
   it("uses cmd syntax for a Windows Agent pre-command", () => {
@@ -255,6 +261,30 @@ describe("agent-session-launcher", () => {
 
     await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "copilot", sshConfig: { host: "example.com" } }))
       .rejects.toThrow("GitHub Copilot CLI 首期仅支持 Windows 和 WSL 会话");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
+  it("starts Qwen Code on Windows and shows its official install command when missing", async () => {
+    const mocks = createMocks();
+
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "qwen" });
+    expect(mocks.spawnSync).toHaveBeenCalledWith("where.exe", ["qwen"], expect.any(Object));
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: "qwen",
+      runtimeInitialCommand: expect.stringContaining("qwen")
+    }));
+
+    const missing = createMocks();
+    missing.spawnSync.mockReturnValue({ status: 1 });
+    await expect(missing.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "qwen" }))
+      .rejects.toThrow("npm install -g @qwen-code/qwen-code");
+  });
+
+  it("rejects Qwen Code SSH sessions before creating a terminal", async () => {
+    const mocks = createMocks();
+
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qwen", sshConfig: { host: "example.com" } }))
+      .rejects.toThrow("Qwen Code 首期仅支持 Windows 和 WSL 会话");
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
 

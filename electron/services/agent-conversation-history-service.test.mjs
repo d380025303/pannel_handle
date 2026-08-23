@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import historyModule from "./agent-conversation-history-service.cjs";
 
@@ -41,6 +42,19 @@ function createFixture() {
     JSON.stringify({ id: "reason", timestamp: 260000, type: "reasoning", content: [{ type: "output_text", text: "private" }], cwd: "c:\\work" }),
     JSON.stringify({ id: "title", timestamp: 270000, type: "ai-title", aiTitle: "Buddy title", cwd: "c:\\work" }),
     JSON.stringify({ id: "ba1", timestamp: 280000, type: "message", role: "assistant", content: [{ type: "output_text", text: "Buddy answer" }], providerData: { messageId: "buddy-answer" }, cwd: "c:\\work" })
+  ].join("\n"), "utf-8");
+
+  const projectHash = crypto.createHash("sha256").update("C:\\work").digest("hex");
+  const geminiRoot = path.join(homeDir, ".gemini", "tmp", projectHash, "chats");
+  fs.mkdirSync(geminiRoot, { recursive: true });
+  fs.writeFileSync(path.join(geminiRoot, "session-one.jsonl"), [
+    JSON.stringify({ sessionId: "gemini-one", projectHash, startTime: "2026-08-20T02:00:00Z", lastUpdated: "2026-08-20T02:02:00Z" }),
+    JSON.stringify({ id: "gu1", timestamp: "2026-08-20T02:00:00Z", type: "user", content: "Gemini question" }),
+    JSON.stringify({ id: "ga1", timestamp: "2026-08-20T02:01:00Z", type: "gemini", content: "obsolete" }),
+    JSON.stringify({ $set: { messages: [
+      { id: "gu1", timestamp: "2026-08-20T02:00:00Z", type: "user", content: "Gemini question" },
+      { id: "ga2", timestamp: "2026-08-20T02:02:00Z", type: "gemini", content: "Gemini answer" }
+    ] } })
   ].join("\n"), "utf-8");
   return homeDir;
 }
@@ -96,6 +110,16 @@ describe("Agent conversation history service", () => {
     const buddy = await service.getHistoryMessages({ panelSessionId: "run-1", conversationRef: "codebuddy:buddy-one" });
     expect(buddy.messages.map(message => message.text)).toEqual(["Buddy answer", "Buddy question"]);
     expect(JSON.stringify([...codex.messages, ...buddy.messages])).not.toContain("private");
+  });
+
+  it("lists and reads Gemini project history with checkpoint semantics", async () => {
+    const service = localService(createFixture());
+    const history = await service.listHistory({ panelSessionId: "run-1", providers: ["gemini"], scope: "cwd" });
+    expect(history.errors).toEqual([]);
+    expect(history.items[0]).toMatchObject({ provider: "gemini", title: "Gemini question", cwd: "C:\\work" });
+    const detail = await service.getHistoryMessages({ panelSessionId: "run-1", conversationRef: history.items[0].ref });
+    expect(detail.messages.map(message => message.text)).toEqual(["Gemini answer", "Gemini question"]);
+    expect(JSON.stringify(detail.messages)).not.toContain("obsolete");
   });
 
   it("rejects forged conversation references", async () => {

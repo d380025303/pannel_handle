@@ -7,9 +7,11 @@ const AGENT_COMMANDS = Object.freeze({
   codebuddy: "codebuddy",
   opencode: "opencode",
   qoder: "qoder",
+  copilot: "copilot",
   qwen: "qwen",
-  copilot: "copilot"
+  gemini: "gemini"
 });
+const MIN_GEMINI_VERSION = "0.26.0";
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
 const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
@@ -32,6 +34,9 @@ function getAgentInstallHint(provider) {
   if (provider === "qwen") {
     return " 请先运行 npm install -g @qwen-code/qwen-code。";
   }
+  if (provider === "gemini") {
+    return " 请先运行 npm install -g @google/gemini-cli@latest。";
+  }
   return provider === "codebuddy"
     ? " 请先运行 npm install -g @tencent-ai/codebuddy-code。"
     : "";
@@ -44,6 +49,34 @@ function isPowerShell(shell) {
     .pop()
     .toLowerCase();
   return ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable);
+}
+
+function compareVersions(left, right) {
+  const a = String(left).split(".").map(value => Number.parseInt(value, 10) || 0);
+  const b = String(right).split(".").map(value => Number.parseInt(value, 10) || 0);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) - (b[index] || 0);
+  }
+  return 0;
+}
+
+function readGeminiVersion(session, spawnSync) {
+  const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
+  const result = session.type === "wsl"
+    ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "resolved=$(command -v gemini) || exit 127; case \"$resolved\" in /mnt/*) echo WINDOWS_SHIM >&2; exit 126;; esac; gemini --version"], options)
+    : spawnSync("cmd.exe", ["/d", "/s", "/c", "gemini --version"], options);
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || "").includes("WINDOWS_SHIM")
+      ? "WSL 中检测到的是 Windows Gemini shim，请在该 WSL 发行版内安装原生 Gemini CLI。"
+      : `无法读取 Gemini CLI 版本。${getAgentInstallHint("gemini")}`;
+    throw new Error(detail);
+  }
+  const match = String(result.stdout || result.stderr || "").match(/\b(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\b/);
+  if (!match) throw new Error(`无法识别 Gemini CLI 版本。${getAgentInstallHint("gemini")}`);
+  if (compareVersions(match[1], MIN_GEMINI_VERSION) < 0) {
+    throw new Error(`Gemini CLI 版本过低（当前 ${match[1]}，最低 ${MIN_GEMINI_VERSION}）。${getAgentInstallHint("gemini")}`);
+  }
+  return match[1];
 }
 
 function buildAgentStartCommand(session, runtime = {}) {
@@ -139,6 +172,9 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentProvider === "qwen") {
       throw new Error("Qwen Code 首期仅支持 Windows 和 WSL 会话。");
     }
+    if (session.type === "ssh" && session.agentProvider === "gemini") {
+      throw new Error("Gemini CLI 首期仅支持 Windows 和 WSL 会话。");
+    }
     const cwd = String(session.cwd || "").trim();
     if (!cwd || cwd === "~") {
       throw new Error("选择 Agent CLI 时必须填写明确的项目工作目录。");
@@ -159,6 +195,7 @@ function createAgentSessionLauncher({
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
     }
+    if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
     if (session.type === "windows" && session.agentProvider === "copilot") {
       const powerShell = spawnSync("where.exe", ["pwsh"], { encoding: "utf-8", windowsHide: true });
       if (powerShell.error || powerShell.status !== 0) {
@@ -434,5 +471,7 @@ module.exports = {
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,
-  getAgentCommand
+  getAgentCommand,
+  compareVersions,
+  readGeminiVersion
 };

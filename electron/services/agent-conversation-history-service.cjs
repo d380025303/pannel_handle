@@ -1,11 +1,12 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { spawn: defaultSpawn } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const { getText, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
-const HISTORY_PROVIDERS = ["codex", "codebuddy"];
+const HISTORY_PROVIDERS = ["codex", "codebuddy", "gemini"];
 const DEFAULT_LIST_LIMIT = 50;
 const DEFAULT_MESSAGE_LIMIT = 100;
 const MAX_LIMIT = 200;
@@ -33,8 +34,9 @@ function normalizeCwd(value, windows = false) {
 
 function timestampMs(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
-  return number > 0 && number < 10_000_000_000 ? number * 1000 : number;
+  if (Number.isFinite(number)) return number > 0 && number < 10_000_000_000 ? number * 1000 : number;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function readJsonLines(text, visit) {
@@ -61,6 +63,100 @@ function getCodeBuddyProjectFiles(fsApi, root) {
     }
   }
   return files;
+}
+
+function geminiProjectHash(cwd) {
+  return crypto.createHash("sha256").update(String(cwd || "")).digest("hex");
+}
+
+function getGeminiChatFiles(fsApi, homeDir, cwd, scope) {
+  const tmpRoot = path.join(process.env.GEMINI_CLI_HOME || homeDir, ".gemini", "tmp");
+  if (!fsApi.existsSync(tmpRoot)) return [];
+  const projectDirs = scope === "all"
+    ? fsApi.readdirSync(tmpRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
+    : [geminiProjectHash(cwd)];
+  const files = [];
+  for (const projectHash of projectDirs) {
+    const chats = path.join(tmpRoot, projectHash, "chats");
+    if (!fsApi.existsSync(chats)) continue;
+    for (const entry of fsApi.readdirSync(chats, { withFileTypes: true })) {
+      if (entry.isFile() && /\.jsonl?$/.test(entry.name.toLowerCase())) files.push({ filePath: path.join(chats, entry.name), projectHash });
+    }
+  }
+  return files;
+}
+
+function readGeminiRecords(fsApi, filePath) {
+  const text = fsApi.readFileSync(filePath, "utf-8");
+  if (filePath.toLowerCase().endsWith(".json")) {
+    try {
+      const value = JSON.parse(text);
+      return Array.isArray(value) ? value : [value, ...(Array.isArray(value.messages) ? value.messages : [])];
+    } catch { return []; }
+  }
+  const records = [];
+  readJsonLines(text, item => records.push(item));
+  return records;
+}
+
+function materializeGeminiMessages(records) {
+  const messages = new Map();
+  for (const item of records) {
+    if (Array.isArray(item?.$set?.messages)) {
+      messages.clear();
+      for (const message of item.$set.messages) if (message?.id) messages.set(String(message.id), message);
+      continue;
+    }
+    const rewindId = item?.$rewindTo?.id ?? item?.$rewindTo;
+    if (rewindId) {
+      let remove = false;
+      for (const id of [...messages.keys()]) {
+        if (id === String(rewindId)) remove = true;
+        if (remove) messages.delete(id);
+      }
+      continue;
+    }
+    if ((item?.type === "user" || item?.type === "gemini") && item.id) messages.set(String(item.id), item);
+  }
+  return [...messages.values()];
+}
+
+function geminiMetadata(fsApi, candidate, cwd) {
+  const records = readGeminiRecords(fsApi, candidate.filePath);
+  const metadata = records.find(item => item?.sessionId || item?.projectHash) || {};
+  const messages = materializeGeminiMessages(records);
+  const firstUser = messages.find(item => item.type === "user");
+  const id = path.basename(candidate.filePath).replace(/\.jsonl?$/i, "");
+  const createdAt = timestampMs(metadata.startTime || messages[0]?.timestamp);
+  const updatedAt = timestampMs(metadata.lastUpdated || messages.at(-1)?.timestamp) || fsApi.statSync(candidate.filePath).mtimeMs;
+  const preview = typeof firstUser?.content === "string" ? firstUser.content.trim() : "";
+  return {
+    ref: `gemini:${candidate.projectHash}:${id}`,
+    provider: "gemini",
+    title: preview || "Gemini conversation",
+    preview,
+    cwd: cwd || "",
+    createdAt,
+    updatedAt,
+    archived: false
+  };
+}
+
+function listLocalGemini({ homeDir, cwd, scope, fsApi }) {
+  return getGeminiChatFiles(fsApi, homeDir, cwd, scope).map(candidate => geminiMetadata(fsApi, candidate, scope === "cwd" ? cwd : ""));
+}
+
+function getLocalGeminiMessages({ homeDir, cwd, id, fsApi }) {
+  const separator = id.indexOf(":");
+  const projectHash = separator >= 0 ? id.slice(0, separator) : geminiProjectHash(cwd);
+  const sessionId = separator >= 0 ? id.slice(separator + 1) : id;
+  const candidate = getGeminiChatFiles(fsApi, homeDir, cwd, "all").find(entry => entry.projectHash === projectHash && path.basename(entry.filePath).replace(/\.jsonl?$/i, "") === sessionId);
+  if (!candidate) throw new Error("Gemini conversation is unavailable.");
+  return materializeGeminiMessages(readGeminiRecords(fsApi, candidate.filePath)).flatMap(item => {
+    const text = typeof item.content === "string" ? item.content.trim() : "";
+    if (!text) return [];
+    return [{ id: String(item.id), provider: "gemini", kind: item.type === "user" ? "user" : "reply", text, timestamp: timestampMs(item.timestamp) }];
+  });
 }
 
 function codeBuddyMetadata(fsApi, filePath) {
@@ -180,7 +276,7 @@ function getLocalCodeBuddyMessages({ homeDir, id, fsApi }) {
 }
 
 function parseConversationRef(value) {
-  const match = /^(codex|codebuddy):([A-Za-z0-9][A-Za-z0-9:_-]{0,199})$/.exec(String(value || ""));
+  const match = /^(codex|codebuddy|gemini):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})$/.exec(String(value || ""));
   if (!match) throw new Error("Invalid Agent conversation reference.");
   return { provider: match[1], id: match[2] };
 }
@@ -273,9 +369,12 @@ function createAgentConversationHistoryService({
       : activeSession;
     const providers = Array.isArray(input.providers) && input.providers.length
       ? [...new Set(input.providers.map(String))]
-      : HISTORY_PROVIDERS;
+      : session.type === "ssh" ? ["codex", "codebuddy"] : HISTORY_PROVIDERS;
     if (providers.some(provider => !HISTORY_PROVIDERS.includes(provider))) {
       throw new Error("Unsupported Agent conversation history provider.");
+    }
+    if (session.type === "ssh" && providers.includes("gemini")) {
+      throw new Error("Gemini conversation history is only available for Windows and WSL sessions.");
     }
     const request = {
       providers,
@@ -296,11 +395,13 @@ function createAgentConversationHistoryService({
       try {
         items.push(...(provider === "codex"
           ? listLocalCodex({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
-          : listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
+          : provider === "gemini"
+            ? listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
+            : listLocalCodeBuddy({ homeDir, cwd: session.cwd, scope: request.scope, fsApi, metadataCache: codeBuddyMetadataCache }))
         );
       } catch (error) {
         console.error(`Failed to list ${provider} conversation history:`, error);
-        errors.push({ provider, message: `${provider === "codex" ? "Codex" : "CodeBuddy"} history is unavailable.` });
+        errors.push({ provider, message: `${provider === "codex" ? "Codex" : provider === "gemini" ? "Gemini" : "CodeBuddy"} history is unavailable.` });
       }
     }
     return { ...filterAndPage(items, request), errors };
@@ -312,6 +413,9 @@ function createAgentConversationHistoryService({
       ? { ...activeSession, type: "windows", cwd: activeSession.runtimeCwd || activeSession.cwd }
       : activeSession;
     const reference = parseConversationRef(input.conversationRef);
+    if (session.type === "ssh" && reference.provider === "gemini") {
+      throw new Error("Gemini conversation history is only available for Windows and WSL sessions.");
+    }
     const request = {
       conversationRef: input.conversationRef,
       cursor: input.cursor ?? null,
@@ -322,7 +426,9 @@ function createAgentConversationHistoryService({
     }
     const messages = reference.provider === "codex"
       ? getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database })
-      : getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi });
+      : reference.provider === "gemini"
+        ? getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi })
+        : getLocalCodeBuddyMessages({ homeDir, id: reference.id, fsApi });
     return {
       conversationRef: input.conversationRef,
       ...pageMessages(messages, request.cursor, request.limit)
@@ -339,6 +445,8 @@ module.exports = {
   createAgentConversationHistoryService,
   filterAndPage,
   getCodeBuddyProjectFiles,
+  getGeminiChatFiles,
+  materializeGeminiMessages,
   normalizeCwd,
   pageMessages,
   parseConversationRef,

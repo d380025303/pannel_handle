@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 
-const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "qwen", "copilot"];
+const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "qwen", "gemini"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -107,6 +107,24 @@ const PROVIDER_CONFIG = {
       ["SessionEnd", "*"]
     ]
   },
+  gemini: {
+    configPath: [".gemini", "settings.json"],
+    windowsScriptPath: [".gemini", "pannel-handle-gemini-hook.ps1"],
+    wslScriptPath: [".gemini", "pannel-handle-gemini-hook.sh"],
+    windowsAsset: "pannel-handle-gemini-hook.ps1",
+    wslAsset: "pannel-handle-gemini-hook.sh",
+    windowsCommand: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .gemini/pannel-handle-gemini-hook.ps1",
+    wslCommand: "bash .gemini/pannel-handle-gemini-hook.sh",
+    events: [
+      ["SessionStart", "*"],
+      ["BeforeAgent", "*"],
+      ["BeforeTool", "*"],
+      ["AfterTool", "*"],
+      ["Notification", "*"],
+      ["AfterAgent", "*"],
+      ["SessionEnd", "*"]
+    ]
+  },
   copilot: {
     configPath: [".github", "hooks", "pannel-handle.json"],
     windowsScriptPath: [".github", "hooks", "scripts", "pannel-handle-copilot-hook.ps1"],
@@ -135,7 +153,7 @@ const PROVIDER_CONFIG = {
 };
 
 function isManagedCommand(command) {
-  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|qwen-|copilot-)?hook\.(?:ps1|sh)/i.test(command);
+  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|copilot-|qwen-|gemini-)?hook\.(?:ps1|sh)/i.test(command);
 }
 
 function normalizeProviders(providers) {

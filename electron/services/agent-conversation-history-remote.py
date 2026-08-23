@@ -1,13 +1,14 @@
 import base64
 import datetime
 import glob
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
 
-PROVIDERS = {"codex", "codebuddy"}
+PROVIDERS = {"codex", "codebuddy", "gemini"}
 
 
 def decode_payload():
@@ -136,6 +137,62 @@ def list_codebuddy(payload):
     return items
 
 
+def gemini_files(payload):
+    root = os.environ.get("GEMINI_CLI_HOME") or os.path.expanduser("~")
+    tmp = os.path.join(root, ".gemini", "tmp")
+    if payload.get("scope") == "all":
+        return glob.glob(os.path.join(tmp, "*", "chats", "*.json*"))
+    project_hash = hashlib.sha256(str(payload.get("cwd") or "").encode()).hexdigest()
+    return glob.glob(os.path.join(tmp, project_hash, "chats", "*.json*"))
+
+
+def gemini_records(file_name):
+    if file_name.endswith(".json"):
+        try:
+            value = json.load(open(file_name, encoding="utf-8"))
+            return value if isinstance(value, list) else [value] + (value.get("messages") or [])
+        except (OSError, ValueError):
+            return []
+    return list(iter_jsonl(file_name))
+
+
+def gemini_messages(file_name):
+    messages = {}
+    for item in gemini_records(file_name):
+        checkpoint = (item.get("$set") or {}).get("messages") if isinstance(item, dict) else None
+        if isinstance(checkpoint, list):
+            messages = {str(message["id"]): message for message in checkpoint if isinstance(message, dict) and message.get("id")}
+            continue
+        rewind = item.get("$rewindTo") if isinstance(item, dict) else None
+        if rewind:
+            rewind_id = str(rewind.get("id") if isinstance(rewind, dict) else rewind)
+            remove = False
+            for message_id in list(messages):
+                remove = remove or message_id == rewind_id
+                if remove:
+                    messages.pop(message_id, None)
+            continue
+        if isinstance(item, dict) and item.get("type") in {"user", "gemini"} and item.get("id"):
+            messages[str(item["id"])] = item
+    return list(messages.values())
+
+
+def list_gemini(payload):
+    items = []
+    for file_name in gemini_files(payload):
+        records = gemini_records(file_name)
+        metadata = next((item for item in records if isinstance(item, dict) and (item.get("sessionId") or item.get("projectHash"))), {})
+        messages = gemini_messages(file_name)
+        first_user = next((item for item in messages if item.get("type") == "user"), {})
+        preview = first_user.get("content") if isinstance(first_user.get("content"), str) else ""
+        project_hash = os.path.basename(os.path.dirname(os.path.dirname(file_name)))
+        session_id = os.path.splitext(os.path.basename(file_name))[0]
+        items.append({"ref": f"gemini:{project_hash}:{session_id}", "provider": "gemini", "title": preview or "Gemini conversation", "preview": preview,
+                      "cwd": str(payload.get("cwd") or "") if payload.get("scope") != "all" else "", "createdAt": timestamp_ms(metadata.get("startTime") or (messages[0].get("timestamp") if messages else 0)),
+                      "updatedAt": timestamp_ms(metadata.get("lastUpdated") or (messages[-1].get("timestamp") if messages else 0)) or int(os.path.getmtime(file_name) * 1000), "archived": False})
+    return items
+
+
 def parse_messages(provider, file_name):
     messages = []
     seen = set()
@@ -202,6 +259,18 @@ def codebuddy_transcript(session_id):
     raise RuntimeError("CodeBuddy conversation is unavailable")
 
 
+def gemini_transcript(session_id):
+    project_hash, separator, file_id = session_id.partition(":")
+    if not separator:
+        raise RuntimeError("Invalid Gemini conversation reference")
+    root = os.environ.get("GEMINI_CLI_HOME") or os.path.expanduser("~")
+    for extension in ("jsonl", "json"):
+        candidate = os.path.join(root, ".gemini", "tmp", project_hash, "chats", f"{file_id}.{extension}")
+        if os.path.isfile(candidate):
+            return candidate
+    raise RuntimeError("Gemini conversation is unavailable")
+
+
 def cursor(payload):
     value = payload.get("cursor")
     if value in {None, ""}:
@@ -212,16 +281,16 @@ def cursor(payload):
 
 
 def list_history(payload):
-    providers = payload.get("providers") or ["codex", "codebuddy"]
+    providers = payload.get("providers") or ["codex", "codebuddy", "gemini"]
     if any(provider not in PROVIDERS for provider in providers):
         raise RuntimeError("Unsupported history provider")
     items = []
     errors = []
     for provider in providers:
         try:
-            items.extend(list_codex(payload) if provider == "codex" else list_codebuddy(payload))
+            items.extend(list_codex(payload) if provider == "codex" else list_gemini(payload) if provider == "gemini" else list_codebuddy(payload))
         except Exception:
-            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'CodeBuddy'} history is unavailable."})
+            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'Gemini' if provider == 'gemini' else 'CodeBuddy'} history is unavailable."})
     query = str(payload.get("query") or "").strip().lower()
     if query:
         items = [item for item in items if any(query in str(item.get(field) or "").lower() for field in ("title", "preview", "cwd"))]
@@ -233,12 +302,17 @@ def list_history(payload):
 
 
 def history_messages(payload):
-    match = re.fullmatch(r"(codex|codebuddy):([A-Za-z0-9][A-Za-z0-9:_-]{0,199})", str(payload.get("conversationRef") or ""))
+    match = re.fullmatch(r"(codex|codebuddy|gemini):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
     if not match:
         raise RuntimeError("Invalid conversation reference")
     provider, session_id = match.groups()
-    file_name = codex_rollout(session_id) if provider == "codex" else codebuddy_transcript(session_id)
-    messages = sorted(parse_messages(provider, file_name), key=lambda item: -item["timestamp"])
+    file_name = codex_rollout(session_id) if provider == "codex" else gemini_transcript(session_id) if provider == "gemini" else codebuddy_transcript(session_id)
+    if provider == "gemini":
+        messages = [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
+                    for item in gemini_messages(file_name) if isinstance(item.get("content"), str) and item.get("content").strip()]
+    else:
+        messages = parse_messages(provider, file_name)
+    messages = sorted(messages, key=lambda item: -item["timestamp"])
     offset = cursor(payload)
     limit = max(1, min(200, int(payload.get("limit") or 100)))
     page = messages[offset:offset + limit]

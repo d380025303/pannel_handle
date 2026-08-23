@@ -65,6 +65,7 @@ describe("CreateSessionModal local SSH bridge", () => {
         <CreateSessionModal wslDistros={["Ubuntu"]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
       </I18nProvider>
     );
+
     expect(screen.getByRole("button", { name: "Qwen Code" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "SSH" }));
     expect(screen.queryByRole("button", { name: "Qwen Code" })).toBeNull();

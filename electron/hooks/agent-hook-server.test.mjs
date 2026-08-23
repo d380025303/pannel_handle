@@ -44,49 +44,6 @@ describe("agent-hook-server", () => {
     }));
   });
 
-  it("maps Qwen Code permission and completion hooks", () => {
-    const { server, terminalManager, agentTokenStatsService } = createServer();
-
-    for (const [eventName, expectedStatus] of [["PermissionRequest", "waiting_for_permission"], ["Stop", "completed"]]) {
-      expect(server.handleAgentHook("qwen", {
-        hook_event_name: eventName,
-        session_id: "qwen-1",
-        transcript_path: "C:\\work\\qwen.jsonl",
-        pannel_handle_session_id: "run-1"
-      })).toBe(true);
-      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-        provider: "qwen",
-        status: expectedStatus,
-        eventName
-      }));
-    }
-    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "qwen" }));
-  });
-
-  it("maps Copilot permission, failure, completion, and session hooks", () => {
-    const { server, terminalManager, agentTokenStatsService } = createServer();
-
-    for (const [eventName, extra, expectedStatus] of [
-      ["Notification", { notification_type: "elicitation_dialog" }, "waiting_for_permission"],
-      ["PostToolUseFailure", {}, "failed"],
-      ["Stop", {}, "completed"],
-      ["SessionEnd", {}, "ended"]
-    ]) {
-      expect(server.handleAgentHook("copilot", {
-        hook_event_name: eventName,
-        session_id: "copilot-1",
-        pannel_handle_session_id: "run-1",
-        ...extra
-      })).toBe(true);
-      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-        provider: "copilot",
-        status: expectedStatus,
-        eventName
-      }));
-    }
-    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "copilot" }));
-  });
-
   it("maps Codex PreToolUse request_user_input to waiting_for_permission", () => {
     const { server, terminalManager } = createServer();
 
@@ -481,6 +438,65 @@ describe("agent-hook-server", () => {
       handled: false,
       payload
     });
+  });
+
+  it("maps Qwen Code permission and completion hooks", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+
+    for (const [eventName, expectedStatus] of [["PermissionRequest", "waiting_for_permission"], ["Stop", "completed"]]) {
+      expect(server.handleAgentHook("qwen", {
+        hook_event_name: eventName,
+        session_id: "qwen-1",
+        transcript_path: "C:\\work\\qwen.jsonl",
+        pannel_handle_session_id: "run-1"
+      })).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "qwen",
+        status: expectedStatus,
+        eventName
+      }));
+    }
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "qwen" }));
+  });
+
+  it("maps Gemini lifecycle, permission, failure, and response hooks", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+    for (const [eventName, extra, expectedStatus] of [
+      ["BeforeAgent", { prompt: "检查项目" }, "running"],
+      ["Notification", { notification_type: "ToolPermission" }, "waiting_for_permission"],
+      ["AfterTool", { tool_response: { error: { message: "boom" } } }, "failed"],
+      ["AfterAgent", { prompt_response: "已完成" }, "completed"],
+      ["SessionEnd", {}, "ended"]
+    ]) {
+      expect(server.handleAgentHook("gemini", { hook_event_name: eventName, session_id: "gemini-1", pannel_handle_session_id: "run-1", ...extra })).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "gemini", status: expectedStatus, eventName }));
+    }
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenCalledWith(expect.objectContaining({ activitySummary: "已完成" }));
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "gemini" }));
+  });
+
+  it("maps Copilot permission, failure, completion, and session hooks", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+
+    for (const [eventName, extra, expectedStatus] of [
+      ["Notification", { notification_type: "elicitation_dialog" }, "waiting_for_permission"],
+      ["PostToolUseFailure", {}, "failed"],
+      ["Stop", {}, "completed"],
+      ["SessionEnd", {}, "ended"]
+    ]) {
+      expect(server.handleAgentHook("copilot", {
+        hook_event_name: eventName,
+        session_id: "copilot-1",
+        pannel_handle_session_id: "run-1",
+        ...extra
+      })).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "copilot",
+        status: expectedStatus,
+        eventName
+      }));
+    }
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "copilot" }));
   });
 
   it.each([

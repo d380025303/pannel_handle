@@ -843,14 +843,15 @@ function createTerminalManager({
     const isCodex = session.agentRuntimeProvider === "codex" || session.agentProvider === "codex";
     const isQoder = session.agentRuntimeProvider === "qoder" || session.agentProvider === "qoder";
     const isQwen = session.agentRuntimeProvider === "qwen" || session.agentProvider === "qwen";
-    if (!isCodex && !isQoder && !isQwen) {
+    const isGemini = session.agentRuntimeProvider === "gemini" || session.agentProvider === "gemini";
+    if (!isCodex && !isQoder && !isQwen && !isGemini) {
       session.agentCommandState = undefined;
       return;
     }
 
     const result = consumeAgentCommandInput(session.agentCommandState, data);
     session.agentCommandState = result.state;
-    const provider = isCodex ? "codex" : isQoder ? "qoder" : "qwen";
+    const provider = isCodex ? "codex" : isQoder ? "qoder" : isQwen ? "qwen" : "gemini";
     for (let index = 0; index < result.clearSubmissions; index += 1) {
       session.agentStatus = "cleared";
       broadcastAgentStatus({

@@ -5,6 +5,28 @@ const require = createRequire(import.meta.url);
 const { createIncrementalTranscriptParser, parseTranscriptText } = require("./agent-token-transcript.cjs");
 
 describe("agent token transcript parser", () => {
+  it("normalizes Gemini usage and applies message updates, checkpoints, and rewinds", () => {
+    const result = parseTranscriptText("gemini", [
+      JSON.stringify({ sessionId: "session-1", projectHash: "hash" }),
+      JSON.stringify({ id: "a", type: "gemini", model: "gemini-2.5-pro", content: "draft", tokens: { input: 100, cached: 40, output: 20, thoughts: 5, total: 120 } }),
+      JSON.stringify({ id: "a", type: "gemini", model: "gemini-2.5-pro", content: "updated", tokens: { input: 110, cached: 50, output: 30, thoughts: 8, total: 140 } }),
+      JSON.stringify({ $set: { messages: [
+        { id: "a", type: "gemini", model: "gemini-2.5-pro", content: "checkpoint", tokens: { input: 110, cached: 50, output: 30, thoughts: 8, total: 140 } },
+        { id: "b", type: "gemini", model: "gemini-2.5-flash", content: "second", tokens: { input: 20, cached: 5, output: 4, total: 24 } }
+      ] } }),
+      JSON.stringify({ id: "c", type: "gemini", content: "rewound", tokens: { input: 999, output: 1, total: 1000 } }),
+      JSON.stringify({ $rewindTo: "c" })
+    ].join("\n"));
+    expect(result.tokens).toEqual({ inputTokens: 75, cachedInputTokens: 55, cacheWriteInputTokens: 0, outputTokens: 34, reasoningOutputTokens: 8, totalTokens: 164 });
+    expect(result.models).toEqual(["gemini-2.5-pro", "gemini-2.5-flash"]);
+  });
+
+  it("reads legacy Gemini JSON conversations", () => {
+    const result = parseTranscriptText("gemini", JSON.stringify({ messages: [
+      { id: "legacy", type: "gemini", model: "gemini-2.0-flash", tokens: { input: 12, cached: 2, output: 3, total: 15 } }
+    ] }, null, 2));
+    expect(result.tokens).toMatchObject({ inputTokens: 10, cachedInputTokens: 2, outputTokens: 3, totalTokens: 15 });
+  });
   it("reads the latest cumulative Codex token event", () => {
     const result = parseTranscriptText("codex", [
       JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 20, reasoning_output_tokens: 5, total_tokens: 120 } } } }),

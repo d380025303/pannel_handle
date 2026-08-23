@@ -219,8 +219,12 @@ export type TranslationKey =
   | "usage.qoderRetry"
   | "usage.qoderRemaining"
   | "usage.qoderTitle"
-  | "usage.copilotUnavailable"
+  | "usage.geminiLoading"
+  | "usage.geminiUnavailable"
+  | "usage.geminiRetry"
+  | "usage.geminiTitle"
   | "usage.qoderTotal"
+  | "usage.copilotUnavailable"
   | "usage.qoderActivities"
   | "usage.qoderActivityUnavailable"
   | "usage.qoderActivityEmpty"
@@ -924,8 +928,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRetry": "请确认当前环境已登录并升级 Qoder CLI 后重试",
     "usage.qoderRemaining": "Qoder 剩余 {remaining} Credits",
     "usage.qoderTitle": "Qoder 额度",
-    "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
+    "usage.geminiLoading": "正在读取 Gemini 配额...",
+    "usage.geminiUnavailable": "Gemini 配额不可用",
+    "usage.geminiRetry": "Gemini 配额不可用，点击重试",
+    "usage.geminiTitle": "Gemini 配额",
     "usage.qoderTotal": "全部可用额度",
+    "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
     "usage.qoderActivities": "活动额度",
     "usage.qoderActivityUnavailable": "活动额度暂不可用，请刷新后重试",
     "usage.qoderActivityEmpty": "当前没有可用活动额度",
@@ -1621,8 +1629,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRetry": "Sign in or update Qoder CLI, then retry",
     "usage.qoderRemaining": "Qoder {remaining} Credits left",
     "usage.qoderTitle": "Qoder quota",
-    "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
+    "usage.geminiLoading": "Reading Gemini quota...",
+    "usage.geminiUnavailable": "Gemini quota unavailable",
+    "usage.geminiRetry": "Gemini quota unavailable. Click to retry.",
+    "usage.geminiTitle": "Gemini quota",
     "usage.qoderTotal": "Total available quota",
+    "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
     "usage.qoderActivities": "Promotional quota",
     "usage.qoderActivityUnavailable": "Promotional quota is unavailable. Refresh to retry.",
     "usage.qoderActivityEmpty": "No promotional quota is currently available",

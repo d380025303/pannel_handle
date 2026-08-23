@@ -15,7 +15,7 @@ function normalizeTimestamp(value) {
 }
 
 function createAgentConversationTranscriptParser(provider, options = {}) {
-  if (provider !== "codex" && provider !== "codebuddy") {
+  if (provider !== "codex" && provider !== "codebuddy" && provider !== "gemini") {
     throw new Error(`Unsupported Agent conversation provider: ${provider}`);
   }
 
@@ -61,6 +61,21 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     };
   }
 
+  function parseGemini(item) {
+    if (item?.type !== "user" && item?.type !== "gemini") return null;
+    const isUser = item.type === "user";
+    if (isUser && !options.includeUser) return null;
+    const text = typeof item.content === "string" ? item.content.trim() : getText(item.content);
+    if (!text) return null;
+    return {
+      id: String(item.id || `${item.type}:${text}`),
+      provider,
+      kind: isUser ? "user" : "reply",
+      text,
+      timestamp: normalizeTimestamp(item.timestamp)
+    };
+  }
+
   function pushLine(line) {
     let item;
     try {
@@ -68,7 +83,18 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     } catch {
       return [];
     }
-    const message = provider === "codex" ? parseCodex(item) : parseCodeBuddy(item);
+    if (provider === "gemini" && Array.isArray(item?.$set?.messages)) {
+      const output = [];
+      for (const entry of item.$set.messages) {
+        const message = parseGemini(entry);
+        if (message && !seenMessageIds.has(message.id)) {
+          seenMessageIds.add(message.id);
+          output.push(message);
+        }
+      }
+      return output;
+    }
+    const message = provider === "codex" ? parseCodex(item) : provider === "gemini" ? parseGemini(item) : parseCodeBuddy(item);
     if (!message || seenMessageIds.has(message.id)) return [];
     seenMessageIds.add(message.id);
     return [message];

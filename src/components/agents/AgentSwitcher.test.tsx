@@ -56,8 +56,10 @@ describe("AgentSwitcher", () => {
   it("offers Qwen Code for local sessions but not SSH sessions", () => {
     const onSwitch = vi.fn(async () => {});
     const { rerender } = render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);
+
     fireEvent.click(screen.getByRole("button", { name: /Agent/ }));
     expect(screen.getByRole("menuitem", { name: "Qwen Code" })).toBeTruthy();
+
     rerender(<AgentSwitcher session={session({ type: "ssh", agentLocation: "remote" })} onSwitch={onSwitch} />);
     expect(screen.queryByRole("menuitem", { name: "Qwen Code" })).toBeNull();
   });

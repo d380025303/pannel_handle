@@ -57,7 +57,9 @@ describe("TitleBar session actions", () => {
       "CodeBuddy",
       "OpenCode",
       "Qoder",
-      "Qwen Code"
+      "GitHub Copilot",
+      "Qwen Code",
+      "Gemini CLI"
     ]);
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));

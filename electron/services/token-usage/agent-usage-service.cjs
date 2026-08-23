@@ -2,6 +2,7 @@ const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child
 const { EventEmitter } = require("node:events");
 const { readCodeBuddyUsage } = require("../codebuddy-usage-client.cjs");
 const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
+const { GEMINI_CACHE_TTL_MS, readGeminiUsage } = require("./gemini-usage-client.cjs");
 
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
 const CODEBUDDY_CACHE_TTL_MS = 30 * 1000;
@@ -415,7 +416,9 @@ function createAgentUsageService({
   httpsRequest,
   qoderSdkLoader,
   qoderSpawn,
-  qoderTerminateProcessTree
+  qoderTerminateProcessTree,
+  geminiSpawn,
+  geminiHelperFile
 }) {
   const cache = new Map();
   const pending = new Map();
@@ -460,6 +463,16 @@ function createAgentUsageService({
           terminateProcessTree: qoderTerminateProcessTree
         });
       }
+      if (session.agentProvider === "gemini") {
+        return await readGeminiUsage({
+          session,
+          signal: abortController.signal,
+          timeoutMs,
+          now,
+          spawn: geminiSpawn || spawn,
+          ...(geminiHelperFile ? { helperFile: geminiHelperFile } : {})
+        });
+      }
       transport = await createTransport(session);
       if (canceled) {
         transport.close();
@@ -493,14 +506,17 @@ function createAgentUsageService({
   function getUsage(sessionId, options = {}) {
     const session = terminalManager.getSession(sessionId);
     if (!session) return Promise.reject(new Error("Session is not running."));
-    if (!["codex", "codebuddy", "qoder"].includes(session.agentProvider)) {
-      return Promise.reject(new Error("Usage is only available for Codex, CodeBuddy, and Qoder sessions."));
+    if (!["codex", "codebuddy", "qoder", "gemini"].includes(session.agentProvider)) {
+      return Promise.reject(new Error("Usage is only available for Codex, CodeBuddy, Qoder, and Gemini sessions."));
     }
     if (session.agentProvider === "codebuddy" && session.type !== "windows") {
       return Promise.reject(new Error("CodeBuddy quota is only available for Windows sessions."));
     }
     if (session.agentProvider === "qoder" && session.type !== "windows" && session.type !== "wsl") {
       return Promise.reject(new Error("Qoder quota is only available for Windows and WSL sessions."));
+    }
+    if (session.agentProvider === "gemini" && session.type !== "windows" && session.type !== "wsl") {
+      return Promise.reject(new Error("Gemini quota is only available for Windows and WSL sessions."));
     }
 
     const key = getCacheKey(session);
@@ -510,6 +526,8 @@ function createAgentUsageService({
       ? Math.min(cacheTtlMs, CODEBUDDY_CACHE_TTL_MS)
       : session.agentProvider === "qoder"
         ? Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)
+        : session.agentProvider === "gemini"
+          ? (cacheTtlMs === DEFAULT_CACHE_TTL_MS ? GEMINI_CACHE_TTL_MS : cacheTtlMs)
         : cacheTtlMs;
     if (!options.force && cached && now() - cached.fetchedAt < effectiveCacheTtlMs) {
       return Promise.resolve(cached.snapshot);

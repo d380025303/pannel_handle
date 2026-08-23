@@ -67,7 +67,12 @@ describe("AgentTokenLiveStatus", () => {
   });
 
   it("uses the Qwen Code provider name in live token details", () => {
-    render(<I18nProvider locale="en-US"><AgentTokenLiveStatus state={{ status: "ready", snapshot: { ...snapshot, provider: "qwen" } }} /></I18nProvider>);
+    render(
+      <I18nProvider locale="en-US">
+        <AgentTokenLiveStatus state={{ status: "ready", snapshot: { ...snapshot, provider: "qwen" } }} />
+      </I18nProvider>
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "Qwen Code live tokens" }));
     expect(screen.getByRole("dialog", { name: "Qwen Code live tokens" })).toBeTruthy();
   });

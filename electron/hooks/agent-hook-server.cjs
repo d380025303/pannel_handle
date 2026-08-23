@@ -10,8 +10,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     codebuddy: new Map(),
     opencode: new Map(),
     qoder: new Map(),
+    copilot: new Map(),
     qwen: new Map(),
-    copilot: new Map()
+    gemini: new Map()
   };
   let hookServer = null;
   let claudeHookUrl = "";
@@ -79,6 +80,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       input.isError === true ||
       (typeof input.error === "object" && input.error !== null) ||
       (typeof input.error === "string" && input.error.length > 0) ||
+      input.tool_response?.error != null ||
+      input.toolResponse?.error != null ||
       input.success === false
     );
   }
@@ -143,7 +146,11 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       error && typeof error === "object" ? error.message : undefined,
       error,
       input.message,
-      input.reason
+      input.reason,
+      input.tool_response?.error?.message,
+      input.tool_response?.error,
+      input.toolResponse?.error?.message,
+      input.toolResponse?.error
     );
   }
 
@@ -152,10 +159,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     const toolInput = input.tool_input ?? input.toolInput;
     const toolResponse = input.tool_response ?? input.toolResponse ?? input.output ?? input.result;
 
-    if (eventName === "UserPromptSubmit") {
+    if (eventName === "UserPromptSubmit" || eventName === "BeforeAgent") {
       return firstSummaryValue(input.prompt, input.message);
     }
-    if (eventName === "PreToolUse" || eventName === "tool.execute.before") {
+    if (eventName === "PreToolUse" || eventName === "BeforeTool" || eventName === "tool.execute.before") {
       return formatToolSummary(input, toolInput);
     }
     if (eventName === "PermissionRequest" || eventName === "permission.asked" || eventName === "permission.updated") {
@@ -164,7 +171,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
         toolInput ?? input.permission ?? input.patterns ?? input.pattern ?? input.message ?? input.title
       );
     }
-    if (eventName === "PostToolUse" || eventName === "tool.execute.after") {
+    if (eventName === "PostToolUse" || eventName === "AfterTool" || eventName === "tool.execute.after") {
       if (isToolFailure(input)) {
         return formatToolSummary(input, getErrorSummary(input) ?? toolResponse);
       }
@@ -173,8 +180,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     if (eventName === "PostToolUseFailure") {
       return formatToolSummary(input, getErrorSummary(input) ?? toolResponse);
     }
-    if (eventName === "Stop") {
-      return firstSummaryValue(input.last_assistant_message, input.lastAssistantMessage, input.message);
+    if (eventName === "Stop" || eventName === "AfterAgent") {
+      return firstSummaryValue(input.prompt_response, input.last_assistant_message, input.lastAssistantMessage, input.message);
     }
     if (eventName === "StopFailure" || eventName === "session.error") {
       return getErrorSummary(input);
@@ -418,6 +425,18 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return null;
   }
 
+  function mapGeminiHookStatus(input) {
+    const eventName = getEventName(input);
+    const notificationType = input.notification_type || input.notificationType;
+    if (eventName === "SessionStart" && input.source === "clear") return "cleared";
+    if (eventName === "Notification" && notificationType === "ToolPermission") return "waiting_for_permission";
+    if (eventName === "AfterTool" && isToolFailure(input)) return "failed";
+    if (["SessionStart", "BeforeAgent", "BeforeTool", "AfterTool"].includes(eventName)) return "running";
+    if (eventName === "AfterAgent") return "completed";
+    if (eventName === "SessionEnd") return "ended";
+    return null;
+  }
+
   function mapCodeBuddyHookStatus(input) {
     const eventName = getEventName(input);
     const notificationType = input.notification_type || input.notificationType;
@@ -457,6 +476,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   }
 
   function getHookStatus(provider, input) {
+    if (provider === "gemini") {
+      return mapGeminiHookStatus(input);
+    }
     if (provider === "codex") {
       return mapCodexHookStatus(input);
     }
@@ -592,6 +614,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/qwen-hook") {
         handleRequest("qwen", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/gemini-hook") {
+        handleRequest("gemini", req, res);
         return;
       }
 

@@ -11,8 +11,8 @@ import type {
 } from "../../vite-env";
 import { useI18n } from "../../i18n";
 
-function providerName(provider?: "codex" | "codebuddy") {
-  return provider === "codebuddy" ? "CodeBuddy" : "Codex";
+function providerName(provider?: "codex" | "codebuddy" | "gemini") {
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "gemini" ? "Gemini CLI" : "Codex";
 }
 
 function highlightText(text: string, query: string, nextIndex: () => number, activeIndex: number): ReactNode {
@@ -50,7 +50,7 @@ function highlightChildren(children: ReactNode, query: string, nextIndex: () => 
   return cloneElement(children, undefined, highlightChildren(children.props.children, query, nextIndex, activeIndex));
 }
 
-type HistoryProviderFilter = "all" | "codex" | "codebuddy";
+type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "gemini";
 
 export function AgentConversationPanel({
   snapshot,
@@ -94,6 +94,12 @@ export function AgentConversationPanel({
     [historyMessages, showingLive, turn?.messages]
   );
   const normalizedSearchQuery = searchQuery.trim();
+  const historyProviderFilters = useMemo(
+    () => session?.type === "ssh"
+      ? (["all", "codex", "codebuddy"] as const)
+      : (["all", "codex", "codebuddy", "gemini"] as const),
+    [session?.type]
+  );
 
   useEffect(() => {
     setSelectedRef(hasLive ? "live" : "");
@@ -103,6 +109,7 @@ export function AgentConversationPanel({
 
   useEffect(() => {
     setHistoryOpen(false);
+    setProviderFilter("all");
   }, [session?.id, snapshot?.activeSessionId]);
 
   const loadHistory = useCallback(async (cursor: string | null = null, append = false) => {
@@ -112,7 +119,9 @@ export function AgentConversationPanel({
     try {
       const result = await window.agentConversationApi.listHistory({
         panelSessionId: session.id,
-        providers: providerFilter === "all" ? ["codex", "codebuddy"] : [providerFilter],
+        providers: providerFilter === "all"
+          ? (session.type === "ssh" ? ["codex", "codebuddy"] : ["codex", "codebuddy", "gemini"])
+          : [providerFilter],
         scope,
         includeArchived,
         query: historyQuery.trim(),
@@ -137,7 +146,7 @@ export function AgentConversationPanel({
     } finally {
       if (requestId === listRequestRef.current) setHistoryLoading(false);
     }
-  }, [hasLive, historyQuery, includeArchived, providerFilter, scope, session]);
+  }, [hasLive, historyProviderFilters, historyQuery, includeArchived, providerFilter, scope, session]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadHistory(); }, 180);
@@ -309,7 +318,7 @@ export function AgentConversationPanel({
       <aside id="agent-conversation-history" className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"} hidden={!historyOpen}>
         <div className="agent-conversation-history-filters">
           <div className="agent-conversation-history-provider" role="group" aria-label={isEnglish ? "Provider" : "Agent 类型"}>
-            {(["all", "codex", "codebuddy"] as const).map(provider => (
+            {historyProviderFilters.map(provider => (
               <button className={providerFilter === provider ? "active" : ""} key={provider} type="button" onClick={() => setProviderFilter(provider)}>
                 {provider === "all" ? (isEnglish ? "All" : "全部") : providerName(provider)}
               </button>
