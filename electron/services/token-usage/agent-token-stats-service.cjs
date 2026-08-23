@@ -14,12 +14,13 @@ const {
 const { subtractCapabilities } = require("../../stores/agent-token-stats-store.cjs");
 const { toWslHostPath } = require("../remote-files/index.cjs");
 const { createAgentConversationTranscriptParser } = require("../agent-conversation-transcript.cjs");
+const { createCopilotOtelParser, getCopilotOtelPath } = require("./copilot-otel.cjs");
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen", "copilot"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "qwen", "copilot"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -191,7 +192,7 @@ function createAgentTokenStatsService({
   function resetLiveReader(tracker) {
     tracker.offset = 0;
     tracker.pendingBytes = Buffer.alloc(0);
-    tracker.parser = createIncrementalTranscriptParser(tracker.provider);
+    tracker.parser = tracker.provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(tracker.provider);
     tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy"
       ? createAgentConversationTranscriptParser(tracker.provider)
       : null;
@@ -200,7 +201,7 @@ function createAgentTokenStatsService({
   function ensureLiveTracker({ provider, input, session }) {
     if (!LIVE_TOKEN_PROVIDERS.includes(provider) || !hasHostReadableTranscript(session)) return null;
     const agentSessionId = input?.session_id || input?.sessionId;
-    const transcriptPath = input?.transcript_path || input?.transcriptPath;
+    const transcriptPath = provider === "copilot" ? getCopilotOtelPath(session) : input?.transcript_path || input?.transcriptPath;
     if (!agentSessionId || !transcriptPath) return null;
     if (isNestedAgentTranscript(provider, transcriptPath)) return null;
     const hostPath = getLiveHostPath(session, transcriptPath);
@@ -215,15 +216,15 @@ function createAgentTokenStatsService({
         fileIdentity: null,
         offset: 0,
         pendingBytes: Buffer.alloc(0),
-        parser: createIncrementalTranscriptParser(provider),
+        parser: provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(provider),
         conversationParser: provider === "codex" || provider === "codebuddy"
           ? createAgentConversationTranscriptParser(provider)
           : null,
         conversationActive: false,
         rawTokens: emptyTokens(),
         rawCapabilities: emptyCapabilityUsage(),
-        sessionBaseline: null,
-        sessionCapabilityBaseline: null,
+        sessionBaseline: provider === "copilot" ? emptyTokens() : null,
+        sessionCapabilityBaseline: provider === "copilot" ? emptyCapabilityUsage("unavailable") : null,
         turnBaseline: emptyTokens(),
         turnStartedAt: null,
         state: "waiting",
@@ -231,7 +232,8 @@ function createAgentTokenStatsService({
         updatedAt: now(),
         outputTokensPerSecond: 0,
         timer: null,
-        pollPromise: null
+        pollPromise: null,
+        session
       };
       liveTrackers.set(session.id, tracker);
     }
@@ -259,6 +261,24 @@ function createAgentTokenStatsService({
     const snapshot = buildLiveSnapshot(tracker);
     broadcast("agent-token-live:changed", snapshot);
     return snapshot;
+  }
+
+  function persistCopilotTracker(tracker, result) {
+    if (tracker.provider !== "copilot" || !result) return;
+    const agentSessionId = result.agentSessionId || tracker.agentSessionId;
+    statsStore.update({
+      provider: "copilot",
+      agentSessionId,
+      panelSessionId: tracker.panelSessionId,
+      templateId: tracker.session.templateId,
+      title: tracker.session.title,
+      cwd: tracker.session.cwd,
+      location: tracker.session.type,
+      models: result.models,
+      tokens: result.tokens,
+      capabilities: result.capabilities,
+      startedAt: startedAtBySession.get(`copilot:${tracker.agentSessionId}`)
+    });
   }
 
   async function readAppendedBytes(tracker) {
@@ -321,6 +341,7 @@ function createAgentTokenStatsService({
           tracker.rawTokens = cloneTokens(result.tokens);
           tracker.rawCapabilities = normalizeCapabilityUsage(result.capabilities);
           tracker.models = result.models;
+          persistCopilotTracker(tracker, result);
           if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(result.tokens);
           if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(result.capabilities);
           if (tracker.state === "generating" && tracker.turnStartedAt) {
@@ -379,6 +400,7 @@ function createAgentTokenStatsService({
         const result = tracker.parser.getResult();
         tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
         tracker.models = result?.models || tracker.models;
+        persistCopilotTracker(tracker, result);
       }
       const messages = tracker.conversationParser?.pushLine(pendingText) || [];
       if (messages.length) conversationSink?.appendMessages?.(tracker.panelSessionId, messages);
@@ -424,7 +446,7 @@ function createAgentTokenStatsService({
       if (TOKEN_STATS_PROVIDERS.includes(provider) && agentSessionId) {
         const key = `${provider}:${agentSessionId}`;
         if (!startedAtBySession.has(key)) startedAtBySession.set(key, now());
-        if (eventName === "SessionStart" || eventName === "UserPromptSubmit") captureBaseline({ provider, input, session });
+        if (provider !== "copilot" && (eventName === "SessionStart" || eventName === "UserPromptSubmit")) captureBaseline({ provider, input, session });
       }
 
       const tracker = ensureLiveTracker({ provider, input, session });
@@ -448,7 +470,7 @@ function createAgentTokenStatsService({
         completeConversationTurn(session.id, getCodexStopFinalMessage(provider, input));
       }
 
-      if (eventName === "Stop" || eventName === "SessionEnd") collect({ provider, input, session });
+      if (provider !== "copilot" && (eventName === "Stop" || eventName === "SessionEnd")) collect({ provider, input, session });
     },
     getLive(panelSessionId) {
       const tracker = liveTrackers.get(String(panelSessionId || ""));

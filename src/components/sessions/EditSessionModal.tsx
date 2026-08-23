@@ -120,7 +120,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
-          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["qwen"] : []} onChange={(provider) => {
+          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["qwen", "copilot"] : []} onChange={(provider) => {
             setAgentProvider(provider);
             if (provider && provider !== "codex") setAgentLocation("remote");
           }} />

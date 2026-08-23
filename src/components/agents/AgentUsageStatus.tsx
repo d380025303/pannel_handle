@@ -57,6 +57,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const provider = state.status === "ready" ? state.snapshot.provider : state.status === "hidden" ? undefined : state.provider;
   const isCodeBuddy = provider === "codebuddy";
   const isQoder = provider === "qoder";
+  const isCopilot = provider === "copilot";
   const isCreditProvider = isCodeBuddy || isQoder;
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
     ? state.snapshot.summary
@@ -141,11 +142,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : "usage.retry")}
+        title={t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : "usage.retry")}
         onClick={onRefresh}
+        disabled={isCopilot}
       >
         <Gauge aria-hidden="true" />
-        <span>{t(isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : "usage.unavailable")}</span>
+        <span>{t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }

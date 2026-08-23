@@ -636,6 +636,46 @@ describe("terminal-manager", () => {
     }));
   });
 
+  it("enables content-safe Copilot OTel export for Windows sessions", () => {
+    const { manager, pty } = createManager();
+
+    manager.createSession({
+      title: "GitHub Copilot",
+      type: "windows",
+      cwd: "C:\\work",
+      agentProvider: "copilot"
+    });
+
+    expect(pty.spawn).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({
+      env: expect.objectContaining({
+        COPILOT_OTEL_ENABLED: "true",
+        COPILOT_OTEL_EXPORTER_TYPE: "file",
+        COPILOT_OTEL_FILE_EXPORTER_PATH: expect.stringMatching(/pannel-handle-copilot-\d+-run-1\.otel\.jsonl$/),
+        OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "false",
+        OTEL_RESOURCE_ATTRIBUTES: expect.stringContaining("pannel_handle.panel_session_id=run-1")
+      })
+    }));
+  });
+
+  it("passes Copilot OTel settings into WSL through WSLENV", () => {
+    const { manager, pty } = createManager();
+
+    manager.createSession({
+      title: "GitHub Copilot",
+      type: "wsl",
+      wslDistro: "Ubuntu-24.04",
+      cwd: "/work",
+      agentProvider: "copilot"
+    });
+
+    expect(pty.spawn).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({
+      env: expect.objectContaining({
+        COPILOT_OTEL_FILE_EXPORTER_PATH: expect.stringMatching(/^\/tmp\/pannel-handle-copilot-\d+-run-1\.otel\.jsonl$/),
+        WSLENV: expect.stringContaining("COPILOT_OTEL_FILE_EXPORTER_PATH/u")
+      })
+    }));
+  });
+
   it("builds SSH arguments without shell string interpolation", () => {
     expect(buildSshArgs({
       host: "example.com",

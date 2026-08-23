@@ -7,7 +7,8 @@ const AGENT_COMMANDS = Object.freeze({
   codebuddy: "codebuddy",
   opencode: "opencode",
   qoder: "qoder",
-  qwen: "qwen"
+  qwen: "qwen",
+  copilot: "copilot"
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
@@ -25,6 +26,9 @@ function getAgentCommand(provider) {
 }
 
 function getAgentInstallHint(provider) {
+  if (provider === "copilot") {
+    return " 请先安装 GitHub Copilot CLI：Windows 可运行 winget install GitHub.Copilot，WSL 可运行 npm install -g @github/copilot。";
+  }
   if (provider === "qwen") {
     return " 请先运行 npm install -g @qwen-code/qwen-code。";
   }
@@ -129,6 +133,9 @@ function createAgentSessionLauncher({
   function validateAgentSession(session) {
     if (!session.agentProvider) return;
     getAgentCommand(session.agentProvider);
+    if (session.type === "ssh" && session.agentProvider === "copilot") {
+      throw new Error("GitHub Copilot CLI 首期仅支持 Windows 和 WSL 会话。");
+    }
     if (session.type === "ssh" && session.agentProvider === "qwen") {
       throw new Error("Qwen Code 首期仅支持 Windows 和 WSL 会话。");
     }
@@ -151,6 +158,12 @@ function createAgentSessionLauncher({
       : spawnSync("where.exe", [command], { encoding: "utf-8", windowsHide: true });
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
+    }
+    if (session.type === "windows" && session.agentProvider === "copilot") {
+      const powerShell = spawnSync("where.exe", ["pwsh"], { encoding: "utf-8", windowsHide: true });
+      if (powerShell.error || powerShell.status !== 0) {
+        throw new Error("GitHub Copilot CLI 在 Windows 上需要 PowerShell 6 或更高版本，请先安装 Microsoft.PowerShell。");
+      }
     }
   }
 

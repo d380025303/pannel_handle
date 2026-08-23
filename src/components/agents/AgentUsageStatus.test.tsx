@@ -199,6 +199,17 @@ describe("AgentUsageStatus", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("shows Copilot quota as explicitly unavailable without a retry action", () => {
+    const onRefresh = vi.fn();
+
+    render(<AgentUsageStatus state={{ status: "error", provider: "copilot" }} onRefresh={onRefresh} />);
+
+    const status = screen.getByRole("button", { name: "GitHub Copilot 暂无稳定的账户额度接口" });
+    expect((status as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(status);
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+
   it("shows the primary remaining amount and opens all limit details", () => {
     const onRefresh = vi.fn();
     render(

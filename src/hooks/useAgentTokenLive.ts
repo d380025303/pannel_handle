@@ -3,8 +3,8 @@ import type { AgentTokenLiveSnapshot, TerminalSession } from "../vite-env";
 
 export type AgentTokenLiveViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen" }
-  | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen" }
+  | { status: "loading"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen" | "copilot" }
+  | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "qwen" | "copilot" }
   | { status: "ready"; snapshot: AgentTokenLiveSnapshot };
 
 export function useAgentTokenLive(session?: TerminalSession) {
@@ -13,7 +13,8 @@ export function useAgentTokenLive(session?: TerminalSession) {
     session?.agentProvider === "claude" ||
     session?.agentProvider === "codebuddy" ||
     session?.agentProvider === "qoder" ||
-    session?.agentProvider === "qwen"
+    session?.agentProvider === "qwen" ||
+    session?.agentProvider === "copilot"
       ? session.agentProvider
       : undefined;
   const supported = Boolean(provider && (session?.type === "windows" || session?.type === "wsl" || session?.type === "ssh"));

@@ -10,7 +10,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     codebuddy: new Map(),
     opencode: new Map(),
     qoder: new Map(),
-    qwen: new Map()
+    qwen: new Map(),
+    copilot: new Map()
   };
   let hookServer = null;
   let claudeHookUrl = "";
@@ -404,6 +405,19 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return null;
   }
 
+  function mapCopilotHookStatus(input) {
+    const eventName = getEventName(input);
+    const notificationType = input.notification_type || input.notificationType;
+    if (eventName === "Notification" && ["permission_prompt", "elicitation_dialog"].includes(notificationType)) {
+      return "waiting_for_permission";
+    }
+    if (eventName === "PostToolUseFailure" || eventName === "ErrorOccurred") return "failed";
+    if (["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"].includes(eventName)) return "running";
+    if (eventName === "Stop") return "completed";
+    if (eventName === "SessionEnd") return "ended";
+    return null;
+  }
+
   function mapCodeBuddyHookStatus(input) {
     const eventName = getEventName(input);
     const notificationType = input.notification_type || input.notificationType;
@@ -454,6 +468,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     }
     if (provider === "qwen") {
       return mapQoderHookStatus(input);
+    }
+    if (provider === "copilot") {
+      return mapCopilotHookStatus(input);
     }
     if (provider === "codebuddy") {
       return mapCodeBuddyHookStatus(input);
@@ -567,6 +584,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/qoder-hook") {
         handleRequest("qoder", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/copilot-hook") {
+        handleRequest("copilot", req, res);
         return;
       }
       if (req.method === "POST" && req.url === "/qwen-hook") {

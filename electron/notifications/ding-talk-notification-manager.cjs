@@ -12,6 +12,7 @@ function getProviderName(provider) {
   if (provider === "codebuddy") return "CodeBuddy";
   if (provider === "opencode") return "OpenCode";
   if (provider === "qoder") return "Qoder";
+  if (provider === "copilot") return "GitHub Copilot";
   if (provider === "qwen") return "Qwen Code";
   return "Claude";
 }

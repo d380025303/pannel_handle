@@ -4,6 +4,7 @@ const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
 const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
+const { getCopilotOtelPath } = require("../services/token-usage/copilot-otel.cjs");
 
 const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
 const CODEX_CLEAR_COMPLETION_PREFIXES = new Set(["/cl", "/cle", "/clea", "/clear"]);
@@ -521,10 +522,28 @@ function createTerminalManager({
       ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {})
     };
 
+    if (session.agentProvider === "copilot") {
+      const inheritedAttributes = String(process.env.OTEL_RESOURCE_ATTRIBUTES || "").trim();
+      Object.assign(env, {
+        COPILOT_OTEL_ENABLED: "true",
+        COPILOT_OTEL_EXPORTER_TYPE: "file",
+        COPILOT_OTEL_FILE_EXPORTER_PATH: getCopilotOtelPath(session),
+        OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "false",
+        OTEL_RESOURCE_ATTRIBUTES: `${inheritedAttributes ? `${inheritedAttributes},` : ""}pannel_handle.panel_session_id=${session.id}`
+      });
+    }
+
     if (session.type === "wsl") {
       env.WSLENV = appendWslEnv(env.WSLENV, [
         "PANNEL_HANDLE_SESSION_ID",
-        "PANNEL_HANDLE_HOOK_URL"
+        "PANNEL_HANDLE_HOOK_URL",
+        ...(session.agentProvider === "copilot" ? [
+          "COPILOT_OTEL_ENABLED",
+          "COPILOT_OTEL_EXPORTER_TYPE",
+          "COPILOT_OTEL_FILE_EXPORTER_PATH",
+          "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+          "OTEL_RESOURCE_ATTRIBUTES"
+        ] : [])
       ]);
     }
 

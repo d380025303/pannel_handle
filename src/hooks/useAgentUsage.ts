@@ -7,16 +7,17 @@ export const QODER_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 
 export type AgentUsageViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" }
+  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder"
+  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot"
     ? session.agentProvider
     : undefined;
   const isSupported = provider === "codex"
+    || provider === "copilot"
     || (provider === "codebuddy" && session?.type === "windows")
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });
@@ -26,6 +27,10 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
 
   const load = useCallback(async (force = false) => {
     if (!sessionId || !provider || !isSupported) return;
+    if (provider === "copilot") {
+      setState({ status: "error", provider });
+      return;
+    }
     const requestSequence = ++requestSequenceRef.current;
     setState((current) => current.status === "ready"
       ? { ...current, refreshing: true }
@@ -46,6 +51,11 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     requestSequenceRef.current += 1;
     if (!sessionId || !provider || !isSupported) {
       setState({ status: "hidden" });
+      return;
+    }
+
+    if (provider === "copilot") {
+      setState({ status: "error", provider });
       return;
     }
 

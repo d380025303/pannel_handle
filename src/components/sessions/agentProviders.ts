@@ -6,7 +6,8 @@ export const AGENT_PROVIDER_OPTIONS: ReadonlyArray<{ value: AgentProvider; label
   { value: "codebuddy", label: "CodeBuddy" },
   { value: "opencode", label: "OpenCode" },
   { value: "qoder", label: "Qoder" },
-  { value: "qwen", label: "Qwen Code" }
+  { value: "qwen", label: "Qwen Code" },
+  { value: "copilot", label: "GitHub Copilot" }
 ];
 
 export function getAgentProviderLabel(provider: AgentProvider) {

@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 
-const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "qwen"];
+const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "qwen", "copilot"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -107,6 +107,27 @@ const PROVIDER_CONFIG = {
       ["SessionEnd", "*"]
     ]
   },
+  copilot: {
+    configPath: [".github", "hooks", "pannel-handle.json"],
+    windowsScriptPath: [".github", "hooks", "scripts", "pannel-handle-copilot-hook.ps1"],
+    wslScriptPath: [".github", "hooks", "scripts", "pannel-handle-copilot-hook.sh"],
+    windowsAsset: "pannel-handle-copilot-hook.ps1",
+    wslAsset: "pannel-handle-copilot-hook.sh",
+    windowsCommand: "pwsh -NoProfile -File .github/hooks/scripts/pannel-handle-copilot-hook.ps1",
+    wslCommand: "bash .github/hooks/scripts/pannel-handle-copilot-hook.sh",
+    directHooks: true,
+    events: [
+      ["SessionStart", ""],
+      ["UserPromptSubmit", ""],
+      ["PreToolUse", ""],
+      ["PostToolUse", ""],
+      ["PostToolUseFailure", ""],
+      ["Notification", "permission_prompt|elicitation_dialog"],
+      ["Stop", ""],
+      ["ErrorOccurred", ""],
+      ["SessionEnd", ""]
+    ]
+  },
   opencode: {
     scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
     asset: "pannel-handle-opencode-plugin.js"
@@ -114,7 +135,7 @@ const PROVIDER_CONFIG = {
 };
 
 function isManagedCommand(command) {
-  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|qwen-)?hook\.(?:ps1|sh)/i.test(command);
+  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|qwen-|copilot-)?hook\.(?:ps1|sh)/i.test(command);
 }
 
 function normalizeProviders(providers) {
@@ -247,6 +268,7 @@ function removeManagedHooks(config) {
       continue;
     }
     cleaned[eventName] = groups
+      .filter(group => !isManagedCommand(group?.command) && !isManagedCommand(group?.bash) && !isManagedCommand(group?.powershell))
       .map(group => {
         if (!group || typeof group !== "object" || !Array.isArray(group.hooks)) return group;
         return { ...group, hooks: group.hooks.filter(hook => !isManagedCommand(hook?.command)) };
@@ -263,6 +285,20 @@ function buildConfig(config, provider, platform, commandOverride) {
   }
   const command = commandOverride || (platform === "wsl" || platform === "ssh" ? definition.wslCommand : definition.windowsCommand);
   const next = removeManagedHooks(config);
+  if (definition.directHooks) {
+    next.version = 1;
+    for (const [eventName, matcher] of definition.events) {
+      const hooks = Array.isArray(next.hooks[eventName]) ? next.hooks[eventName] : [];
+      hooks.push({
+        type: "command",
+        ...(matcher ? { matcher } : {}),
+        ...(platform === "wsl" || platform === "ssh" ? { bash: command } : { powershell: command }),
+        timeoutSec: 3
+      });
+      next.hooks[eventName] = hooks;
+    }
+    return next;
+  }
   for (const [eventName, matcher] of definition.events) {
     const groups = Array.isArray(next.hooks[eventName]) ? next.hooks[eventName] : [];
     groups.push({
@@ -297,6 +333,7 @@ function countManagedCommands(config) {
   for (const groups of Object.values(config.hooks || {})) {
     if (!Array.isArray(groups)) continue;
     for (const group of groups) {
+      if (isManagedCommand(group?.command) || isManagedCommand(group?.bash) || isManagedCommand(group?.powershell)) count += 1;
       if (!Array.isArray(group?.hooks)) continue;
       count += group.hooks.filter(hook => isManagedCommand(hook?.command)).length;
     }

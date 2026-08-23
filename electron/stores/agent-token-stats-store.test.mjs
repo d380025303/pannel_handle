@@ -42,7 +42,7 @@ function downgradeProviderConstraints(databaseFile) {
       const replacement = `${table}_provider_v1`;
       database.exec(schema
         .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
-        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen')", "provider IN ('codex', 'claude', 'codebuddy')"));
+        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'qwen', 'copilot')", "provider IN ('codex', 'claude', 'codebuddy')"));
       const columns = database.prepare(`PRAGMA table_info(${table})`).all().map(column => `"${column.name}"`).join(", ");
       database.exec(`INSERT INTO ${replacement} (${columns}) SELECT ${columns} FROM ${table}`);
       database.exec(`DROP TABLE ${table}`);

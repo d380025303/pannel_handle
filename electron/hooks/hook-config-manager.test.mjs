@@ -196,6 +196,37 @@ describe("hook-config-manager", () => {
     expect(manager.inspect({ type: "windows", path: projectPath }, ["qwen"]).providers.qwen.status).toBe("installed");
   });
 
+  it("installs Copilot's direct project hooks without replacing user hooks", () => {
+    const projectPath = createProject();
+    const configPath = path.join(projectPath, ".github", "hooks", "pannel-handle.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      version: 1,
+      hooks: {
+        Stop: [{ type: "command", powershell: "pwsh -File user-hook.ps1", timeoutSec: 7 }]
+      }
+    }));
+    const manager = createHookConfigManager({ assetsDir });
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["copilot"]);
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.copilot.status).toBe("installed");
+    expect(fs.existsSync(path.join(projectPath, ".github", "hooks", "scripts", "pannel-handle-copilot-hook.ps1"))).toBe(true);
+    expect(config.hooks.Stop).toEqual(expect.arrayContaining([
+      expect.objectContaining({ powershell: "pwsh -File user-hook.ps1", timeoutSec: 7 }),
+      expect.objectContaining({
+        type: "command",
+        powershell: "pwsh -NoProfile -File .github/hooks/scripts/pannel-handle-copilot-hook.ps1",
+        timeoutSec: 3
+      })
+    ]));
+    expect(config.hooks.Notification).toContainEqual(expect.objectContaining({
+      matcher: "permission_prompt|elicitation_dialog"
+    }));
+  });
+
   it.runIf(process.platform === "win32")("preserves UTF-8 payloads in installed Windows hooks", async () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });

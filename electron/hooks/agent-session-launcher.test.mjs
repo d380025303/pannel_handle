@@ -82,7 +82,8 @@ describe("agent-session-launcher", () => {
       codebuddy: "codebuddy",
       opencode: "opencode",
       qoder: "qoder",
-      qwen: "qwen"
+      qwen: "qwen",
+      copilot: "copilot"
     });
   });
 
@@ -222,6 +223,38 @@ describe("agent-session-launcher", () => {
 
     await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy" }))
       .rejects.toThrow("npm install -g @tencent-ai/codebuddy-code");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
+  it("starts GitHub Copilot on Windows after checking Copilot and pwsh", async () => {
+    const mocks = createMocks();
+
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "copilot" });
+
+    expect(mocks.spawnSync).toHaveBeenNthCalledWith(1, "where.exe", ["copilot"], expect.any(Object));
+    expect(mocks.spawnSync).toHaveBeenNthCalledWith(2, "where.exe", ["pwsh"], expect.any(Object));
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: "copilot",
+      runtimeInitialCommand: expect.stringContaining("copilot")
+    }));
+  });
+
+  it("rejects GitHub Copilot when pwsh is unavailable on Windows", async () => {
+    const mocks = createMocks();
+    mocks.spawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "copilot" })
+      .mockReturnValueOnce({ status: 1, stdout: "" });
+
+    await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "copilot" }))
+      .rejects.toThrow("PowerShell 6");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects GitHub Copilot SSH sessions before creating a terminal", async () => {
+    const mocks = createMocks();
+
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "copilot", sshConfig: { host: "example.com" } }))
+      .rejects.toThrow("GitHub Copilot CLI 首期仅支持 Windows 和 WSL 会话");
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
 

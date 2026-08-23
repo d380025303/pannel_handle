@@ -63,6 +63,30 @@ describe("agent-hook-server", () => {
     expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "qwen" }));
   });
 
+  it("maps Copilot permission, failure, completion, and session hooks", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+
+    for (const [eventName, extra, expectedStatus] of [
+      ["Notification", { notification_type: "elicitation_dialog" }, "waiting_for_permission"],
+      ["PostToolUseFailure", {}, "failed"],
+      ["Stop", {}, "completed"],
+      ["SessionEnd", {}, "ended"]
+    ]) {
+      expect(server.handleAgentHook("copilot", {
+        hook_event_name: eventName,
+        session_id: "copilot-1",
+        pannel_handle_session_id: "run-1",
+        ...extra
+      })).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "copilot",
+        status: expectedStatus,
+        eventName
+      }));
+    }
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "copilot" }));
+  });
+
   it("maps Codex PreToolUse request_user_input to waiting_for_permission", () => {
     const { server, terminalManager } = createServer();
 

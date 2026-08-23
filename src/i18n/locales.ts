@@ -219,6 +219,7 @@ export type TranslationKey =
   | "usage.qoderRetry"
   | "usage.qoderRemaining"
   | "usage.qoderTitle"
+  | "usage.copilotUnavailable"
   | "usage.qoderTotal"
   | "usage.qoderActivities"
   | "usage.qoderActivityUnavailable"
@@ -923,6 +924,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRetry": "请确认当前环境已登录并升级 Qoder CLI 后重试",
     "usage.qoderRemaining": "Qoder 剩余 {remaining} Credits",
     "usage.qoderTitle": "Qoder 额度",
+    "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
     "usage.qoderTotal": "全部可用额度",
     "usage.qoderActivities": "活动额度",
     "usage.qoderActivityUnavailable": "活动额度暂不可用，请刷新后重试",
@@ -1619,6 +1621,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderRetry": "Sign in or update Qoder CLI, then retry",
     "usage.qoderRemaining": "Qoder {remaining} Credits left",
     "usage.qoderTitle": "Qoder quota",
+    "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
     "usage.qoderTotal": "Total available quota",
     "usage.qoderActivities": "Promotional quota",
     "usage.qoderActivityUnavailable": "Promotional quota is unavailable. Refresh to retry.",
