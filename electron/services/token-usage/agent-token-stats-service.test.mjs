@@ -16,6 +16,10 @@ function qoderLine(id, inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "assistant", uuid: `row-${id}`, message: { id, model: "qoder-model", usage: { input_tokens: inputTokens, output_tokens: outputTokens }, content: [] } })}\n`;
 }
 
+function codeBuddyLine(id, inputTokens, outputTokens) {
+  return `${JSON.stringify({ type: "message", providerData: { messageId: id, model: "hy3", usage: { inputTokens, outputTokens } } })}\n`;
+}
+
 function createMemoryFiles(initial = "") {
   let content = Buffer.from(initial);
   return {
@@ -177,6 +181,41 @@ describe("agent token live statistics", () => {
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "Stop" }, session: harness.session });
     await flush();
     expect(harness.service.getLive("panel-1")).toMatchObject({ state: "completed", outputTokensPerSecond: 7.5 });
+  });
+
+  it("keeps CodeBuddy live tracking on the main transcript when subagents emit hooks", async () => {
+    const harness = createHarness({ initial: codeBuddyLine("main-one", 100, 20) });
+    const session = { ...harness.session, agentProvider: "codebuddy" };
+    const input = {
+      ...harness.input,
+      session_id: "main-agent",
+      transcript_path: "C:\\work\\main.jsonl"
+    };
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart" }, session });
+    await flush();
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
+    await flush();
+
+    harness.service.handleHook({
+      provider: "codebuddy",
+      input: {
+        ...input,
+        session_id: "subagent-one",
+        transcript_path: "C:\\work\\main\\subagents\\agent-one.jsonl",
+        hook_event_name: "Stop"
+      },
+      session
+    });
+    harness.files.append(codeBuddyLine("main-two", 60, 30));
+    await harness.intervals[0]();
+    await flush();
+
+    expect(harness.service.getLive("panel-1")).toMatchObject({
+      provider: "codebuddy",
+      state: "generating",
+      tokens: { inputTokens: 60, outputTokens: 30 }
+    });
+    expect(harness.statsStore.update).not.toHaveBeenCalled();
   });
 
   it("tracks and persists Qoder transcript usage", async () => {

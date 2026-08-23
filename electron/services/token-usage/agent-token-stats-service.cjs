@@ -74,6 +74,10 @@ function hasHostReadableTranscript(session) {
   return session?.type === "windows" || session?.type === "wsl" || isLocalSshBridge(session);
 }
 
+function isNestedAgentTranscript(provider, transcriptPath) {
+  return provider === "codebuddy" && /(?:^|[\\/])subagents(?:[\\/]|$)/i.test(String(transcriptPath || ""));
+}
+
 function createAgentTokenStatsService({
   terminalManager,
   statsStore,
@@ -198,6 +202,7 @@ function createAgentTokenStatsService({
     const agentSessionId = input?.session_id || input?.sessionId;
     const transcriptPath = input?.transcript_path || input?.transcriptPath;
     if (!agentSessionId || !transcriptPath) return null;
+    if (isNestedAgentTranscript(provider, transcriptPath)) return null;
     const hostPath = getLiveHostPath(session, transcriptPath);
     let tracker = liveTrackers.get(session.id);
     if (!tracker || tracker.provider !== provider || tracker.agentSessionId !== agentSessionId || tracker.hostPath !== hostPath) {
@@ -414,6 +419,8 @@ function createAgentTokenStatsService({
     handleHook({ provider, input, session }) {
       const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
       const agentSessionId = input?.session_id || input?.sessionId;
+      const transcriptPath = input?.transcript_path || input?.transcriptPath;
+      if (isNestedAgentTranscript(provider, transcriptPath)) return;
       if (TOKEN_STATS_PROVIDERS.includes(provider) && agentSessionId) {
         const key = `${provider}:${agentSessionId}`;
         if (!startedAtBySession.has(key)) startedAtBySession.set(key, now());
@@ -466,6 +473,7 @@ function createAgentTokenStatsService({
 module.exports = {
   LIVE_POLL_INTERVAL_MS,
   createAgentTokenStatsService,
+  isNestedAgentTranscript,
   remoteParserCommand,
   shellQuote,
   subtractTokens
