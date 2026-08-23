@@ -349,43 +349,53 @@ function createAgentSessionLauncher({
     return terminalManager.listSessions();
   }
 
+  function createReplacementTemplate(session, provider) {
+    return {
+      id: session.templateId || session.id,
+      title: session.title,
+      shell: session.shell,
+      cwd: session.cwd,
+      fileRoot: session.fileRoot,
+      fileSort: session.fileSort,
+      preferredDiskMountPoint: session.preferredDiskMountPoint,
+      initialCommand: session.initialCommand,
+      agentProvider: provider,
+      agentLocation: session.agentLocation,
+      localAgentCwd: session.localAgentCwd,
+      type: session.type,
+      wslDistro: session.wslDistro,
+      sshConfig: session.sshConfig,
+      quickCommands: session.quickCommands || [],
+      tags: session.tags || []
+    };
+  }
+
   async function switchAgent(sessionId, provider) {
     if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
     const operation = (async () => {
       const session = terminalManager.getSession(sessionId);
       if (!session) throw new Error("Session is not running.");
       if (!session.agentProvider) throw new Error("Only Agent sessions can switch Agent.");
-      if (session.agentProvider === provider) return terminalManager.listSessions();
+      if (session.agentProvider === provider) {
+        const current = terminalManager.listSessions().find(entry => entry.id === sessionId);
+        if (!current) throw new Error("Session is not running.");
+        return current;
+      }
       if (session.type === "ssh" && session.agentLocation === "local") {
         throw new Error("Local SSH bridge sessions can only run Codex and cannot switch Agent.");
       }
 
-      const target = { ...session, agentProvider: provider, agentRuntimeProvider: provider };
+      const target = createReplacementTemplate(session, provider);
       validateAgentSession(target);
-      let command;
-      if (target.type === "ssh") {
-        const commandWarning = await prepareSshCommand(sessionId, target);
-        const { tunnel, warningCommand } = await prepareSshHook(sessionId, target);
-        const agentCommand = buildAgentStartCommand(target, {
-          hookUrl: tunnel?.hookUrl,
-          sessionId
-        });
-        const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
-        command = wrapAgentStartCommand(
-          target,
-          `${prefixCommands.length ? `${prefixCommands.join("; ")}; ` : ""}cd ${shellQuote(target.cwd)} && ${agentCommand}`
-        );
-      } else {
-        command = await prepareLocal(target);
-      }
+      const runtimeInitialCommand = target.type === "ssh" ? "" : await prepareLocal(target);
 
-      await terminalManager.requestAgentExit(sessionId, 10000);
-      terminalManager.startAgentInSession(sessionId, {
-        provider,
-        agentLocation: target.agentLocation,
-        command
+      terminalManager.closeSession(sessionId);
+      const replacement = terminalManager.launchSession(target, {
+        useProvidedTemplate: true,
+        templateId: session.templateId,
+        runtimeInitialCommand
       });
-      return terminalManager.listSessions();
+      return target.type === "ssh" ? await finishSsh(replacement) : replacement;
     })();
     switchingSessions.set(sessionId, operation);
     try {

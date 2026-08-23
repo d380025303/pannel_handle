@@ -156,6 +156,12 @@ export type TranslationKey =
   | "quickCommand.autoEnter"
   | "quickCommand.oneTime"
   | "quickCommand.add"
+  | "quickCommand.more"
+  | "quickCommand.dialog"
+  | "quickCommand.empty"
+  | "quickCommand.pin"
+  | "quickCommand.unpin"
+  | "quickCommand.pinLimit"
   | "tag.remove"
   | "tag.placeholderEmpty"
   | "tag.placeholderAdd"
@@ -846,6 +852,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "quickCommand.autoEnter": "自动执行",
     "quickCommand.oneTime": "一次性",
     "quickCommand.add": "添加命令",
+    "quickCommand.more": "更多",
+    "quickCommand.dialog": "全部快捷命令",
+    "quickCommand.empty": "暂无快捷命令，可在下方添加临时命令",
+    "quickCommand.pin": "置顶",
+    "quickCommand.unpin": "取消置顶",
+    "quickCommand.pinLimit": "最多置顶 3 个命令",
     "tag.remove": "删除标签 {tag}",
     "tag.placeholderEmpty": "输入标签，按 Enter 添加",
     "tag.placeholderAdd": "添加标签",
@@ -1528,6 +1540,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "quickCommand.autoEnter": "Run automatically",
     "quickCommand.oneTime": "One time",
     "quickCommand.add": "Add command",
+    "quickCommand.more": "More",
+    "quickCommand.dialog": "All quick commands",
+    "quickCommand.empty": "No quick commands yet. Add a temporary command below.",
+    "quickCommand.pin": "Pin",
+    "quickCommand.unpin": "Unpin",
+    "quickCommand.pinLimit": "You can pin up to 3 commands",
     "tag.remove": "Remove tag {tag}",
     "tag.placeholderEmpty": "Enter a tag, press Enter to add",
     "tag.placeholderAdd": "Add tag",

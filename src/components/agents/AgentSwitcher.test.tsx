@@ -43,12 +43,12 @@ describe("AgentSwitcher", () => {
   });
 
   it("shows a dismissible error when switching fails", async () => {
-    const onSwitch = vi.fn(async () => { throw new Error("Agent did not exit within 10 seconds."); });
+    const onSwitch = vi.fn(async () => { throw new Error("Failed to start replacement terminal."); });
     render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);
 
     fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Claude" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Agent did not exit within 10 seconds.");
+    expect((await screen.findByRole("alert")).textContent).toContain("Failed to start replacement terminal.");
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("alert")).toBeNull();
   });

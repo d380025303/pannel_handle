@@ -173,6 +173,19 @@ export function useTerminalSessions() {
     await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, session.localAgentCwd, updated, session.sshConfig, session.tags);
   }, [activeId, activeSession, updateSession]);
 
+  const toggleQuickCommandPinnedForActiveSession = useCallback(async (commandId: string) => {
+    const id = activeId;
+    const session = activeSession;
+    if (!id || !session) return;
+    const commands = session.quickCommands ?? [];
+    const target = commands.find((qc) => qc.id === commandId);
+    if (!target) return;
+    const pinnedCount = commands.filter((qc) => qc.pinned).length;
+    if (!target.pinned && pinnedCount >= 3) return;
+    const updated = commands.map((qc) => qc.id === commandId ? { ...qc, pinned: !qc.pinned } : qc);
+    await updateSession(id, session.title, session.cwd, session.initialCommand ?? '', session.agentProvider, session.agentLocation, session.localAgentCwd, updated, session.sshConfig, session.tags);
+  }, [activeId, activeSession, updateSession]);
+
   const setActivePreferredDiskMountPoint = useCallback(async (mountPoint: string) => {
     const id = activeId;
     if (!id || activeSession?.type !== "ssh") return;
@@ -229,7 +242,8 @@ export function useTerminalSessions() {
   }, []);
 
   const switchAgent = useCallback(async (id: string, provider: AgentProvider) => {
-    await window.terminalApi.switchAgent(id, provider);
+    const replacement = await window.terminalApi.switchAgent(id, provider);
+    setActiveId(replacement.id);
   }, []);
 
   const deleteFromLibrary = useCallback(async (id: string) => {
@@ -325,6 +339,7 @@ export function useTerminalSessions() {
     toggleAutoRestore,
     addQuickCommandToActiveSession,
     removeQuickCommandFromActiveSession,
+    toggleQuickCommandPinnedForActiveSession,
     setActivePreferredDiskMountPoint
   };
 }

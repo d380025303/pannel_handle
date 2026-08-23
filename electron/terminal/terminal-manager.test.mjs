@@ -419,29 +419,47 @@ describe("terminal-manager", () => {
     expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: null });
   });
 
-  it("waits for a split Agent exit marker and switches only runtime metadata", async () => {
-    const { manager, term, sessionStore, broadcast } = createManager();
+  it("launches a runtime replacement with the original template link without changing the saved Agent", () => {
+    const { manager, sessionStore, term } = createManager();
+    const session = manager.createSession({ title: "Agent", cwd: "C:\\work", agentProvider: "codex" });
+
+    manager.closeSession(session.id);
+    sessionStore.updateLibrary.mockClear();
+    const replacement = manager.launchSession({
+      ...session,
+      id: session.templateId,
+      agentProvider: "claude"
+    }, {
+      useProvidedTemplate: true,
+      templateId: session.templateId,
+      runtimeInitialCommand: "claude"
+    });
+
+    expect(replacement).toMatchObject({
+      templateId: session.templateId,
+      agentProvider: "claude"
+    });
+    expect(replacement.id).not.toBe(session.id);
+    term.emitData("PS C:\\work> ");
+    expect(term.writes.at(-1)).toBe("claude\r");
+    expect(sessionStore.getTemplate(session.templateId).agentProvider).toBe("codex");
+    expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
+  });
+
+  it("detects a split Agent exit marker without exposing it in terminal history", () => {
+    const { manager, term, broadcast } = createManager();
     const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
     term.emitData("ready");
-    sessionStore.updateLibrary.mockClear();
 
-    const exitPromise = manager.requestAgentExit(session.id, 1000);
-    expect(term.writes.at(-1)).toBe("/exit\r");
     term.emitData(`done\r\n${AGENT_EXIT_MARKER.slice(0, 12)}`);
     term.emitData(`${AGENT_EXIT_MARKER.slice(12)}\r\n`);
-    await exitPromise;
 
-    manager.startAgentInSession(session.id, {
-      provider: "claude",
-      command: "claude; printf marker"
-    });
-    expect(manager.getSession(session.id).agentProvider).toBe("claude");
-    expect(term.writes.at(-1)).toBe("claude; printf marker\r");
-    expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
     expect(manager.getHistory(session.id)).not.toContain(AGENT_EXIT_MARKER);
-    expect(broadcast).toHaveBeenCalledWith("sessions:changed", expect.arrayContaining([
-      expect.objectContaining({ id: session.id, agentProvider: "claude" })
-    ]));
+    expect(broadcast).toHaveBeenCalledWith("agent:status", expect.objectContaining({
+      id: session.id,
+      provider: "codex",
+      status: "ended"
+    }));
   });
 
   it("ignores an Agent exit marker embedded in an echoed launch command", () => {
@@ -450,22 +468,11 @@ describe("terminal-manager", () => {
 
     term.emitData(`PS C:\\work> & { codex }; Write-Output '${AGENT_EXIT_MARKER}'\r\n`);
 
-    expect(manager.getSession(session.id).agentShellReady).toBe(false);
     expect(broadcast).not.toHaveBeenCalledWith("agent:status", expect.objectContaining({
       id: session.id,
       status: "ended"
     }));
     expect(manager.getHistory(session.id)).toContain(AGENT_EXIT_MARKER);
-  });
-
-  it("times out without starting a replacement when the Agent does not exit", async () => {
-    const { manager, term } = createManager();
-    const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
-    term.emitData("ready");
-
-    await expect(manager.requestAgentExit(session.id, 1)).rejects.toThrow("10 seconds");
-    expect(term.writes.at(-1)).toBe("/exit\r");
-    expect(manager.getSession(session.id).agentProvider).toBe("codex");
   });
 
   it("uses a generated runtime command without replacing the saved Agent pre-command", () => {

@@ -4,6 +4,7 @@ export type QuickCommand = {
   id: string;
   command: string;
   mode?: 'auto-enter' | 'write' | 'one-time';
+  pinned?: boolean;
 };
 
 export type RemotePlatform = "auto" | "linux" | "windows";
@@ -774,7 +775,7 @@ export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
   updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
-  switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession[]>;
+  switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;

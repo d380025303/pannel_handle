@@ -652,6 +652,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       onFocusTerminal={terminalInstances.focusActiveTerminal}
                       onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
                       onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
+                      onTogglePinned={terminalSessions.toggleQuickCommandPinnedForActiveSession}
                     />
                     <div className="terminal-status-cluster">
                       <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />

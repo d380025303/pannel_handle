@@ -400,14 +400,7 @@ function createTerminalManager({
     session.agentMarkerAtLineStart = atLineStart;
 
     if (detected) {
-      session.agentShellReady = true;
       session.agentStatus = "ended";
-      const pendingExit = session.pendingAgentExit;
-      session.pendingAgentExit = undefined;
-      if (pendingExit) {
-        clearTimeout(pendingExit.timer);
-        pendingExit.resolve();
-      }
       broadcastAgentStatus({
         id: session.id,
         provider: session.agentRuntimeProvider || session.agentProvider,
@@ -438,7 +431,6 @@ function createTerminalManager({
     session.lastSshSecretPromptSignature = undefined;
     session.agentMarkerRemainder = "";
     session.agentMarkerAtLineStart = true;
-    session.agentShellReady = !session.agentProvider;
     broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
     term.onData((data) => {
@@ -455,11 +447,6 @@ function createTerminalManager({
 
     term.onExit(({ exitCode }) => {
       if (!sessions.has(session.id)) return;
-      if (session.pendingAgentExit) {
-        clearTimeout(session.pendingAgentExit.timer);
-        session.pendingAgentExit.reject(new Error("Terminal exited while switching Agent."));
-        session.pendingAgentExit = undefined;
-      }
       broadcast("terminal:exit", { id: session.id, exitCode });
       broadcastAgentStatus({
         id: session.id,
@@ -554,13 +541,17 @@ function createTerminalManager({
   }
 
   function startSessionFromTemplate(templateData, options = {}) {
-    const storedTemplate = templateData?.id ? sessionStore.getTemplate(templateData.id) : undefined;
+    const storedTemplate = !options.useProvidedTemplate && templateData?.id
+      ? sessionStore.getTemplate(templateData.id)
+      : undefined;
     const template = sessionStore.normalizeTemplate(storedTemplate || templateData);
     if (template.type === "ssh") {
       validateSsh2Config(template.sshConfig);
     }
     const id = createRuntimeId();
-    const templateId = options.persist === false ? undefined : template.id;
+    const templateId = Object.prototype.hasOwnProperty.call(options, "templateId")
+      ? options.templateId
+      : options.persist === false ? undefined : template.id;
     const session = {
       ...template,
       id,
@@ -807,11 +798,6 @@ function createTerminalManager({
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
-      if (session.pendingAgentExit) {
-        clearTimeout(session.pendingAgentExit.timer);
-        session.pendingAgentExit.reject(new Error("Session was closed while switching Agent."));
-        session.pendingAgentExit = undefined;
-      }
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
@@ -859,46 +845,6 @@ function createTerminalManager({
       trackCodexTerminalCommand(session, data);
       session.term.write(data);
     }
-  }
-
-  function requestAgentExit(id, timeoutMs = 10000) {
-    const session = sessions.get(id);
-    if (!session) return Promise.reject(new Error("Session is not running."));
-    if (!session.agentProvider) return Promise.reject(new Error("Session is not running an Agent."));
-    if (session.agentShellReady) return Promise.resolve();
-    if (session.pendingAgentExit) return session.pendingAgentExit.promise;
-
-    let resolveExit;
-    let rejectExit;
-    const promise = new Promise((resolve, reject) => {
-      resolveExit = resolve;
-      rejectExit = reject;
-    });
-    const timer = setTimeout(() => {
-      if (session.pendingAgentExit?.promise !== promise) return;
-      session.pendingAgentExit = undefined;
-      rejectExit(new Error("Agent did not exit within 10 seconds."));
-    }, timeoutMs);
-    session.pendingAgentExit = { promise, resolve: resolveExit, reject: rejectExit, timer };
-    session.term.write("/exit\r");
-    return promise;
-  }
-
-  function startAgentInSession(id, { provider, agentLocation, command }) {
-    const session = sessions.get(id);
-    if (!session) throw new Error("Session is not running.");
-    if (!session.agentShellReady) throw new Error("The previous Agent has not exited.");
-    if (!provider || !String(command || "").trim()) throw new Error("Agent start command is required.");
-
-    session.agentProvider = provider;
-    session.agentRuntimeProvider = provider;
-    session.agentLocation = agentLocation || undefined;
-    session.agentStatus = undefined;
-    session.agentShellReady = false;
-    session.agentCommandState = undefined;
-    session.term.write(`${String(command).trim()}\r`);
-    broadcast("sessions:changed", listSessions());
-    return serializeSession(session);
   }
 
   function resize(id, cols, rows) {
@@ -957,8 +903,6 @@ function createTerminalManager({
     reorderRunningSessions,
     renameSession,
     updateSession,
-    requestAgentExit,
-    startAgentInSession,
     closeSession,
     listSessions,
     getHistory,
