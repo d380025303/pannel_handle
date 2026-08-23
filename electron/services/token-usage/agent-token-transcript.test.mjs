@@ -1,8 +1,11 @@
 import { createRequire } from "node:module";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createIncrementalTranscriptParser, parseTranscriptText } = require("./agent-token-transcript.cjs");
+const { createIncrementalTranscriptParser, parseTranscriptFileWithSubagents, parseTranscriptText } = require("./agent-token-transcript.cjs");
 
 describe("agent token transcript parser", () => {
   it("normalizes Gemini usage and applies message updates, checkpoints, and rewinds", () => {
@@ -151,7 +154,9 @@ describe("agent token transcript parser", () => {
         thoughts_token_count: 7,
         total_tokens: 120
       },
-      content: [{ type: "tool_use", id: "tool-a", name: "mcp__jira__get_issue", input: {} }]
+      content: [
+        { type: "tool_use", id: "tool-a", name: "mcp__jira__get_issue", input: {} }
+      ]
     };
     const result = parseTranscriptText("qwen", [
       JSON.stringify({ type: "assistant", uuid: "row-a", message }),
@@ -205,6 +210,45 @@ describe("agent token transcript parser", () => {
       totalCalls: 2,
       servers: [{ name: "database", count: 2, tools: [{ name: "query", count: 2 }] }]
     });
+  });
+
+  it("aggregates CodeBuddy subagent transcripts with the main transcript", async () => {
+    const tempDirectory = await mkdtemp(nodePath.join(tmpdir(), "pannel-handle-cb-aggregate-"));
+    try {
+      const transcriptPath = nodePath.join(tempDirectory, "session-a.jsonl");
+      const subagentsDir = nodePath.join(tempDirectory, "session-a", "subagents");
+      await mkdir(subagentsDir, { recursive: true });
+      await writeFile(transcriptPath, [
+        JSON.stringify({ type: "function_call", name: "mcp__database__query", input: { sql: "select 1" } }),
+        JSON.stringify({ type: "message", providerData: { messageId: "m1", model: "glm-5.2", usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } } })
+      ].join("\n"), "utf-8");
+      await writeFile(nodePath.join(subagentsDir, "agent-one.jsonl"), [
+        JSON.stringify({ type: "function_call", name: "mcp__database__query", input: { sql: "select 1" } }),
+        JSON.stringify({ type: "message", providerData: { messageId: "s1", model: "glm-5.2", usage: { inputTokens: 500, outputTokens: 40, totalTokens: 540 } } })
+      ].join("\n"), "utf-8");
+      await writeFile(nodePath.join(subagentsDir, "agent-two.jsonl"), [
+        JSON.stringify({ type: "message", providerData: { messageId: "s2", model: "glm-5.2-lite", usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 } } })
+      ].join("\n"), "utf-8");
+      await writeFile(nodePath.join(subagentsDir, "pending.jsonl"), "not-usage-yet\n", "utf-8");
+
+      const result = parseTranscriptFileWithSubagents("codebuddy", transcriptPath);
+      expect(result.tokens).toMatchObject({ inputTokens: 630, outputTokens: 70, totalTokens: 700 });
+      expect(result.models).toEqual(["glm-5.2", "glm-5.2-lite"]);
+      expect(result.capabilities.mcp).toMatchObject({ totalCalls: 2, servers: [{ name: "database", count: 2, tools: [{ name: "query", count: 2 }] }] });
+
+      const soloPath = nodePath.join(tempDirectory, "session-b.jsonl");
+      await writeFile(soloPath, JSON.stringify({ type: "message", providerData: { messageId: "m1", model: "glm-5.2", usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } } }), "utf-8");
+      expect(parseTranscriptFileWithSubagents("codebuddy", soloPath).tokens).toMatchObject({ totalTokens: 12 });
+
+      const codexPath = nodePath.join(tempDirectory, "session-c.jsonl");
+      const codexSubagentsDir = nodePath.join(tempDirectory, "session-c", "subagents");
+      await mkdir(codexSubagentsDir, { recursive: true });
+      await writeFile(codexPath, JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 7, output_tokens: 3, total_tokens: 10 } } } }), "utf-8");
+      await writeFile(nodePath.join(codexSubagentsDir, "agent.jsonl"), JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 999, output_tokens: 999, total_tokens: 1998 } } } }), "utf-8");
+      expect(parseTranscriptFileWithSubagents("codex", codexPath).tokens).toMatchObject({ totalTokens: 10 });
+    } finally {
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
   });
 
   it("keeps the latest cumulative Codex usage when parsing incrementally", () => {

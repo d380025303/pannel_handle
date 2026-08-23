@@ -13,8 +13,7 @@ const defaultDashboard: AgentTokenDashboard = {
     { provider: "codex", sessionCount: 0, tokens: emptyTokens },
     { provider: "claude", sessionCount: 0, tokens: emptyTokens },
     { provider: "codebuddy", sessionCount: 0, tokens: emptyTokens },
-    { provider: "qoder", sessionCount: 0, tokens: emptyTokens },
-    { provider: "qwen", sessionCount: 0, tokens: emptyTokens }
+    { provider: "qoder", sessionCount: 0, tokens: emptyTokens }
   ],
   topSkills: [], topMcpServers: [],
   sessions: [], totalCount: 0, offset: 0, limit: 50
@@ -55,6 +54,13 @@ describe("AgentTokenStatsDashboard", () => {
     await screen.findByText("CodeBuddy");
     fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codebuddy" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "codebuddy" })));
+  });
+
+  it("offers OpenCode as a provider filter", async () => {
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    await screen.findByText("OpenCode");
+    fireEvent.change(screen.getByRole("combobox", { name: /Agent/ }), { target: { value: "opencode" } });
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "opencode" })));
   });
 
   it("offers Qoder as a provider filter", async () => {

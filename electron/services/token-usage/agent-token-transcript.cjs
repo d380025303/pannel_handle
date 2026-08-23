@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const path = require("node:path");
 
 const TOKEN_FIELDS = [
   "inputTokens",
@@ -173,18 +174,21 @@ function normalizeCapabilityUsage(value, availability = "available") {
   const skills = new Map();
   for (const item of value?.skills?.items || []) {
     const name = normalizeCapabilityName(item?.name);
-    if (name) skills.set(name, safeInteger(item.count));
+    if (name) skills.set(name, (skills.get(name) || 0) + safeInteger(item.count));
   }
   const servers = new Map();
   for (const server of value?.mcp?.servers || []) {
     const serverName = normalizeCapabilityName(server?.name);
     if (!serverName) continue;
-    const tools = new Map();
+    let tools = servers.get(serverName);
+    if (!tools) {
+      tools = new Map();
+      servers.set(serverName, tools);
+    }
     for (const tool of server.tools || []) {
       const toolName = normalizeCapabilityName(tool?.name);
-      if (toolName) tools.set(toolName, safeInteger(tool.count));
+      if (toolName) tools.set(toolName, (tools.get(toolName) || 0) + safeInteger(tool.count));
     }
-    servers.set(serverName, tools);
   }
   const skillItems = [...skills].map(([name, count]) => ({ name, count })).sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
   const mcpServers = [...servers].map(([name, tools]) => {
@@ -526,6 +530,53 @@ function parseTranscriptFile(provider, transcriptPath) {
   return parseTranscriptText(provider, fs.readFileSync(transcriptPath, "utf-8"));
 }
 
+// CodeBuddy 把子 agent（Task/Agent tool）的 transcript 写在主 transcript 同级的
+// `<sessionId>/subagents/agent-*.jsonl` 中，主 transcript 不包含子 agent 的 usage。
+function getCodeBuddySubagentsDir(transcriptPath) {
+  const parsed = path.parse(String(transcriptPath || ""));
+  if (!parsed.dir || parsed.ext.toLowerCase() !== ".jsonl") return null;
+  return path.join(parsed.dir, parsed.name, "subagents");
+}
+
+function listCodeBuddySubagentFiles(transcriptPath) {
+  const subagentsDir = getCodeBuddySubagentsDir(transcriptPath);
+  if (!subagentsDir) return [];
+  let entries;
+  try { entries = fs.readdirSync(subagentsDir); } catch { return []; }
+  return entries
+    .filter(name => name.toLowerCase().endsWith(".jsonl"))
+    .sort()
+    .map(name => path.join(subagentsDir, name));
+}
+
+function mergeTranscriptResults(results) {
+  const tokens = emptyTokens();
+  const models = new Set();
+  const skillItems = [];
+  const mcpServers = [];
+  for (const result of results) {
+    addTokens(tokens, result.tokens);
+    for (const model of result.models || []) models.add(String(model));
+    skillItems.push(...(result.capabilities?.skills?.items || []));
+    mcpServers.push(...(result.capabilities?.mcp?.servers || []));
+  }
+  return {
+    tokens,
+    models: [...models],
+    capabilities: normalizeCapabilityUsage({ skills: { items: skillItems }, mcp: { servers: mcpServers } })
+  };
+}
+
+function parseTranscriptFileWithSubagents(provider, transcriptPath) {
+  const mainResult = parseTranscriptFile(provider, transcriptPath);
+  if (provider !== "codebuddy") return mainResult;
+  const results = [mainResult];
+  for (const file of listCodeBuddySubagentFiles(transcriptPath)) {
+    try { results.push(parseTranscriptFile(provider, file)); } catch { /* 子 agent transcript 可能还没有 usage 行 */ }
+  }
+  return results.length === 1 ? mainResult : mergeTranscriptResults(results);
+}
+
 module.exports = {
   TOKEN_FIELDS,
   addTokens,
@@ -533,6 +584,9 @@ module.exports = {
   createIncrementalTranscriptParser,
   emptyCapabilityUsage,
   emptyTokens,
+  getCodeBuddySubagentsDir,
+  listCodeBuddySubagentFiles,
+  mergeTranscriptResults,
   normalizeClaudeUsage,
   normalizeCodeBuddyUsage,
   normalizeQoderTokenUsage,
@@ -541,6 +595,7 @@ module.exports = {
   normalizeCapabilityUsage,
   normalizeCodexUsage,
   parseTranscriptFile,
+  parseTranscriptFileWithSubagents,
   parseTranscriptText,
   safeInteger
 };

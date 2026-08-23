@@ -88,12 +88,12 @@ describe("QuickCommandBar", () => {
     expect(togglePinned).toHaveBeenCalledWith("pinned");
   });
 
-  it("adds a trimmed one-time command from the popover", () => {
+  it("adds a trimmed auto-enter command from the popover", () => {
     renderBar([]);
     fireEvent.click(screen.getByRole("button", { name: /快捷命令/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "命令内容" }), { target: { value: "  pnpm build  " } });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "命令内容" }), { key: "Enter" });
-    expect(addQuickCommand).toHaveBeenCalledWith("pnpm build", "one-time");
+    expect(addQuickCommand).toHaveBeenCalledWith("pnpm build", "auto-enter");
   });
 
   it("closes on Escape and restores focus to the trigger", () => {

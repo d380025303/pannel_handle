@@ -64,4 +64,15 @@ describe("useAgentTokenLive", () => {
     rerender({ active: session("panel-2", "claude", "ssh") });
     await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "claude" }));
   });
+
+  it("enables event-driven OpenCode live usage for SSH sessions", async () => {
+    window.agentTokenStatsApi = {
+      getDashboard: vi.fn(), clear: vi.fn(), onChanged: vi.fn(),
+      getLive: vi.fn(async () => null), onLiveChanged: vi.fn(() => vi.fn())
+    };
+    const { result } = renderHook(() => useAgentTokenLive(session("panel-open", "opencode", "ssh")));
+
+    await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "opencode" }));
+    expect(window.agentTokenStatsApi.getLive).toHaveBeenCalledWith("panel-open");
+  });
 });

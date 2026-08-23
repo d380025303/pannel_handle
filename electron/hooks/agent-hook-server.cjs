@@ -528,6 +528,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     const eventName = getEventName(input);
     const status = getHookStatus(provider, input);
     if (!status) {
+      if (provider === "opencode" && eventName === "message.updated") {
+        registerAgentSession(provider, getAgentSessionId(input), session.id);
+        agentTokenStatsService?.handleHook({ provider, input, session });
+      }
       return false;
     }
     const toolName = getToolName(input);

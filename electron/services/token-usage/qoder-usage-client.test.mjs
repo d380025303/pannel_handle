@@ -73,7 +73,7 @@ describe("qoder-usage-client", () => {
     expect(() => normalizeQoderUsage(null)).toThrow("sign in or update");
   });
 
-  it("normalizes active call quotas without mixing them into Credits", () => {
+  it("normalizes active quotas as Credits and merges them into summary", () => {
     expect(normalizeQoderActivities({ data: { activities: [{
       activityId: "qwen38_800_invoke",
       modelName: "Qwen3.8-Max 免费额度",
@@ -94,7 +94,7 @@ describe("qoder-usage-client", () => {
       remainingAmount: 788,
       usedPercent: 2,
       remainingPercent: 98,
-      unit: "calls",
+      unit: "Credits",
       expiresAt: 2_000_000_000_000
     })]);
     expect(normalizeQoderActivities([
@@ -190,7 +190,7 @@ describe("qoder-usage-client", () => {
     })).resolves.toMatchObject({
       provider: "qoder",
       fetchedAt: 99,
-      summary: { remaining: 2500 },
+      summary: { total: 4100, used: 800, remaining: 3300 },
       activities: [expect.objectContaining({ id: "qwen38_800_invoke", remainingAmount: 800 })]
     });
 

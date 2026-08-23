@@ -3,8 +3,8 @@ import type { AgentTokenLiveSnapshot, TerminalSession } from "../vite-env";
 
 export type AgentTokenLiveViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini" }
-  | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini" }
+  | { status: "loading"; provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini" }
+  | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini" }
   | { status: "ready"; snapshot: AgentTokenLiveSnapshot };
 
 export function useAgentTokenLive(session?: TerminalSession) {
@@ -12,6 +12,7 @@ export function useAgentTokenLive(session?: TerminalSession) {
     session?.agentProvider === "codex" ||
     session?.agentProvider === "claude" ||
     session?.agentProvider === "codebuddy" ||
+    session?.agentProvider === "opencode" ||
     session?.agentProvider === "qoder" ||
     session?.agentProvider === "copilot" ||
     session?.agentProvider === "qwen" ||

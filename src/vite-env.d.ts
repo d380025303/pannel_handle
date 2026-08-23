@@ -607,7 +607,7 @@ export type AgentUsageActivityQuota = {
   remainingAmount: number;
   usedPercent: number;
   remainingPercent: number;
-  unit: "calls";
+  unit: "Credits";
   expiresAt?: number;
   resetStrategy?: string;
   statusText?: string;
@@ -706,7 +706,7 @@ export type AgentCapabilityUsage = {
 
 export type AgentTokenSessionRecord = {
   id: string;
-  provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
   agentSessionId: string;
   panelSessionId: string;
   templateId?: string;
@@ -724,10 +724,10 @@ export type AgentTokenSessionRecord = {
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
-  provider: "all" | "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
   summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
-  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini"; sessionCount: number; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini"; sessionCount: number; tokens: AgentTokenTotals }>;
   topSkills: Array<{ name: string; count: number }>;
   topMcpServers: Array<{ name: string; count: number; tools: Array<{ name: string; count: number }> }>;
   sessions: AgentTokenSessionRecord[];
@@ -738,7 +738,7 @@ export type AgentTokenDashboard = {
 
 export type AgentTokenLiveSnapshot = {
   panelSessionId: string;
-  provider: "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
   state: "waiting" | "generating" | "completed" | "unavailable";
   tokens: AgentTokenTotals;
   capabilities: AgentCapabilityUsage;
@@ -749,7 +749,7 @@ export type AgentTokenLiveSnapshot = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "qoder" | "copilot" | "qwen" | "gemini"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;

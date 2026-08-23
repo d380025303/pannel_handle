@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const path = require("node:path");
 const { spawn: defaultSpawn } = require("node:child_process");
 const {
   TOKEN_FIELDS,
@@ -6,8 +7,9 @@ const {
   createIncrementalTranscriptParser,
   emptyCapabilityUsage,
   emptyTokens,
+  getCodeBuddySubagentsDir,
   normalizeCapabilityUsage,
-  parseTranscriptFile,
+  parseTranscriptFileWithSubagents,
   parseTranscriptText,
   safeInteger
 } = require("./agent-token-transcript.cjs");
@@ -19,7 +21,7 @@ const { createCopilotOtelParser, getCopilotOtelPath } = require("./copilot-otel.
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "qwen", "gemini"];
 const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
 
 function shellQuote(value) {
@@ -27,7 +29,19 @@ function shellQuote(value) {
 }
 
 function remoteParserCommand(provider, transcriptPath) {
-  const script = `import json,sys\np=sys.argv[1]; f=sys.argv[2]; lines=open(f,'r',encoding='utf-8').read().splitlines(); print(json.dumps(lines))`;
+  // 对 CodeBuddy 额外读取主 transcript 同级的 `<sessionId>/subagents/*.jsonl`，
+  // 子 agent 的 token 用量只记录在这些文件中。
+  const script = [
+    "import json,sys,os,glob",
+    "p=sys.argv[1]; f=sys.argv[2]",
+    "lines=open(f,'r',encoding='utf-8').read().splitlines()",
+    "if p=='codebuddy':",
+    " d=os.path.join(os.path.dirname(f),os.path.splitext(os.path.basename(f))[0],'subagents')",
+    " for s in sorted(glob.glob(os.path.join(d,'*.jsonl'))):",
+    "  try: lines+=open(s,'r',encoding='utf-8').read().splitlines()",
+    "  except Exception: pass",
+    "print(json.dumps(lines))"
+  ].join("\n");
   return `python3 -c ${shellQuote(script)} ${shellQuote(provider)} ${shellQuote(transcriptPath)}`;
 }
 
@@ -98,7 +112,132 @@ function createAgentTokenStatsService({
   const baselinePending = new Map();
   const startedAtBySession = new Map();
   const liveTrackers = new Map();
+  const openCodeTrackers = new Map();
   const remoteSnapshots = new Map();
+
+  function normalizeOpenCodeMessage(input) {
+    const info = input?.info;
+    if (info?.role !== "assistant" || !info.id || !info.tokens || typeof info.tokens !== "object") return null;
+    const freshInputTokens = safeInteger(info.tokens.input);
+    const cachedInputTokens = safeInteger(info.tokens.cache?.read);
+    const cacheWriteInputTokens = safeInteger(info.tokens.cache?.write);
+    const outputTokens = safeInteger(info.tokens.output);
+    const reasoningOutputTokens = safeInteger(info.tokens.reasoning);
+    const inputTokens = freshInputTokens + cachedInputTokens + cacheWriteInputTokens;
+    return {
+      id: String(info.id),
+      model: String(info.modelID || "").trim(),
+      tokens: {
+        inputTokens,
+        cachedInputTokens,
+        cacheWriteInputTokens,
+        outputTokens,
+        reasoningOutputTokens,
+        totalTokens: inputTokens + outputTokens + reasoningOutputTokens
+      }
+    };
+  }
+
+  function ensureOpenCodeTracker(input, session) {
+    const agentSessionId = input?.session_id || input?.sessionId;
+    if (!agentSessionId) return null;
+    let tracker = openCodeTrackers.get(session.id);
+    if (!tracker || tracker.agentSessionId !== agentSessionId) {
+      tracker = {
+        panelSessionId: session.id,
+        agentSessionId,
+        provider: "opencode",
+        session,
+        messages: new Map(),
+        rawTokens: emptyTokens(),
+        rawCapabilities: emptyCapabilityUsage("unavailable"),
+        sessionBaseline: emptyTokens(),
+        sessionCapabilityBaseline: emptyCapabilityUsage("unavailable"),
+        turnBaseline: emptyTokens(),
+        turnStartedAt: null,
+        state: "waiting",
+        models: [],
+        updatedAt: now(),
+        outputTokensPerSecond: 0
+      };
+      openCodeTrackers.set(session.id, tracker);
+    }
+    return tracker;
+  }
+
+  function recomputeOpenCodeTokens(tracker) {
+    const tokens = emptyTokens();
+    for (const message of tracker.messages.values()) {
+      for (const field of TOKEN_FIELDS) tokens[field] += safeInteger(message.tokens?.[field]);
+    }
+    tracker.rawTokens = tokens;
+    tracker.models = [...new Set([...tracker.messages.values()].map(message => message.model).filter(Boolean))];
+  }
+
+  function updateOpenCodeRate(tracker) {
+    if (!tracker.turnStartedAt) return;
+    const turnOutput = Math.max(0, tracker.rawTokens.outputTokens - safeInteger(tracker.turnBaseline?.outputTokens));
+    const elapsedSeconds = Math.max(0.001, (now() - tracker.turnStartedAt) / 1000);
+    tracker.outputTokensPerSecond = Math.round((turnOutput / elapsedSeconds) * 10) / 10;
+  }
+
+  function persistOpenCodeTracker(tracker, input) {
+    if (tracker.rawTokens.totalTokens === 0) return;
+    statsStore.update({
+      provider: "opencode",
+      agentSessionId: tracker.agentSessionId,
+      panelSessionId: tracker.panelSessionId,
+      templateId: tracker.session.templateId,
+      title: tracker.session.title,
+      cwd: input?.cwd || tracker.session.cwd,
+      location: tracker.session.type,
+      models: tracker.models,
+      tokens: tracker.rawTokens,
+      capabilities: tracker.rawCapabilities,
+      startedAt: startedAtBySession.get(`opencode:${tracker.agentSessionId}`),
+      timestamp: now()
+    });
+  }
+
+  function handleOpenCodeHook(input, session) {
+    const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
+    const tracker = ensureOpenCodeTracker(input, session);
+    if (!tracker) return;
+    const key = `opencode:${tracker.agentSessionId}`;
+    if (!startedAtBySession.has(key)) startedAtBySession.set(key, now());
+
+    if (eventName === "session.status" && (input.status?.type || input.status) === "busy") {
+      tracker.turnBaseline = cloneTokens(tracker.rawTokens);
+      tracker.turnStartedAt = now();
+      tracker.outputTokensPerSecond = 0;
+      tracker.state = "generating";
+      tracker.updatedAt = now();
+      emitLive(tracker);
+      return;
+    }
+
+    if (eventName === "message.updated") {
+      const message = normalizeOpenCodeMessage(input);
+      if (!message) return;
+      const previous = tracker.messages.get(message.id);
+      if (message.tokens.totalTokens === 0 && previous?.tokens?.totalTokens > 0) return;
+      tracker.messages.set(message.id, message);
+      recomputeOpenCodeTokens(tracker);
+      updateOpenCodeRate(tracker);
+      tracker.updatedAt = now();
+      emitLive(tracker);
+      persistOpenCodeTracker(tracker, input);
+      return;
+    }
+
+    if (eventName === "session.idle") {
+      updateOpenCodeRate(tracker);
+      tracker.turnStartedAt = null;
+      tracker.state = "completed";
+      tracker.updatedAt = now();
+      emitLive(tracker);
+    }
+  }
 
   async function parseRemote(session, provider, transcriptPath) {
     const command = remoteParserCommand(provider, transcriptPath);
@@ -115,7 +254,7 @@ function createAgentTokenStatsService({
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       try {
         return session.type === "windows" || isLocalSshBridge(session)
-          ? parseTranscriptFile(provider, transcriptPath)
+          ? parseTranscriptFileWithSubagents(provider, transcriptPath)
           : await parseRemote(session, provider, transcriptPath);
       } catch (error) {
         lastError = error;
@@ -176,7 +315,7 @@ function createAgentTokenStatsService({
     const key = `${provider}:${agentSessionId}`;
     if (baselinePending.has(key)) return;
     const request = (session.type === "windows" || isLocalSshBridge(session)
-      ? Promise.resolve().then(() => parseTranscriptFile(provider, transcriptPath))
+      ? Promise.resolve().then(() => parseTranscriptFileWithSubagents(provider, transcriptPath))
       : parseRemote(session, provider, transcriptPath))
       .then(result => statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities))
       .catch(() => statsStore.setBaseline(provider, agentSessionId, {}, emptyCapabilityUsage()));
@@ -196,6 +335,11 @@ function createAgentTokenStatsService({
     tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini"
       ? createAgentConversationTranscriptParser(tracker.provider)
       : null;
+    // 主 parser 已重建，子 agent 文件需要从头重新喂入（parser 按 messageId 去重，不会重复计数）。
+    for (const reader of tracker.subagentReaders?.values() || []) {
+      reader.offset = 0;
+      reader.pendingBytes = Buffer.alloc(0);
+    }
   }
 
   function ensureLiveTracker({ provider, input, session }) {
@@ -216,6 +360,7 @@ function createAgentTokenStatsService({
         fileIdentity: null,
         offset: 0,
         pendingBytes: Buffer.alloc(0),
+        subagentReaders: new Map(),
         parser: provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(provider),
         conversationParser: provider === "codex" || provider === "codebuddy" || provider === "gemini"
           ? createAgentConversationTranscriptParser(provider)
@@ -329,13 +474,67 @@ function createAgentTokenStatsService({
     return parsedUsage;
   }
 
+  // CodeBuddy 子 agent 的 usage 只写入主 transcript 同级的 `<sessionId>/subagents/agent-*.jsonl`。
+  // 这里增量 tail 这些文件并把行喂入主 parser（messageId 各文件独立，按 UUID 天然不冲突），
+  // 使实时 token 统计包含子 agent 的消耗。子 agent 行不进入 conversationParser，避免污染主会话视图。
+  async function readSubagentAppendedBytes(tracker) {
+    if (tracker.provider !== "codebuddy") return;
+    const subagentsDir = getCodeBuddySubagentsDir(tracker.hostPath);
+    if (!subagentsDir) return;
+    let entries;
+    try { entries = await fsPromises.readdir(subagentsDir); } catch { return; }
+    for (const entry of [...entries].sort()) {
+      if (!entry.toLowerCase().endsWith(".jsonl")) continue;
+      const filePath = path.join(subagentsDir, entry);
+      try {
+        const stat = await fsPromises.stat(filePath);
+        if (stat.size > MAX_TRANSCRIPT_BYTES) continue;
+        let reader = tracker.subagentReaders.get(filePath);
+        if (!reader) {
+          reader = { offset: 0, pendingBytes: Buffer.alloc(0) };
+          tracker.subagentReaders.set(filePath, reader);
+        }
+        if (stat.size < reader.offset) {
+          reader.offset = 0;
+          reader.pendingBytes = Buffer.alloc(0);
+        }
+        if (stat.size === reader.offset) continue;
+        const length = stat.size - reader.offset;
+        const handle = await fsPromises.open(filePath, "r");
+        const buffer = Buffer.alloc(length);
+        let bytesRead = 0;
+        try {
+          while (bytesRead < length) {
+            const result = await handle.read(buffer, bytesRead, length - bytesRead, reader.offset + bytesRead);
+            if (!result.bytesRead) break;
+            bytesRead += result.bytesRead;
+          }
+        } finally {
+          await handle.close();
+        }
+        reader.offset += bytesRead;
+        const combined = Buffer.concat([reader.pendingBytes, buffer.subarray(0, bytesRead)]);
+        let lineStart = 0;
+        for (let index = 0; index < combined.length; index += 1) {
+          if (combined[index] !== 0x0a) continue;
+          let line = combined.subarray(lineStart, index);
+          if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+          if (line.length) tracker.parser.pushLine(line.toString("utf-8"));
+          lineStart = index + 1;
+        }
+        reader.pendingBytes = combined.subarray(lineStart);
+      } catch { /* 跳过暂时不可读的子 agent transcript */ }
+    }
+  }
+
   async function pollLive(tracker, { emit = true } = {}) {
     if (tracker.pollPromise) return tracker.pollPromise;
     const request = readAppendedBytes(tracker)
+      .then(() => readSubagentAppendedBytes(tracker))
       .then(() => {
-        const result = tracker.parser.getResult();
-        if (result) {
-          if (tracker.state === "unavailable") {
+      const result = tracker.parser.getResult();
+      if (result) {
+        if (tracker.state === "unavailable") {
             tracker.state = tracker.turnStartedAt ? (tracker.timer ? "generating" : "completed") : "waiting";
           }
           tracker.rawTokens = cloneTokens(result.tokens);
@@ -439,6 +638,10 @@ function createAgentTokenStatsService({
 
   return {
     handleHook({ provider, input, session }) {
+      if (provider === "opencode") {
+        handleOpenCodeHook(input, session);
+        return;
+      }
       const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
       const agentSessionId = input?.session_id || input?.sessionId;
       const transcriptPath = input?.transcript_path || input?.transcriptPath;
@@ -473,6 +676,8 @@ function createAgentTokenStatsService({
       if (provider !== "copilot" && (eventName === "Stop" || eventName === "AfterAgent" || eventName === "SessionEnd")) collect({ provider, input, session });
     },
     getLive(panelSessionId) {
+      const openCodeTracker = openCodeTrackers.get(String(panelSessionId || ""));
+      if (openCodeTracker) return buildLiveSnapshot(openCodeTracker);
       const tracker = liveTrackers.get(String(panelSessionId || ""));
       return tracker ? buildLiveSnapshot(tracker) : remoteSnapshots.get(String(panelSessionId || "")) || null;
     },
@@ -480,6 +685,7 @@ function createAgentTokenStatsService({
       const tracker = liveTrackers.get(panelSessionId);
       stopLiveTimer(tracker);
       liveTrackers.delete(panelSessionId);
+      openCodeTrackers.delete(panelSessionId);
       remoteSnapshots.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
       conversationSink?.clearSession?.(panelSessionId);
@@ -487,6 +693,7 @@ function createAgentTokenStatsService({
     shutdown() {
       for (const tracker of liveTrackers.values()) stopLiveTimer(tracker);
       liveTrackers.clear();
+      openCodeTrackers.clear();
       remoteSnapshots.clear();
     }
   };

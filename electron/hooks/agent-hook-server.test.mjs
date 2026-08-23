@@ -352,8 +352,8 @@ describe("agent-hook-server", () => {
     }));
   });
 
-  it("broadcasts unknown OpenCode events only to debug", () => {
-    const { server, terminalManager } = createServer();
+  it("forwards OpenCode usage events without broadcasting an Agent status", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
     const payload = {
       event_name: "message.updated",
       session_id: "opencode-1",
@@ -364,6 +364,10 @@ describe("agent-hook-server", () => {
 
     expect(handled).toBe(false);
     expect(terminalManager.broadcastAgentStatus).not.toHaveBeenCalled();
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "opencode",
+      input: payload
+    }));
     expect(terminalManager.broadcastAgentHookDebug).toHaveBeenCalledWith({
       provider: "opencode",
       eventName: "message.updated",

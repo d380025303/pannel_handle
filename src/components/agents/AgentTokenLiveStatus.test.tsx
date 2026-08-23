@@ -66,6 +66,17 @@ describe("AgentTokenLiveStatus", () => {
     expect(screen.getByRole("dialog", { name: "Qoder live tokens" })).toBeTruthy();
   });
 
+  it("uses the OpenCode provider name in live token details", () => {
+    render(
+      <I18nProvider locale="en-US">
+        <AgentTokenLiveStatus state={{ status: "ready", snapshot: { ...snapshot, provider: "opencode" } }} />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "OpenCode live tokens" }));
+    expect(screen.getByRole("dialog", { name: "OpenCode live tokens" })).toBeTruthy();
+  });
+
   it("uses the Qwen Code provider name in live token details", () => {
     render(
       <I18nProvider locale="en-US">

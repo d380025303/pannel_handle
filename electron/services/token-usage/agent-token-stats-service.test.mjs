@@ -187,6 +187,105 @@ describe("agent token live statistics", () => {
     expect(harness.service.getLive("panel-1")).toMatchObject({ state: "completed", outputTokensPerSecond: 7.5 });
   });
 
+  it("tracks deduplicated OpenCode usage events and persists accurate session totals", () => {
+    const harness = createHarness({ now: 1_000 });
+    const session = { ...harness.session, type: "ssh", agentProvider: "opencode", title: "OpenCode" };
+    const baseInput = { session_id: "open-1", cwd: "/srv/app" };
+
+    harness.service.handleHook({
+      provider: "opencode",
+      input: { ...baseInput, event_name: "session.status", status: { type: "busy" } },
+      session
+    });
+    harness.setNow(4_000);
+    harness.service.handleHook({
+      provider: "opencode",
+      input: {
+        ...baseInput,
+        event_name: "message.updated",
+        info: {
+          id: "message-one",
+          role: "assistant",
+          modelID: "glm-5.2",
+          tokens: { input: 100, output: 20, reasoning: 10, cache: { read: 30, write: 5 } }
+        }
+      },
+      session
+    });
+    harness.service.handleHook({
+      provider: "opencode",
+      input: {
+        ...baseInput,
+        event_name: "message.updated",
+        info: {
+          id: "message-one",
+          role: "assistant",
+          modelID: "glm-5.2",
+          tokens: { input: 100, output: 30, reasoning: 10, cache: { read: 30, write: 5 } }
+        }
+      },
+      session
+    });
+    harness.service.handleHook({
+      provider: "opencode",
+      input: {
+        ...baseInput,
+        event_name: "message.updated",
+        info: {
+          id: "message-two",
+          role: "assistant",
+          modelID: "glm-5.2-mini",
+          tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } }
+        }
+      },
+      session
+    });
+
+    expect(harness.service.getLive("panel-1")).toMatchObject({
+      provider: "opencode",
+      state: "generating",
+      tokens: {
+        inputTokens: 145,
+        cachedInputTokens: 30,
+        cacheWriteInputTokens: 5,
+        outputTokens: 35,
+        reasoningOutputTokens: 10,
+        totalTokens: 190
+      },
+      turnOutputTokens: 35,
+      outputTokensPerSecond: 11.7,
+      models: ["glm-5.2", "glm-5.2-mini"]
+    });
+    expect(harness.statsStore.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      provider: "opencode",
+      agentSessionId: "open-1",
+      location: "ssh",
+      tokens: expect.objectContaining({ totalTokens: 190 })
+    }));
+
+    const persistedCalls = harness.statsStore.update.mock.calls.length;
+    harness.service.handleHook({
+      provider: "opencode",
+      input: {
+        ...baseInput,
+        event_name: "message.updated",
+        info: {
+          id: "message-one",
+          role: "assistant",
+          modelID: "glm-5.2",
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+        }
+      },
+      session
+    });
+    expect(harness.service.getLive("panel-1")?.tokens.totalTokens).toBe(190);
+    expect(harness.statsStore.update).toHaveBeenCalledTimes(persistedCalls);
+
+    harness.setNow(5_000);
+    harness.service.handleHook({ provider: "opencode", input: { ...baseInput, event_name: "session.idle" }, session });
+    expect(harness.service.getLive("panel-1")).toMatchObject({ state: "completed", outputTokensPerSecond: 8.8 });
+  });
+
   it("keeps CodeBuddy live tracking on the main transcript when subagents emit hooks", async () => {
     const harness = createHarness({ initial: codeBuddyLine("main-one", 100, 20) });
     const session = { ...harness.session, agentProvider: "codebuddy" };
@@ -284,6 +383,7 @@ describe("agent token live statistics", () => {
       await appendFile(transcriptPath, qwenLine("two", 10, 5), "utf-8");
       await intervals[0]();
       await vi.waitFor(() => expect(service.getLive("panel-qwen")).toMatchObject({ tokens: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }));
+
       service.handleHook({ provider: "qwen", input: { ...input, hook_event_name: "Stop" }, session });
       await vi.waitFor(() => expect(statsStore.update).toHaveBeenCalledWith(expect.objectContaining({
         provider: "qwen",

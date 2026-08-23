@@ -141,6 +141,28 @@ function normalizeBucket({ id, name, category, source, totalKey = "total", expir
   };
 }
 
+function mergeActivitiesIntoSummary(snapshot, activities) {
+  if (!activities?.length || !snapshot.summary) return snapshot;
+  const activityTotal = activities.reduce((sum, activity) => sum + activity.totalAmount, 0);
+  const activityUsed = activities.reduce((sum, activity) => sum + activity.usedAmount, 0);
+  const activityRemaining = activities.reduce((sum, activity) => sum + activity.remainingAmount, 0);
+  const total = snapshot.summary.total + activityTotal;
+  const used = snapshot.summary.used + activityUsed;
+  const remaining = snapshot.summary.remaining + activityRemaining;
+  const usedPercent = total > 0 ? clampPercent((used / total) * 100) : 100;
+  return {
+    ...snapshot,
+    summary: {
+      ...snapshot.summary,
+      total,
+      used,
+      remaining,
+      usedPercent,
+      remainingPercent: 100 - usedPercent
+    }
+  };
+}
+
 function normalizeQoderUsage(usage, fetchedAt = Date.now()) {
   if (!usage || typeof usage !== "object") {
     throw new Error("Qoder quota is unavailable. Please sign in or update Qoder CLI.");
@@ -238,7 +260,7 @@ function normalizeQoderActivities(value, fetchedAt = Date.now()) {
       remainingAmount,
       usedPercent,
       remainingPercent: 100 - usedPercent,
-      unit: "calls",
+      unit: "Credits",
       ...(expiresAt ? { expiresAt } : {}),
       ...(normalizeText(activity.resetStrategy) ? { resetStrategy: normalizeText(activity.resetStrategy) } : {}),
       ...(normalizeText(activity.statusText) ? { statusText: normalizeText(activity.statusText) } : {}),
@@ -368,7 +390,7 @@ async function readQoderUsage({
         spawn,
         terminateProcessTree
       }), fetchedAt);
-      return { ...snapshot, activities };
+      return mergeActivitiesIntoSummary({ ...snapshot, activities }, activities);
     } catch {
       if (signal?.aborted) throw new Error("Qoder quota request was canceled.");
       return { ...snapshot, activities: [], activityError: "Qoder activity quota is unavailable." };

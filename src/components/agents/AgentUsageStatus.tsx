@@ -470,7 +470,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                   >
                     <div className="agent-usage-limit-heading">
                       <strong>{activity.name}{activity.tag ? ` · ${activity.tag}` : ""}</strong>
-                      <span>{activity.statusText || t("usage.activityRemaining", {
+                      <span>{t("usage.activityRemaining", {
                         remaining: formatAmount(locale, activity.remainingAmount)
                       })}</span>
                     </div>

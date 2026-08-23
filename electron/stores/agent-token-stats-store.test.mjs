@@ -42,7 +42,7 @@ function downgradeProviderConstraints(databaseFile) {
       const replacement = `${table}_provider_v1`;
       database.exec(schema
         .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
-        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder', 'copilot', 'qwen', 'gemini')", "provider IN ('codex', 'claude', 'codebuddy')"));
+        .replace("provider IN ('codex', 'claude', 'codebuddy', 'opencode', 'qoder', 'copilot', 'qwen', 'gemini')", "provider IN ('codex', 'claude', 'codebuddy')"));
       const columns = database.prepare(`PRAGMA table_info(${table})`).all().map(column => `"${column.name}"`).join(", ");
       database.exec(`INSERT INTO ${replacement} (${columns}) SELECT ${columns} FROM ${table}`);
       database.exec(`DROP TABLE ${table}`);
@@ -96,6 +96,19 @@ describe("agent token statistics SQLite store", () => {
     expect(dashboard.sessions[0]).toMatchObject({ provider: "codebuddy", models: ["glm-5.2"] });
     expect(dashboard.providerBreakdown).toEqual([
       expect.objectContaining({ provider: "codebuddy", sessionCount: 1 })
+    ]);
+    store.close();
+  });
+
+  it("includes OpenCode sessions in totals, filtering, and provider comparison", () => {
+    const { store } = fixture();
+    store.update({ provider: "opencode", agentSessionId: "open", panelSessionId: "panel", title: "OpenCode", location: "ssh", models: ["glm-5.2"], tokens: tokens(260) });
+
+    const dashboard = store.getDashboard({ range: "all", provider: "opencode" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(260);
+    expect(dashboard.sessions[0]).toMatchObject({ provider: "opencode", location: "ssh", models: ["glm-5.2"] });
+    expect(dashboard.providerBreakdown).toEqual([
+      expect.objectContaining({ provider: "opencode", sessionCount: 1 })
     ]);
     store.close();
   });

@@ -75,11 +75,11 @@ function qoderSnapshot(): AgentUsageSnapshot {
     primaryLimitId: "qoder-total",
     summary: {
       kind: "credits",
-      total: 3300,
+      total: 4100,
       used: 800,
-      remaining: 2500,
-      usedPercent: 24,
-      remainingPercent: 76,
+      remaining: 3300,
+      usedPercent: 20,
+      remainingPercent: 80,
       unit: "Credits"
     },
     activities: [{
@@ -90,7 +90,7 @@ function qoderSnapshot(): AgentUsageSnapshot {
       remainingAmount: 800,
       usedPercent: 0,
       remainingPercent: 100,
-      unit: "calls",
+      unit: "Credits",
       statusText: "剩余 800 次",
       tag: "限时特惠",
       description: "活动期内每人 800 次免费调用",
@@ -366,15 +366,15 @@ describe("AgentUsageStatus", () => {
       />
     );
 
-    const trigger = screen.getByRole("button", { name: /Qoder.*2,500 Credits/ });
+    const trigger = screen.getByRole("button", { name: /Qoder.*3,300 Credits/ });
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: "Qoder 额度" }).textContent).toContain("2,500 / 3,300 Credits");
+    expect(screen.getByRole("dialog", { name: "Qoder 额度" }).textContent).toContain("3,300 / 4,100 Credits");
     expect(screen.getByText("pro")).not.toBeNull();
     expect(screen.getByText("Add-on Credits")).not.toBeNull();
     expect(screen.getByText("Organization Resource Package")).not.toBeNull();
     expect(screen.getByText(/Qwen3.8-Max 免费额度/)).not.toBeNull();
-    expect(screen.getByText("剩余 800 次")).not.toBeNull();
-    expect(screen.getByText("0 / 800 次")).not.toBeNull();
+    expect(screen.getByText("剩余 800 Credits")).not.toBeNull();
+    expect(screen.getByText("0 / 800 Credits")).not.toBeNull();
     expect(screen.getByText("当前不可使用")).not.toBeNull();
     expect(document.querySelector(".workbuddy-checkin")).toBeNull();
   });
@@ -389,8 +389,8 @@ describe("AgentUsageStatus", () => {
         onRefresh={() => undefined}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: /Qoder.*2,500 Credits/ }));
-    expect(screen.getByRole("dialog").textContent).toContain("2,500 / 3,300 Credits");
+    fireEvent.click(screen.getByRole("button", { name: /Qoder.*3,300 Credits/ }));
+    expect(screen.getByRole("dialog").textContent).toContain("3,300 / 4,100 Credits");
     expect(document.querySelector(".qoder-activity-quota")?.textContent).toContain("活动额度暂不可用");
   });
 
