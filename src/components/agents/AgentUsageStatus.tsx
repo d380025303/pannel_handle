@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Gauge, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentUsageLimit, WorkBuddyCheckinStatus } from "../../vite-env";
+import type { AgentUsageLimit, AgentUsageResetResult, WorkBuddyCheckinStatus } from "../../vite-env";
 import type { AgentUsageViewState } from "../../hooks/useAgentUsage";
 
 type AgentUsageStatusProps = {
   state: AgentUsageViewState;
   onRefresh: () => void;
+  onConsumeResetCredit?: (creditId: string, idempotencyKey: string) => Promise<AgentUsageResetResult | undefined>;
 };
 
 type WorkBuddyCheckinViewState =
@@ -39,17 +40,24 @@ function getPrimaryLimit(state: AgentUsageViewState): AgentUsageLimit | undefine
     ?? state.snapshot.limits[0];
 }
 
-export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
+export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = async () => undefined }: AgentUsageStatusProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [checkinState, setCheckinState] = useState<WorkBuddyCheckinViewState>({ status: "idle" });
   const [checkinBusy, setCheckinBusy] = useState(false);
+  const [confirmResetCreditId, setConfirmResetCreditId] = useState("");
+  const [resetCreditBusyId, setResetCreditBusyId] = useState("");
+  const [resetCreditFeedback, setResetCreditFeedback] = useState<{ creditId: string; kind: "success" | "info" | "error"; message: string }>();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const checkinRequestRef = useRef(0);
+  const resetCreditRequestRef = useRef(0);
+  const resetCreditAttemptRef = useRef<{ creditId: string; idempotencyKey: string } | undefined>(undefined);
   const primaryLimit = useMemo(() => getPrimaryLimit(state), [state]);
   const provider = state.status === "ready" ? state.snapshot.provider : state.status === "hidden" ? undefined : state.provider;
   const isCodeBuddy = provider === "codebuddy";
+  const isQoder = provider === "qoder";
+  const isCreditProvider = isCodeBuddy || isQoder;
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
     ? state.snapshot.summary
     : undefined;
@@ -98,8 +106,18 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
     if (!open) {
       checkinRequestRef.current += 1;
       setCheckinBusy(false);
+      setConfirmResetCreditId("");
     }
   }, [isCodeBuddy, loadWorkBuddyCheckin, open]);
+
+  useEffect(() => {
+    if (provider === "codex") return;
+    resetCreditRequestRef.current += 1;
+    resetCreditAttemptRef.current = undefined;
+    setConfirmResetCreditId("");
+    setResetCreditBusyId("");
+    setResetCreditFeedback(undefined);
+  }, [provider]);
 
   if (state.status === "hidden") return null;
 
@@ -107,21 +125,21 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
     return (
       <div className="agent-usage-status loading" role="status">
         <LoaderCircle className="spin" aria-hidden="true" />
-        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : "usage.loading")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : isQoder ? "usage.qoderLoading" : "usage.loading")}</span>
       </div>
     );
   }
 
-  if (state.status === "error" || (!isCodeBuddy && !primaryLimit)) {
+  if (state.status === "error" || (!isCreditProvider && !primaryLimit)) {
     return (
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCodeBuddy ? "usage.codebuddyRetry" : "usage.retry")}
+        title={t(isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : "usage.retry")}
         onClick={onRefresh}
       >
         <Gauge aria-hidden="true" />
-        <span>{t(isCodeBuddy ? "usage.codebuddyUnavailable" : "usage.unavailable")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }
@@ -132,11 +150,11 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
     ? t("usage.resetsAt", { time: formatTimestamp(locale, primaryLimit.resetsAt) })
     : t("usage.resetUnavailable");
   const triggerLabel = creditSummary
-    ? t("usage.codebuddyRemaining", { remaining: formatAmount(locale, creditSummary.remaining) })
+    ? t(isQoder ? "usage.qoderRemaining" : "usage.codebuddyRemaining", { remaining: formatAmount(locale, creditSummary.remaining) })
     : t("usage.remaining", { remaining: primaryLimit?.remainingPercent ?? 0 });
-  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : "usage.title");
-  const groupedLimits = state.status === "ready" && isCodeBuddy
-    ? (["base", "extra", "bonus", "other"] as const)
+  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : isQoder ? "usage.qoderTitle" : "usage.title");
+  const groupedLimits = state.status === "ready" && isCreditProvider
+    ? (["base", "extra", "bonus", "organization", "other"] as const)
       .map(category => ({ category, limits: state.snapshot.limits.filter(limit => limit.category === category) }))
       .filter(group => group.limits.length > 0)
     : [];
@@ -157,6 +175,55 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
       }
     } finally {
       if (checkinRequestRef.current === requestId) setCheckinBusy(false);
+    }
+  };
+
+  const consumeResetCredit = async (creditId: string) => {
+    if (resetCreditBusyId) return;
+    const retryAttempt = resetCreditAttemptRef.current?.creditId === creditId
+      ? resetCreditAttemptRef.current
+      : undefined;
+    if (!retryAttempt && confirmResetCreditId !== creditId) {
+      resetCreditAttemptRef.current = undefined;
+      setResetCreditFeedback(undefined);
+      setConfirmResetCreditId(creditId);
+      return;
+    }
+
+    const attempt = retryAttempt ?? { creditId, idempotencyKey: crypto.randomUUID() };
+    resetCreditAttemptRef.current = attempt;
+    setConfirmResetCreditId("");
+    setResetCreditBusyId(creditId);
+    setResetCreditFeedback(undefined);
+    const requestId = ++resetCreditRequestRef.current;
+    try {
+      const result = await onConsumeResetCredit(creditId, attempt.idempotencyKey);
+      if (resetCreditRequestRef.current !== requestId || !result) return;
+      resetCreditAttemptRef.current = undefined;
+      const outcomeKey = result.outcome === "reset"
+        ? "usage.resetCreditSuccess"
+        : result.outcome === "alreadyRedeemed"
+          ? "usage.resetCreditAlreadyRedeemed"
+          : result.outcome === "nothingToReset"
+            ? "usage.resetCreditNothingToReset"
+            : "usage.resetCreditNoCredit";
+      setResetCreditFeedback({
+        creditId,
+        kind: result.outcome === "reset" || result.outcome === "alreadyRedeemed" ? "success" : "info",
+        message: result.refreshError
+          ? t("usage.resetCreditRefreshFailed", { result: t(outcomeKey), message: result.refreshError })
+          : t(outcomeKey)
+      });
+    } catch (error) {
+      if (resetCreditRequestRef.current === requestId) {
+        setResetCreditFeedback({
+          creditId,
+          kind: "error",
+          message: t("usage.resetCreditFailed", { message: error instanceof Error ? error.message : String(error) })
+        });
+      }
+    } finally {
+      if (resetCreditRequestRef.current === requestId) setResetCreditBusyId("");
     }
   };
 
@@ -190,9 +257,9 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
             </span>
           </div>
           <div className="agent-usage-limit-list">
-            {isCodeBuddy && creditSummary && (
+            {isCreditProvider && creditSummary && (
               <div className={`agent-usage-credit-summary ${primaryClass}`}>
-                <strong>{t("usage.codebuddyTotal")}</strong>
+                <strong>{t(isQoder ? "usage.qoderTotal" : "usage.codebuddyTotal")}</strong>
                 <span>{t("usage.creditRemaining", {
                   remaining: formatAmount(locale, creditSummary.remaining),
                   total: formatAmount(locale, creditSummary.total)
@@ -207,6 +274,9 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                 </div>
                 {resetCredits.availableCount === 0 && (
                   <div className="agent-usage-empty">{t("usage.resetCreditsEmpty")}</div>
+                )}
+                {resetCredits.availableCount > 0 && (!resetCredits.credits || resetCredits.credits.length === 0) && (
+                  <div className="agent-usage-empty">{t("usage.resetCreditDetailsUnavailable")}</div>
                 )}
                 {resetCredits.credits?.map(credit => (
                   <article className="codex-reset-credit" key={credit.id}>
@@ -223,9 +293,41 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                         ? t("usage.resetCreditExpiresAt", { time: formatTimestamp(locale, credit.expiresAt) })
                         : t("usage.resetCreditNoExpiration")}</span>
                     </div>
+                    {credit.status === "available" && credit.resetType === "codexRateLimits" && (
+                      <div className="codex-reset-credit-action">
+                        <button
+                          type="button"
+                          className={confirmResetCreditId === credit.id ? "confirm" : ""}
+                          disabled={Boolean(resetCreditBusyId) || Boolean(
+                            resetCreditAttemptRef.current
+                            && resetCreditAttemptRef.current.creditId !== credit.id
+                          )}
+                          onBlur={() => setConfirmResetCreditId(current => current === credit.id ? "" : current)}
+                          onClick={() => void consumeResetCredit(credit.id)}
+                        >
+                          {resetCreditBusyId === credit.id
+                            ? t("usage.resetCreditResetting")
+                            : resetCreditAttemptRef.current?.creditId === credit.id
+                              ? t("usage.resetCreditRetry")
+                              : confirmResetCreditId === credit.id
+                                ? t("usage.resetCreditConfirm")
+                                : t("usage.resetCreditAction")}
+                        </button>
+                      </div>
+                    )}
                   </article>
                 ))}
+                {resetCreditFeedback && (
+                  <div className={`codex-reset-credit-feedback ${resetCreditFeedback.kind}`} role={resetCreditFeedback.kind === "error" ? "alert" : "status"}>
+                    {resetCreditFeedback.message}
+                  </div>
+                )}
               </section>
+            )}
+            {!resetCredits && resetCreditFeedback && (
+              <div className={`codex-reset-credit-feedback ${resetCreditFeedback.kind}`} role={resetCreditFeedback.kind === "error" ? "alert" : "status"}>
+                {resetCreditFeedback.message}
+              </div>
             )}
             {isCodeBuddy && (
               <section className="workbuddy-checkin" aria-label={t("usage.workbuddyCheckinTitle")}>
@@ -274,10 +376,10 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                 )}
               </section>
             )}
-            {isCodeBuddy && groupedLimits.length === 0 && (
+            {isCreditProvider && groupedLimits.length === 0 && (
               <div className="agent-usage-empty">{t("usage.noCreditResources")}</div>
             )}
-            {isCodeBuddy ? groupedLimits.map(group => (
+            {isCreditProvider ? groupedLimits.map(group => (
               <section className="agent-usage-limit-group" key={group.category}>
                 <h4>{t(`usage.category.${group.category}`)}</h4>
                 {group.limits.map(limit => (
@@ -310,7 +412,9 @@ export function AgentUsageStatus({ state, onRefresh }: AgentUsageStatusProps) {
                       })}</span>
                       <span>{limit.expiresAt
                         ? t("usage.expiresAt", { time: formatTimestamp(locale, limit.expiresAt) })
-                        : t("usage.expirationUnavailable")}</span>
+                        : limit.available === false
+                          ? t("usage.resourceUnavailable")
+                          : t("usage.expirationUnavailable")}</span>
                     </div>
                   </div>
                 ))}

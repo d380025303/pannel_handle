@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { buildSshArgs, createTerminalManager } = require("./terminal-manager.cjs");
+const { AGENT_EXIT_MARKER, buildSshArgs, createTerminalManager } = require("./terminal-manager.cjs");
 
 function createMockTerm() {
   const dataHandlers = [];
@@ -417,6 +417,41 @@ describe("terminal-manager", () => {
     manager.updateSession(session.id, { agentProvider: null });
     expect(manager.getSession(session.id).agentProvider).toBeUndefined();
     expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: null });
+  });
+
+  it("waits for a split Agent exit marker and switches only runtime metadata", async () => {
+    const { manager, term, sessionStore, broadcast } = createManager();
+    const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
+    term.emitData("ready");
+    sessionStore.updateLibrary.mockClear();
+
+    const exitPromise = manager.requestAgentExit(session.id, 1000);
+    expect(term.writes.at(-1)).toBe("/exit\r");
+    term.emitData(`done\r\n${AGENT_EXIT_MARKER.slice(0, 12)}`);
+    term.emitData(`${AGENT_EXIT_MARKER.slice(12)}\r\n`);
+    await exitPromise;
+
+    manager.startAgentInSession(session.id, {
+      provider: "claude",
+      command: "claude; printf marker"
+    });
+    expect(manager.getSession(session.id).agentProvider).toBe("claude");
+    expect(term.writes.at(-1)).toBe("claude; printf marker\r");
+    expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
+    expect(manager.getHistory(session.id)).not.toContain(AGENT_EXIT_MARKER);
+    expect(broadcast).toHaveBeenCalledWith("sessions:changed", expect.arrayContaining([
+      expect.objectContaining({ id: session.id, agentProvider: "claude" })
+    ]));
+  });
+
+  it("times out without starting a replacement when the Agent does not exit", async () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ title: "Agent", agentProvider: "codex" });
+    term.emitData("ready");
+
+    await expect(manager.requestAgentExit(session.id, 1)).rejects.toThrow("10 seconds");
+    expect(term.writes.at(-1)).toBe("/exit\r");
+    expect(manager.getSession(session.id).agentProvider).toBe("codex");
   });
 
   it("uses a generated runtime command without replacing the saved Agent pre-command", () => {

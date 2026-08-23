@@ -3,7 +3,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentStatusPayload, AgentUsageSnapshot, TerminalSession } from "../vite-env";
-import { AGENT_USAGE_POLL_INTERVAL_MS, CODEBUDDY_USAGE_POLL_INTERVAL_MS, useAgentUsage } from "./useAgentUsage";
+import { AGENT_USAGE_POLL_INTERVAL_MS, CODEBUDDY_USAGE_POLL_INTERVAL_MS, QODER_USAGE_POLL_INTERVAL_MS, useAgentUsage } from "./useAgentUsage";
 
 function session(id: string, agentProvider?: TerminalSession["agentProvider"]): TerminalSession {
   return {
@@ -35,7 +35,7 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for non-Codex sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     const { result } = renderHook(() => useAgentUsage(session("plain")));
     expect(result.current.state).toEqual({ status: "hidden" });
     expect(getUsage).not.toHaveBeenCalled();
@@ -43,16 +43,33 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for non-Windows CodeBuddy sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     const codeBuddyWsl = { ...session("codebuddy-wsl", "codebuddy"), type: "wsl" as const, wslDistro: "Ubuntu" };
     const { result } = renderHook(() => useAgentUsage(codeBuddyWsl));
     expect(result.current.state).toEqual({ status: "hidden" });
     expect(getUsage).not.toHaveBeenCalled();
   });
 
+  it("loads Windows and WSL Qoder usage but hides SSH Qoder usage", async () => {
+    const getUsage = vi.fn(async () => snapshot("qoder-total", "qoder"));
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
+    const windowsQoder = session("qoder-windows", "qoder");
+    const { result, rerender } = renderHook(({ activeSession }) => useAgentUsage(activeSession), {
+      initialProps: { activeSession: windowsQoder }
+    });
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    rerender({ activeSession: { ...windowsQoder, id: "qoder-wsl", type: "wsl" as const, cwd: "/srv/app", wslDistro: "Ubuntu" } });
+    await waitFor(() => expect(getUsage).toHaveBeenCalledWith("qoder-wsl", { force: false }));
+
+    rerender({ activeSession: { ...windowsQoder, id: "qoder-ssh", type: "ssh" as const, cwd: "/srv/app", sshConfig: { host: "remote" } } });
+    expect(result.current.state).toEqual({ status: "hidden" });
+    expect(getUsage).not.toHaveBeenCalledWith("qoder-ssh", expect.anything());
+  });
+
   it("loads usage and force refreshes after a completed Codex event", async () => {
     const getUsage = vi.fn(async () => snapshot("codex"));
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     let agentStatus: AgentStatusPayload | undefined;
     const activeSession = session("run-1", "codex");
     const { result, rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));
@@ -78,7 +95,7 @@ describe("useAgentUsage", () => {
     const second = new Promise<AgentUsageSnapshot>(resolve => { resolveSecond = resolve; });
     const getUsage = vi.fn((id: string) => id === "run-1" ? first : second);
     const cancel = vi.fn();
-    window.agentUsageApi = { getUsage, cancel };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel };
     let activeSession = session("run-1", "codex");
     const { result, rerender } = renderHook(() => useAgentUsage(activeSession));
 
@@ -94,10 +111,30 @@ describe("useAgentUsage", () => {
     expect(result.current.state.status === "ready" && result.current.state.snapshot.primaryLimitId).toBe("run-2");
   });
 
+  it("consumes a Codex reset credit and applies the refreshed snapshot", async () => {
+    const getUsage = vi.fn(async () => snapshot("codex"));
+    const consumeResetCredit = vi.fn(async () => ({
+      outcome: "reset" as const,
+      snapshot: snapshot("codex-refreshed")
+    }));
+    window.agentUsageApi = { getUsage, consumeResetCredit, cancel: vi.fn() };
+    const { result } = renderHook(() => useAgentUsage(session("run-1", "codex")));
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    await act(async () => {
+      await expect(result.current.consumeResetCredit("reset-1", "attempt-1"))
+        .resolves.toMatchObject({ outcome: "reset" });
+    });
+
+    expect(consumeResetCredit).toHaveBeenCalledWith("run-1", "reset-1", "attempt-1");
+    expect(result.current.state.status === "ready" && result.current.state.snapshot.primaryLimitId)
+      .toBe("codex-refreshed");
+  });
+
   it("polls an active Codex session every five minutes", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("codex"));
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     renderHook(() => useAgentUsage(session("run-1", "codex")));
     await act(async () => Promise.resolve());
     expect(getUsage).toHaveBeenCalledTimes(1);
@@ -109,7 +146,7 @@ describe("useAgentUsage", () => {
   it("polls an active Windows CodeBuddy session every minute", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     renderHook(() => useAgentUsage(session("run-1", "codebuddy")));
     await act(async () => Promise.resolve());
     expect(getUsage).toHaveBeenCalledTimes(1);
@@ -119,9 +156,21 @@ describe("useAgentUsage", () => {
     expect(getUsage).toHaveBeenLastCalledWith("run-1", { force: false });
   });
 
+  it("polls an active Qoder session every minute", async () => {
+    vi.useFakeTimers();
+    const getUsage = vi.fn(async () => snapshot("qoder-total", "qoder"));
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
+    renderHook(() => useAgentUsage(session("run-1", "qoder")));
+    await act(async () => Promise.resolve());
+    expect(getUsage).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(QODER_USAGE_POLL_INTERVAL_MS));
+    expect(getUsage).toHaveBeenCalledTimes(2);
+  });
+
   it("force refreshes CodeBuddy quota after its completed hook event", async () => {
     const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    window.agentUsageApi = { getUsage, cancel: vi.fn() };
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
     let agentStatus: AgentStatusPayload | undefined;
     const activeSession = session("run-1", "codebuddy");
     const { rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));

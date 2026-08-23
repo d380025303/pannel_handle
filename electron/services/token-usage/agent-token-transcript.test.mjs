@@ -84,6 +84,28 @@ describe("agent token transcript parser", () => {
     expect(result.capabilities.mcp.servers[0]).toMatchObject({ name: "jira", count: 1, tools: [{ name: "get_issue", count: 1 }] });
   });
 
+  it("deduplicates Qoder assistant messages and includes cached input tokens", () => {
+    const message = {
+      id: "qoder-a",
+      model: "qoder-model",
+      usage: { input_tokens: 30, cache_read_input_tokens: 70, cache_creation_input_tokens: 10, output_tokens: 20 },
+      content: [
+        { type: "tool_use", id: "tool-a", name: "mcp__jira__get_issue", input: {} },
+        { type: "tool_use", id: "tool-b", name: "Skill", input: { skill: "code-review" } }
+      ]
+    };
+    const result = parseTranscriptText("qoder", [
+      JSON.stringify({ type: "assistant", uuid: "row-a", message }),
+      JSON.stringify({ type: "assistant", uuid: "row-b", message }),
+      JSON.stringify({ type: "assistant", uuid: "row-c", message: { id: "qoder-b", model: "qoder-model", usage: { input_tokens: 5, output_tokens: 3 }, content: [] } })
+    ].join("\n"));
+
+    expect(result.tokens).toEqual({ inputTokens: 115, cachedInputTokens: 70, cacheWriteInputTokens: 10, outputTokens: 23, reasoningOutputTokens: 0, totalTokens: 138 });
+    expect(result.models).toEqual(["qoder-model"]);
+    expect(result.capabilities.skills.items).toEqual([{ name: "code-review", count: 1 }]);
+    expect(result.capabilities.mcp.servers[0]).toMatchObject({ name: "jira", count: 1, tools: [{ name: "get_issue", count: 1 }] });
+  });
+
   it("deduplicates CodeBuddy response fragments and reads cached and reasoning tokens", () => {
     const usage = {
       requests: 1,

@@ -1422,6 +1422,104 @@
   margin-left: 0;
 }
 
+.agent-switcher {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.agent-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agent-switcher-trigger:hover:not(:disabled),
+.agent-switcher-trigger:focus-visible,
+.agent-switcher-trigger[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  outline: none;
+  background: var(--color-bg-hover);
+}
+
+.agent-switcher-trigger:disabled {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.agent-switcher-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-switcher-menu,
+.agent-switcher-error {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 40;
+  min-width: 150px;
+  padding: 5px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.agent-switcher-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-switcher-menu button:hover,
+.agent-switcher-menu button:focus-visible {
+  outline: none;
+  background: var(--color-bg-hover);
+}
+
+.agent-switcher-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(360px, 70vw);
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.agent-switcher-error span {
+  flex: 1;
+}
+
+.agent-switcher-error button {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-switcher-error svg {
+  width: 14px;
+  height: 14px;
+}
+
 .agent-token-live {
   position: relative;
   flex: 0 0 auto;
@@ -1797,6 +1895,47 @@ button.agent-usage-status[aria-expanded="true"] {
   font-size: 10px;
 }
 
+.codex-reset-credit-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.codex-reset-credit-action button {
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: var(--color-info-bg);
+  cursor: pointer;
+}
+
+.codex-reset-credit-action button:hover:not(:disabled),
+.codex-reset-credit-action button:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+
+.codex-reset-credit-action button.confirm {
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-text);
+}
+
+.codex-reset-credit-action button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.codex-reset-credit-feedback {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.codex-reset-credit-feedback.success { color: var(--color-ok-text); }
+.codex-reset-credit-feedback.info { color: var(--color-text-secondary); }
+.codex-reset-credit-feedback.error { color: var(--color-danger-text); }
+
 .workbuddy-checkin {
   display: flex;
   flex-direction: column;
@@ -2067,6 +2206,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-bar span { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--color-accent); }
 .token-provider-bar.claude span { background: #d97745; }
 .token-provider-bar.codebuddy span { background: #00a6a6; }
+.token-provider-bar.qoder span { background: #8b5cf6; }
 
 .token-stats-table-panel { margin-top: 12px; padding: 0; overflow: hidden; }
 .token-stats-table-heading { justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--color-border); }
@@ -2083,6 +2223,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .token-provider-pill { display: inline-flex; padding: 3px 7px; border-radius: 999px; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, transparent); font-size: 11px; text-transform: capitalize; }
 .token-provider-pill.claude { color: #e08a5b; background: rgba(217, 119, 69, 0.14); }
 .token-provider-pill.codebuddy { color: #19b8b8; background: rgba(0, 166, 166, 0.14); }
+.token-provider-pill.qoder { color: #a78bfa; background: rgba(139, 92, 246, 0.14); }
 .token-stats-breakdown { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
 .token-stats-breakdown small { color: var(--color-text-muted); }
 .token-stats-empty,

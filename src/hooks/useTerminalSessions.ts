@@ -91,9 +91,9 @@ export function useTerminalSessions() {
     const removeSessionsListener = window.terminalApi.onSessionsChanged((nextSessions) => {
       setSessions(nextSessions);
       setAgentStatusesBySessionId((current) => {
-        const activeSessionIds = new Set(nextSessions.map((session) => session.id));
+        const activeSessions = new Map(nextSessions.map((session) => [session.id, session]));
         return Object.fromEntries(
-          Object.entries(current).filter(([id]) => activeSessionIds.has(id))
+          Object.entries(current).filter(([id, status]) => activeSessions.get(id)?.agentProvider === status.provider)
         );
       });
       setActiveId((current) => {
@@ -228,6 +228,10 @@ export function useTerminalSessions() {
     setPickerManual(false);
   }, []);
 
+  const switchAgent = useCallback(async (id: string, provider: AgentProvider) => {
+    await window.terminalApi.switchAgent(id, provider);
+  }, []);
+
   const deleteFromLibrary = useCallback(async (id: string) => {
     await window.terminalApi.deleteSavedSession(id);
     setLibrarySessions((prev) => prev.filter((session) => session.id !== id));
@@ -304,6 +308,7 @@ export function useTerminalSessions() {
     createSession,
     closeSession,
     updateSession,
+    switchAgent,
     openPicker,
     exportLibrary,
     importLibrary,

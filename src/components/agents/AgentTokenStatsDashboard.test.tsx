@@ -12,7 +12,8 @@ const defaultDashboard: AgentTokenDashboard = {
   dailyTrend: [], providerBreakdown: [
     { provider: "codex", sessionCount: 0, tokens: emptyTokens },
     { provider: "claude", sessionCount: 0, tokens: emptyTokens },
-    { provider: "codebuddy", sessionCount: 0, tokens: emptyTokens }
+    { provider: "codebuddy", sessionCount: 0, tokens: emptyTokens },
+    { provider: "qoder", sessionCount: 0, tokens: emptyTokens }
   ],
   topSkills: [], topMcpServers: [],
   sessions: [], totalCount: 0, offset: 0, limit: 50
@@ -53,6 +54,13 @@ describe("AgentTokenStatsDashboard", () => {
     await screen.findByText("CodeBuddy");
     fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codebuddy" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "codebuddy" })));
+  });
+
+  it("offers Qoder as a provider filter", async () => {
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    await screen.findByText("Qoder");
+    fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "qoder" } });
+    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "qoder" })));
   });
 
   it("shows only date labels below the trend and reveals token details on hover", async () => {

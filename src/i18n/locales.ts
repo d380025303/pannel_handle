@@ -120,6 +120,10 @@ export type TranslationKey =
   | "session.normalTerminal"
   | "session.quickAgent"
   | "session.quickAgentMenu"
+  | "agentSwitch.title"
+  | "agentSwitch.menu"
+  | "agentSwitch.switching"
+  | "agentSwitch.localSshUnavailable"
   | "session.agentCwdRequired"
   | "session.preLaunchCommand"
   | "session.agentLocation"
@@ -186,6 +190,17 @@ export type TranslationKey =
   | "usage.resetCreditStatus.redeeming"
   | "usage.resetCreditStatus.redeemed"
   | "usage.resetCreditStatus.unknown"
+  | "usage.resetCreditDetailsUnavailable"
+  | "usage.resetCreditAction"
+  | "usage.resetCreditConfirm"
+  | "usage.resetCreditResetting"
+  | "usage.resetCreditRetry"
+  | "usage.resetCreditSuccess"
+  | "usage.resetCreditAlreadyRedeemed"
+  | "usage.resetCreditNothingToReset"
+  | "usage.resetCreditNoCredit"
+  | "usage.resetCreditFailed"
+  | "usage.resetCreditRefreshFailed"
   | "usage.updatedAt"
   | "usage.codebuddyLoading"
   | "usage.codebuddyUnavailable"
@@ -193,6 +208,12 @@ export type TranslationKey =
   | "usage.codebuddyRemaining"
   | "usage.codebuddyTitle"
   | "usage.codebuddyTotal"
+  | "usage.qoderLoading"
+  | "usage.qoderUnavailable"
+  | "usage.qoderRetry"
+  | "usage.qoderRemaining"
+  | "usage.qoderTitle"
+  | "usage.qoderTotal"
   | "usage.creditRemaining"
   | "usage.creditUsed"
   | "usage.expiresAt"
@@ -201,7 +222,9 @@ export type TranslationKey =
   | "usage.category.base"
   | "usage.category.extra"
   | "usage.category.bonus"
+  | "usage.category.organization"
   | "usage.category.other"
+  | "usage.resourceUnavailable"
   | "usage.workbuddyCheckinTitle"
   | "usage.workbuddyCheckinLoading"
   | "usage.workbuddyCheckinUnavailable"
@@ -787,6 +810,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.normalTerminal": "普通终端",
     "session.quickAgent": "快速创建本机 Agent 会话",
     "session.quickAgentMenu": "选择本机 Agent",
+    "agentSwitch.title": "切换当前会话的 Agent",
+    "agentSwitch.menu": "选择要切换到的 Agent",
+    "agentSwitch.switching": "正在切换到 {provider}",
+    "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持 Codex，无法切换 Agent",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.agentLocation": "Agent 运行位置",
@@ -853,6 +880,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetCreditStatus.redeeming": "兑换中",
     "usage.resetCreditStatus.redeemed": "已兑换",
     "usage.resetCreditStatus.unknown": "状态未知",
+    "usage.resetCreditDetailsUnavailable": "Codex 仅返回了可用数量，暂无可操作的额度明细",
+    "usage.resetCreditAction": "重置限额",
+    "usage.resetCreditConfirm": "再次点击确认重置",
+    "usage.resetCreditResetting": "正在重置...",
+    "usage.resetCreditRetry": "重试重置",
+    "usage.resetCreditSuccess": "Codex 使用限额已重置",
+    "usage.resetCreditAlreadyRedeemed": "本次重置已完成",
+    "usage.resetCreditNothingToReset": "当前没有符合条件的限额需要重置",
+    "usage.resetCreditNoCredit": "当前没有可用的重置额度",
+    "usage.resetCreditFailed": "重置失败：{message}",
+    "usage.resetCreditRefreshFailed": "{result}，但刷新最新限额失败：{message}",
     "usage.updatedAt": "更新于 {time}",
     "usage.codebuddyLoading": "正在读取 CodeBuddy 额度...",
     "usage.codebuddyUnavailable": "CodeBuddy 额度暂不可用",
@@ -860,6 +898,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.codebuddyRemaining": "CodeBuddy 剩余 {remaining} Credits",
     "usage.codebuddyTitle": "CodeBuddy 额度",
     "usage.codebuddyTotal": "全部可用额度",
+    "usage.qoderLoading": "正在读取 Qoder 额度...",
+    "usage.qoderUnavailable": "Qoder 额度暂不可用",
+    "usage.qoderRetry": "请确认当前环境已登录并升级 Qoder CLI 后重试",
+    "usage.qoderRemaining": "Qoder 剩余 {remaining} Credits",
+    "usage.qoderTitle": "Qoder 额度",
+    "usage.qoderTotal": "全部可用额度",
     "usage.creditRemaining": "剩余 {remaining} / {total} Credits",
     "usage.creditUsed": "已用 {used} / {total} Credits",
     "usage.expiresAt": "{time} 到期",
@@ -868,7 +912,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.category.base": "基础套餐",
     "usage.category.extra": "加量包",
     "usage.category.bonus": "奖励额度",
+    "usage.category.organization": "组织资源包",
     "usage.category.other": "其他额度",
+    "usage.resourceUnavailable": "当前不可使用",
     "usage.workbuddyCheckinTitle": "WorkBuddy 每日签到",
     "usage.workbuddyCheckinLoading": "正在读取签到状态...",
     "usage.workbuddyCheckinUnavailable": "暂时无法读取 WorkBuddy 签到状态",
@@ -881,7 +927,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.workbuddyCheckingIn": "签到中...",
     "tokenStats.title": "Token 统计",
     "tokenStats.open": "打开 Token 统计",
-    "tokenStats.description": "查看 Codex、Claude 与 CodeBuddy 的会话消耗趋势和明细",
+    "tokenStats.description": "查看 Codex、Claude、CodeBuddy 与 Qoder 的会话消耗趋势和明细",
     "tokenStats.back": "返回终端",
     "tokenStats.range": "统计时间范围",
     "tokenStats.last7Days": "最近 7 天",
@@ -908,7 +954,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.sessionDetails": "会话明细",
     "tokenStats.totalRecords": "共 {count} 条",
     "tokenStats.noData": "还没有 Token 统计",
-    "tokenStats.noDataHint": "从 Pannel Handle 启动 Codex、Claude 或 CodeBuddy，完成回复后会自动记录。",
+    "tokenStats.noDataHint": "从 Pannel Handle 启动 Codex、Claude、CodeBuddy 或 Qoder，完成回复后会自动记录。",
     "tokenStats.time": "更新时间",
     "tokenStats.session": "会话",
     "tokenStats.location": "位置",
@@ -1446,6 +1492,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.normalTerminal": "Terminal",
     "session.quickAgent": "Quick-create local Agent session",
     "session.quickAgentMenu": "Choose local Agent",
+    "agentSwitch.title": "Switch the Agent in this session",
+    "agentSwitch.menu": "Choose an Agent to switch to",
+    "agentSwitch.switching": "Switching to {provider}",
+    "agentSwitch.localSshUnavailable": "Local SSH bridge sessions only support Codex and cannot switch Agent",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
     "session.agentLocation": "Agent location",
@@ -1512,6 +1562,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetCreditStatus.redeeming": "Redeeming",
     "usage.resetCreditStatus.redeemed": "Redeemed",
     "usage.resetCreditStatus.unknown": "Status unknown",
+    "usage.resetCreditDetailsUnavailable": "Codex returned only the available count, so no reset credit can be selected yet",
+    "usage.resetCreditAction": "Reset limits",
+    "usage.resetCreditConfirm": "Click again to confirm",
+    "usage.resetCreditResetting": "Resetting...",
+    "usage.resetCreditRetry": "Retry reset",
+    "usage.resetCreditSuccess": "Codex usage limits were reset",
+    "usage.resetCreditAlreadyRedeemed": "This reset already completed",
+    "usage.resetCreditNothingToReset": "No eligible rate-limit window needs a reset",
+    "usage.resetCreditNoCredit": "No reset credit is currently available",
+    "usage.resetCreditFailed": "Reset failed: {message}",
+    "usage.resetCreditRefreshFailed": "{result}, but refreshing the latest limits failed: {message}",
     "usage.updatedAt": "Updated {time}",
     "usage.codebuddyLoading": "Reading CodeBuddy quota...",
     "usage.codebuddyUnavailable": "CodeBuddy quota unavailable",
@@ -1519,6 +1580,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.codebuddyRemaining": "CodeBuddy {remaining} Credits left",
     "usage.codebuddyTitle": "CodeBuddy quota",
     "usage.codebuddyTotal": "Total available quota",
+    "usage.qoderLoading": "Reading Qoder quota...",
+    "usage.qoderUnavailable": "Qoder quota unavailable",
+    "usage.qoderRetry": "Sign in or update Qoder CLI, then retry",
+    "usage.qoderRemaining": "Qoder {remaining} Credits left",
+    "usage.qoderTitle": "Qoder quota",
+    "usage.qoderTotal": "Total available quota",
     "usage.creditRemaining": "{remaining} / {total} Credits left",
     "usage.creditUsed": "{used} / {total} Credits used",
     "usage.expiresAt": "Expires {time}",
@@ -1527,7 +1594,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.category.base": "Base plan",
     "usage.category.extra": "Add-on packages",
     "usage.category.bonus": "Bonus credits",
+    "usage.category.organization": "Organization resource package",
     "usage.category.other": "Other credits",
+    "usage.resourceUnavailable": "Currently unavailable",
     "usage.workbuddyCheckinTitle": "WorkBuddy daily check-in",
     "usage.workbuddyCheckinLoading": "Reading check-in status...",
     "usage.workbuddyCheckinUnavailable": "WorkBuddy check-in is unavailable",
@@ -1540,7 +1609,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.workbuddyCheckingIn": "Checking in...",
     "tokenStats.title": "Token statistics",
     "tokenStats.open": "Open token statistics",
-    "tokenStats.description": "Review Codex, Claude, and CodeBuddy session usage, trends, and details",
+    "tokenStats.description": "Review Codex, Claude, CodeBuddy, and Qoder session usage, trends, and details",
     "tokenStats.back": "Back to terminals",
     "tokenStats.range": "Statistics date range",
     "tokenStats.last7Days": "Last 7 days",
@@ -1567,7 +1636,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.sessionDetails": "Session details",
     "tokenStats.totalRecords": "{count} records",
     "tokenStats.noData": "No token statistics yet",
-    "tokenStats.noDataHint": "Start Codex, Claude, or CodeBuddy from Pannel Handle. Usage appears after a response completes.",
+    "tokenStats.noDataHint": "Start Codex, Claude, CodeBuddy, or Qoder from Pannel Handle. Usage appears after a response completes.",
     "tokenStats.time": "Updated",
     "tokenStats.session": "Session",
     "tokenStats.location": "Location",

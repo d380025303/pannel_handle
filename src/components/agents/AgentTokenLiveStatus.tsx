@@ -12,8 +12,9 @@ function formatTokens(value: number, locale: string) {
   }).format(value);
 }
 
-function providerName(provider: "codex" | "claude" | "codebuddy") {
+function providerName(provider: "codex" | "claude" | "codebuddy" | "qoder") {
   if (provider === "codebuddy") return "CodeBuddy";
+  if (provider === "qoder") return "Qoder";
   return provider === "codex" ? "Codex" : "Claude";
 }
 

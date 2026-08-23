@@ -579,12 +579,13 @@ export type AgentUsageLimit = {
   remainingPercent: number;
   windowDurationMins?: number;
   resetsAt?: number;
-  category?: "base" | "extra" | "bonus" | "other";
+  category?: "base" | "extra" | "bonus" | "organization" | "other";
   totalAmount?: number;
   usedAmount?: number;
   remainingAmount?: number;
   unit?: "Credits";
   expiresAt?: number;
+  available?: boolean;
 };
 
 export type AgentUsageCreditSummary = {
@@ -613,7 +614,7 @@ export type AgentUsageResetCreditsSummary = {
 };
 
 export type AgentUsageSnapshot = {
-  provider: "codex" | "codebuddy";
+  provider: "codex" | "codebuddy" | "qoder";
   fetchedAt: number;
   primaryLimitId: string;
   summary?: AgentUsageCreditSummary;
@@ -621,8 +622,17 @@ export type AgentUsageSnapshot = {
   limits: AgentUsageLimit[];
 };
 
+export type AgentUsageResetOutcome = "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit";
+
+export type AgentUsageResetResult = {
+  outcome: AgentUsageResetOutcome;
+  snapshot?: AgentUsageSnapshot;
+  refreshError?: string;
+};
+
 export type AgentUsageApi = {
   getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
+  consumeResetCredit: (sessionId: string, creditId: string, idempotencyKey: string) => Promise<AgentUsageResetResult>;
   cancel: (sessionId: string) => void;
 };
 
@@ -676,7 +686,7 @@ export type AgentCapabilityUsage = {
 
 export type AgentTokenSessionRecord = {
   id: string;
-  provider: "codex" | "claude" | "codebuddy";
+  provider: "codex" | "claude" | "codebuddy" | "qoder";
   agentSessionId: string;
   panelSessionId: string;
   templateId?: string;
@@ -694,10 +704,10 @@ export type AgentTokenSessionRecord = {
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
-  provider: "all" | "codex" | "claude" | "codebuddy";
+  provider: "all" | "codex" | "claude" | "codebuddy" | "qoder";
   summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
-  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy"; sessionCount: number; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "qoder"; sessionCount: number; tokens: AgentTokenTotals }>;
   topSkills: Array<{ name: string; count: number }>;
   topMcpServers: Array<{ name: string; count: number; tools: Array<{ name: string; count: number }> }>;
   sessions: AgentTokenSessionRecord[];
@@ -708,7 +718,7 @@ export type AgentTokenDashboard = {
 
 export type AgentTokenLiveSnapshot = {
   panelSessionId: string;
-  provider: "codex" | "claude" | "codebuddy";
+  provider: "codex" | "claude" | "codebuddy" | "qoder";
   state: "waiting" | "generating" | "completed" | "unavailable";
   tokens: AgentTokenTotals;
   capabilities: AgentCapabilityUsage;
@@ -719,7 +729,7 @@ export type AgentTokenLiveSnapshot = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "qoder"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
@@ -764,6 +774,7 @@ export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
   updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession[]>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;

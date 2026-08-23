@@ -49,6 +49,23 @@ function normalizeClaudeUsage(usage) {
   };
 }
 
+function normalizeQoderTokenUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const freshInput = safeInteger(usage.input_tokens ?? usage.inputTokens);
+  const cachedInputTokens = safeInteger(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens);
+  const cacheWriteInputTokens = safeInteger(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens);
+  const inputTokens = freshInput + cachedInputTokens + cacheWriteInputTokens;
+  const outputTokens = safeInteger(usage.output_tokens ?? usage.outputTokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens: 0,
+    totalTokens: inputTokens + outputTokens
+  };
+}
+
 function sumUsageDetail(details, field) {
   if (!Array.isArray(details)) return 0;
   return details.reduce((total, detail) => total + safeInteger(detail?.[field]), 0);
@@ -182,12 +199,13 @@ function codexToolOutputSucceeded(payload) {
 }
 
 function createIncrementalTranscriptParser(provider) {
-  if (!["codex", "claude", "codebuddy"].includes(provider)) {
+  if (!["codex", "claude", "codebuddy", "qoder"].includes(provider)) {
     throw new Error(`Unsupported live token provider: ${provider}`);
   }
   let latestCodexTokens = null;
   const claudeMessages = new Map();
   const codeBuddyMessages = new Map();
+  const qoderMessages = new Map();
   const models = new Set();
   const skillCalls = new Map();
   const mcpCalls = new Map();
@@ -305,6 +323,16 @@ function createIncrementalTranscriptParser(provider) {
       return true;
     }
 
+    if (provider === "qoder") {
+      const capabilityChanged = recordClaudeTools(item);
+      if (item?.type !== "assistant" || !item.message?.usage) return capabilityChanged;
+      const messageId = String(item.message.id || item.uuid || "").trim();
+      if (!messageId) return capabilityChanged;
+      qoderMessages.set(messageId, normalizeQoderTokenUsage(item.message.usage));
+      if (item.message.model) models.add(String(item.message.model));
+      return true;
+    }
+
     const providerData = item?.providerData;
     const capabilityChanged = recordCodeBuddyTools(item);
     const usage = providerData?.usage ?? providerData?.rawUsage ?? item?.usage;
@@ -322,7 +350,7 @@ function createIncrementalTranscriptParser(provider) {
         ? { tokens: cloneTokens(latestCodexTokens || emptyTokens()), models: [...models], capabilities }
         : null;
     }
-    const messages = provider === "claude" ? claudeMessages : codeBuddyMessages;
+    const messages = provider === "claude" ? claudeMessages : provider === "qoder" ? qoderMessages : codeBuddyMessages;
     if (messages.size === 0 && !capabilities.skills.totalCalls && !capabilities.mcp.totalCalls) return null;
     const tokens = emptyTokens();
     for (const usage of messages.values()) addTokens(tokens, usage);
@@ -338,11 +366,11 @@ function cloneTokens(tokens) {
 
 function parseTranscriptText(provider, text) {
   const lines = String(text || "").split(/\r?\n/).filter(Boolean);
-  if (["codex", "claude", "codebuddy"].includes(provider)) {
+  if (["codex", "claude", "codebuddy", "qoder"].includes(provider)) {
     const parser = createIncrementalTranscriptParser(provider);
     for (const line of lines) parser.pushLine(line);
     const result = parser.getResult();
-    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : "CodeBuddy"} transcript does not contain usage yet.`);
+    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : "CodeBuddy"} transcript does not contain usage yet.`);
     return result;
   }
 
@@ -363,6 +391,7 @@ module.exports = {
   emptyTokens,
   normalizeClaudeUsage,
   normalizeCodeBuddyUsage,
+  normalizeQoderTokenUsage,
   normalizeCapabilityUsage,
   normalizeCodexUsage,
   parseTranscriptFile,

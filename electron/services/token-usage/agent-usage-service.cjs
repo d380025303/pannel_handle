@@ -1,6 +1,7 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { readCodeBuddyUsage } = require("../codebuddy-usage-client.cjs");
+const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
 
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
 const CODEBUDDY_CACHE_TTL_MS = 30 * 1000;
@@ -9,6 +10,8 @@ const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const STDERR_LIMIT_BYTES = 64 * 1024;
 const INITIALIZE_REQUEST_ID = "pannel-handle-initialize";
 const RATE_LIMITS_REQUEST_ID = "pannel-handle-rate-limits";
+const RESET_CREDIT_REQUEST_ID = "pannel-handle-reset-credit";
+const RESET_CREDIT_OUTCOMES = new Set(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]);
 
 function clampPercent(value) {
   return Math.min(100, Math.max(0, Math.round(value)));
@@ -266,19 +269,25 @@ function getProtocolError(error, fallback) {
   return fallback;
 }
 
-function runCodexRateLimitRequest(transport, {
+function runCodexAppServerRequest(transport, {
+  requestId,
+  method,
+  params,
+  timeoutMessage,
+  emptyMessage,
+  protocolErrorMessage,
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES
-} = {}) {
+}) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let stdoutBuffer = "";
     let stderr = "";
     let outputBytes = 0;
-    let rateLimitsRequested = false;
+    let requestSent = false;
 
     const timer = setTimeout(() => {
-      finish(new Error("Reading Codex usage timed out."));
+      finish(new Error(timeoutMessage));
     }, timeoutMs);
 
     function finish(error, result) {
@@ -295,21 +304,18 @@ function runCodexRateLimitRequest(transport, {
           finish(new Error(getProtocolError(message.error, "Codex App Server initialization failed.")));
           return;
         }
-        if (!message.result || rateLimitsRequested) return;
-        rateLimitsRequested = true;
-        transport.write(`${JSON.stringify({
-          id: RATE_LIMITS_REQUEST_ID,
-          method: "account/rateLimits/read"
-        })}\n`);
+        if (!message.result || requestSent) return;
+        requestSent = true;
+        transport.write(`${JSON.stringify({ id: requestId, method, ...(params ? { params } : {}) })}\n`);
         return;
       }
-      if (message?.id === RATE_LIMITS_REQUEST_ID) {
+      if (message?.id === requestId) {
         if (message.error) {
-          finish(new Error(getProtocolError(message.error, "Codex usage is unavailable.")));
+          finish(new Error(getProtocolError(message.error, protocolErrorMessage)));
           return;
         }
         if (!message.result) {
-          finish(new Error("Codex returned an empty usage response."));
+          finish(new Error(emptyMessage));
           return;
         }
         finish(undefined, message.result);
@@ -359,6 +365,33 @@ function runCodexRateLimitRequest(transport, {
   });
 }
 
+function runCodexRateLimitRequest(transport, options = {}) {
+  return runCodexAppServerRequest(transport, {
+    requestId: RATE_LIMITS_REQUEST_ID,
+    method: "account/rateLimits/read",
+    timeoutMessage: "Reading Codex usage timed out.",
+    emptyMessage: "Codex returned an empty usage response.",
+    protocolErrorMessage: "Codex usage is unavailable.",
+    ...options
+  });
+}
+
+async function runCodexResetCreditRequest(transport, { creditId, idempotencyKey, ...options }) {
+  const result = await runCodexAppServerRequest(transport, {
+    requestId: RESET_CREDIT_REQUEST_ID,
+    method: "account/rateLimitResetCredit/consume",
+    params: { creditId, idempotencyKey },
+    timeoutMessage: "Resetting Codex usage timed out.",
+    emptyMessage: "Codex returned an empty reset response.",
+    protocolErrorMessage: "Codex usage reset is unavailable.",
+    ...options
+  });
+  if (!RESET_CREDIT_OUTCOMES.has(result.outcome)) {
+    throw new Error("Codex returned an invalid reset outcome.");
+  }
+  return result.outcome;
+}
+
 function getCacheKey(session) {
   const provider = session.agentProvider || "unknown";
   if (session.type === "windows" || isLocalSshBridge(session)) return `${provider}:windows`;
@@ -379,12 +412,18 @@ function createAgentUsageService({
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
   transportFactory,
-  httpsRequest
+  httpsRequest,
+  qoderSdkLoader,
+  qoderSpawn,
+  qoderTerminateProcessTree
 }) {
   const cache = new Map();
   const pending = new Map();
   const activeRequests = new Map();
+  const activeRedemptions = new Map();
+  const pendingRedemptions = new Map();
   const cacheKeysBySessionId = new Map();
+  const cacheVersions = new Map();
 
   async function createTransport(session) {
     if (transportFactory) return transportFactory(session);
@@ -410,6 +449,17 @@ function createAgentUsageService({
     };
     activeRequests.set(session.id, request);
     try {
+      if (session.agentProvider === "qoder") {
+        return await readQoderUsage({
+          session,
+          signal: abortController.signal,
+          timeoutMs,
+          now,
+          sdkLoader: qoderSdkLoader,
+          spawn: qoderSpawn,
+          terminateProcessTree: qoderTerminateProcessTree
+        });
+      }
       transport = await createTransport(session);
       if (canceled) {
         transport.close();
@@ -443,11 +493,14 @@ function createAgentUsageService({
   function getUsage(sessionId, options = {}) {
     const session = terminalManager.getSession(sessionId);
     if (!session) return Promise.reject(new Error("Session is not running."));
-    if (session.agentProvider !== "codex" && session.agentProvider !== "codebuddy") {
-      return Promise.reject(new Error("Usage is only available for Codex and CodeBuddy sessions."));
+    if (!["codex", "codebuddy", "qoder"].includes(session.agentProvider)) {
+      return Promise.reject(new Error("Usage is only available for Codex, CodeBuddy, and Qoder sessions."));
     }
     if (session.agentProvider === "codebuddy" && session.type !== "windows") {
       return Promise.reject(new Error("CodeBuddy quota is only available for Windows sessions."));
+    }
+    if (session.agentProvider === "qoder" && session.type !== "windows" && session.type !== "wsl") {
+      return Promise.reject(new Error("Qoder quota is only available for Windows and WSL sessions."));
     }
 
     const key = getCacheKey(session);
@@ -455,15 +508,20 @@ function createAgentUsageService({
     const cached = cache.get(key);
     const effectiveCacheTtlMs = session.agentProvider === "codebuddy"
       ? Math.min(cacheTtlMs, CODEBUDDY_CACHE_TTL_MS)
-      : cacheTtlMs;
+      : session.agentProvider === "qoder"
+        ? Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)
+        : cacheTtlMs;
     if (!options.force && cached && now() - cached.fetchedAt < effectiveCacheTtlMs) {
       return Promise.resolve(cached.snapshot);
     }
     if (pending.has(key)) return pending.get(key);
 
+    const cacheVersion = cacheVersions.get(key) || 0;
     const promise = readUsage(session)
       .then(snapshot => {
-        cache.set(key, { fetchedAt: now(), snapshot });
+        if ((cacheVersions.get(key) || 0) === cacheVersion) {
+          cache.set(key, { fetchedAt: now(), snapshot });
+        }
         return snapshot;
       })
       .finally(() => {
@@ -473,9 +531,74 @@ function createAgentUsageService({
     return promise;
   }
 
+  function consumeResetCredit(sessionId, options = {}) {
+    const session = terminalManager.getSession(sessionId);
+    if (!session) return Promise.reject(new Error("Session is not running."));
+    if (session.agentProvider !== "codex") {
+      return Promise.reject(new Error("Usage resets are only available for Codex sessions."));
+    }
+    const creditId = String(options.creditId || "").trim();
+    const idempotencyKey = String(options.idempotencyKey || "").trim();
+    if (!creditId) return Promise.reject(new Error("A reset credit ID is required."));
+    if (!idempotencyKey) return Promise.reject(new Error("An idempotency key is required."));
+
+    const redemptionKey = `${session.id}:${creditId}:${idempotencyKey}`;
+    if (pendingRedemptions.has(redemptionKey)) return pendingRedemptions.get(redemptionKey);
+
+    const promise = (async () => {
+      let transport;
+      let canceled = false;
+      const request = {
+        cancel() {
+          canceled = true;
+          transport?.close();
+        }
+      };
+      activeRedemptions.set(redemptionKey, request);
+      try {
+        transport = await createTransport(session);
+        if (canceled) {
+          transport.close();
+          throw new Error("Codex usage reset was canceled.");
+        }
+        const outcome = await runCodexResetCreditRequest(transport, {
+          creditId,
+          idempotencyKey,
+          timeoutMs,
+          maxOutputBytes
+        });
+        const key = getCacheKey(session);
+        cacheKeysBySessionId.set(session.id, key);
+        cacheVersions.set(key, (cacheVersions.get(key) || 0) + 1);
+        cache.delete(key);
+        pending.delete(key);
+
+        try {
+          const snapshot = await readUsage(session);
+          cache.set(key, { fetchedAt: now(), snapshot });
+          return { outcome, snapshot };
+        } catch (error) {
+          return {
+            outcome,
+            refreshError: error instanceof Error ? error.message : String(error)
+          };
+        }
+      } finally {
+        activeRedemptions.delete(redemptionKey);
+      }
+    })().finally(() => {
+      if (pendingRedemptions.get(redemptionKey) === promise) pendingRedemptions.delete(redemptionKey);
+    });
+    pendingRedemptions.set(redemptionKey, promise);
+    return promise;
+  }
+
   function disconnect(sessionId) {
     activeRequests.get(sessionId)?.cancel();
     activeRequests.delete(sessionId);
+    for (const [key, request] of activeRedemptions) {
+      if (key.startsWith(`${sessionId}:`)) request.cancel();
+    }
     const key = cacheKeysBySessionId.get(sessionId);
     cacheKeysBySessionId.delete(sessionId);
     if (key) {
@@ -487,12 +610,16 @@ function createAgentUsageService({
   function shutdown() {
     for (const request of activeRequests.values()) request.cancel();
     activeRequests.clear();
+    for (const request of activeRedemptions.values()) request.cancel();
+    activeRedemptions.clear();
     pending.clear();
+    pendingRedemptions.clear();
     cache.clear();
+    cacheVersions.clear();
     cacheKeysBySessionId.clear();
   }
 
-  return { disconnect, getUsage, shutdown };
+  return { consumeResetCredit, disconnect, getUsage, shutdown };
 }
 
 module.exports = {
@@ -507,6 +634,8 @@ module.exports = {
   getProcessInvocation,
   normalizeRateLimitResetCredits,
   normalizeRateLimitResponse,
+  runCodexAppServerRequest,
   runCodexRateLimitRequest,
+  runCodexResetCreditRequest,
   terminateWindowsProcessTree
 };

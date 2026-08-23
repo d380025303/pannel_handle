@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -30,6 +31,30 @@ function fixture(options = {}) {
   const store = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile, ...options });
   store.load();
   return { root, databaseFile, legacyStatsFile, legacyBackupFile, store };
+}
+
+function downgradeProviderConstraints(databaseFile) {
+  const database = new DatabaseSync(databaseFile);
+  database.exec("PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE");
+  try {
+    for (const table of ["token_sessions", "token_daily", "token_baselines"]) {
+      const schema = database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table).sql;
+      const replacement = `${table}_provider_v1`;
+      database.exec(schema
+        .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
+        .replace("provider IN ('codex', 'claude', 'codebuddy', 'qoder')", "provider IN ('codex', 'claude', 'codebuddy')"));
+      const columns = database.prepare(`PRAGMA table_info(${table})`).all().map(column => `"${column.name}"`).join(", ");
+      database.exec(`INSERT INTO ${replacement} (${columns}) SELECT ${columns} FROM ${table}`);
+      database.exec(`DROP TABLE ${table}`);
+      database.exec(`ALTER TABLE ${replacement} RENAME TO ${table}`);
+    }
+    database.exec("PRAGMA user_version = 1; COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.close();
+  }
 }
 
 describe("agent token statistics SQLite store", () => {
@@ -75,6 +100,19 @@ describe("agent token statistics SQLite store", () => {
     store.close();
   });
 
+  it("includes Qoder sessions in totals, filtering, and provider comparison", () => {
+    const { store } = fixture();
+    store.update({ provider: "qoder", agentSessionId: "qoder", panelSessionId: "panel", title: "Qoder", location: "wsl", models: ["qoder-model"], tokens: tokens(180) });
+
+    const dashboard = store.getDashboard({ range: "all", provider: "qoder" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(180);
+    expect(dashboard.sessions[0]).toMatchObject({ provider: "qoder", models: ["qoder-model"] });
+    expect(dashboard.providerBreakdown).toEqual([
+      expect.objectContaining({ provider: "qoder", sessionCount: 1 })
+    ]);
+    store.close();
+  });
+
   it("subtracts capability baselines and aggregates skill and MCP rankings", () => {
     const { store } = fixture();
     store.setBaseline("codex", "resumed", tokens(50), capabilities(1, 2));
@@ -111,6 +149,24 @@ describe("agent token statistics SQLite store", () => {
     const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile });
     reopened.load();
     expect(reopened.getDashboard({ range: "all" }).sessions[0]).toMatchObject({ agentSessionId: "persisted", tokens: tokens(90) });
+    reopened.close();
+  });
+
+  it("migrates provider constraints without losing existing statistics", () => {
+    const { databaseFile, legacyStatsFile, legacyBackupFile, store } = fixture();
+    store.update({ provider: "codex", agentSessionId: "existing", panelSessionId: "panel", title: "Existing", location: "windows", models: ["gpt-5.6"], tokens: tokens(90), capabilities: capabilities(1, 1) });
+    store.close();
+    downgradeProviderConstraints(databaseFile);
+
+    const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile });
+    reopened.load();
+    expect(reopened.getDashboard({ range: "all" })).toMatchObject({
+      totalCount: 1,
+      summary: { skillCalls: 1, mcpCalls: 1, tokens: expect.objectContaining({ totalTokens: 90 }) },
+      sessions: [expect.objectContaining({ models: ["gpt-5.6"], capabilities: expect.objectContaining({ skills: expect.objectContaining({ totalCalls: 1 }), mcp: expect.objectContaining({ totalCalls: 1 }) }) })]
+    });
+    reopened.update({ provider: "qoder", agentSessionId: "new", panelSessionId: "qoder-panel", title: "Qoder", location: "windows", tokens: tokens(40) });
+    expect(reopened.getDashboard({ range: "all", provider: "qoder" })).toMatchObject({ totalCount: 1, summary: { tokens: expect.objectContaining({ totalTokens: 40 }) } });
     reopened.close();
   });
 

@@ -5,6 +5,7 @@ import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
+import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
@@ -653,8 +654,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
                     />
                     <div className="terminal-status-cluster">
+                      <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                       <AgentTokenLiveStatus state={agentTokenLive} />
-                      <AgentUsageStatus state={agentUsage.state} onRefresh={agentUsage.refresh} />
+                      <AgentUsageStatus
+                        state={agentUsage.state}
+                        onRefresh={agentUsage.refresh}
+                        onConsumeResetCredit={agentUsage.consumeResetCredit}
+                      />
                       <RemoteSystemStatus
                         state={remoteSystemMetrics}
                         preferredDiskMountPoint={terminalSessions.activeSession?.preferredDiskMountPoint}

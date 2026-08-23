@@ -10,6 +10,7 @@ const AGENT_COMMANDS = Object.freeze({
 });
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
+const AGENT_EXIT_MARKER = "__PANNEL_HANDLE_AGENT_EXIT__";
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -53,6 +54,16 @@ function buildAgentStartCommand(session, runtime = {}) {
     return `& { ${preCommand} }; if ($?) { ${agentCommand} }`;
   }
   return `${preCommand} && ${agentCommand}`;
+}
+
+function wrapAgentStartCommand(session, command) {
+  if (session.type === "windows" && isPowerShell(session.shell)) {
+    return `& { ${command} }; Write-Output '${AGENT_EXIT_MARKER}'`;
+  }
+  if (session.type === "windows") {
+    return `${command} & echo ${AGENT_EXIT_MARKER}`;
+  }
+  return `${command}; printf '\\n%s\\n' '${AGENT_EXIT_MARKER}'`;
 }
 
 function buildSshHookWarningCommand(provider, error) {
@@ -99,6 +110,7 @@ function createAgentSessionLauncher({
   getLocalBridgeShell = () => "powershell.exe",
   getHomeDirectory = () => os.homedir()
 }) {
+  const switchingSessions = new Map();
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
     return { ...session, cwd: getHomeDirectory() };
@@ -229,7 +241,7 @@ function createAgentSessionLauncher({
     validateAgentSession(session);
     assertLocalCommand(session);
     await ensureLocalHook(session);
-    return buildAgentStartCommand(session);
+    return wrapAgentStartCommand(session, buildAgentStartCommand(session));
   }
 
   async function finishLocalSsh(session) {
@@ -249,7 +261,10 @@ function createAgentSessionLauncher({
         runtimeShell: getLocalBridgeShell(),
         runtimeCwd: binding.workspacePath,
         runtimeEnv: { [binding.tokenEnv]: binding.token },
-        runtimeInitialCommand: buildLocalCodexStartCommand(binding)
+        runtimeInitialCommand: wrapAgentStartCommand(
+          { type: "windows", shell: getLocalBridgeShell() },
+          buildLocalCodexStartCommand(binding)
+        )
       });
     } catch (err) {
       if (binding) await remoteAgentBridgeService.closeBinding(session.id);
@@ -269,7 +284,10 @@ function createAgentSessionLauncher({
       });
       const launchCommand = `cd ${shellQuote(session.cwd)} && ${command}`;
       const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
-      terminalManager.write(session.id, `${prefixCommands.length ? `${prefixCommands.join("; ")}; ` : ""}${launchCommand}\r`);
+      terminalManager.write(session.id, `${wrapAgentStartCommand(
+        session,
+        `${prefixCommands.length ? `${prefixCommands.join("; ")}; ` : ""}${launchCommand}`
+      )}\r`);
       return session;
     } catch (err) {
       terminalManager.closeSession(session.id);
@@ -330,12 +348,59 @@ function createAgentSessionLauncher({
     return terminalManager.listSessions();
   }
 
-  return { createSession, launchSession, launchSessions };
+  async function switchAgent(sessionId, provider) {
+    if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
+    const operation = (async () => {
+      const session = terminalManager.getSession(sessionId);
+      if (!session) throw new Error("Session is not running.");
+      if (!session.agentProvider) throw new Error("Only Agent sessions can switch Agent.");
+      if (session.agentProvider === provider) return terminalManager.listSessions();
+      if (session.type === "ssh" && session.agentLocation === "local") {
+        throw new Error("Local SSH bridge sessions can only run Codex and cannot switch Agent.");
+      }
+
+      const target = { ...session, agentProvider: provider, agentRuntimeProvider: provider };
+      validateAgentSession(target);
+      let command;
+      if (target.type === "ssh") {
+        const commandWarning = await prepareSshCommand(sessionId, target);
+        const { tunnel, warningCommand } = await prepareSshHook(sessionId, target);
+        const agentCommand = buildAgentStartCommand(target, {
+          hookUrl: tunnel?.hookUrl,
+          sessionId
+        });
+        const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
+        command = wrapAgentStartCommand(
+          target,
+          `${prefixCommands.length ? `${prefixCommands.join("; ")}; ` : ""}cd ${shellQuote(target.cwd)} && ${agentCommand}`
+        );
+      } else {
+        command = await prepareLocal(target);
+      }
+
+      await terminalManager.requestAgentExit(sessionId, 10000);
+      terminalManager.startAgentInSession(sessionId, {
+        provider,
+        agentLocation: target.agentLocation,
+        command
+      });
+      return terminalManager.listSessions();
+    })();
+    switchingSessions.set(sessionId, operation);
+    try {
+      return await operation;
+    } finally {
+      switchingSessions.delete(sessionId);
+    }
+  }
+
+  return { createSession, launchSession, launchSessions, switchAgent };
 }
 
 module.exports = {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,
   getAgentCommand

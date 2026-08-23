@@ -9,7 +9,8 @@ const {
   createSshTransport,
   getProcessInvocation,
   normalizeRateLimitResponse,
-  runCodexRateLimitRequest
+  runCodexRateLimitRequest,
+  runCodexResetCreditRequest
 } = require("./agent-usage-service.cjs");
 
 function rateLimitResult(usedPercent = 25) {
@@ -43,6 +44,11 @@ function createProtocolTransport(result = rateLimitResult(), options = {}) {
             events.emit("stdout", `${JSON.stringify({ id: message.id, result })}\n`);
           }
         });
+      } else if (message.method === "account/rateLimitResetCredit/consume") {
+        queueMicrotask(() => events.emit("stdout", `${JSON.stringify({
+          id: message.id,
+          result: { outcome: options.resetOutcome || "reset" }
+        })}\n`));
       }
     })
   };
@@ -209,6 +215,27 @@ describe("agent-usage-service", () => {
     expect(transport.close).toHaveBeenCalledTimes(1);
   });
 
+  it("consumes a specific Codex reset credit with an idempotency key", async () => {
+    const transport = createProtocolTransport();
+    await expect(runCodexResetCreditRequest(transport, {
+      creditId: "reset-1",
+      idempotencyKey: "attempt-1"
+    })).resolves.toBe("reset");
+    expect(transport.writes).toEqual([
+      expect.objectContaining({ method: "initialize" }),
+      expect.objectContaining({
+        method: "account/rateLimitResetCredit/consume",
+        params: { creditId: "reset-1", idempotencyKey: "attempt-1" }
+      })
+    ]);
+    expect(transport.close).toHaveBeenCalledTimes(1);
+
+    await expect(runCodexResetCreditRequest(createProtocolTransport(undefined, { resetOutcome: "future" }), {
+      creditId: "reset-1",
+      idempotencyKey: "attempt-2"
+    })).rejects.toThrow("invalid reset outcome");
+  });
+
   it("rejects malformed, protocol-error, oversized, and timed-out responses", async () => {
     await expect(runCodexRateLimitRequest(createProtocolTransport(rateLimitResult(), { malformed: true })))
       .rejects.toThrow("invalid App Server response");
@@ -252,6 +279,67 @@ describe("agent-usage-service", () => {
     expect(transports).toHaveLength(1);
     await expect(service.getUsage("run-1", { force: true })).resolves.toMatchObject({ limits: [{ usedPercent: 20 }] });
     expect(transports).toHaveLength(2);
+  });
+
+  it("consumes a reset credit, invalidates the cache, and returns refreshed limits", async () => {
+    const session = { id: "run-1", type: "windows", agentProvider: "codex" };
+    const transports = [];
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      now: () => 2000,
+      transportFactory: () => {
+        const transport = transports.length === 0
+          ? createProtocolTransport(undefined, { resetOutcome: "alreadyRedeemed" })
+          : createProtocolTransport(rateLimitResult(5));
+        transports.push(transport);
+        return transport;
+      }
+    });
+
+    await expect(service.consumeResetCredit(session.id, {
+      creditId: "reset-1",
+      idempotencyKey: "attempt-1"
+    })).resolves.toMatchObject({
+      outcome: "alreadyRedeemed",
+      snapshot: { limits: [{ usedPercent: 5, remainingPercent: 95 }] }
+    });
+    expect(transports).toHaveLength(2);
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({ limits: [{ usedPercent: 5 }] });
+    expect(transports).toHaveLength(2);
+  });
+
+  it("keeps a definitive reset outcome when the follow-up refresh fails", async () => {
+    const session = { id: "run-1", type: "windows", agentProvider: "codex" };
+    let call = 0;
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      transportFactory: () => call++ === 0
+        ? createProtocolTransport(undefined, { resetOutcome: "nothingToReset" })
+        : createProtocolTransport(undefined, { error: "refresh unavailable" })
+    });
+
+    await expect(service.consumeResetCredit(session.id, {
+      creditId: "reset-1",
+      idempotencyKey: "attempt-1"
+    })).resolves.toEqual({ outcome: "nothingToReset", refreshError: "refresh unavailable" });
+  });
+
+  it("validates reset-credit sessions and identifiers before starting a transport", async () => {
+    const transportFactory = vi.fn();
+    let session = { id: "run-1", type: "windows", agentProvider: "codebuddy" };
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      transportFactory
+    });
+
+    await expect(service.consumeResetCredit(session.id, { creditId: "reset-1", idempotencyKey: "attempt-1" }))
+      .rejects.toThrow("only available for Codex");
+    session = { ...session, agentProvider: "codex" };
+    await expect(service.consumeResetCredit(session.id, { creditId: "", idempotencyKey: "attempt-1" }))
+      .rejects.toThrow("credit ID");
+    await expect(service.consumeResetCredit(session.id, { creditId: "reset-1", idempotencyKey: "" }))
+      .rejects.toThrow("idempotency key");
+    expect(transportFactory).not.toHaveBeenCalled();
   });
 
   it("reads local-bridge SSH Codex usage from Windows and shares the local account cache", async () => {
@@ -346,5 +434,43 @@ describe("agent-usage-service", () => {
 
     await expect(service.getUsage(session.id)).rejects.toThrow("only available for Windows");
     expect(transportFactory).not.toHaveBeenCalled();
+  });
+
+  it("reads and caches Qoder quota through the SDK client", async () => {
+    const session = { id: "qoder-1", type: "windows", cwd: "C:\\repo", agentProvider: "qoder" };
+    const close = vi.fn(async () => undefined);
+    const query = vi.fn(() => ({
+      initializationResult: vi.fn(async () => ({})),
+      getUsageInfo: vi.fn(async () => ({
+        userType: "pro",
+        userQuota: { total: 2000, used: 500, remaining: 1500, percentage: 25 }
+      })),
+      close
+    }));
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      now: () => 1000,
+      qoderSdkLoader: async () => ({ query, qodercliAuth: () => ({ type: "qodercli" }) })
+    });
+
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({
+      provider: "qoder",
+      summary: { total: 2000, used: 500, remaining: 1500 }
+    });
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({ provider: "qoder" });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects Qoder quota over SSH before loading the SDK", async () => {
+    const session = { id: "qoder-ssh", type: "ssh", cwd: "/srv/app", agentProvider: "qoder" };
+    const qoderSdkLoader = vi.fn();
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      qoderSdkLoader
+    });
+
+    await expect(service.getUsage(session.id)).rejects.toThrow("only available for Windows and WSL");
+    expect(qoderSdkLoader).not.toHaveBeenCalled();
   });
 });

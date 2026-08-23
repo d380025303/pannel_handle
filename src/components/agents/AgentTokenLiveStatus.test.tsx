@@ -55,6 +55,17 @@ describe("AgentTokenLiveStatus", () => {
     expect(screen.getByText("Token 暂不可用")).toBeTruthy();
   });
 
+  it("uses the Qoder provider name in live token details", () => {
+    render(
+      <I18nProvider locale="en-US">
+        <AgentTokenLiveStatus state={{ status: "ready", snapshot: { ...snapshot, provider: "qoder" } }} />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Qoder live tokens" }));
+    expect(screen.getByRole("dialog", { name: "Qoder live tokens" })).toBeTruthy();
+  });
+
   it("uses the localized display name for the internal remote bridge", () => {
     const remoteSnapshot = {
       ...snapshot,

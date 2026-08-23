@@ -68,6 +68,56 @@ function codeBuddySnapshot(): AgentUsageSnapshot {
   };
 }
 
+function qoderSnapshot(): AgentUsageSnapshot {
+  return {
+    provider: "qoder",
+    fetchedAt: new Date("2026-08-23T08:00:00Z").getTime(),
+    primaryLimitId: "qoder-total",
+    summary: {
+      kind: "credits",
+      total: 3300,
+      used: 800,
+      remaining: 2500,
+      usedPercent: 24,
+      remainingPercent: 76,
+      unit: "Credits"
+    },
+    limits: [{
+      id: "qoder-plan",
+      name: "pro",
+      usedPercent: 25,
+      remainingPercent: 75,
+      category: "base",
+      totalAmount: 2000,
+      usedAmount: 500,
+      remainingAmount: 1500,
+      unit: "Credits",
+      expiresAt: new Date("2026-09-01T08:00:00Z").getTime()
+    }, {
+      id: "qoder-addon",
+      name: "Add-on Credits",
+      usedPercent: 33,
+      remainingPercent: 67,
+      category: "extra",
+      totalAmount: 300,
+      usedAmount: 100,
+      remainingAmount: 200,
+      unit: "Credits"
+    }, {
+      id: "qoder-organization",
+      name: "Organization Resource Package",
+      usedPercent: 20,
+      remainingPercent: 80,
+      category: "organization",
+      totalAmount: 1000,
+      usedAmount: 200,
+      remainingAmount: 800,
+      unit: "Credits",
+      available: false
+    }]
+  };
+}
+
 function resetCreditSnapshot(availableCount = 2): AgentUsageSnapshot {
   return {
     ...snapshot(),
@@ -118,6 +168,7 @@ describe("AgentUsageStatus", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     Reflect.deleteProperty(window, "workBuddyCheckinApi");
   });
 
@@ -179,11 +230,14 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByRole("button", { name: "Codex 剩余 20%" }).classList.contains("danger")).toBe(true);
   });
 
-  it("shows Codex reset-credit counts and optional details without exposing actions", () => {
+  it("requires a second click before consuming a specific Codex reset credit", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
+    const onConsumeResetCredit = vi.fn(async () => ({ outcome: "reset" as const }));
     const { rerender } = render(
       <AgentUsageStatus
         state={{ status: "ready", snapshot: resetCreditSnapshot(), refreshing: false }}
         onRefresh={() => undefined}
+        onConsumeResetCredit={onConsumeResetCredit}
       />
     );
     fireEvent.click(document.querySelector<HTMLButtonElement>(".agent-usage-status")!);
@@ -193,7 +247,16 @@ describe("AgentUsageStatus", () => {
     expect(resetCredits?.textContent).toContain("每周重置奖励");
     expect(resetCredits?.textContent).toContain("可重置符合条件的 Codex 限额。");
     expect(resetCredits?.textContent).toContain("可用");
-    expect(resetCredits?.querySelector("button")).toBeNull();
+    const resetButton = screen.getByRole("button", { name: "重置限额" });
+    fireEvent.click(resetButton);
+    expect(onConsumeResetCredit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "再次点击确认重置" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "再次点击确认重置" }));
+    await waitFor(() => expect(onConsumeResetCredit).toHaveBeenCalledWith(
+      "reset-1",
+      "11111111-1111-4111-8111-111111111111"
+    ));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Codex 使用限额已重置"));
 
     rerender(
       <AgentUsageStatus
@@ -211,6 +274,43 @@ describe("AgentUsageStatus", () => {
       />
     );
     expect(document.querySelector(".codex-reset-credits")).toBeNull();
+  });
+
+  it("retries a failed reset with the same idempotency key", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("22222222-2222-4222-8222-222222222222");
+    const onConsumeResetCredit = vi.fn()
+      .mockRejectedValueOnce(new Error("network interrupted"))
+      .mockResolvedValueOnce({ outcome: "alreadyRedeemed" as const });
+    render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: resetCreditSnapshot(), refreshing: false }}
+        onRefresh={() => undefined}
+        onConsumeResetCredit={onConsumeResetCredit}
+      />
+    );
+    fireEvent.click(document.querySelector<HTMLButtonElement>(".agent-usage-status")!);
+    fireEvent.click(screen.getByRole("button", { name: "重置限额" }));
+    fireEvent.click(screen.getByRole("button", { name: "再次点击确认重置" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("network interrupted"));
+
+    fireEvent.click(screen.getByRole("button", { name: "重试重置" }));
+    await waitFor(() => expect(onConsumeResetCredit).toHaveBeenCalledTimes(2));
+    expect(onConsumeResetCredit.mock.calls[0]).toEqual(onConsumeResetCredit.mock.calls[1]);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("本次重置已完成"));
+  });
+
+  it("explains when Codex reports a reset count without selectable details", () => {
+    const value = resetCreditSnapshot();
+    value.resetCredits = { availableCount: 2 };
+    render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: value, refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+    fireEvent.click(document.querySelector<HTMLButtonElement>(".agent-usage-status")!);
+    expect(screen.getByText(/暂无可操作的额度明细/)).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "重置限额" })).toBeNull();
   });
 
   it("shows CodeBuddy total credits, grouped packages, and WorkBuddy check-in", async () => {
@@ -231,6 +331,24 @@ describe("AgentUsageStatus", () => {
     expect(document.querySelector(".codex-reset-credits")).toBeNull();
     await waitFor(() => expect(document.querySelector(".workbuddy-checkin-ready")?.textContent).toContain("100 Credits"));
     expect(window.workBuddyCheckinApi.getStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows complete Qoder quota buckets without the WorkBuddy section", () => {
+    render(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: qoderSnapshot(), refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+
+    const trigger = screen.getByRole("button", { name: /Qoder.*2,500 Credits/ });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Qoder 额度" }).textContent).toContain("2,500 / 3,300 Credits");
+    expect(screen.getByText("pro")).not.toBeNull();
+    expect(screen.getByText("Add-on Credits")).not.toBeNull();
+    expect(screen.getByText("Organization Resource Package")).not.toBeNull();
+    expect(screen.getByText("当前不可使用")).not.toBeNull();
+    expect(document.querySelector(".workbuddy-checkin")).toBeNull();
   });
 
   it("claims once, renders the checked-in state, and refreshes quota", async () => {

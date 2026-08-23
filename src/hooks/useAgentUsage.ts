@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentStatusPayload, AgentUsageSnapshot, TerminalSession } from "../vite-env";
+import type { AgentStatusPayload, AgentUsageResetResult, AgentUsageSnapshot, TerminalSession } from "../vite-env";
 
 export const AGENT_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 export const CODEBUDDY_USAGE_POLL_INTERVAL_MS = 60 * 1000;
+export const QODER_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 
 export type AgentUsageViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" }
+  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy"
+  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder"
     ? session.agentProvider
     : undefined;
-  const isSupported = provider === "codex" || (provider === "codebuddy" && session?.type === "windows");
+  const isSupported = provider === "codex"
+    || (provider === "codebuddy" && session?.type === "windows")
+    || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });
   const requestSequenceRef = useRef(0);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
   const load = useCallback(async (force = false) => {
     if (!sessionId || !provider || !isSupported) return;
@@ -47,7 +52,9 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     void load(false);
     const pollIntervalMs = provider === "codebuddy"
       ? CODEBUDDY_USAGE_POLL_INTERVAL_MS
-      : AGENT_USAGE_POLL_INTERVAL_MS;
+      : provider === "qoder"
+        ? QODER_USAGE_POLL_INTERVAL_MS
+        : AGENT_USAGE_POLL_INTERVAL_MS;
     const intervalId = window.setInterval(() => void load(false), pollIntervalMs);
     return () => {
       requestSequenceRef.current += 1;
@@ -62,8 +69,24 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     }
   }, [agentStatus?.id, agentStatus?.status, agentStatus?.timestamp, isSupported, load, sessionId]);
 
+  const consumeResetCredit = useCallback(async (
+    creditId: string,
+    idempotencyKey: string
+  ): Promise<AgentUsageResetResult | undefined> => {
+    if (!sessionId || provider !== "codex") throw new Error("Codex usage reset is unavailable.");
+    const requestedSessionId = sessionId;
+    const result = await window.agentUsageApi.consumeResetCredit(requestedSessionId, creditId, idempotencyKey);
+    if (sessionIdRef.current !== requestedSessionId) return undefined;
+    if (result.snapshot) {
+      requestSequenceRef.current += 1;
+      setState({ status: "ready", snapshot: result.snapshot, refreshing: false });
+    }
+    return result;
+  }, [provider, sessionId]);
+
   return {
     state,
-    refresh: () => load(true)
+    refresh: () => load(true),
+    consumeResetCredit
   };
 }

@@ -7,6 +7,7 @@ const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
 
 const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
 const CODEX_CLEAR_COMPLETION_PREFIXES = new Set(["/cl", "/cle", "/clea", "/clear"]);
+const AGENT_EXIT_MARKER = "__PANNEL_HANDLE_AGENT_EXIT__";
 
 function consumeAgentCommandInput(currentState, data) {
   let input = currentState?.input || "";
@@ -364,6 +365,50 @@ function createTerminalManager({
     });
   }
 
+  function consumeAgentExitMarker(session, data) {
+    let text = `${session.agentMarkerRemainder || ""}${String(data || "")}`;
+    session.agentMarkerRemainder = "";
+    let markerIndex = text.indexOf(AGENT_EXIT_MARKER);
+    let detected = false;
+
+    while (markerIndex >= 0) {
+      text = `${text.slice(0, markerIndex)}${text.slice(markerIndex + AGENT_EXIT_MARKER.length)}`;
+      detected = true;
+      markerIndex = text.indexOf(AGENT_EXIT_MARKER);
+    }
+
+    if (!detected) {
+      const maxPrefixLength = Math.min(text.length, AGENT_EXIT_MARKER.length - 1);
+      for (let length = maxPrefixLength; length > 0; length -= 1) {
+        const suffix = text.slice(-length);
+        if (AGENT_EXIT_MARKER.startsWith(suffix)) {
+          session.agentMarkerRemainder = suffix;
+          text = text.slice(0, -length);
+          break;
+        }
+      }
+    }
+
+    if (detected) {
+      session.agentShellReady = true;
+      session.agentStatus = "ended";
+      const pendingExit = session.pendingAgentExit;
+      session.pendingAgentExit = undefined;
+      if (pendingExit) {
+        clearTimeout(pendingExit.timer);
+        pendingExit.resolve();
+      }
+      broadcastAgentStatus({
+        id: session.id,
+        provider: session.agentRuntimeProvider || session.agentProvider,
+        status: "ended",
+        eventName: "AgentExit"
+      });
+    }
+
+    return text;
+  }
+
   function attachTerminal(session, term, options = {}) {
     if (!term
         || typeof term.onData !== "function"
@@ -381,20 +426,29 @@ function createTerminalManager({
     session.sshSecret = session.terminalTransport === "ssh" ? getSshSecret(session) : undefined;
     session.sshSecretAttempts = 0;
     session.lastSshSecretPromptSignature = undefined;
+    session.agentMarkerRemainder = "";
+    session.agentShellReady = !session.agentProvider;
     broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
     term.onData((data) => {
-      session.buffer.push(data);
+      const visibleData = consumeAgentExitMarker(session, data);
+      if (!visibleData) return;
+      session.buffer.push(visibleData);
       if (session.buffer.length > 1000) {
         session.buffer.splice(0, session.buffer.length - 1000);
       }
       maybeAutofillTerminalSecretPrompt(session);
       maybeDetectCodexPermissionPrompt(session);
-      broadcast("terminal:data", { id: session.id, data });
+      broadcast("terminal:data", { id: session.id, data: visibleData });
     });
 
     term.onExit(({ exitCode }) => {
       if (!sessions.has(session.id)) return;
+      if (session.pendingAgentExit) {
+        clearTimeout(session.pendingAgentExit.timer);
+        session.pendingAgentExit.reject(new Error("Terminal exited while switching Agent."));
+        session.pendingAgentExit = undefined;
+      }
       broadcast("terminal:exit", { id: session.id, exitCode });
       broadcastAgentStatus({
         id: session.id,
@@ -742,6 +796,11 @@ function createTerminalManager({
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
+      if (session.pendingAgentExit) {
+        clearTimeout(session.pendingAgentExit.timer);
+        session.pendingAgentExit.reject(new Error("Session was closed while switching Agent."));
+        session.pendingAgentExit = undefined;
+      }
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
@@ -789,6 +848,46 @@ function createTerminalManager({
       trackCodexTerminalCommand(session, data);
       session.term.write(data);
     }
+  }
+
+  function requestAgentExit(id, timeoutMs = 10000) {
+    const session = sessions.get(id);
+    if (!session) return Promise.reject(new Error("Session is not running."));
+    if (!session.agentProvider) return Promise.reject(new Error("Session is not running an Agent."));
+    if (session.agentShellReady) return Promise.resolve();
+    if (session.pendingAgentExit) return session.pendingAgentExit.promise;
+
+    let resolveExit;
+    let rejectExit;
+    const promise = new Promise((resolve, reject) => {
+      resolveExit = resolve;
+      rejectExit = reject;
+    });
+    const timer = setTimeout(() => {
+      if (session.pendingAgentExit?.promise !== promise) return;
+      session.pendingAgentExit = undefined;
+      rejectExit(new Error("Agent did not exit within 10 seconds."));
+    }, timeoutMs);
+    session.pendingAgentExit = { promise, resolve: resolveExit, reject: rejectExit, timer };
+    session.term.write("/exit\r");
+    return promise;
+  }
+
+  function startAgentInSession(id, { provider, agentLocation, command }) {
+    const session = sessions.get(id);
+    if (!session) throw new Error("Session is not running.");
+    if (!session.agentShellReady) throw new Error("The previous Agent has not exited.");
+    if (!provider || !String(command || "").trim()) throw new Error("Agent start command is required.");
+
+    session.agentProvider = provider;
+    session.agentRuntimeProvider = provider;
+    session.agentLocation = agentLocation || undefined;
+    session.agentStatus = undefined;
+    session.agentShellReady = false;
+    session.agentCommandState = undefined;
+    session.term.write(`${String(command).trim()}\r`);
+    broadcast("sessions:changed", listSessions());
+    return serializeSession(session);
   }
 
   function resize(id, cols, rows) {
@@ -847,6 +946,8 @@ function createTerminalManager({
     reorderRunningSessions,
     renameSession,
     updateSession,
+    requestAgentExit,
+    startAgentInSession,
     closeSession,
     listSessions,
     getHistory,
@@ -862,6 +963,7 @@ function createTerminalManager({
 }
 
 module.exports = {
+  AGENT_EXIT_MARKER,
   createTerminalManager,
   getDefaultShell,
   getWslShell,

@@ -12,6 +12,10 @@ function codexLine(inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens } } } })}\n`;
 }
 
+function qoderLine(id, inputTokens, outputTokens) {
+  return `${JSON.stringify({ type: "assistant", uuid: `row-${id}`, message: { id, model: "qoder-model", usage: { input_tokens: inputTokens, output_tokens: outputTokens }, content: [] } })}\n`;
+}
+
 function createMemoryFiles(initial = "") {
   let content = Buffer.from(initial);
   return {
@@ -173,6 +177,46 @@ describe("agent token live statistics", () => {
     harness.service.handleHook({ provider: "codex", input: { ...harness.input, hook_event_name: "Stop" }, session: harness.session });
     await flush();
     expect(harness.service.getLive("panel-1")).toMatchObject({ state: "completed", outputTokensPerSecond: 7.5 });
+  });
+
+  it("tracks and persists Qoder transcript usage", async () => {
+    const tempDirectory = await mkdtemp(path.join(tmpdir(), "pannel-handle-qoder-token-"));
+    const transcriptPath = path.join(tempDirectory, "qoder.jsonl");
+    await writeFile(transcriptPath, qoderLine("one", 100, 20), "utf-8");
+    const intervals = [];
+    const statsStore = {
+      setBaseline: vi.fn(),
+      markEnded: vi.fn(),
+      update: vi.fn(input => input)
+    };
+    const service = createAgentTokenStatsService({
+      terminalManager: {}, statsStore, sshSessionRuntime: {}, retryDelaysMs: [0],
+      setIntervalFn: callback => { intervals.push(callback); return callback; },
+      clearIntervalFn: vi.fn()
+    });
+    const session = { id: "panel-qoder", type: "windows", title: "Qoder", cwd: "C:\\work", agentProvider: "qoder" };
+    const input = { session_id: "agent-qoder", transcript_path: transcriptPath, cwd: "C:\\work" };
+
+    try {
+      service.handleHook({ provider: "qoder", input: { ...input, hook_event_name: "SessionStart" }, session });
+      await vi.waitFor(() => expect(statsStore.setBaseline).toHaveBeenCalledWith("qoder", "agent-qoder", expect.objectContaining({ totalTokens: 120 }), expect.anything()));
+      service.handleHook({ provider: "qoder", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
+      await vi.waitFor(() => expect(service.getLive("panel-qoder")?.state).toBe("generating"));
+      await appendFile(transcriptPath, qoderLine("two", 20, 5), "utf-8");
+      intervals[0]();
+      await vi.waitFor(() => expect(service.getLive("panel-qoder")).toMatchObject({ tokens: { inputTokens: 20, outputTokens: 5, totalTokens: 25 } }));
+
+      service.handleHook({ provider: "qoder", input: { ...input, hook_event_name: "Stop" }, session });
+      await vi.waitFor(() => expect(statsStore.update).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "qoder",
+        agentSessionId: "agent-qoder",
+        tokens: expect.objectContaining({ totalTokens: 145 })
+      })));
+      expect(service.getLive("panel-qoder")?.state).toBe("completed");
+    } finally {
+      service.shutdown();
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
   });
 
   it("restarts parsing when a transcript is truncated", async () => {

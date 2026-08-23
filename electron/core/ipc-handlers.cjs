@@ -133,6 +133,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
   });
 
+  ipcMain.handle("sessions:switch-agent", async (_event, { id, provider }) => {
+    return agentSessionLauncher.switchAgent(String(id || ""), provider);
+  });
+
   ipcMain.handle("sessions:close", async (_event, id) => {
     const sessions = terminalManager.closeSession(id);
     if (disconnectFileSession) {
@@ -213,6 +217,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 
   ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
     return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
+  });
+
+  ipcMain.handle("agent-usage:consume-reset-credit", (_event, { sessionId, creditId, idempotencyKey }) => {
+    return agentUsageService.consumeResetCredit(sessionId, { creditId, idempotencyKey });
   });
 
   ipcMain.on("agent-usage:cancel", (_event, { sessionId }) => {

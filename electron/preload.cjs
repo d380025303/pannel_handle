@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   createSession: (options) => ipcRenderer.invoke("sessions:create", options),
   updateSession: (id, updates) => ipcRenderer.invoke("sessions:update", { id, ...updates }),
+  switchAgent: (id, provider) => ipcRenderer.invoke("sessions:switch-agent", { id, provider }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
   write: (id, data) => ipcRenderer.send("terminal:write", { id, data }),
@@ -181,6 +182,11 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
   getUsage: (sessionId, options) => ipcRenderer.invoke("agent-usage:get", {
     sessionId,
     force: Boolean(options?.force)
+  }),
+  consumeResetCredit: (sessionId, creditId, idempotencyKey) => ipcRenderer.invoke("agent-usage:consume-reset-credit", {
+    sessionId,
+    creditId,
+    idempotencyKey
   }),
   cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
 });

@@ -30,6 +30,7 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.8",
     "@lezer/highlight": "1.2.3",
+    "@qoder-ai/qoder-agent-sdk": "1.0.25",
     "@vitejs/plugin-react": "^4.5.0",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/ripgrep-win32-x64": "1.18.0",
@@ -51,7 +52,8 @@
     "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^12.1.1",
     "vite": "^6.0.0",
-    "ws": "8.18.0"
+    "ws": "8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",

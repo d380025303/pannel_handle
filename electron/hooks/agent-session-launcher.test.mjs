@@ -31,6 +31,16 @@ function createMocks(overrides = {}) {
     }),
     startDeferredSession: vi.fn((id, options) => ({ id, type: "ssh", agentProvider: "codex", agentLocation: "local", ...options })),
     listSessions: vi.fn(() => sessions),
+    getSession: vi.fn((id) => sessions.find((session) => session.id === id)),
+    requestAgentExit: vi.fn(async () => {}),
+    startAgentInSession: vi.fn((id, options) => {
+      const session = sessions.find((entry) => entry.id === id);
+      if (session) {
+        session.agentProvider = options.provider;
+        session.agentRuntimeProvider = options.provider;
+      }
+      return session;
+    }),
     write: vi.fn(),
     closeSession: vi.fn(),
     deleteSavedSession: vi.fn(),
@@ -119,7 +129,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       shell: "C:\\Windows\\System32\\cmd.exe",
       initialCommand: "pnpm install",
-      runtimeInitialCommand: "pnpm install && claude"
+      runtimeInitialCommand: expect.stringContaining("pnpm install && claude & echo __PANNEL_HANDLE_AGENT_EXIT__")
     }));
   });
 
@@ -138,7 +148,7 @@ describe("agent-session-launcher", () => {
       cwd: "C:\\Users\\tester",
       agentProvider: "codex",
       persist: false,
-      runtimeInitialCommand: "codex"
+      runtimeInitialCommand: expect.stringContaining("codex & echo __PANNEL_HANDLE_AGENT_EXIT__")
     }));
   });
 
@@ -155,7 +165,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       agentProvider: "codex",
       persist: false,
-      runtimeInitialCommand: "codex"
+      runtimeInitialCommand: expect.stringContaining("codex & echo __PANNEL_HANDLE_AGENT_EXIT__")
     }));
   });
 
@@ -215,7 +225,7 @@ describe("agent-session-launcher", () => {
       "run-1",
       expect.stringContaining("Connection lost before handshake")
     );
-    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex\r"));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex;"));
   });
 
   it("continues launching Codex over SSH when the auxiliary command check fails", async () => {
@@ -236,7 +246,7 @@ describe("agent-session-launcher", () => {
       "run-1",
       expect.stringContaining("Remote codex command check failed:")
     );
-    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex\r"));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex;"));
   });
 
   it("runs Codex locally and binds it to an SSH workspace without checking a remote CLI", async () => {
@@ -327,5 +337,36 @@ describe("agent-session-launcher", () => {
       { recordUsage: true }
     )).rejects.toThrow("spawn failed");
     expect(mocks.onTemplateLaunched).not.toHaveBeenCalled();
+  });
+
+  it("prepares the target before exiting and switches only the running session", async () => {
+    const mocks = createMocks();
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", persist: true });
+    mocks.terminalManager.createSession.mockClear();
+
+    const result = await mocks.launcher.switchAgent("run-1", "claude");
+
+    expect(mocks.hookConfigManager.inspect).toHaveBeenLastCalledWith({ type: "windows", path: "C:\\work" }, ["claude"]);
+    expect(mocks.terminalManager.requestAgentExit).toHaveBeenCalledWith("run-1", 10000);
+    expect(mocks.terminalManager.startAgentInSession).toHaveBeenCalledWith("run-1", expect.objectContaining({
+      provider: "claude",
+      command: expect.stringContaining("claude & echo __PANNEL_HANDLE_AGENT_EXIT__")
+    }));
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+    expect(result[0].agentProvider).toBe("claude");
+  });
+
+  it("does not allow a local SSH bridge session to change provider", async () => {
+    const mocks = createMocks();
+    mocks.terminalManager.getSession.mockReturnValue({
+      id: "run-1",
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "codex",
+      agentLocation: "local"
+    });
+
+    await expect(mocks.launcher.switchAgent("run-1", "claude")).rejects.toThrow("Local SSH bridge");
+    expect(mocks.terminalManager.requestAgentExit).not.toHaveBeenCalled();
   });
 });
