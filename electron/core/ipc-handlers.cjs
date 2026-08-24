@@ -18,7 +18,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -129,8 +129,8 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags }) => {
-    return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
+  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags }) => {
+    return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags });
   });
 
   ipcMain.handle("sessions:switch-agent", async (_event, { id, provider }) => {
@@ -340,6 +340,15 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.handle("dingtalk:test", () => dingTalkNotificationManager.testConnection());
+
+  ipcMain.handle("openrouter:get-config", () => openRouterService.getConfig());
+  ipcMain.handle("openrouter:list-models", () => openRouterService.listModels());
+  ipcMain.handle("openrouter:refresh-models", () => openRouterService.refreshModels());
+  ipcMain.handle("openrouter:save-api-key", (_event, apiKey) => openRouterService.saveApiKey(apiKey));
+  ipcMain.handle("openrouter:clear-api-key", () => openRouterService.clearApiKey());
+  ipcMain.handle("openrouter:test", () => openRouterService.testConnection());
+  ipcMain.handle("openrouter:verify-models", (_event, input) => openRouterService.verifyModels(input));
+  ipcMain.handle("openrouter:set-favorites", (_event, input) => openRouterService.setFavorites(input));
 
   ipcMain.handle("workbuddy-checkin:get-status", () => workBuddyCheckinService.getStatus());
 

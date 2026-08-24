@@ -47,6 +47,38 @@ export type TranslationKey =
   | "settings.dingTalkSaved"
   | "settings.dingTalkCleared"
   | "settings.dingTalkTestSuccess"
+  | "settings.openRouterConfigured"
+  | "settings.openRouterNotConfigured"
+  | "settings.openRouterDescription"
+  | "settings.openRouterKeyStored"
+  | "settings.openRouterSaved"
+  | "settings.openRouterTest"
+  | "settings.openRouterTestSuccess"
+  | "settings.openRouterClear"
+  | "settings.openRouterCleared"
+  | "settings.openRouterRefreshModels"
+  | "settings.openRouterModelsRefreshed"
+  | "settings.openRouterFavorites"
+  | "settings.openRouterDefaultModel"
+  | "settings.openRouterRefreshHint"
+  | "settings.openRouterSaveFavorites"
+  | "settings.openRouterFavoritesSaved"
+  | "settings.openRouterNewSessionsHint"
+  | "settings.openRouterPriceInput"
+  | "settings.openRouterPriceOutput"
+  | "settings.openRouterPriceUnavailable"
+  | "settings.openRouterVerificationPending"
+  | "settings.openRouterVerificationPassed"
+  | "settings.openRouterVerificationPartial"
+  | "settings.openRouterVerificationFailed"
+  | "settings.openRouterVerificationUnavailable"
+  | "settings.openRouterVerificationPartialSuccess"
+  | "settings.openRouterStageResponses"
+  | "settings.openRouterStageFunctionTools"
+  | "settings.openRouterStageCodexTools"
+  | "settings.openRouterVerifyRetry"
+  | "settings.openRouterVerifying"
+  | "settings.openRouterVerificationSuccess"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -126,6 +158,16 @@ export type TranslationKey =
   | "agentSwitch.localSshUnavailable"
   | "session.agentCwdRequired"
   | "session.preLaunchCommand"
+  | "session.codexBackend"
+  | "session.codexBackendOpenAI"
+  | "session.codexModel"
+  | "session.codexModelSelect"
+  | "session.openRouterKeyRequired"
+  | "session.openRouterFavoriteRequired"
+  | "session.openRouterModelHint"
+  | "session.openRouterVerifiedRequired"
+  | "session.openRouterExperimentalAcknowledge"
+  | "session.openRouterExperimentalRequired"
   | "session.agentLocation"
   | "session.agentLocationLocal"
   | "session.agentLocationRemote"
@@ -756,6 +798,38 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "钉钉配置已保存。",
     "settings.dingTalkCleared": "钉钉机器人凭据已清除。",
     "settings.dingTalkTestSuccess": "测试消息发送成功。",
+    "settings.openRouterConfigured": "API Key 已配置",
+    "settings.openRouterNotConfigured": "尚未配置",
+    "settings.openRouterDescription": "使用 OpenRouter 作为 Codex 的模型后端。API Key 由系统安全存储加密，只在启动进程时注入环境变量。",
+    "settings.openRouterKeyStored": "已安全保存；输入新值可替换",
+    "settings.openRouterSaved": "OpenRouter API Key 已安全保存。",
+    "settings.openRouterTest": "测试连接",
+    "settings.openRouterTestSuccess": "OpenRouter 连接成功。",
+    "settings.openRouterClear": "清除 API Key",
+    "settings.openRouterCleared": "OpenRouter API Key 已清除。",
+    "settings.openRouterRefreshModels": "刷新在线模型",
+    "settings.openRouterModelsRefreshed": "OpenRouter 模型目录已刷新。",
+    "settings.openRouterFavorites": "兼容模型与收藏",
+    "settings.openRouterDefaultModel": "设为默认模型",
+    "settings.openRouterRefreshHint": "请先刷新在线模型目录。仅显示支持 tools 和 tool_choice 的模型。",
+    "settings.openRouterSaveFavorites": "保存收藏与默认模型",
+    "settings.openRouterFavoritesSaved": "OpenRouter 收藏模型已保存。",
+    "settings.openRouterNewSessionsHint": "收藏目录更新只影响新启动的会话；运行中的会话仍可使用 Codex 原生 /model 在本目录内切换。",
+    "settings.openRouterPriceInput": "输入",
+    "settings.openRouterPriceOutput": "输出",
+    "settings.openRouterPriceUnavailable": "价格未知",
+    "settings.openRouterVerificationPending": "待检测",
+    "settings.openRouterVerificationPassed": "已验证",
+    "settings.openRouterVerificationPartial": "部分兼容",
+    "settings.openRouterVerificationFailed": "检测失败",
+    "settings.openRouterVerificationUnavailable": "暂时不可用",
+    "settings.openRouterVerificationPartialSuccess": "基础 Responses 与普通函数工具检测通过；完整 Codex 工具协议未通过，可作为实验模型使用。",
+    "settings.openRouterStageResponses": "基础 Responses",
+    "settings.openRouterStageFunctionTools": "普通函数工具",
+    "settings.openRouterStageCodexTools": "完整 Codex 工具协议",
+    "settings.openRouterVerifyRetry": "检测",
+    "settings.openRouterVerifying": "检测中…",
+    "settings.openRouterVerificationSuccess": "OpenRouter 模型兼容性检测通过。",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -835,6 +909,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持 Codex，无法切换 Agent",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
+    "session.codexBackend": "Codex 模型后端",
+    "session.codexBackendOpenAI": "OpenAI（Codex 默认）",
+    "session.codexModel": "OpenRouter 默认模型",
+    "session.codexModelSelect": "选择已收藏模型",
+    "session.openRouterKeyRequired": "请先在设置中配置 OpenRouter API Key。",
+    "session.openRouterFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
+    "session.openRouterModelHint": "进入会话后可使用 Codex 原生 /model 随时切换收藏目录中的模型。",
+    "session.openRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
+    "session.openRouterExperimentalAcknowledge": "该模型仅部分兼容。我了解 Codex 可能在首轮请求或编辑操作时失败，并同意实验启动。",
+    "session.openRouterExperimentalRequired": "请先确认部分兼容模型的实验风险。",
     "session.agentLocation": "Agent 运行位置",
     "session.agentLocationLocal": "本地桥接",
     "session.agentLocationRemote": "远端运行",
@@ -1457,6 +1541,38 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "DingTalk configuration saved.",
     "settings.dingTalkCleared": "DingTalk robot credentials cleared.",
     "settings.dingTalkTestSuccess": "Test message sent successfully.",
+    "settings.openRouterConfigured": "API key configured",
+    "settings.openRouterNotConfigured": "Not configured",
+    "settings.openRouterDescription": "Use OpenRouter as the model backend for Codex. The API key is encrypted by the system secure store and injected only into the launched process environment.",
+    "settings.openRouterKeyStored": "Stored securely; enter a new value to replace it",
+    "settings.openRouterSaved": "OpenRouter API key saved securely.",
+    "settings.openRouterTest": "Test connection",
+    "settings.openRouterTestSuccess": "OpenRouter connection succeeded.",
+    "settings.openRouterClear": "Clear API key",
+    "settings.openRouterCleared": "OpenRouter API key cleared.",
+    "settings.openRouterRefreshModels": "Refresh online models",
+    "settings.openRouterModelsRefreshed": "OpenRouter model catalog refreshed.",
+    "settings.openRouterFavorites": "Compatible models and favorites",
+    "settings.openRouterDefaultModel": "Set as default model",
+    "settings.openRouterRefreshHint": "Refresh the online catalog first. Only models supporting tools and tool_choice are shown.",
+    "settings.openRouterSaveFavorites": "Save favorites and default",
+    "settings.openRouterFavoritesSaved": "OpenRouter favorite models saved.",
+    "settings.openRouterNewSessionsHint": "Catalog changes apply to newly launched sessions. In a running session, use Codex's native /model command to switch within this catalog.",
+    "settings.openRouterPriceInput": "input",
+    "settings.openRouterPriceOutput": "output",
+    "settings.openRouterPriceUnavailable": "Pricing unavailable",
+    "settings.openRouterVerificationPending": "Not verified",
+    "settings.openRouterVerificationPassed": "Verified",
+    "settings.openRouterVerificationPartial": "Partially compatible",
+    "settings.openRouterVerificationFailed": "Verification failed",
+    "settings.openRouterVerificationUnavailable": "Temporarily unavailable",
+    "settings.openRouterVerificationPartialSuccess": "Basic Responses and function tools passed; the full Codex tool protocol failed. This model can be used experimentally.",
+    "settings.openRouterStageResponses": "Basic Responses",
+    "settings.openRouterStageFunctionTools": "Function tools",
+    "settings.openRouterStageCodexTools": "Full Codex tool protocol",
+    "settings.openRouterVerifyRetry": "Verify",
+    "settings.openRouterVerifying": "Verifying…",
+    "settings.openRouterVerificationSuccess": "OpenRouter model compatibility verified.",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -1536,6 +1652,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.localSshUnavailable": "Local SSH bridge sessions only support Codex and cannot switch Agent",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
+    "session.codexBackend": "Codex model backend",
+    "session.codexBackendOpenAI": "OpenAI (Codex default)",
+    "session.codexModel": "Default OpenRouter model",
+    "session.codexModelSelect": "Select a favorite model",
+    "session.openRouterKeyRequired": "Configure an OpenRouter API key in Settings first.",
+    "session.openRouterFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
+    "session.openRouterModelHint": "After launch, use Codex's native /model command to switch among favorite models.",
+    "session.openRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
+    "session.openRouterExperimentalAcknowledge": "This model is only partially compatible. I understand Codex may fail on its first request or while editing, and accept experimental launch.",
+    "session.openRouterExperimentalRequired": "Acknowledge the experimental risk for this partially compatible model first.",
     "session.agentLocation": "Agent location",
     "session.agentLocationLocal": "Local bridge",
     "session.agentLocationRemote": "Run remotely",

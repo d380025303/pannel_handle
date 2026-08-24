@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
-  it("drops legacy Codex backend metadata when loading saved sessions", () => {
+  it("persists valid Codex backend metadata when loading saved sessions", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{
       id: "1",
@@ -51,12 +51,28 @@ describe("session-store", () => {
       cwd: "C:\\work",
       agentProvider: "codex",
       codexBackend: "openrouter",
-      codexModel: "openai/gpt-5.4"
+      codexModel: "openai/gpt-5.4",
+      codexExperimentalAcknowledged: true
     }]));
 
     const [session] = createStore(sessionsFile).loadLibrary();
-    expect(session).not.toHaveProperty("codexBackend");
-    expect(session).not.toHaveProperty("codexModel");
+    expect(session).toMatchObject({ codexBackend: "openrouter", codexModel: "openai/gpt-5.4", codexExperimentalAcknowledged: true });
+  });
+
+  it("normalizes Codex backend metadata for OpenAI and SSH sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "invalid", codexModel: "ignored", codexExperimentalAcknowledged: true },
+      { id: "2", type: "ssh", cwd: "/work", agentProvider: "codex", codexBackend: "openrouter", codexModel: "ignored", codexExperimentalAcknowledged: true, sshConfig: { host: "example.com" } }
+    ]));
+
+    const sessions = createStore(sessionsFile).loadLibrary();
+    expect(sessions[0]).toMatchObject({ codexBackend: "openai" });
+    expect(sessions[0].codexModel).toBeUndefined();
+    expect(sessions[0].codexExperimentalAcknowledged).toBeUndefined();
+    expect(sessions[1]).toMatchObject({ codexBackend: "openai" });
+    expect(sessions[1].codexModel).toBeUndefined();
+    expect(sessions[1].codexExperimentalAcknowledged).toBeUndefined();
   });
   it("persists an independent file root and normalized file sorting", () => {
     const sessionsFile = createTempSessionsFile();

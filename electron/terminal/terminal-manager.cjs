@@ -274,6 +274,9 @@ function createTerminalManager({
       agentProvider: session.agentProvider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      codexBackend: session.codexBackend,
+      codexModel: session.codexModel,
+      codexExperimentalAcknowledged: session.codexExperimentalAcknowledged,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -520,7 +523,8 @@ function createTerminalManager({
     const env = {
       ...process.env,
       PANNEL_HANDLE_SESSION_ID: session.id,
-      ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {})
+      ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {}),
+      ...(options.runtimeEnv || {})
     };
 
     if (session.agentProvider === "copilot") {
@@ -538,6 +542,7 @@ function createTerminalManager({
       env.WSLENV = appendWslEnv(env.WSLENV, [
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
+        ...(Array.isArray(options.runtimeWslEnvKeys) ? options.runtimeWslEnvKeys : []),
         ...(session.agentProvider === "copilot" ? [
           "COPILOT_OTEL_ENABLED",
           "COPILOT_OTEL_EXPORTER_TYPE",
@@ -554,7 +559,7 @@ function createTerminalManager({
       cols: options.cols || 100,
       rows: options.rows || 30,
       cwd: session.runtimeCwd,
-      env: { ...env, ...(options.runtimeEnv || {}) }
+      env
     });
 
     attachTerminal(session, term, options);
@@ -645,6 +650,9 @@ function createTerminalManager({
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
       localAgentCwd: options.localAgentCwd,
+      codexBackend: options.codexBackend,
+      codexModel: options.codexModel,
+      codexExperimentalAcknowledged: options.codexExperimentalAcknowledged,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -701,10 +709,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -719,6 +727,8 @@ function createTerminalManager({
     const templateId = session.templateId;
     const template = templateId ? sessionStore.getTemplate(templateId) : undefined;
     const previousTitle = session.title;
+    const previousCodexBackend = session.codexBackend;
+    const previousCodexModel = session.codexModel;
     const libraryUpdates = {};
     if (typeof title === "string") {
       session.title = title.trim() || session.title;
@@ -744,6 +754,21 @@ function createTerminalManager({
     if (typeof localAgentCwd !== "undefined") {
       session.localAgentCwd = localAgentCwd || undefined;
       libraryUpdates.localAgentCwd = localAgentCwd || null;
+    }
+    if (typeof codexBackend !== "undefined") {
+      session.codexBackend = codexBackend === "openrouter" ? "openrouter" : session.agentProvider === "codex" ? "openai" : undefined;
+      libraryUpdates.codexBackend = session.codexBackend || null;
+    }
+    if (typeof codexModel !== "undefined") {
+      session.codexModel = session.codexBackend === "openrouter" ? String(codexModel || "").trim() || undefined : undefined;
+      libraryUpdates.codexModel = session.codexModel || null;
+    }
+    const codexSelectionChanged = previousCodexBackend !== session.codexBackend || previousCodexModel !== session.codexModel;
+    if (typeof codexExperimentalAcknowledged !== "undefined" || codexSelectionChanged) {
+      session.codexExperimentalAcknowledged = session.codexBackend === "openrouter" && Boolean(session.codexModel) && codexExperimentalAcknowledged === true
+        ? true
+        : undefined;
+      libraryUpdates.codexExperimentalAcknowledged = session.codexExperimentalAcknowledged || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();

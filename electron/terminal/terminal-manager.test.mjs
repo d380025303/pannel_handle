@@ -76,6 +76,9 @@ function createManager(overrides = {}) {
       initialCommand: template.initialCommand,
       agentProvider: template.agentProvider,
       agentLocation: template.agentLocation,
+      codexBackend: template.codexBackend,
+      codexModel: template.codexModel,
+      codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
       type: template.type || "windows",
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -142,6 +145,25 @@ describe("terminal-manager", () => {
       })
     }));
     expect(broadcast).toHaveBeenCalledWith("sessions:changed", [session]);
+  });
+
+  it("persists experimental OpenRouter acknowledgement and clears it when the model changes", () => {
+    const { manager, sessionStore } = createManager();
+    const session = manager.createSession({
+      title: "Experimental",
+      agentProvider: "codex",
+      codexBackend: "openrouter",
+      codexModel: "vendor/partial-a",
+      codexExperimentalAcknowledged: true
+    });
+
+    expect(session).toMatchObject({ codexModel: "vendor/partial-a", codexExperimentalAcknowledged: true });
+    manager.updateSession(session.id, { codexModel: "vendor/partial-b" });
+    expect(manager.getSession(session.id).codexExperimentalAcknowledged).toBeUndefined();
+    expect(sessionStore.updateLibrary).toHaveBeenCalledWith("1", expect.objectContaining({
+      codexModel: "vendor/partial-b",
+      codexExperimentalAcknowledged: null
+    }));
   });
 
   it("creates a transient session without persisting or restoring it", () => {

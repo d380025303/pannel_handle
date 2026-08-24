@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  buildOpenRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
 } = require("./agent-session-launcher.cjs");
@@ -144,6 +145,40 @@ describe("agent-session-launcher", () => {
   it("starts the Agent directly when there is no pre-command", () => {
     expect(buildAgentStartCommand({ type: "windows", shell: "cmd.exe", agentProvider: "codex" }))
       .toBe("codex");
+  });
+
+  it("builds an OpenRouter Codex command without embedding the API key", () => {
+    const command = buildOpenRouterCodexCommand({ type: "windows", shell: "powershell.exe" }, {
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKeyEnv: "OPENROUTER_API_KEY",
+      apiKey: "secret-value",
+      catalogPath: "C:\\Data\\openrouter-models.json",
+      model: "anthropic/claude-sonnet-4"
+    });
+
+    expect(command).toContain("model_provider");
+    expect(command).toContain("wire_api");
+    expect(command).toContain("anthropic/claude-sonnet-4");
+    expect(command).not.toContain("secret-value");
+  });
+
+  it("injects the OpenRouter key only through the terminal environment", async () => {
+    const openRouterService = { getLaunchConfig: vi.fn(() => ({
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKeyEnv: "OPENROUTER_API_KEY",
+      apiKey: "secret-value",
+      catalogPath: "C:\\Data\\openrouter-models.json",
+      model: "openai/gpt-5.4"
+    })) };
+    const mocks = createMocks({ openRouterService });
+
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
+
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeEnv: { OPENROUTER_API_KEY: "secret-value" },
+      runtimeWslEnvKeys: ["OPENROUTER_API_KEY"],
+      runtimeInitialCommand: expect.not.stringContaining("secret-value")
+    }));
   });
 
   it("starts CodeBuddy with its canonical command", () => {

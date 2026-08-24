@@ -4,6 +4,7 @@ import type { AppTheme } from "../../themes";
 import type { Locale, ThemeId } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
+import { OpenRouterSettings } from "./OpenRouterSettings";
 
 type SettingsModalProps = {
   autoRestore: boolean;
@@ -206,6 +207,7 @@ export function SettingsModal({
               </>
             )}
           </section>
+          <OpenRouterSettings />
           <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">
             <div

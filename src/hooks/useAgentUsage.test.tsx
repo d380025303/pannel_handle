@@ -41,6 +41,15 @@ describe("useAgentUsage", () => {
     expect(getUsage).not.toHaveBeenCalled();
   });
 
+  it("stays hidden for OpenRouter-backed Codex sessions", () => {
+    const getUsage = vi.fn();
+    window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };
+    const activeSession = { ...session("openrouter", "codex"), codexBackend: "openrouter" as const };
+    const { result } = renderHook(() => useAgentUsage(activeSession));
+    expect(result.current.state).toEqual({ status: "hidden" });
+    expect(getUsage).not.toHaveBeenCalled();
+  });
+
   it("stays hidden for non-Windows CodeBuddy sessions", () => {
     const getUsage = vi.fn();
     window.agentUsageApi = { getUsage, consumeResetCredit: vi.fn(), cancel: vi.fn() };

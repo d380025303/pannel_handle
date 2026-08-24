@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, RemotePlatform, SshConfig } from "../../vite-env";
+import type { AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { TagInput } from "../shared/TagInput";
+import { CodexBackendFields } from "./CodexBackendFields";
 
 export type CreateSessionRequest = {
   selectedShellId: string;
@@ -15,6 +16,9 @@ export type CreateSessionRequest = {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  codexBackend?: CodexBackend;
+  codexModel?: string;
+  codexExperimentalAcknowledged?: boolean;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -34,6 +38,10 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>();
   const [agentLocation, setAgentLocation] = useState<AgentLocation>("local");
   const [localAgentCwd, setLocalAgentCwd] = useState("");
+  const [codexBackend, setCodexBackend] = useState<CodexBackend>("openai");
+  const [codexModel, setCodexModel] = useState<string>();
+  const [codexReady, setCodexReady] = useState(true);
+  const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(false);
   const [selectedShellId, setSelectedShellId] = useState("powershell");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
@@ -52,8 +60,9 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   }, [agentProvider, isSsh]);
   const canCreate = useMemo(
     () => (!isSsh || sshHost.trim().length > 0)
-      && (!agentProvider || cwd.trim().length > 0),
-    [agentProvider, cwd, isSsh, sshHost]
+      && (!agentProvider || cwd.trim().length > 0)
+      && (agentProvider !== "codex" || isSsh || codexReady),
+    [agentProvider, codexReady, cwd, isSsh, sshHost]
   );
 
   const handleCreate = async () => {
@@ -73,6 +82,9 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         localAgentCwd: isSsh && agentProvider === "codex" && agentLocation === "local"
           ? localAgentCwd.trim() || undefined
           : undefined,
+        codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
+        codexModel: !isSsh && agentProvider === "codex" && codexBackend === "openrouter" ? codexModel : undefined,
+        codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && codexBackend === "openrouter" && codexModel ? codexExperimentalAcknowledged : undefined,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
@@ -143,6 +155,9 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
             if (provider && provider !== "codex") setAgentLocation("remote");
             if (provider === "codex" && isSsh) setAgentLocation("local");
           }} />
+          {agentProvider === "codex" && !isSsh && (
+            <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
+          )}
           {isSsh && agentProvider && (
             <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />
           )}

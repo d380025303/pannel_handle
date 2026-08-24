@@ -436,6 +436,15 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("hides ChatGPT Codex quota for OpenRouter sessions", async () => {
+    const session = { id: "openrouter-1", type: "windows", agentProvider: "codex", codexBackend: "openrouter" };
+    const transportFactory = vi.fn();
+    const service = createAgentUsageService({ terminalManager: { getSession: () => session }, transportFactory });
+
+    await expect(service.getUsage(session.id)).rejects.toThrow("do not use ChatGPT Codex rate limits");
+    expect(transportFactory).not.toHaveBeenCalled();
+  });
+
   it("reads and caches Qoder quota through the SDK client", async () => {
     const session = { id: "qoder-1", type: "windows", cwd: "C:\\repo", agentProvider: "qoder" };
     const close = vi.fn(async () => undefined);

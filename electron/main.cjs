@@ -18,6 +18,7 @@ const { createDingTalkNotificationManager } = require("./notifications/ding-talk
 const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
 const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
+const { createOpenRouterService } = require("./services/openrouter-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -40,6 +41,7 @@ const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.c
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
+const { createOpenRouterConfigStore } = require("./stores/openrouter-config-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
@@ -50,6 +52,8 @@ let templateUsageStore = null;
 let launchTemplateStore = null;
 let launchTemplateService = null;
 let configStore = null;
+let openRouterConfigStore = null;
+let openRouterService = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -121,6 +125,10 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "config.json"),
       safeStorage
     });
+    openRouterConfigStore = createOpenRouterConfigStore({
+      configFile: path.join(app.getPath("userData"), "openrouter.json"),
+      safeStorage
+    });
     dingTalkConfigStore = createDingTalkConfigStore({
       configFile: path.join(app.getPath("userData"), "dingtalk.json"),
       safeStorage
@@ -134,6 +142,7 @@ if (!gotSingleInstanceLock) {
     });
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
+    openRouterConfigStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
@@ -268,6 +277,10 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
+    openRouterService = createOpenRouterService({
+      store: openRouterConfigStore,
+      catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
+    });
     clipboardImageService = createClipboardImageService({
       clipboard,
       terminalManager,
@@ -303,6 +316,7 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       sshHookTunnelService,
       remoteAgentBridgeService,
+      openRouterService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
@@ -392,6 +406,7 @@ if (!gotSingleInstanceLock) {
       hookConfigManager,
       remoteHookConfigService,
       projectSearchService,
+      openRouterService,
       mobileRemoteService,
       remoteAgentBridgeService
     });

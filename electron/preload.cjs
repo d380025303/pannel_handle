@@ -69,6 +69,17 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("openRouterApi", {
+  getConfig: () => ipcRenderer.invoke("openrouter:get-config"),
+  listModels: () => ipcRenderer.invoke("openrouter:list-models"),
+  refreshModels: () => ipcRenderer.invoke("openrouter:refresh-models"),
+  saveApiKey: (apiKey) => ipcRenderer.invoke("openrouter:save-api-key", apiKey),
+  clearApiKey: () => ipcRenderer.invoke("openrouter:clear-api-key"),
+  test: () => ipcRenderer.invoke("openrouter:test"),
+  verifyModels: (input) => ipcRenderer.invoke("openrouter:verify-models", input),
+  setFavorites: (input) => ipcRenderer.invoke("openrouter:set-favorites", input)
+});
+
 contextBridge.exposeInMainWorld("agentConversationApi", {
   setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId),
   getSnapshot: () => ipcRenderer.invoke("agent-conversation:get-snapshot"),

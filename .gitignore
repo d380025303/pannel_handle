@@ -13,3 +13,4 @@ idea-plugin/.intellijPlatform/
 idea-plugin/build/
 .gemini/
 .qwen/
+.github/

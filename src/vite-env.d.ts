@@ -37,6 +37,9 @@ export type TerminalSession = {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  codexBackend?: CodexBackend;
+  codexModel?: string;
+  codexExperimentalAcknowledged?: boolean;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
@@ -448,6 +451,67 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+export type CodexBackend = "openai" | "openrouter";
+
+export type OpenRouterModel = {
+  id: string;
+  name: string;
+  description: string;
+  contextLength: number;
+  inputModalities: string[];
+  supportedParameters: string[];
+  pricing: {
+    prompt?: string;
+    completion?: string;
+  };
+  compatible: boolean;
+  verification?: OpenRouterModelVerification;
+};
+
+export type OpenRouterModelVerification = {
+  modelId?: string;
+  status: "passed" | "partial" | "failed" | "unavailable";
+  checkedAt: number;
+  stages?: OpenRouterVerificationStage[];
+  failedStage?: OpenRouterVerificationStageId;
+  error?: string;
+  errorKind?: OpenRouterVerificationErrorKind;
+  httpStatus?: number;
+  errorCode?: string;
+  provider?: string;
+  requestId?: string;
+};
+
+export type OpenRouterVerificationStageId = "responses" | "function_tools" | "codex_tools";
+export type OpenRouterVerificationErrorKind = "unsupported" | "provider" | "rate_limit" | "timeout" | "network" | "unknown";
+export type OpenRouterVerificationStage = {
+  stage: OpenRouterVerificationStageId;
+  status: "passed" | "failed";
+  error?: string;
+  errorKind?: OpenRouterVerificationErrorKind;
+  httpStatus?: number;
+  errorCode?: string;
+  provider?: string;
+  requestId?: string;
+};
+
+export type OpenRouterConfig = {
+  hasApiKey: boolean;
+  favoriteModelIds: string[];
+  defaultModelId?: string;
+  fetchedAt?: number;
+};
+
+export type OpenRouterApi = {
+  getConfig: () => Promise<OpenRouterConfig>;
+  listModels: () => Promise<OpenRouterModel[]>;
+  refreshModels: () => Promise<OpenRouterModel[]>;
+  saveApiKey: (apiKey: string) => Promise<OpenRouterConfig>;
+  clearApiKey: () => Promise<OpenRouterConfig>;
+  test: () => Promise<{ ok: true }>;
+  verifyModels: (input: { modelIds: string[]; force?: boolean }) => Promise<Array<OpenRouterModelVerification & { modelId: string }>>;
+  setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<OpenRouterConfig>;
+};
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -792,8 +856,8 @@ export type RemoteAgentApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
@@ -1102,6 +1166,7 @@ declare global {
     ideaBridgeApi: IdeaBridgeApi;
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
+    openRouterApi: OpenRouterApi;
     windowApi: WindowApi;
   }
 }

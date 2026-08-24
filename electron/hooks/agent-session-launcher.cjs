@@ -47,6 +47,28 @@ function isPowerShell(shell) {
   return ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable);
 }
 
+function commandArg(session, value) {
+  const text = String(value);
+  if (session.type !== "windows") return shellQuote(text);
+  if (isPowerShell(session.shell)) return `'${text.replace(/'/g, "''")}'`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildOpenRouterCodexCommand(session, config) {
+  const overrides = [
+    "model_provider=openrouter",
+    "model_providers.openrouter.name=OpenRouter",
+    `model_providers.openrouter.base_url=${config.baseUrl}`,
+    `model_providers.openrouter.env_key=${config.apiKeyEnv}`,
+    "model_providers.openrouter.wire_api=responses",
+    `model_catalog_json=${config.catalogPath}`
+  ];
+  const args = ["codex"];
+  for (const override of overrides) args.push("-c", commandArg(session, override));
+  args.push("-m", commandArg(session, config.model));
+  return args.join(" ");
+}
+
 function compareVersions(left, right) {
   const a = String(left).split(".").map(value => Number.parseInt(value, 10) || 0);
   const b = String(right).split(".").map(value => Number.parseInt(value, 10) || 0);
@@ -78,7 +100,9 @@ function readGeminiVersion(session, spawnSync) {
 function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
-  let agentCommand = command;
+  let agentCommand = session.agentProvider === "codex" && runtime.openRouter
+    ? buildOpenRouterCodexCommand(session, runtime.openRouter)
+    : command;
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
     if (!runtime.hookUrl || !runtime.sessionId) {
@@ -142,6 +166,7 @@ function createAgentSessionLauncher({
   sshSessionRuntime,
   sshHookTunnelService,
   remoteAgentBridgeService,
+  openRouterService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -177,6 +202,9 @@ function createAgentSessionLauncher({
     }
     if (session.type === "ssh" && session.agentLocation === "local" && session.agentProvider !== "codex") {
       throw new Error("SSH 本地桥接首期仅支持 Codex。");
+    }
+    if (session.type === "ssh" && session.agentProvider === "codex" && session.codexBackend === "openrouter") {
+      throw new Error("OpenRouter Codex 首期仅支持 Windows 和 WSL 会话。");
     }
   }
 
@@ -292,7 +320,12 @@ function createAgentSessionLauncher({
     validateAgentSession(session);
     assertLocalCommand(session);
     await ensureLocalHook(session);
-    return wrapAgentStartCommand(session, buildAgentStartCommand(session));
+    const openRouter = await openRouterService?.getLaunchConfig(session);
+    return {
+      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter })),
+      runtimeEnv: openRouter ? { [openRouter.apiKeyEnv]: openRouter.apiKey } : undefined,
+      runtimeWslEnvKeys: openRouter ? [openRouter.apiKeyEnv] : undefined
+    };
   }
 
   async function finishLocalSsh(session) {
@@ -364,8 +397,8 @@ function createAgentSessionLauncher({
         throw err;
       }
     }
-    const runtimeInitialCommand = await prepareLocal(request);
-    return terminalManager.createSession({ ...request, runtimeInitialCommand });
+    const runtime = await prepareLocal(request);
+    return terminalManager.createSession({ ...request, ...runtime });
   }
 
   async function launchSession(template, options = {}) {
@@ -384,8 +417,8 @@ function createAgentSessionLauncher({
         });
         session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
-        const runtimeInitialCommand = await prepareLocal(launchTemplate);
-        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand });
+        const runtime = await prepareLocal(launchTemplate);
+        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime });
       }
     }
     if (recordUsage) onTemplateLaunched(launchTemplate.id);
@@ -412,6 +445,8 @@ function createAgentSessionLauncher({
       agentProvider: provider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      codexBackend: provider === "codex" ? session.codexBackend : undefined,
+      codexModel: provider === "codex" ? session.codexModel : undefined,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,
@@ -437,13 +472,13 @@ function createAgentSessionLauncher({
 
       const target = createReplacementTemplate(session, provider);
       validateAgentSession(target);
-      const runtimeInitialCommand = target.type === "ssh" ? "" : await prepareLocal(target);
+      const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
       const replacement = terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
-        runtimeInitialCommand
+        ...runtime
       });
       return target.type === "ssh" ? await finishSsh(replacement) : replacement;
     })();
@@ -461,6 +496,7 @@ function createAgentSessionLauncher({
 module.exports = {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  buildOpenRouterCodexCommand,
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,

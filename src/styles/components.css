@@ -699,6 +699,106 @@
   margin-top: 8px;
 }
 
+.settings-section-status {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.openrouter-model-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.openrouter-model-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.openrouter-model-row span,
+.openrouter-model-row small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.openrouter-model-row small {
+  color: var(--color-text-muted);
+}
+
+.openrouter-model-row .openrouter-model-price {
+  margin-top: 3px;
+  color: var(--color-text-secondary, var(--color-text-muted));
+  font-variant-numeric: tabular-nums;
+}
+
+.openrouter-model-row .openrouter-verification {
+  margin-top: 3px;
+}
+
+.openrouter-model-row .openrouter-verification.passed {
+  color: var(--color-success, #22c55e);
+}
+
+.openrouter-model-row .openrouter-verification.failed {
+  color: var(--color-danger, #ef4444);
+  white-space: normal;
+}
+
+.openrouter-model-row .openrouter-verification.partial {
+  color: var(--color-warning-text);
+  white-space: normal;
+}
+
+.openrouter-model-row .openrouter-verification.unavailable {
+  color: var(--color-text-muted);
+  white-space: normal;
+}
+
+.openrouter-experimental-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-warning-text);
+  border-radius: var(--radius-md);
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.openrouter-experimental-warning input {
+  flex: none;
+  margin-top: 2px;
+}
+
+.openrouter-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+
+.modal-button.compact {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.codex-backend-fields {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .startup-error-banner {
   display: flex;
   align-items: center;

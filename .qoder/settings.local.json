@@ -5,7 +5,8 @@
       "Bash(ls C:\\\\mine\\\\crm\\\\personal\\\\pannel_handle)",
       "Bash(find \"C:/mine/crm/personal/pannel_handle\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.cjs\" -o -name \"*.js\" \\\\\\) -not -path \"*/node_modules/*\" -not -path \"*/dist/*\" -not -path \"*/out/*\" -not -path \"*/release/*\" -not -path \"*/build/*\" 2>/dev/null | head -300)",
       "Bash(ls -la | head -30)",
-      "Bash(pnpm:*)"
+      "Bash(pnpm:*)",
+      "Bash(ls -lh release/ | grep -E \"\\\\.exe$|Pannel Handle\")"
     ]
   }
 }
