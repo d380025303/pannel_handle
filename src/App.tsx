@@ -145,7 +145,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId,
     isVisible: workspaceTab === "terminal",
-    terminalTheme: activeTheme.terminal
+    terminalTheme: activeTheme.terminal,
+    sessions: terminalSessions.sessions
   });
   useInputRecovery({
     debug: debugMode || import.meta.env.DEV,

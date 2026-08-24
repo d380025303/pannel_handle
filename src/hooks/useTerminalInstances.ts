@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { useI18n } from "../i18n";
 import { createImeInputGuard } from "../utils/terminalInput";
+import type { AgentProvider, TerminalSession } from "../vite-env";
 
 type TerminalEntry = {
   terminal: Terminal;
@@ -15,6 +16,7 @@ type UseTerminalInstancesOptions = {
   activeId?: string;
   isVisible: boolean;
   terminalTheme: ITheme;
+  sessions: TerminalSession[];
 };
 
 function getErrorMessage(err: unknown) {
@@ -85,10 +87,12 @@ function autoFocusTerminal(entry: TerminalEntry, terminalHost: HTMLDivElement | 
   }
 }
 
-export function useTerminalInstances({ activeId, isVisible, terminalTheme }: UseTerminalInstancesOptions) {
+export function useTerminalInstances({ activeId, isVisible, terminalTheme, sessions }: UseTerminalInstancesOptions) {
   const { t } = useI18n();
   const terminalHostRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const terminalsRef = useRef(new Map<string, TerminalEntry>());
+  const agentProviderBySessionIdRef = useRef(new Map<string, AgentProvider | undefined>());
+  agentProviderBySessionIdRef.current = new Map(sessions.map((s) => [s.id, s.agentProvider] as const));
   const sizeOwnersRef = useRef(new Map<string, string>());
   const [activeSizeOwner, setActiveSizeOwner] = useState("desktop");
 
@@ -312,6 +316,13 @@ export function useTerminalInstances({ activeId, isVisible, terminalTheme }: Use
 
         if (hasSelection && entry) {
           void copyTerminalSelection(entry.terminal);
+          return false;
+        }
+
+        // OpenCode: Ctrl+C 默认绑定 app_exit 会退出整个会话；改发 ESC 触发 session_interrupt，
+        // 仅取消当前正在执行的操作，避免 conpty CTRL_C_EVENT 杀掉 shell 导致标签页消失。
+        if (agentProviderBySessionIdRef.current.get(sessionId) === "opencode") {
+          window.terminalApi.write(sessionId, "\x1b");
           return false;
         }
 
