@@ -47,17 +47,6 @@ export type TranslationKey =
   | "settings.dingTalkSaved"
   | "settings.dingTalkCleared"
   | "settings.dingTalkTestSuccess"
-  | "settings.openRouterTitle"
-  | "settings.openRouterDescription"
-  | "settings.openRouterConfigured"
-  | "settings.openRouterNotConfigured"
-  | "settings.openRouterKeyPlaceholder"
-  | "settings.openRouterTest"
-  | "settings.openRouterClear"
-  | "settings.openRouterSaved"
-  | "settings.openRouterCleared"
-  | "settings.openRouterTestSuccess"
-  | "settings.openRouterValidatedAs"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -142,10 +131,6 @@ export type TranslationKey =
   | "session.agentLocationRemote"
   | "session.agentLocationLocalHint"
   | "session.agentLocationCodexOnly"
-  | "session.codexBackend"
-  | "session.openRouterModel"
-  | "session.openRouterModelHint"
-  | "session.openRouterModelRequired"
   | "remoteAgent.auditTitle"
   | "remoteAgent.auditEphemeral"
   | "remoteAgent.auditWaiting"
@@ -771,17 +756,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "钉钉配置已保存。",
     "settings.dingTalkCleared": "钉钉机器人凭据已清除。",
     "settings.dingTalkTestSuccess": "测试消息发送成功。",
-    "settings.openRouterTitle": "OpenRouter",
-    "settings.openRouterDescription": "API Key 使用系统安全存储加密，仅在启动 OpenRouter Codex 会话时注入子进程。",
-    "settings.openRouterConfigured": "已配置",
-    "settings.openRouterNotConfigured": "未配置",
-    "settings.openRouterKeyPlaceholder": "已安全保存；留空表示保持不变",
-    "settings.openRouterTest": "验证密钥",
-    "settings.openRouterClear": "清除密钥",
-    "settings.openRouterSaved": "OpenRouter API Key 已保存并验证。",
-    "settings.openRouterCleared": "OpenRouter API Key 已清除。",
-    "settings.openRouterTestSuccess": "OpenRouter API Key 验证成功。",
-    "settings.openRouterValidatedAs": "OpenRouter API Key 验证成功：{label}",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -866,10 +840,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.agentLocationRemote": "远端运行",
     "session.agentLocationLocalHint": "本机运行 Codex，通过安全桥接操作远程工作区",
     "session.agentLocationCodexOnly": "本地桥接首期仅支持 Codex",
-    "session.codexBackend": "Codex 模型后端",
-    "session.openRouterModel": "OpenRouter 模型",
-    "session.openRouterModelHint": "可从在线列表选择，也可直接输入模型 slug。",
-    "session.openRouterModelRequired": "请选择或输入 OpenRouter 模型。",
     "remoteAgent.auditTitle": "远程操作",
     "remoteAgent.auditEphemeral": "仅保留当前会话",
     "remoteAgent.auditWaiting": "等待 Codex 调用远程工具…",
@@ -1487,17 +1457,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.dingTalkSaved": "DingTalk configuration saved.",
     "settings.dingTalkCleared": "DingTalk robot credentials cleared.",
     "settings.dingTalkTestSuccess": "Test message sent successfully.",
-    "settings.openRouterTitle": "OpenRouter",
-    "settings.openRouterDescription": "The API key is encrypted with system secure storage and injected only into OpenRouter Codex child processes.",
-    "settings.openRouterConfigured": "Configured",
-    "settings.openRouterNotConfigured": "Not configured",
-    "settings.openRouterKeyPlaceholder": "Stored securely; leave blank to keep unchanged",
-    "settings.openRouterTest": "Validate key",
-    "settings.openRouterClear": "Clear key",
-    "settings.openRouterSaved": "OpenRouter API key saved and validated.",
-    "settings.openRouterCleared": "OpenRouter API key cleared.",
-    "settings.openRouterTestSuccess": "OpenRouter API key validated.",
-    "settings.openRouterValidatedAs": "OpenRouter API key validated: {label}",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -1582,10 +1541,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.agentLocationRemote": "Run remotely",
     "session.agentLocationLocalHint": "Run Codex locally and operate the SSH workspace through a scoped bridge",
     "session.agentLocationCodexOnly": "The local bridge currently supports Codex only",
-    "session.codexBackend": "Codex model backend",
-    "session.openRouterModel": "OpenRouter model",
-    "session.openRouterModelHint": "Choose from the online catalog or enter a model slug directly.",
-    "session.openRouterModelRequired": "Select or enter an OpenRouter model.",
     "remoteAgent.auditTitle": "Remote operations",
     "remoteAgent.auditEphemeral": "Current session only",
     "remoteAgent.auditWaiting": "Waiting for Codex to call a remote tool…",

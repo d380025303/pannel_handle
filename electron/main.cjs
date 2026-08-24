@@ -31,7 +31,6 @@ const { createAgentTokenStatsService } = require("./services/token-usage/agent-t
 const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
 const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
-const { createOpenRouterService } = require("./services/openrouter-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
 const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
@@ -41,7 +40,6 @@ const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.c
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
-const { createOpenRouterConfigStore } = require("./stores/openrouter-config-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
@@ -82,8 +80,6 @@ let terminalStateHub = null;
 let agentConversationManager = null;
 let agentConversationHistoryService = null;
 let ideaModule = null;
-let openRouterConfigStore = null;
-let openRouterService = null;
 
 registerRemoteFileScheme(protocol);
 
@@ -136,16 +132,11 @@ if (!gotSingleInstanceLock) {
       accessFile: path.join(app.getPath("userData"), "mobile-access.json"),
       safeStorage
     });
-    openRouterConfigStore = createOpenRouterConfigStore({
-      configFile: path.join(app.getPath("userData"), "openrouter.json"),
-      safeStorage
-    });
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
-    openRouterConfigStore.load();
     agentConversationManager = createAgentConversationManager({
       broadcast: windowManager.broadcast
     });
@@ -290,7 +281,6 @@ if (!gotSingleInstanceLock) {
     });
     mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager });
     skillsService = createSkillsService({ homeDir: app.getPath("home") });
-    openRouterService = createOpenRouterService({ configStore: openRouterConfigStore });
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
@@ -314,7 +304,6 @@ if (!gotSingleInstanceLock) {
       sshHookTunnelService,
       remoteAgentBridgeService,
       getDefaultShell,
-      openRouterService,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
     launchTemplateService = createLaunchTemplateService({
@@ -404,8 +393,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       projectSearchService,
       mobileRemoteService,
-      remoteAgentBridgeService,
-      openRouterService
+      remoteAgentBridgeService
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);

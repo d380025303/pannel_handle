@@ -121,11 +121,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
     const localAgentCwd = template.type === "ssh" && agentProvider === "codex" && agentLocation === "local" && typeof template.localAgentCwd === "string"
       ? template.localAgentCwd.trim() || undefined
       : undefined;
-    const supportsLocalCodex = agentProvider === "codex" && (template.type !== "ssh" || agentLocation === "local");
-    const codexBackend = supportsLocalCodex && template.codexBackend === "openrouter" ? "openrouter" : supportsLocalCodex ? "openai" : undefined;
-    const codexModel = codexBackend === "openrouter" && typeof template.codexModel === "string"
-      ? template.codexModel.trim() || undefined
-      : undefined;
     return {
       id: template.id,
       title: template.title,
@@ -141,8 +136,6 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       agentProvider,
       agentLocation,
       localAgentCwd,
-      codexBackend,
-      codexModel,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

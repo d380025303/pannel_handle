@@ -5,7 +5,6 @@ const require = createRequire(import.meta.url);
 const {
   AGENT_COMMANDS,
   buildAgentStartCommand,
-  buildOpenRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
 } = require("./agent-session-launcher.cjs");
@@ -61,7 +60,6 @@ function createMocks(overrides = {}) {
   const sshHookTunnelService = { ensureTunnel: vi.fn(() => Promise.resolve({ hookUrl: "http://127.0.0.1:9000/opencode-hook" })) };
   const spawnSync = vi.fn(() => ({ status: 0, stdout: "found" }));
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
-  const openRouterService = { getApiKey: vi.fn(() => "sk-or-secret") };
   const launcher = createAgentSessionLauncher({
     terminalManager,
     hookConfigManager,
@@ -71,7 +69,6 @@ function createMocks(overrides = {}) {
     onTemplateLaunched,
     spawnSync,
     getDefaultShell,
-    openRouterService,
     ...overrides
   });
   return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, getDefaultShell, sessions };
@@ -147,74 +144,6 @@ describe("agent-session-launcher", () => {
   it("starts the Agent directly when there is no pre-command", () => {
     expect(buildAgentStartCommand({ type: "windows", shell: "cmd.exe", agentProvider: "codex" }))
       .toBe("codex");
-  });
-
-  it("builds Responses-only OpenRouter overrides without embedding the API key", () => {
-    const command = buildOpenRouterCodexCommand("openai/gpt-5.4");
-    expect(command).toContain("model_provider='openrouter'");
-    expect(command).toContain("wire_api='responses'");
-    expect(command).toContain("https://openrouter.ai/api/v1");
-    expect(command).not.toContain("sk-or-");
-    expect(() => buildOpenRouterCodexCommand("bad model & calc")).toThrow("有效的 OpenRouter 模型");
-  });
-
-  it("injects the OpenRouter key only through the local process environment", async () => {
-    const mocks = createMocks();
-    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
-
-    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeEnv: { OPENROUTER_API_KEY: "sk-or-secret" },
-      runtimeInitialCommand: expect.stringContaining("model_provider='openrouter'")
-    }));
-    expect(mocks.terminalManager.createSession.mock.calls[0][0].runtimeInitialCommand).not.toContain("sk-or-secret");
-  });
-
-  it("rejects OpenRouter for a Codex process running on the remote SSH host", async () => {
-    const mocks = createMocks();
-    await expect(mocks.launcher.createSession({
-      type: "ssh",
-      cwd: "/srv/app",
-      agentProvider: "codex",
-      agentLocation: "remote",
-      codexBackend: "openrouter",
-      codexModel: "openai/gpt-5.4",
-      sshConfig: { host: "example.com" }
-    })).rejects.toThrow("远程 SSH Codex 暂不支持 OpenRouter");
-    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
-  });
-
-  it("keeps the OpenRouter key local when Codex uses the SSH bridge", async () => {
-    const remoteAgentBridgeService = {
-      createBinding: vi.fn(async () => ({
-        workspacePath: "C:\\runtime\\run-1",
-        url: "http://127.0.0.1:4568/mcp",
-        token: "bridge-token",
-        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
-      })),
-      runConfiguredCommand: vi.fn(),
-      closeBinding: vi.fn()
-    };
-    const mocks = createMocks({ remoteAgentBridgeService });
-
-    await mocks.launcher.createSession({
-      type: "ssh",
-      cwd: "/srv/app",
-      agentProvider: "codex",
-      agentLocation: "local",
-      codexBackend: "openrouter",
-      codexModel: "openai/gpt-5.4",
-      sshConfig: { host: "example.com" }
-    });
-
-    expect(mocks.sshSessionRuntime.exec).not.toHaveBeenCalled();
-    expect(mocks.terminalManager.startDeferredSession).toHaveBeenCalledWith("run-1", expect.objectContaining({
-      runtimeEnv: {
-        PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "bridge-token",
-        OPENROUTER_API_KEY: "sk-or-secret"
-      },
-      runtimeInitialCommand: expect.stringContaining("model_provider='openrouter'")
-    }));
-    expect(mocks.terminalManager.startDeferredSession.mock.calls[0][1].runtimeInitialCommand).not.toContain("sk-or-secret");
   });
 
   it("starts CodeBuddy with its canonical command", () => {

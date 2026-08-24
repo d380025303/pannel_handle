@@ -43,13 +43,20 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
-  it("persists OpenRouter metadata only for locally running Codex sessions", () => {
-    const store = createStore(createTempSessionsFile());
-    store.addToLibrary({ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
-    store.addToLibrary({ id: "2", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "remote", codexBackend: "openrouter", codexModel: "openai/gpt-5.4", sshConfig: { host: "example.com" } });
+  it("drops legacy Codex backend metadata when loading saved sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "1",
+      type: "windows",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      codexBackend: "openrouter",
+      codexModel: "openai/gpt-5.4"
+    }]));
 
-    expect(store.getTemplate("1")).toMatchObject({ codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
-    expect(store.getTemplate("2")).toMatchObject({ codexBackend: undefined, codexModel: undefined });
+    const [session] = createStore(sessionsFile).loadLibrary();
+    expect(session).not.toHaveProperty("codexBackend");
+    expect(session).not.toHaveProperty("codexModel");
   });
   it("persists an independent file root and normalized file sorting", () => {
     const sessionsFile = createTempSessionsFile();

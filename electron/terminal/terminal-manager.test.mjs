@@ -184,24 +184,6 @@ describe("terminal-manager", () => {
     expect(configStore.getConfig().lastActiveSessionIds).toEqual([]);
   });
 
-  it("forwards the OpenRouter key into WSL through WSLENV without persisting it", () => {
-    const { manager, pty, sessionStore } = createManager();
-    manager.createSession({
-      type: "wsl",
-      wslDistro: "Ubuntu",
-      cwd: "/work",
-      agentProvider: "codex",
-      codexBackend: "openrouter",
-      codexModel: "openai/gpt-5.4",
-      runtimeEnv: { OPENROUTER_API_KEY: "sk-or-secret" }
-    });
-
-    const spawnOptions = pty.spawn.mock.calls[0][2];
-    expect(spawnOptions.env.OPENROUTER_API_KEY).toBe("sk-or-secret");
-    expect(spawnOptions.env.WSLENV.split(":").some((entry) => entry.startsWith("OPENROUTER_API_KEY"))).toBe(true);
-    expect(sessionStore.addToLibrary.mock.calls[0][0]).not.toHaveProperty("runtimeEnv");
-  });
-
   it("persists and synchronizes the preferred SSH disk across template instances", () => {
     const { manager, sessionStore } = createManager();
     const first = manager.createSession({

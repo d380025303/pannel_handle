@@ -274,8 +274,6 @@ function createTerminalManager({
       agentProvider: session.agentProvider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
-      codexBackend: session.codexBackend,
-      codexModel: session.codexModel,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -540,7 +538,6 @@ function createTerminalManager({
       env.WSLENV = appendWslEnv(env.WSLENV, [
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
-        ...(options.runtimeEnv?.OPENROUTER_API_KEY ? ["OPENROUTER_API_KEY"] : []),
         ...(session.agentProvider === "copilot" ? [
           "COPILOT_OTEL_ENABLED",
           "COPILOT_OTEL_EXPORTER_TYPE",
@@ -648,8 +645,6 @@ function createTerminalManager({
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
       localAgentCwd: options.localAgentCwd,
-      codexBackend: options.codexBackend,
-      codexModel: options.codexModel,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -706,10 +701,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -749,14 +744,6 @@ function createTerminalManager({
     if (typeof localAgentCwd !== "undefined") {
       session.localAgentCwd = localAgentCwd || undefined;
       libraryUpdates.localAgentCwd = localAgentCwd || null;
-    }
-    if (typeof codexBackend !== "undefined") {
-      session.codexBackend = codexBackend || undefined;
-      libraryUpdates.codexBackend = codexBackend || null;
-    }
-    if (typeof codexModel !== "undefined") {
-      session.codexModel = codexModel || undefined;
-      libraryUpdates.codexModel = codexModel || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();

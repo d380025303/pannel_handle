@@ -8,7 +8,6 @@ export type QuickCommand = {
 };
 
 export type RemotePlatform = "auto" | "linux" | "windows";
-export type CodexBackend = "openai" | "openrouter";
 
 export type SshConfig = {
   host: string;
@@ -38,8 +37,6 @@ export type TerminalSession = {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
-  codexBackend?: CodexBackend;
-  codexModel?: string;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
@@ -132,23 +129,6 @@ export type DingTalkConfigInput = {
 export type DingTalkTestResult =
   | { ok: true }
   | { ok: false; error: string };
-
-export type OpenRouterConfig = { hasApiKey: boolean };
-export type OpenRouterTestResult = {
-  ok: true;
-  config: OpenRouterConfig;
-  keyLabel?: string;
-  limitRemaining?: number;
-  expiresAt?: string;
-};
-export type OpenRouterModel = {
-  id: string;
-  name: string;
-  contextLength?: number;
-  promptPrice?: string;
-  completionPrice?: string;
-};
-export type OpenRouterModelList = { models: OpenRouterModel[]; fetchedAt: number };
 
 export type SessionLibraryFileResult =
   | { canceled: true }
@@ -812,8 +792,8 @@ export type RemoteAgentApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
@@ -1037,14 +1017,6 @@ export type DingTalkApi = {
   test: () => Promise<DingTalkTestResult>;
 };
 
-export type OpenRouterApi = {
-  getConfig: () => Promise<OpenRouterConfig>;
-  setApiKey: (apiKey: string) => Promise<OpenRouterTestResult>;
-  clearApiKey: () => Promise<OpenRouterConfig>;
-  test: () => Promise<OpenRouterTestResult>;
-  listModels: (options?: { force?: boolean }) => Promise<OpenRouterModelList>;
-};
-
 export type IdeaExecutionMode = "run" | "debug";
 export type IdeaExecutionStatus = "starting" | "running" | "stopping" | "terminated";
 export type IdeaBridgeConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -1130,7 +1102,6 @@ declare global {
     ideaBridgeApi: IdeaBridgeApi;
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
-    openRouterApi: OpenRouterApi;
     windowApi: WindowApi;
   }
 }
