@@ -7,6 +7,7 @@ import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { TagInput } from "../shared/TagInput";
 import { CodexBackendFields } from "./CodexBackendFields";
+import { supportsLocalBridge } from "./agentProviders";
 
 export type CreateSessionRequest = {
   selectedShellId: string;
@@ -78,8 +79,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         cwd: cwd.trim() || undefined,
         initialCommand: commandInput.trim() || undefined,
         agentProvider,
-        agentLocation: isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
-        localAgentCwd: isSsh && agentProvider === "codex" && agentLocation === "local"
+        agentLocation: isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
+        localAgentCwd: isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local"
           ? localAgentCwd.trim() || undefined
           : undefined,
         codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
@@ -152,8 +153,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
           </div>
           <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini"] : []} onChange={(provider) => {
             setAgentProvider(provider);
-            if (provider && provider !== "codex") setAgentLocation("remote");
-            if (provider === "codex" && isSsh) setAgentLocation("local");
+            if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");
+            if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local");
           }} />
           {agentProvider === "codex" && !isSsh && (
             <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
@@ -248,7 +249,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                   onChange={(e) => setCwd(e.target.value)}
                 />
               </label>
-              {agentProvider === "codex" && agentLocation === "local" && (
+              {supportsLocalBridge(agentProvider) && agentLocation === "local" && (
                 <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />
               )}
               <label className="modal-field">

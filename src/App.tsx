@@ -537,6 +537,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             <button type="button" onClick={() => setQuickAgentError(null)} aria-label={t("common.close")}>×</button>
           </div>
         )}
+        {terminalSessions.activeAgentWarning && (
+          <div className="startup-error-banner" role="alert">
+            <span>{t("agent.openCodeEmptyResponse")}</span>
+            <button type="button" onClick={terminalSessions.dismissActiveAgentWarning} aria-label={t("common.close")}>×</button>
+          </div>
+        )}
 
         {showTokenStats && <AgentTokenStatsDashboard onClose={() => setShowTokenStats(false)} />}
         {showSkills && <SkillsManager onClose={() => setShowSkills(false)} />}

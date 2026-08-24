@@ -4,10 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createAgentHookServer } = require("./agent-hook-server.cjs");
 
-function createServer() {
+function createServer(sessionOverrides = {}) {
   const session = {
     id: "run-1",
-    cwd: "C:\\work"
+    cwd: "C:\\work",
+    ...sessionOverrides
   };
   const terminalManager = {
     getSession: vi.fn((id) => id === session.id ? session : undefined),
@@ -375,6 +376,185 @@ describe("agent-hook-server", () => {
       handled: false,
       payload
     });
+  });
+
+  it("reports an empty OpenCode response after a successful local bridge tool call", () => {
+    const { server, terminalManager } = createServer({
+      type: "ssh",
+      agentLocation: "local",
+      agentProvider: "opencode"
+    });
+    const base = { session_id: "opencode-1", pannel_handle_session_id: "run-1" };
+
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "tool.execute.after",
+      tool_name: "pannel_handle_remote_remote_list",
+      success: true
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: {
+        id: "message-empty",
+        role: "assistant",
+        finish: "stop",
+        time: { completed: 2 },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      }
+    });
+    const handled = server.handleAgentHook("opencode", { ...base, event_name: "session.idle" });
+
+    expect(handled).toBe(true);
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: "run-1",
+      provider: "opencode",
+      status: "failed",
+      eventName: "OpenCodeEmptyResponse",
+      message: "OpenCode returned an empty response after the remote tool completed."
+    }));
+  });
+
+  it("does not report an empty response when OpenCode emits final text after a bridge tool", () => {
+    const { server, terminalManager } = createServer({
+      type: "ssh",
+      agentLocation: "local",
+      agentProvider: "opencode"
+    });
+    const base = { session_id: "opencode-1", pannel_handle_session_id: "run-1" };
+
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "tool.execute.after",
+      tool_name: "pannel_handle_remote_remote_list",
+      success: true
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.part.updated",
+      part: { type: "text", text: "列出了 5 个目录。", messageID: "message-text", sessionID: "opencode-1" }
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: {
+        id: "message-text",
+        role: "assistant",
+        finish: "stop",
+        time: { completed: 2 },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      }
+    });
+    server.handleAgentHook("opencode", { ...base, event_name: "session.idle" });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "completed",
+      eventName: "session.idle"
+    }));
+  });
+
+  it.each([
+    ["remote OpenCode session", { type: "ssh", agentLocation: "remote", agentProvider: "opencode" }],
+    ["ordinary local OpenCode session", { type: "windows", agentProvider: "opencode" }]
+  ])("does not apply bridge empty-response detection to %s", (_label, sessionOverrides) => {
+    const { server, terminalManager } = createServer(sessionOverrides);
+    const base = { session_id: "opencode-1", pannel_handle_session_id: "run-1" };
+
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "tool.execute.after",
+      tool_name: "pannel_handle_remote_remote_list",
+      success: true
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: {
+        id: "message-empty",
+        role: "assistant",
+        finish: "stop",
+        time: { completed: 2 },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      }
+    });
+    server.handleAgentHook("opencode", { ...base, event_name: "session.idle" });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "completed",
+      eventName: "session.idle"
+    }));
+  });
+
+  it("clears a pending OpenCode bridge warning when a new user message starts", () => {
+    const { server, terminalManager } = createServer({
+      type: "ssh",
+      agentLocation: "local",
+      agentProvider: "opencode"
+    });
+    const base = { session_id: "opencode-1", pannel_handle_session_id: "run-1" };
+
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "tool.execute.after",
+      tool_name: "pannel_handle_remote_remote_list",
+      success: true
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: {
+        id: "message-empty",
+        role: "assistant",
+        finish: "stop",
+        time: { completed: 2 },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      }
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: { id: "message-user", role: "user" }
+    });
+    server.handleAgentHook("opencode", { ...base, event_name: "session.idle" });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "completed",
+      eventName: "session.idle"
+    }));
+  });
+
+  it("does not arm the empty-response warning after a failed bridge tool", () => {
+    const { server, terminalManager } = createServer({
+      type: "ssh",
+      agentLocation: "local",
+      agentProvider: "opencode"
+    });
+    const base = { session_id: "opencode-1", pannel_handle_session_id: "run-1" };
+
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "tool.execute.after",
+      tool_name: "pannel_handle_remote_remote_list",
+      success: false,
+      error: "SSH connection failed"
+    });
+    server.handleAgentHook("opencode", {
+      ...base,
+      event_name: "message.updated",
+      info: {
+        id: "message-empty",
+        role: "assistant",
+        finish: "stop",
+        time: { completed: 2 },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      }
+    });
+    server.handleAgentHook("opencode", { ...base, event_name: "session.idle" });
+
+    expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "completed",
+      eventName: "session.idle"
+    }));
   });
 
   it.each([

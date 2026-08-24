@@ -192,7 +192,7 @@ describe("session-store", () => {
     expect(session.agentProvider).toBeUndefined();
   });
 
-  it("keeps old SSH Agent templates remote and accepts local Codex bridge templates", () => {
+  it("keeps old SSH Agent templates remote and accepts supported local bridge templates", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([
       { id: "1", title: "Old", type: "ssh", cwd: "/srv/old", agentProvider: "codex", sshConfig: { host: "old.example.com" } },
@@ -200,7 +200,9 @@ describe("session-store", () => {
       { id: "3", title: "Unsupported", type: "ssh", cwd: "/srv/app", agentProvider: "claude", agentLocation: "local", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } },
       { id: "4", title: "Remote", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote", localAgentCwd: "C:\\ignored", sshConfig: { host: "new.example.com" } },
       { id: "5", title: "Windows", type: "ssh", cwd: "C:\\repo", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "win.example.com", remotePlatform: "windows" } },
-      { id: "6", title: "Auto", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "auto.example.com", remotePlatform: "auto" } }
+      { id: "6", title: "Auto", type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "auto.example.com", remotePlatform: "auto" } },
+      { id: "7", title: "OpenCode Local", type: "ssh", cwd: "/srv/open", agentProvider: "opencode", agentLocation: "local", localAgentCwd: " C:\\opencode-local ", sshConfig: { host: "open.example.com" } },
+      { id: "8", title: "CodeBuddy Local", type: "ssh", cwd: "/srv/buddy", agentProvider: "codebuddy", agentLocation: "local", localAgentCwd: " C:\\codebuddy-local ", sshConfig: { host: "buddy.example.com" } }
     ]), "utf-8");
 
     const sessions = createStore(sessionsFile).loadLibrary();
@@ -213,6 +215,10 @@ describe("session-store", () => {
     expect(sessions[3].localAgentCwd).toBeUndefined();
     expect(sessions[4].sshConfig.remotePlatform).toBe("windows");
     expect(sessions[5].sshConfig.remotePlatform).toBeUndefined();
+    expect(sessions[6].agentLocation).toBe("local");
+    expect(sessions[6].localAgentCwd).toBe("C:\\opencode-local");
+    expect(sessions[7].agentLocation).toBe("local");
+    expect(sessions[7].localAgentCwd).toBe("C:\\codebuddy-local");
   });
 
   it("adds, updates, removes, and persists library sessions", () => {

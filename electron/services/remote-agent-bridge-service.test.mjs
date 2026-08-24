@@ -111,7 +111,7 @@ describe("remote-agent-bridge-service", () => {
   it("binds a local Codex session to a Windows SSH workspace", async () => {
     const harness = createHarness({
       cwd: "C:\\Work Space\\repo",
-      sshConfig: { host: "windows.example.com", username: "builder", remotePlatform: "windows" }
+      sshConfig: { host: "windows.example.com", username: "builder", remotePlatform: "auto" }
     });
 
     const binding = await harness.service.createBinding("run-1");
@@ -131,6 +131,7 @@ describe("remote-agent-bridge-service", () => {
     const script = Buffer.from(remoteCommand.split(" ").at(-1), "base64").toString("utf16le");
     expect(script).toContain("Set-Location -LiteralPath 'C:\\Work Space\\repo\\src'");
     expect(script).toContain("Select-String -SimpleMatch");
+    expect(harness.sshSessionRuntime.exec).toHaveBeenCalledTimes(1);
 
     await harness.service.shutdown();
   });
@@ -148,6 +149,7 @@ describe("remote-agent-bridge-service", () => {
 
     expect(binding.workspacePath).toBe(localAgentCwd);
     expect(binding.developerInstructions).toContain("SSH workspace `/srv/app`");
+    expect(binding.runtimeInstructions).toBe(binding.developerInstructions);
     expect(existsSync(path.join(localAgentCwd, "AGENTS.md"))).toBe(false);
 
     await harness.service.closeBinding("run-1");

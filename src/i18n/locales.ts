@@ -172,7 +172,7 @@ export type TranslationKey =
   | "session.agentLocationLocal"
   | "session.agentLocationRemote"
   | "session.agentLocationLocalHint"
-  | "session.agentLocationCodexOnly"
+  | "session.agentLocationUnsupported"
   | "remoteAgent.auditTitle"
   | "remoteAgent.auditEphemeral"
   | "remoteAgent.auditWaiting"
@@ -215,6 +215,7 @@ export type TranslationKey =
   | "agent.running"
   | "agent.ended"
   | "agent.exited"
+  | "agent.openCodeEmptyResponse"
   | "usage.loading"
   | "usage.unavailable"
   | "usage.retry"
@@ -896,7 +897,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.remotePlatformAuto": "自动检测",
     "session.localAgentCwd": "本机 Agent 工作目录（可选）",
     "session.localAgentCwdPlaceholder": "未选择时使用应用临时目录",
-    "session.localAgentCwdHint": "本机 Codex 将从此目录启动；远端操作范围仍由远端工作目录决定。",
+    "session.localAgentCwdHint": "本机 Agent 将从此目录启动；远端操作范围仍由远端工作目录决定。",
     "session.initialCommand": "初始命令",
     "session.initialCommandPlaceholder": "输入初始命令（可选），如：{example}",
     "session.agentCli": "Agent CLI",
@@ -906,7 +907,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.title": "切换当前会话的 Agent",
     "agentSwitch.menu": "选择要切换到的 Agent",
     "agentSwitch.switching": "正在切换到 {provider}",
-    "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持 Codex，无法切换 Agent",
+    "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持在 Codex、CodeBuddy 与 OpenCode 之间切换",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.codexBackend": "Codex 模型后端",
@@ -922,12 +923,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.agentLocation": "Agent 运行位置",
     "session.agentLocationLocal": "本地桥接",
     "session.agentLocationRemote": "远端运行",
-    "session.agentLocationLocalHint": "本机运行 Codex，通过安全桥接操作远程工作区",
-    "session.agentLocationCodexOnly": "本地桥接首期仅支持 Codex",
+    "session.agentLocationLocalHint": "本机运行 Codex、CodeBuddy 或 OpenCode，通过安全桥接操作远程工作区",
+    "session.agentLocationUnsupported": "本地桥接仅支持 Codex、CodeBuddy 和 OpenCode",
     "remoteAgent.auditTitle": "远程操作",
     "remoteAgent.auditEphemeral": "仅保留当前会话",
-    "remoteAgent.auditWaiting": "等待 Codex 调用远程工具…",
-    "remoteAgent.approvalTitle": "允许 Codex 操作远程服务器？",
+    "remoteAgent.auditWaiting": "等待 Agent 调用远程工具…",
+    "remoteAgent.approvalTitle": "允许 Agent 操作远程服务器？",
     "remoteAgent.approvalSource": "来自 {source}",
     "remoteAgent.approvalRemaining": "另有 {count} 项",
     "remoteAgent.approvalDeny": "拒绝",
@@ -966,6 +967,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.running": "{agent} 运行中",
     "agent.ended": "{agent} 已结束",
     "agent.exited": "进程已退出",
+    "agent.openCodeEmptyResponse": "OpenCode 在远程工具成功执行后返回了空回复。桥接本身正常，请在 OpenCode 中切换模型、输入 /compact，或新建会话后重试。",
     "usage.loading": "正在读取 Codex 用量...",
     "usage.unavailable": "Codex 用量不可用",
     "usage.retry": "重试读取 Codex 用量",
@@ -1639,7 +1641,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.remotePlatformAuto": "Auto-detect",
     "session.localAgentCwd": "Local Agent working directory (optional)",
     "session.localAgentCwdPlaceholder": "Use the app-managed temporary directory when empty",
-    "session.localAgentCwdHint": "Local Codex starts here; remote operations remain scoped to the remote working directory.",
+    "session.localAgentCwdHint": "The local Agent starts here; remote operations remain scoped to the remote working directory.",
     "session.initialCommand": "Initial command",
     "session.initialCommandPlaceholder": "Enter an optional initial command, for example: {example}",
     "session.agentCli": "Agent CLI",
@@ -1649,7 +1651,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.title": "Switch the Agent in this session",
     "agentSwitch.menu": "Choose an Agent to switch to",
     "agentSwitch.switching": "Switching to {provider}",
-    "agentSwitch.localSshUnavailable": "Local SSH bridge sessions only support Codex and cannot switch Agent",
+    "agentSwitch.localSshUnavailable": "Local SSH bridge sessions can only switch between Codex, CodeBuddy, and OpenCode",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
     "session.codexBackend": "Codex model backend",
@@ -1665,12 +1667,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.agentLocation": "Agent location",
     "session.agentLocationLocal": "Local bridge",
     "session.agentLocationRemote": "Run remotely",
-    "session.agentLocationLocalHint": "Run Codex locally and operate the SSH workspace through a scoped bridge",
-    "session.agentLocationCodexOnly": "The local bridge currently supports Codex only",
+    "session.agentLocationLocalHint": "Run Codex, CodeBuddy, or OpenCode locally and operate the SSH workspace through a scoped bridge",
+    "session.agentLocationUnsupported": "The local bridge only supports Codex, CodeBuddy, and OpenCode",
     "remoteAgent.auditTitle": "Remote operations",
     "remoteAgent.auditEphemeral": "Current session only",
-    "remoteAgent.auditWaiting": "Waiting for Codex to call a remote tool…",
-    "remoteAgent.approvalTitle": "Allow Codex to operate the remote server?",
+    "remoteAgent.auditWaiting": "Waiting for the Agent to call a remote tool…",
+    "remoteAgent.approvalTitle": "Allow the Agent to operate the remote server?",
     "remoteAgent.approvalSource": "From {source}",
     "remoteAgent.approvalRemaining": "{count} more pending",
     "remoteAgent.approvalDeny": "Deny",
@@ -1709,6 +1711,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agent.running": "{agent} running",
     "agent.ended": "{agent} ended",
     "agent.exited": "Process exited",
+    "agent.openCodeEmptyResponse": "OpenCode returned an empty response after the remote tool completed successfully. The bridge is working; switch models in OpenCode, enter /compact, or start a new session and retry.",
     "usage.loading": "Reading Codex usage...",
     "usage.unavailable": "Codex usage unavailable",
     "usage.retry": "Retry Codex usage",

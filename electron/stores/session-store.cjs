@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini"]);
+const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {
@@ -116,9 +117,9 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       : { key: "name", direction: "asc" };
     const agentProvider = AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined;
     const agentLocation = template.type === "ssh" && agentProvider
-      ? (template.agentLocation === "local" && agentProvider === "codex" ? "local" : "remote")
+      ? (template.agentLocation === "local" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider) ? "local" : "remote")
       : undefined;
-    const localAgentCwd = template.type === "ssh" && agentProvider === "codex" && agentLocation === "local" && typeof template.localAgentCwd === "string"
+    const localAgentCwd = template.type === "ssh" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider) && agentLocation === "local" && typeof template.localAgentCwd === "string"
       ? template.localAgentCwd.trim() || undefined
       : undefined;
     const codexBackend = agentProvider === "codex" && template.type !== "ssh" && template.codexBackend === "openrouter"

@@ -436,6 +436,23 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("accepts a local-bridge SSH CodeBuddy session as a Windows runtime", async () => {
+    const session = { id: "bridge-1", type: "ssh", agentLocation: "local", agentProvider: "codebuddy" };
+    const events = new EventEmitter();
+    const transportFactory = vi.fn(() => ({
+      on: (eventName, listener) => events.on(eventName, listener),
+      write: vi.fn(() => queueMicrotask(() => events.emit("error", new Error("stop")))),
+      close: vi.fn()
+    }));
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      transportFactory
+    });
+
+    await expect(service.getUsage(session.id)).rejects.toThrow("Unable to start CodeBuddy ACP");
+    expect(transportFactory).toHaveBeenCalledWith(session);
+  });
+
   it("hides ChatGPT Codex quota for OpenRouter sessions", async () => {
     const session = { id: "openrouter-1", type: "windows", agentProvider: "codex", codexBackend: "openrouter" };
     const transportFactory = vi.fn();

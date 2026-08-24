@@ -9,6 +9,7 @@ import { TagInput } from "../shared/TagInput";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { generateId } from "../../utils/id";
 import { CodexBackendFields } from "./CodexBackendFields";
+import { supportsLocalBridge } from "./agentProviders";
 
 type EditSessionModalProps = {
   session: TerminalSession;
@@ -60,8 +61,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       editCwd,
       editCommand,
       agentProvider,
-      isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
-      isSsh && agentProvider === "codex" && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
+      isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
+      isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
       !isSsh && agentProvider === "codex" ? codexBackend : undefined,
       !isSsh && agentProvider === "codex" && codexBackend === "openrouter" ? codexModel : undefined,
       quickCommands.filter((qc) => qc.command.trim().length > 0),
@@ -129,7 +130,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
           </label>
           <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini"] : []} onChange={(provider) => {
             setAgentProvider(provider);
-            if (provider && provider !== "codex") setAgentLocation("remote");
+            if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");
           }} />
           {agentProvider === "codex" && !isSsh && (
             <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
@@ -254,7 +255,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                   onChange={(e) => setEditCwd(e.target.value)}
                 />
               </label>
-              {agentProvider === "codex" && agentLocation === "local" && (
+              {supportsLocalBridge(agentProvider) && agentLocation === "local" && (
                 <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />
               )}
               <label className="modal-field">

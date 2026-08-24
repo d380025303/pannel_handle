@@ -13,6 +13,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     copilot: new Map(),
     gemini: new Map()
   };
+  const openCodeResponseStates = new Map();
   let hookServer = null;
   let claudeHookUrl = "";
   let startPromise = null;
@@ -25,7 +26,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   }
 
   function getAgentSessionId(input) {
-    return input.session_id || input.sessionId;
+    return input.session_id || input.sessionId || input.info?.sessionID || input.part?.sessionID;
   }
 
   function getPanelSessionId(input) {
@@ -91,6 +92,86 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
 
   function getToolName(input) {
     return input.tool_name || input.toolName || input.tool;
+  }
+
+  function isLocalOpenCodeBridge(session) {
+    return session?.type === "ssh" && session.agentLocation === "local" && session.agentProvider === "opencode";
+  }
+
+  function getOpenCodeMessageId(input) {
+    return input.info?.id || input.part?.messageID || input.message_id || input.messageId;
+  }
+
+  function hasOpenCodeUserVisiblePart(part) {
+    if (!part || typeof part !== "object") return false;
+    if (part.type === "text") return typeof part.text === "string" && part.text.trim().length > 0;
+    return part.type === "tool" || part.type === "patch";
+  }
+
+  function hasZeroOpenCodeTokens(info) {
+    const tokens = info?.tokens;
+    if (!tokens || typeof tokens !== "object") return false;
+    return [
+      tokens.input,
+      tokens.output,
+      tokens.reasoning,
+      tokens.cache?.read,
+      tokens.cache?.write
+    ].every((value) => Number(value || 0) === 0);
+  }
+
+  function trackOpenCodeResponse(input, session) {
+    if (!isLocalOpenCodeBridge(session)) return false;
+    const eventName = getEventName(input);
+    let state = openCodeResponseStates.get(session.id);
+
+    if (eventName === "session.deleted") {
+      openCodeResponseStates.delete(session.id);
+      return false;
+    }
+
+    if (eventName === "message.updated" && input.info?.role === "user") {
+      openCodeResponseStates.delete(session.id);
+      return false;
+    }
+
+    if (eventName === "tool.execute.after") {
+      const toolName = String(getToolName(input) || "");
+      if (toolName.startsWith("pannel_handle_remote_") && !isToolFailure(input)) {
+        state = { awaitingBridgeReply: true, visibleMessageIds: new Set(), emptyMessageId: undefined };
+        openCodeResponseStates.set(session.id, state);
+      }
+      return false;
+    }
+
+    if (!state?.awaitingBridgeReply) return false;
+
+    if (eventName === "message.part.updated") {
+      const messageId = getOpenCodeMessageId(input);
+      if (messageId && hasOpenCodeUserVisiblePart(input.part)) {
+        state.visibleMessageIds.add(messageId);
+      }
+      return false;
+    }
+
+    if (eventName === "message.updated" && input.info?.role === "assistant") {
+      const info = input.info;
+      const messageId = getOpenCodeMessageId(input);
+      if (!messageId || !info.time?.completed || !info.finish) return false;
+      if (info.finish === "tool-calls") return false;
+      if (state.visibleMessageIds.has(messageId) || !hasZeroOpenCodeTokens(info)) {
+        openCodeResponseStates.delete(session.id);
+        return false;
+      }
+      state.emptyMessageId = messageId;
+      return false;
+    }
+
+    if (eventName !== "session.idle") return false;
+    const emptyMessageId = state.emptyMessageId;
+    const shouldWarn = Boolean(emptyMessageId && !state.visibleMessageIds.has(emptyMessageId));
+    openCodeResponseStates.delete(session.id);
+    return shouldWarn;
   }
 
   function formatSummaryValue(value) {
@@ -522,7 +603,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     }
 
     const eventName = getEventName(input);
-    const status = getHookStatus(provider, input);
+    const openCodeEmptyResponse = provider === "opencode" && trackOpenCodeResponse(input, session);
+    const status = openCodeEmptyResponse ? "failed" : getHookStatus(provider, input);
     if (!status) {
       if (provider === "opencode" && eventName === "message.updated") {
         registerAgentSession(provider, getAgentSessionId(input), session.id);
@@ -531,7 +613,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       return false;
     }
     const toolName = getToolName(input);
-    const message = input.message || input.title || input.notification_type || input.reason;
+    const statusEventName = openCodeEmptyResponse ? "OpenCodeEmptyResponse" : eventName;
+    const message = openCodeEmptyResponse
+      ? "OpenCode returned an empty response after the remote tool completed."
+      : input.message || input.title || input.notification_type || input.reason;
     const activitySummary = status === "cleared" ? undefined : getActivitySummary(input);
     registerAgentSession(provider, getAgentSessionId(input), session.id);
     const resolution = getClaudeHookResolution(input);
@@ -543,7 +628,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       id: session.id,
       provider,
       status,
-      eventName,
+      eventName: statusEventName,
       message,
       toolName,
       toolInput: input.tool_input || input.toolInput,

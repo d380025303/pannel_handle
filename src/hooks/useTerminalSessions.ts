@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { updateAgentStatuses } from "../utils/agentStatus";
 import { generateId } from "../utils/id";
+import { supportsLocalBridge } from "../components/sessions/agentProviders";
 
 type CreateSessionOptions = {
   selectedShellId: string;
@@ -28,6 +29,7 @@ export function useTerminalSessions() {
   const [pickerManual, setPickerManual] = useState(false);
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
+  const [dismissedAgentWarningsBySessionId, setDismissedAgentWarningsBySessionId] = useState<Record<string, number>>({});
   const [startupError, setStartupError] = useState<string | null>(null);
   const hasAutoRestored = useRef(false);
 
@@ -36,6 +38,10 @@ export function useTerminalSessions() {
     [activeId, sessions]
   );
   const activeAgentStatus = activeId ? agentStatusesBySessionId[activeId] : undefined;
+  const activeAgentWarning = activeAgentStatus?.eventName === "OpenCodeEmptyResponse"
+    && activeAgentStatus.timestamp !== dismissedAgentWarningsBySessionId[activeAgentStatus.id]
+    ? activeAgentStatus
+    : undefined;
 
   const quickCommandsForActiveSession = useMemo(
     () => (activeSession?.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || 'write' as const })),
@@ -99,6 +105,10 @@ export function useTerminalSessions() {
           Object.entries(current).filter(([id, status]) => activeSessions.get(id)?.agentProvider === status.provider)
         );
       });
+      setDismissedAgentWarningsBySessionId((current) => {
+        const activeSessionIds = new Set(nextSessions.map((session) => session.id));
+        return Object.fromEntries(Object.entries(current).filter(([id]) => activeSessionIds.has(id)));
+      });
       setActiveId((current) => {
         if (current && nextSessions.some((session) => session.id === current)) {
           return current;
@@ -130,7 +140,7 @@ export function useTerminalSessions() {
       ...(initialCommand ? { initialCommand } : {}),
       ...(agentProvider ? { agentProvider } : {}),
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
-      ...(isSsh && agentProvider === "codex" && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
+      ...(isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
       ...(!isSsh && agentProvider === "codex" && codexBackend === "openrouter" && codexModel ? { codexModel } : {}),
       ...(!isSsh && agentProvider === "codex" && codexBackend === "openrouter" && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
@@ -147,6 +157,14 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
+  const dismissActiveAgentWarning = useCallback(() => {
+    if (!activeAgentWarning) return;
+    setDismissedAgentWarningsBySessionId((current) => ({
+      ...current,
+      [activeAgentWarning.id]: activeAgentWarning.timestamp
+    }));
+  }, [activeAgentWarning]);
+
   const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean) => {
     await window.terminalApi.updateSession(id, {
       title,
@@ -154,7 +172,7 @@ export function useTerminalSessions() {
       initialCommand: initialCommand.trim(),
       agentProvider: agentProvider ?? null,
       agentLocation: agentProvider ? agentLocation ?? null : null,
-      localAgentCwd: agentProvider === "codex" && agentLocation === "local" ? localAgentCwd ?? null : null,
+      localAgentCwd: supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd ?? null : null,
       codexBackend: agentProvider === "codex" ? codexBackend ?? "openai" : null,
       codexModel: agentProvider === "codex" && codexBackend === "openrouter" ? codexModel ?? null : null,
       ...(typeof codexExperimentalAcknowledged !== "undefined"
@@ -321,6 +339,8 @@ export function useTerminalSessions() {
     activeSession,
     agentStatusesBySessionId,
     activeAgentStatus,
+    activeAgentWarning,
+    dismissActiveAgentWarning,
     startupError,
     clearStartupError: () => setStartupError(null),
     quickCommandsForActiveSession,

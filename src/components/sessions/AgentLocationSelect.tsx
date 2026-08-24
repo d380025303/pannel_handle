@@ -1,5 +1,6 @@
 import type { AgentLocation, AgentProvider } from "../../vite-env";
 import { useI18n } from "../../i18n";
+import { supportsLocalBridge } from "./agentProviders";
 
 type AgentLocationSelectProps = {
   value: AgentLocation;
@@ -9,7 +10,7 @@ type AgentLocationSelectProps = {
 
 export function AgentLocationSelect({ value, provider, onChange }: AgentLocationSelectProps) {
   const { t } = useI18n();
-  const localAvailable = provider === "codex";
+  const localAvailable = supportsLocalBridge(provider);
   return (
     <fieldset className="modal-field agent-location-field">
       <legend className="modal-label">{t("session.agentLocation")}</legend>
@@ -18,7 +19,7 @@ export function AgentLocationSelect({ value, provider, onChange }: AgentLocation
           type="button"
           className={`shell-item ${value === "local" ? "selected" : ""}`}
           disabled={!localAvailable}
-          title={localAvailable ? t("session.agentLocationLocalHint") : t("session.agentLocationCodexOnly")}
+          title={localAvailable ? t("session.agentLocationLocalHint") : t("session.agentLocationUnsupported")}
           onClick={() => onChange("local")}
         >
           {t("session.agentLocationLocal")}

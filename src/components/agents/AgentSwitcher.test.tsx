@@ -32,14 +32,28 @@ describe("AgentSwitcher", () => {
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("run-1", "claude"));
   });
 
-  it("hides for normal terminals and disables local SSH bridge sessions", () => {
+  it("hides for normal terminals and limits local SSH bridge switching to supported providers", () => {
     const onSwitch = vi.fn(async () => {});
     const { rerender } = render(<AgentSwitcher session={session({ agentProvider: undefined })} onSwitch={onSwitch} />);
     expect(screen.queryByRole("button")).toBeNull();
 
     rerender(<AgentSwitcher session={session({ type: "ssh", agentLocation: "local" })} onSwitch={onSwitch} />);
-    const trigger = screen.getByRole("button", { name: "本机 SSH 桥接仅支持 Codex，无法切换 Agent" });
-    expect((trigger as HTMLButtonElement).disabled).toBe(true);
+    const trigger = screen.getByRole("button", { name: "切换当前会话的 Agent" });
+    expect((trigger as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "OpenCode" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "CodeBuddy" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Claude" })).toBeNull();
+  });
+
+  it("switches a local OpenCode bridge back to Codex", async () => {
+    const onSwitch = vi.fn(async () => {});
+    render(<AgentSwitcher session={session({ type: "ssh", agentProvider: "opencode", agentLocation: "local" })} onSwitch={onSwitch} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));
+
+    await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("run-1", "codex"));
   });
 
   it("shows a dismissible error when switching fails", async () => {

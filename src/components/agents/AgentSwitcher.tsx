@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, ChevronDown, LoaderCircle, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, TerminalSession } from "../../vite-env";
-import { AGENT_PROVIDER_OPTIONS, getAgentProviderLabel } from "../sessions/agentProviders";
+import { AGENT_PROVIDER_OPTIONS, getAgentProviderLabel, supportsLocalBridge } from "../sessions/agentProviders";
 
 type AgentSwitcherProps = {
   session?: TerminalSession;
@@ -44,8 +44,8 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
 
   if (!session?.agentProvider) return null;
 
-  const disabled = Boolean(switchingTo) || isLocalSshAgent;
-  const title = isLocalSshAgent ? t("agentSwitch.localSshUnavailable") : t("agentSwitch.title");
+  const disabled = Boolean(switchingTo);
+  const title = t("agentSwitch.title");
 
   const switchTo = async (provider: AgentProvider) => {
     setOpen(false);
@@ -79,7 +79,10 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
       </button>
       {open && (
         <div className="agent-switcher-menu" role="menu" aria-label={t("agentSwitch.menu")}>
-          {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider && !(session.type === "ssh" && (option.value === "copilot" || option.value === "gemini"))).map(option => (
+          {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider
+            && (isLocalSshAgent
+              ? supportsLocalBridge(option.value)
+              : !(session.type === "ssh" && (option.value === "copilot" || option.value === "gemini")))).map(option => (
             <button key={option.value} type="button" role="menuitem" onClick={() => void switchTo(option.value)}>
               {option.label}
             </button>

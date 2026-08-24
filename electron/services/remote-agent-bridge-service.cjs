@@ -138,7 +138,7 @@ function toolResult(value, isError = false) {
 
 function createRuntimeInstructions({ remoteRoot, hostLabel, platform = "linux" }) {
   const shell = platform === "windows" ? "PowerShell on Windows" : "the remote Linux shell";
-  return `# Remote workspace\n\nThe source of truth is the SSH workspace \`${remoteRoot}\` on \`${hostLabel}\`. This local directory only hosts the Codex session. The remote platform is ${platform}, and commands run with ${shell}.\n\n1. Inspect remote files with \`remote_context\`, \`remote_list\`, \`remote_search\`, and \`remote_read_text\`.\n2. Change text files with \`remote_apply_patch\`; pass the version returned by the last read for every update or delete.\n3. Run repository commands with \`remote_exec\`. Treat its working directory as \`${remoteRoot}\`.\n4. Re-read a conflicted file before retrying. Finish only after the relevant remote checks pass.\n\nUse the remote tools for project work. Local shell and local files are not the remote project.\n`;
+  return `# Remote workspace\n\nThe source of truth is the SSH workspace \`${remoteRoot}\` on \`${hostLabel}\`. This local directory only hosts the Agent session. The remote platform is ${platform}, and commands run with ${shell}.\n\n1. Inspect remote files with \`remote_context\`, \`remote_list\`, \`remote_search\`, and \`remote_read_text\`.\n2. Change text files with \`remote_apply_patch\`; pass the version returned by the last read for every update or delete.\n3. Run repository commands with \`remote_exec\`. Treat its working directory as \`${remoteRoot}\`.\n4. Re-read a conflicted file before retrying. Finish only after the relevant remote checks pass.\n\nUse the remote tools for project work. Local shell and local files are not the remote project.\n`;
 }
 
 function createRemoteAgentBridgeService({
@@ -774,6 +774,7 @@ function createRemoteAgentBridgeService({
     return {
       workspacePath,
       developerInstructions,
+      runtimeInstructions,
       url: `http://127.0.0.1:${port}/mcp`,
       token,
       tokenEnv: REMOTE_AGENT_TOKEN_ENV

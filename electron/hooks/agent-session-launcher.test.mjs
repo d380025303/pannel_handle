@@ -5,6 +5,10 @@ const require = createRequire(import.meta.url);
 const {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  buildLocalCodeBuddyConfig,
+  buildLocalCodeBuddyStartCommand,
+  buildLocalOpenCodeConfig,
+  buildLocalOpenCodeStartCommand,
   buildOpenRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
@@ -37,7 +41,12 @@ function createMocks(overrides = {}) {
       sessions.push(session);
       return session;
     }),
-    startDeferredSession: vi.fn((id, options) => ({ id, type: "ssh", agentProvider: "codex", agentLocation: "local", ...options })),
+    startDeferredSession: vi.fn((id, options) => {
+      const session = sessions.find((entry) => entry.id === id);
+      if (!session) throw new Error("missing deferred session");
+      Object.assign(session, options);
+      return session;
+    }),
     listSessions: vi.fn(() => sessions),
     getSession: vi.fn((id) => sessions.find((session) => session.id === id)),
     write: vi.fn(),
@@ -59,7 +68,12 @@ function createMocks(overrides = {}) {
   };
   const sshSessionRuntime = { exec: vi.fn(() => Promise.resolve("/usr/bin/agent")) };
   const sshHookTunnelService = { ensureTunnel: vi.fn(() => Promise.resolve({ hookUrl: "http://127.0.0.1:9000/opencode-hook" })) };
-  const spawnSync = vi.fn(() => ({ status: 0, stdout: "found" }));
+  const spawnSync = vi.fn((command, args) => {
+    const invocation = `${command} ${(args || []).join(" ")}`;
+    if (invocation.includes("codebuddy --version")) return { status: 0, stdout: "2.137.1" };
+    if (invocation.includes("gemini --version")) return { status: 0, stdout: "0.56.0" };
+    return { status: 0, stdout: "found" };
+  });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
   const launcher = createAgentSessionLauncher({
     terminalManager,
@@ -147,6 +161,24 @@ describe("agent-session-launcher", () => {
       .toBe("codex");
   });
 
+  it("requires CodeBuddy CLI 2.54.0 or newer only for the local bridge", async () => {
+    const old = createMocks({
+      spawnSync: vi.fn((command, args) => `${command} ${(args || []).join(" ")}`.includes("--version")
+        ? { status: 0, stdout: "2.53.9" }
+        : { status: 0, stdout: "codebuddy.cmd" })
+    });
+    await expect(old.launcher.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "codebuddy",
+      agentLocation: "local",
+      sshConfig: { host: "example.com" }
+    })).rejects.toThrow("本地桥接最低 2.54.0");
+
+    await expect(old.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy" }))
+      .resolves.toMatchObject({ agentProvider: "codebuddy" });
+  });
+
   it("builds an OpenRouter Codex command without embedding the API key", () => {
     const command = buildOpenRouterCodexCommand({ type: "windows", shell: "powershell.exe" }, {
       baseUrl: "https://openrouter.ai/api/v1",
@@ -160,6 +192,57 @@ describe("agent-session-launcher", () => {
     expect(command).toContain("wire_api");
     expect(command).toContain("anthropic/claude-sonnet-4");
     expect(command).not.toContain("secret-value");
+  });
+
+  it("builds an authenticated OpenCode bridge config without embedding the token", () => {
+    const binding = {
+      workspacePath: "C:\\runtime\\run-1",
+      developerInstructions: "Use only the remote workspace tools.",
+      url: "http://127.0.0.1:4568/mcp",
+      token: "secret-token",
+      tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+    };
+
+    const configText = buildLocalOpenCodeConfig(binding);
+    const config = JSON.parse(configText);
+
+    expect(config.mcp.pannel_handle_remote).toEqual(expect.objectContaining({
+      type: "remote",
+      url: binding.url,
+      enabled: true,
+      oauth: false,
+      headers: { Authorization: "Bearer {env:PANNEL_HANDLE_REMOTE_AGENT_TOKEN}" }
+    }));
+    expect(config.agent["pannel-handle-remote"]).toEqual(expect.objectContaining({
+      mode: "primary",
+      prompt: binding.developerInstructions,
+      permission: expect.objectContaining({ edit: "deny", bash: "deny", task: "deny", "pannel_handle_remote_*": "allow" })
+    }));
+    expect(configText).not.toContain(binding.token);
+    expect(buildLocalOpenCodeStartCommand(binding)).toBe("opencode 'C:\\runtime\\run-1' --agent pannel-handle-remote");
+  });
+
+  it("builds a strict CodeBuddy bridge config with an environment token placeholder", () => {
+    const binding = {
+      runtimeInstructions: "Use the remote workspace's scoped tools.\nDo not edit local files or run `Bash`.",
+      url: "http://127.0.0.1:4568/mcp",
+      token: "secret-token",
+      tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+    };
+    const config = JSON.parse(buildLocalCodeBuddyConfig(binding));
+    const command = buildLocalCodeBuddyStartCommand(binding);
+
+    expect(config.mcpServers.pannel_handle_remote).toEqual({
+      type: "http",
+      url: binding.url,
+      headers: { Authorization: "Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}" }
+    });
+    expect(command).toContain("--strict-mcp-config");
+    expect(command).toContain("--tools 'Read,Glob,Grep'");
+    expect(command).toContain('--append-system-prompt "$env:PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS"');
+    expect(command).not.toMatch(/[\r\n]/);
+    expect(command).not.toContain(binding.runtimeInstructions);
+    expect(command).not.toContain("secret-token");
   });
 
   it("injects the OpenRouter key only through the terminal environment", async () => {
@@ -401,6 +484,128 @@ describe("agent-session-launcher", () => {
     );
   });
 
+  it("runs OpenCode locally with inline bridge configuration and its notification plugin", async () => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({
+        workspacePath: "C:\\runtime\\run-1",
+        developerInstructions: "Use only the scoped remote tools.",
+        url: "http://127.0.0.1:4568/mcp",
+        token: "secret-token",
+        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+      })),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const mocks = createMocks({ remoteAgentBridgeService });
+
+    const result = await mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "opencode",
+      agentLocation: "local",
+      sshConfig: { host: "example.com" }
+    });
+
+    expect(result).toMatchObject({ agentProvider: "opencode", terminalTransport: "local-agent" });
+    expect(mocks.sshSessionRuntime.exec).not.toHaveBeenCalled();
+    expect(mocks.hookConfigManager.inspect).toHaveBeenCalledWith(
+      { type: "windows", path: "C:\\runtime\\run-1" },
+      ["opencode"]
+    );
+    const runtime = mocks.terminalManager.startDeferredSession.mock.calls[0][1];
+    expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_TOKEN).toBe("secret-token");
+    expect(runtime.runtimeInitialCommand).toContain("opencode 'C:\\runtime\\run-1' --agent pannel-handle-remote");
+    expect(runtime.runtimeInitialCommand).not.toContain("secret-token");
+    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.pannel_handle_remote.url)
+      .toBe("http://127.0.0.1:4568/mcp");
+  });
+
+  it("runs CodeBuddy locally with a strict authenticated bridge and local hooks", async () => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({
+        workspacePath: "C:\\runtime\\run-1",
+        runtimeInstructions: "Use the remote workspace's scoped tools.\nDo not edit local files or run `Bash`.",
+        url: "http://127.0.0.1:4568/mcp",
+        token: "secret-token",
+        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+      })),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const mocks = createMocks({ remoteAgentBridgeService });
+
+    const result = await mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "codebuddy",
+      agentLocation: "local",
+      sshConfig: { host: "example.com" }
+    });
+
+    expect(result).toMatchObject({ agentProvider: "codebuddy", terminalTransport: "local-agent" });
+    expect(mocks.hookConfigManager.inspect).toHaveBeenCalledWith(
+      { type: "windows", path: "C:\\runtime\\run-1" },
+      ["codebuddy"]
+    );
+    const runtime = mocks.terminalManager.startDeferredSession.mock.calls[0][1];
+    expect(runtime.runtimeEnv).toEqual({
+      PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "secret-token",
+      PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS: "Use the remote workspace's scoped tools.\nDo not edit local files or run `Bash`."
+    });
+    expect(runtime.runtimeInitialCommand).toContain("codebuddy --mcp-config");
+    expect(runtime.runtimeInitialCommand).toContain("Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}");
+    expect(runtime.runtimeInitialCommand).toContain('"$env:PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS"');
+    expect(runtime.runtimeInitialCommand).not.toMatch(/[\r\n]/);
+    expect(runtime.runtimeInitialCommand).not.toContain("Do not edit local files");
+    expect(runtime.runtimeInitialCommand).not.toContain("secret-token");
+  });
+
+  it("allows a local Codex bridge to target a remote Windows workspace", async () => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({
+        workspacePath: "C:\\runtime\\run-1",
+        url: "http://127.0.0.1:4568/mcp",
+        token: "secret-token",
+        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+      })),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const mocks = createMocks({ remoteAgentBridgeService });
+
+    await expect(mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "C:\\Work Space\\repo",
+      agentProvider: "codex",
+      agentLocation: "local",
+      sshConfig: { host: "windows.example.com", remotePlatform: "windows" }
+    })).resolves.toMatchObject({ terminalTransport: "local-agent" });
+
+    expect(remoteAgentBridgeService.createBinding).toHaveBeenCalledWith("run-1");
+    expect(mocks.sshSessionRuntime.exec).not.toHaveBeenCalled();
+  });
+
+  it("keeps Windows workspace paths unavailable to WSL and remotely running SSH Agents", async () => {
+    const mocks = createMocks();
+
+    await expect(mocks.launcher.createSession({
+      type: "wsl",
+      wslDistro: "Ubuntu",
+      cwd: "C:\\repo",
+      agentProvider: "codex"
+    })).rejects.toThrow("绝对 Linux 路径");
+
+    await expect(mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "C:\\repo",
+      agentProvider: "codex",
+      agentLocation: "remote",
+      sshConfig: { host: "windows.example.com", remotePlatform: "windows" }
+    })).rejects.toThrow("绝对 Linux 路径");
+
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
   it("cleans up a failed new SSH session and its saved template", async () => {
     const mocks = createMocks();
     mocks.sshSessionRuntime.exec.mockRejectedValue(new Error("not found"));
@@ -515,7 +720,7 @@ describe("agent-session-launcher", () => {
     expect(result).toMatchObject({ id: "run-2", templateId: "1", agentProvider: "claude" });
   });
 
-  it("does not allow a local SSH bridge session to change provider", async () => {
+  it("rejects unsupported providers without closing a local SSH bridge session", async () => {
     const mocks = createMocks();
     mocks.terminalManager.getSession.mockReturnValue({
       id: "run-1",
@@ -526,6 +731,84 @@ describe("agent-session-launcher", () => {
     });
 
     await expect(mocks.launcher.switchAgent("run-1", "claude")).rejects.toThrow("Local SSH bridge");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["codex", "opencode"],
+    ["opencode", "codex"],
+    ["codex", "codebuddy"],
+    ["codebuddy", "opencode"],
+    ["opencode", "codebuddy"]
+  ])("switches a local SSH bridge from %s to %s with a new binding", async (currentProvider, targetProvider) => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async (sessionId) => ({
+        workspacePath: `C:\\runtime\\${sessionId}`,
+        developerInstructions: "Use the remote workspace.",
+        runtimeInstructions: "Use the remote workspace.\nUse only remote tools.",
+        url: "http://127.0.0.1:4568/mcp",
+        token: `token-${sessionId}`,
+        tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+      })),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const mocks = createMocks({ remoteAgentBridgeService });
+    await mocks.launcher.createSession({
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: currentProvider,
+      agentLocation: "local",
+      localAgentCwd: "C:\\local-agent",
+      sshConfig: { host: "example.com" },
+      persist: true
+    });
+    mocks.terminalManager.closeSession.mockClear();
+    mocks.terminalManager.launchSession.mockClear();
+
+    const result = await mocks.launcher.switchAgent("run-1", targetProvider);
+
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: targetProvider,
+      agentLocation: "local",
+      localAgentCwd: "C:\\local-agent",
+      cwd: "/srv/app"
+    }), expect.objectContaining({
+      useProvidedTemplate: true,
+      templateId: "1",
+      deferTerminalStart: true
+    }));
+    expect(remoteAgentBridgeService.createBinding).toHaveBeenLastCalledWith("run-2");
+    expect(mocks.hookConfigManager.inspect).toHaveBeenLastCalledWith(
+      { type: "windows", path: "C:\\runtime\\run-2" },
+      [targetProvider]
+    );
+    if (targetProvider === "codebuddy") {
+      const runtime = mocks.terminalManager.startDeferredSession.mock.calls.at(-1)[1];
+      expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS)
+        .toBe("Use the remote workspace.\nUse only remote tools.");
+      expect(runtime.runtimeInitialCommand).toContain('"$env:PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS"');
+      expect(runtime.runtimeInitialCommand).not.toMatch(/[\r\n]/);
+    }
+    expect(result).toMatchObject({ id: "run-2", agentProvider: targetProvider, terminalTransport: "local-agent" });
+  });
+
+  it("keeps the current local bridge open when the target CLI is unavailable", async () => {
+    const mocks = createMocks();
+    mocks.terminalManager.getSession.mockReturnValue({
+      id: "run-1",
+      templateId: "1",
+      type: "ssh",
+      cwd: "/srv/app",
+      agentProvider: "codex",
+      agentLocation: "local",
+      sshConfig: { host: "example.com" }
+    });
+    mocks.spawnSync.mockReturnValueOnce({ status: 1, stdout: "" });
+
+    await expect(mocks.launcher.switchAgent("run-1", "opencode")).rejects.toThrow("opencode");
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
     expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
   });

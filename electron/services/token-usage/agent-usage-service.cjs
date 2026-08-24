@@ -512,7 +512,7 @@ function createAgentUsageService({
     if (!["codex", "codebuddy", "qoder", "gemini"].includes(session.agentProvider)) {
       return Promise.reject(new Error("Usage is only available for Codex, CodeBuddy, Qoder, and Gemini sessions."));
     }
-    if (session.agentProvider === "codebuddy" && session.type !== "windows") {
+    if (session.agentProvider === "codebuddy" && session.type !== "windows" && !isLocalSshBridge(session)) {
       return Promise.reject(new Error("CodeBuddy quota is only available for Windows sessions."));
     }
     if (session.agentProvider === "qoder" && session.type !== "windows" && session.type !== "wsl") {

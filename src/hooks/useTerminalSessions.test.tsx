@@ -48,4 +48,49 @@ describe("useTerminalSessions", () => {
     expect(window.terminalApi.switchAgent).toHaveBeenCalledWith("run-1", "claude");
     expect(result.current.activeId).toBe("run-3");
   });
+
+  it("shows, dismisses, and reopens OpenCode empty-response warnings per session and incident", async () => {
+    let onSessionsChanged = (_sessions: TerminalSession[]) => {};
+    let onAgentStatus = (_payload: AgentStatusPayload) => {};
+    window.terminalApi = {
+      loadSavedSessions: vi.fn(async () => []),
+      getConfig: vi.fn(async () => ({ autoRestore: false, lastActiveSessionIds: [] })),
+      onSessionsChanged: vi.fn((callback: (sessions: TerminalSession[]) => void) => {
+        onSessionsChanged = callback;
+        return () => {};
+      }),
+      onAgentStatus: vi.fn((callback: (payload: AgentStatusPayload) => void) => {
+        onAgentStatus = callback;
+        return () => {};
+      })
+    } as unknown as typeof window.terminalApi;
+    window.launchTemplateApi = {
+      list: vi.fn(async () => [])
+    } as unknown as typeof window.launchTemplateApi;
+
+    const { result } = renderHook(() => useTerminalSessions());
+    await waitFor(() => expect(window.terminalApi.loadSavedSessions).toHaveBeenCalled());
+    act(() => onSessionsChanged([session("run-1", "opencode"), session("run-2", "opencode")]));
+
+    const warning = (id: string, timestamp: number): AgentStatusPayload => ({
+      id,
+      provider: "opencode",
+      status: "failed",
+      eventName: "OpenCodeEmptyResponse",
+      timestamp
+    });
+    act(() => onAgentStatus(warning("run-1", 10)));
+    expect(result.current.activeAgentWarning).toMatchObject({ id: "run-1", timestamp: 10 });
+
+    act(() => result.current.dismissActiveAgentWarning());
+    expect(result.current.activeAgentWarning).toBeUndefined();
+
+    act(() => onAgentStatus(warning("run-1", 11)));
+    expect(result.current.activeAgentWarning).toMatchObject({ id: "run-1", timestamp: 11 });
+
+    act(() => result.current.setActiveId("run-2"));
+    expect(result.current.activeAgentWarning).toBeUndefined();
+    act(() => onAgentStatus(warning("run-2", 12)));
+    expect(result.current.activeAgentWarning).toMatchObject({ id: "run-2", timestamp: 12 });
+  });
 });

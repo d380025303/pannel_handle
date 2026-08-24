@@ -10,6 +10,12 @@ export const AGENT_PROVIDER_OPTIONS: ReadonlyArray<{ value: AgentProvider; label
   { value: "gemini", label: "Gemini CLI" }
 ];
 
+export const LOCAL_BRIDGE_AGENT_PROVIDERS = new Set<AgentProvider>(["codex", "codebuddy", "opencode"]);
+
+export function supportsLocalBridge(provider?: AgentProvider): boolean {
+  return Boolean(provider && LOCAL_BRIDGE_AGENT_PROVIDERS.has(provider));
+}
+
 export function getAgentProviderLabel(provider: AgentProvider) {
   return AGENT_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label || provider;
 }
