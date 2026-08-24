@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { AGENT_EXIT_MARKER, buildSshArgs, createTerminalManager } = require("./terminal-manager.cjs");
+const { AGENT_EXIT_MARKER, buildSshArgs, createTerminalManager, getDefaultShell } = require("./terminal-manager.cjs");
 
 function createMockTerm() {
   const dataHandlers = [];
@@ -110,6 +110,27 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("uses PowerShell 7 as the default Windows shell when pwsh is available", () => {
+    const executableAvailable = vi.fn(() => true);
+
+    expect(getDefaultShell({ platform: "win32", executableAvailable })).toBe("pwsh.exe");
+    expect(executableAvailable).toHaveBeenCalledWith("pwsh.exe");
+  });
+
+  it("falls back to Windows PowerShell when PowerShell 7 is unavailable", () => {
+    expect(getDefaultShell({ platform: "win32", executableAvailable: () => false }))
+      .toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  });
+
+  it("spawns PowerShell 7 for a Windows session without an explicit shell", () => {
+    const { manager, pty } = createManager({ getDefaultShell: () => "pwsh.exe" });
+
+    const session = manager.createSession({ title: "Main" });
+
+    expect(session.shell).toBe("pwsh.exe");
+    expect(pty.spawn).toHaveBeenCalledWith("pwsh.exe", [], expect.any(Object));
+  });
+
   it("creates a session, persists its template, and spawns a PTY", () => {
     vi.spyOn(Date, "now").mockReturnValue(222);
     const { manager, pty, broadcast, sessionStore } = createManager();

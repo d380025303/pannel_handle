@@ -1,5 +1,5 @@
 const os = require("node:os");
-const { execSync } = require("node:child_process");
+const { execFileSync, execSync } = require("node:child_process");
 const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
@@ -91,12 +91,32 @@ function consumeAgentCommandInput(currentState, data) {
   };
 }
 
-function getDefaultShell() {
-  if (process.platform !== "win32") {
-    return process.env.SHELL || "bash";
+function isExecutableAvailable(executable) {
+  try {
+    execFileSync("where.exe", [executable], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getDefaultShell({
+  platform = process.platform,
+  env = process.env,
+  executableAvailable = isExecutableAvailable
+} = {}) {
+  if (platform !== "win32") {
+    return env.SHELL || "bash";
   }
 
-  return process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+  if (executableAvailable("pwsh.exe")) {
+    return "pwsh.exe";
+  }
+
+  return "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 }
 
 function getWslShell() {
@@ -215,7 +235,8 @@ function createTerminalManager({
   onAgentStatusChanged,
   knownHostStore,
   pty = nodePty,
-  ssh2TerminalFactory = createSsh2Terminal
+  ssh2TerminalFactory = createSsh2Terminal,
+  getDefaultShell: resolveDefaultShell = getDefaultShell
 }) {
   const sessions = new Map();
   const sessionOrder = [];
@@ -623,7 +644,7 @@ function createTerminalManager({
     const persist = options.persist !== false;
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
-    const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : getDefaultShell());
+    const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : resolveDefaultShell());
     const cwd = options.cwd || (type === "wsl" || type === "ssh" ? "~" : os.homedir());
     const sshConfig = options.sshConfig;
     if (type === "ssh") {
