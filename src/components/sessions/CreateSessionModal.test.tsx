@@ -59,15 +59,4 @@ describe("CreateSessionModal local SSH bridge", () => {
     expect(screen.queryByText("本机 Agent 工作目录（可选）")).toBeNull();
   });
 
-  it("offers Qwen Code locally but not for SSH sessions", () => {
-    render(
-      <I18nProvider locale="zh-CN">
-        <CreateSessionModal wslDistros={["Ubuntu"]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
-      </I18nProvider>
-    );
-
-    expect(screen.getByRole("button", { name: "Qwen Code" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "SSH" }));
-    expect(screen.queryByRole("button", { name: "Qwen Code" })).toBeNull();
-  });
 });

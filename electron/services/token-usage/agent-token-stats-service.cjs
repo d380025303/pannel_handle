@@ -21,8 +21,8 @@ const { createCopilotOtelParser, getCopilotOtelPath } = require("./copilot-otel.
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "qwen", "gemini"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "qwen", "gemini"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "gemini"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;

@@ -11,3 +11,5 @@ release
 idea-plugin/.gradle/
 idea-plugin/.intellijPlatform/
 idea-plugin/build/
+.gemini/
+.qwen/

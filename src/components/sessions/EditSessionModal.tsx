@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
+import type { AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { TagInput } from "../shared/TagInput";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { generateId } from "../../utils/id";
+import { CodexBackendFields } from "./CodexBackendFields";
 
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -24,6 +25,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>(session.agentProvider);
   const [agentLocation, setAgentLocation] = useState<AgentLocation>(session.agentLocation || "remote");
   const [localAgentCwd, setLocalAgentCwd] = useState(session.localAgentCwd || "");
+  const [codexBackend, setCodexBackend] = useState<CodexBackend>(session.codexBackend || "openai");
+  const [codexModel, setCodexModel] = useState(session.codexModel || "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
@@ -41,10 +44,15 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [showAdvancedSsh, setShowAdvancedSsh] = useState(false);
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
+  const openRouterEligible = agentProvider === "codex" && (!isSsh || agentLocation === "local");
 
   const handleSave = async () => {
     if (agentProvider && !editCwd.trim()) {
       setError(t("session.agentCwdRequired"));
+      return;
+    }
+    if (openRouterEligible && codexBackend === "openrouter" && !codexModel.trim()) {
+      setError(t("session.openRouterModelRequired"));
       return;
     }
     setSubmitting(true);
@@ -58,6 +66,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       agentProvider,
       isSsh && agentProvider ? (agentProvider === "codex" ? agentLocation : "remote") : undefined,
       isSsh && agentProvider === "codex" && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
+      openRouterEligible ? codexBackend : undefined,
+      openRouterEligible && codexBackend === "openrouter" ? codexModel.trim() : undefined,
       quickCommands.filter((qc) => qc.command.trim().length > 0),
       isSsh ? {
         host: sshHost.trim(),
@@ -120,12 +130,15 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
-          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "qwen", "gemini"] : []} onChange={(provider) => {
+          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini"] : []} onChange={(provider) => {
             setAgentProvider(provider);
             if (provider && provider !== "codex") setAgentLocation("remote");
           }} />
           {isSsh && agentProvider && (
             <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />
+          )}
+          {openRouterEligible && (
+            <CodexBackendFields backend={codexBackend} model={codexModel} onBackendChange={setCodexBackend} onModelChange={setCodexModel} />
           )}
           {isSsh ? (
             <div className="ssh-form">
@@ -339,7 +352,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
           <button className="modal-button" type="button" onClick={onCancel}>
             {t("common.cancel")}
           </button>
-          <button className="modal-button primary" type="button" onClick={handleSave} disabled={submitting || (isSsh && sshHost.trim().length === 0) || Boolean(agentProvider && !editCwd.trim())}>
+          <button className="modal-button primary" type="button" onClick={handleSave} disabled={submitting || (isSsh && sshHost.trim().length === 0) || Boolean(agentProvider && !editCwd.trim()) || Boolean(openRouterEligible && codexBackend === "openrouter" && !codexModel.trim())}>
             {submitting ? t("session.saving") : t("common.save")}
           </button>
         </div>

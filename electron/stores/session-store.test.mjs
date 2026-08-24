@@ -43,6 +43,14 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("persists OpenRouter metadata only for locally running Codex sessions", () => {
+    const store = createStore(createTempSessionsFile());
+    store.addToLibrary({ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
+    store.addToLibrary({ id: "2", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "remote", codexBackend: "openrouter", codexModel: "openai/gpt-5.4", sshConfig: { host: "example.com" } });
+
+    expect(store.getTemplate("1")).toMatchObject({ codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
+    expect(store.getTemplate("2")).toMatchObject({ codexBackend: undefined, codexModel: undefined });
+  });
   it("persists an independent file root and normalized file sorting", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{ id: "1", title: "Files", type: "windows", cwd: "C:\\terminal", fileRoot: " C:\\repo ", fileSort: { key: "modifiedAt", direction: "desc" } }]));
@@ -148,6 +156,17 @@ describe("session-store", () => {
     expect(sessions[1]).toMatchObject({ agentProvider: "codex", initialCommand: "pnpm install" });
     expect(sessions[2].agentProvider).toBe("codebuddy");
     expect(sessions[3].agentProvider).toBeUndefined();
+  });
+
+  it("loads legacy Qwen templates as ordinary terminal sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", title: "Legacy Agent", type: "windows", cwd: "C:\\work", agentProvider: "qwen" }
+    ]), "utf-8");
+
+    const [session] = createStore(sessionsFile).loadLibrary();
+    expect(session).toMatchObject({ id: "1", title: "Legacy Agent", type: "windows", cwd: "C:\\work" });
+    expect(session.agentProvider).toBeUndefined();
   });
 
   it("keeps old SSH Agent templates remote and accepts local Codex bridge templates", () => {

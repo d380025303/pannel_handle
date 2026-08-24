@@ -117,6 +117,14 @@ contextBridge.exposeInMainWorld("dingTalkApi", {
   test: () => ipcRenderer.invoke("dingtalk:test")
 });
 
+contextBridge.exposeInMainWorld("openRouterApi", {
+  getConfig: () => ipcRenderer.invoke("openrouter:get-config"),
+  setApiKey: (apiKey) => ipcRenderer.invoke("openrouter:set-api-key", apiKey),
+  clearApiKey: () => ipcRenderer.invoke("openrouter:clear-api-key"),
+  test: () => ipcRenderer.invoke("openrouter:test"),
+  listModels: (options) => ipcRenderer.invoke("openrouter:list-models", options)
+});
+
 contextBridge.exposeInMainWorld("clipboardApi", {
   writeText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
   readText: () => ipcRenderer.invoke("clipboard:read-text"),

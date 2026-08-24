@@ -8,6 +8,7 @@ export type QuickCommand = {
 };
 
 export type RemotePlatform = "auto" | "linux" | "windows";
+export type CodexBackend = "openai" | "openrouter";
 
 export type SshConfig = {
   host: string;
@@ -37,6 +38,8 @@ export type TerminalSession = {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  codexBackend?: CodexBackend;
+  codexModel?: string;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
@@ -129,6 +132,23 @@ export type DingTalkConfigInput = {
 export type DingTalkTestResult =
   | { ok: true }
   | { ok: false; error: string };
+
+export type OpenRouterConfig = { hasApiKey: boolean };
+export type OpenRouterTestResult = {
+  ok: true;
+  config: OpenRouterConfig;
+  keyLabel?: string;
+  limitRemaining?: number;
+  expiresAt?: string;
+};
+export type OpenRouterModel = {
+  id: string;
+  name: string;
+  contextLength?: number;
+  promptPrice?: string;
+  completionPrice?: string;
+};
+export type OpenRouterModelList = { models: OpenRouterModel[]; fetchedAt: number };
 
 export type SessionLibraryFileResult =
   | { canceled: true }
@@ -447,7 +467,7 @@ export type ProjectSearchOptions = {
   includeIgnored?: boolean;
 };
 
-export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
+export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -706,7 +726,7 @@ export type AgentCapabilityUsage = {
 
 export type AgentTokenSessionRecord = {
   id: string;
-  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
   agentSessionId: string;
   panelSessionId: string;
   templateId?: string;
@@ -724,10 +744,10 @@ export type AgentTokenSessionRecord = {
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
-  provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
   summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
-  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini"; sessionCount: number; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini"; sessionCount: number; tokens: AgentTokenTotals }>;
   topSkills: Array<{ name: string; count: number }>;
   topMcpServers: Array<{ name: string; count: number; tools: Array<{ name: string; count: number }> }>;
   sessions: AgentTokenSessionRecord[];
@@ -738,7 +758,7 @@ export type AgentTokenDashboard = {
 
 export type AgentTokenLiveSnapshot = {
   panelSessionId: string;
-  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
   state: "waiting" | "generating" | "completed" | "unavailable";
   tokens: AgentTokenTotals;
   capabilities: AgentCapabilityUsage;
@@ -749,7 +769,7 @@ export type AgentTokenLiveSnapshot = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "qwen" | "gemini"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;
@@ -792,8 +812,8 @@ export type RemoteAgentApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
@@ -1017,6 +1037,14 @@ export type DingTalkApi = {
   test: () => Promise<DingTalkTestResult>;
 };
 
+export type OpenRouterApi = {
+  getConfig: () => Promise<OpenRouterConfig>;
+  setApiKey: (apiKey: string) => Promise<OpenRouterTestResult>;
+  clearApiKey: () => Promise<OpenRouterConfig>;
+  test: () => Promise<OpenRouterTestResult>;
+  listModels: (options?: { force?: boolean }) => Promise<OpenRouterModelList>;
+};
+
 export type IdeaExecutionMode = "run" | "debug";
 export type IdeaExecutionStatus = "starting" | "running" | "stopping" | "terminated";
 export type IdeaBridgeConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -1102,6 +1130,7 @@ declare global {
     ideaBridgeApi: IdeaBridgeApi;
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
+    openRouterApi: OpenRouterApi;
     windowApi: WindowApi;
   }
 }

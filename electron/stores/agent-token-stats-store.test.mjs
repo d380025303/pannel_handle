@@ -126,17 +126,26 @@ describe("agent token statistics SQLite store", () => {
     store.close();
   });
 
-  it("includes Qwen Code sessions in totals, filtering, and provider comparison", () => {
-    const { store } = fixture();
-    store.update({ provider: "qwen", agentSessionId: "qwen", panelSessionId: "panel", title: "Qwen Code", location: "wsl", models: ["qwen3-coder-plus"], tokens: tokens(210) });
-
-    const dashboard = store.getDashboard({ range: "all", provider: "qwen" });
-    expect(dashboard.summary.tokens.totalTokens).toBe(210);
-    expect(dashboard.sessions[0]).toMatchObject({ provider: "qwen", models: ["qwen3-coder-plus"] });
-    expect(dashboard.providerBreakdown).toEqual([
-      expect.objectContaining({ provider: "qwen", sessionCount: 1 })
-    ]);
+  it("preserves legacy Qwen rows while excluding them from dashboards", () => {
+    const { databaseFile, legacyStatsFile, legacyBackupFile, store } = fixture();
+    store.update({ provider: "codex", agentSessionId: "legacy", panelSessionId: "panel", title: "Legacy", location: "wsl", models: ["legacy-model"], tokens: tokens(210) });
     store.close();
+
+    const database = new DatabaseSync(databaseFile);
+    database.exec("UPDATE token_sessions SET provider = 'qwen'; UPDATE token_daily SET provider = 'qwen';");
+    database.close();
+
+    const reopened = createAgentTokenStatsStore({ databaseFile, legacyStatsFile, legacyBackupFile });
+    reopened.load();
+    const dashboard = reopened.getDashboard({ range: "all" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(0);
+    expect(dashboard.sessions).toEqual([]);
+    expect(dashboard.providerBreakdown.some(item => item.provider === "qwen")).toBe(false);
+    reopened.close();
+
+    const verification = new DatabaseSync(databaseFile);
+    expect(verification.prepare("SELECT COUNT(*) AS count FROM token_sessions WHERE provider = 'qwen'").get().count).toBe(1);
+    verification.close();
   });
 
   it("subtracts capability baselines and aggregates skill and MCP rankings", () => {

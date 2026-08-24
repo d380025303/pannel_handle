@@ -58,7 +58,6 @@ describe("TitleBar session actions", () => {
       "OpenCode",
       "Qoder",
       "GitHub Copilot",
-      "Qwen Code",
       "Gemini CLI"
     ]);
 

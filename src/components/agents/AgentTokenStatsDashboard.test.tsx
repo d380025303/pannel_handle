@@ -70,13 +70,6 @@ describe("AgentTokenStatsDashboard", () => {
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "qoder" })));
   });
 
-  it("offers Qwen Code as a provider filter", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
-    await screen.findByText("Qwen Code");
-    fireEvent.change(screen.getByRole("combobox", { name: /Agent/ }), { target: { value: "qwen" } });
-    await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "qwen" })));
-  });
-
   it("shows only date labels below the trend and reveals token details on hover", async () => {
     getDashboard.mockResolvedValueOnce({
       ...defaultDashboard,

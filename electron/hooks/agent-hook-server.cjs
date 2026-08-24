@@ -11,7 +11,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     opencode: new Map(),
     qoder: new Map(),
     copilot: new Map(),
-    qwen: new Map(),
     gemini: new Map()
   };
   let hookServer = null;
@@ -488,9 +487,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     if (provider === "qoder") {
       return mapQoderHookStatus(input);
     }
-    if (provider === "qwen") {
-      return mapQoderHookStatus(input);
-    }
     if (provider === "copilot") {
       return mapCopilotHookStatus(input);
     }
@@ -614,10 +610,6 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/copilot-hook") {
         handleRequest("copilot", req, res);
-        return;
-      }
-      if (req.method === "POST" && req.url === "/qwen-hook") {
-        handleRequest("qwen", req, res);
         return;
       }
       if (req.method === "POST" && req.url === "/gemini-hook") {

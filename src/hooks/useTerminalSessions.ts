@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { updateAgentStatuses } from "../utils/agentStatus";
 import { generateId } from "../utils/id";
 
@@ -11,6 +11,8 @@ type CreateSessionOptions = {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  codexBackend?: CodexBackend;
+  codexModel?: string;
   sshConfig?: SshConfig;
   tags?: string[];
   persist?: boolean;
@@ -115,7 +117,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, tags, persist }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, tags, persist }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -128,6 +130,8 @@ export function useTerminalSessions() {
       ...(agentProvider ? { agentProvider } : {}),
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
       ...(isSsh && agentProvider === "codex" && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
+      ...(agentProvider === "codex" && codexBackend ? { codexBackend } : {}),
+      ...(agentProvider === "codex" && codexBackend === "openrouter" && codexModel ? { codexModel } : {}),
       tags,
       ...(typeof persist === "boolean" ? { persist } : {})
     });
@@ -141,7 +145,7 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[]) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexBackend?: CodexBackend, codexModel?: string) => {
     await window.terminalApi.updateSession(id, {
       title,
       cwd,
@@ -149,6 +153,8 @@ export function useTerminalSessions() {
       agentProvider: agentProvider ?? null,
       agentLocation: agentProvider ? agentLocation ?? null : null,
       localAgentCwd: agentProvider === "codex" && agentLocation === "local" ? localAgentCwd ?? null : null,
+      codexBackend: agentProvider === "codex" ? codexBackend ?? "openai" : null,
+      codexModel: agentProvider === "codex" && codexBackend === "openrouter" ? codexModel ?? null : null,
       sshConfig,
       quickCommands,
       tags

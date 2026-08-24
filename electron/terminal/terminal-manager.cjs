@@ -273,6 +273,9 @@ function createTerminalManager({
       initialCommand: session.initialCommand,
       agentProvider: session.agentProvider,
       agentLocation: session.agentLocation,
+      localAgentCwd: session.localAgentCwd,
+      codexBackend: session.codexBackend,
+      codexModel: session.codexModel,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -537,6 +540,7 @@ function createTerminalManager({
       env.WSLENV = appendWslEnv(env.WSLENV, [
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
+        ...(options.runtimeEnv?.OPENROUTER_API_KEY ? ["OPENROUTER_API_KEY"] : []),
         ...(session.agentProvider === "copilot" ? [
           "COPILOT_OTEL_ENABLED",
           "COPILOT_OTEL_EXPORTER_TYPE",
@@ -644,6 +648,8 @@ function createTerminalManager({
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
       localAgentCwd: options.localAgentCwd,
+      codexBackend: options.codexBackend,
+      codexModel: options.codexModel,
       quickCommands: options.quickCommands || [],
       tags: options.tags || []
     };
@@ -700,10 +706,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -743,6 +749,14 @@ function createTerminalManager({
     if (typeof localAgentCwd !== "undefined") {
       session.localAgentCwd = localAgentCwd || undefined;
       libraryUpdates.localAgentCwd = localAgentCwd || null;
+    }
+    if (typeof codexBackend !== "undefined") {
+      session.codexBackend = codexBackend || undefined;
+      libraryUpdates.codexBackend = codexBackend || null;
+    }
+    if (typeof codexModel !== "undefined") {
+      session.codexModel = codexModel || undefined;
+      libraryUpdates.codexModel = codexModel || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();
@@ -842,16 +856,15 @@ function createTerminalManager({
   function trackCodexTerminalCommand(session, data) {
     const isCodex = session.agentRuntimeProvider === "codex" || session.agentProvider === "codex";
     const isQoder = session.agentRuntimeProvider === "qoder" || session.agentProvider === "qoder";
-    const isQwen = session.agentRuntimeProvider === "qwen" || session.agentProvider === "qwen";
     const isGemini = session.agentRuntimeProvider === "gemini" || session.agentProvider === "gemini";
-    if (!isCodex && !isQoder && !isQwen && !isGemini) {
+    if (!isCodex && !isQoder && !isGemini) {
       session.agentCommandState = undefined;
       return;
     }
 
     const result = consumeAgentCommandInput(session.agentCommandState, data);
     session.agentCommandState = result.state;
-    const provider = isCodex ? "codex" : isQoder ? "qoder" : isQwen ? "qwen" : "gemini";
+    const provider = isCodex ? "codex" : isQoder ? "qoder" : "gemini";
     for (let index = 0; index < result.clearSubmissions; index += 1) {
       session.agentStatus = "cleared";
       broadcastAgentStatus({

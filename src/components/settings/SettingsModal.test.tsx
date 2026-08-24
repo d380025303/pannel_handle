@@ -45,6 +45,16 @@ describe("SettingsModal collapsible sections", () => {
         test: vi.fn()
       }
     });
+    Object.defineProperty(window, "openRouterApi", {
+      configurable: true,
+      value: {
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }),
+        setApiKey: vi.fn(),
+        clearApiKey: vi.fn(),
+        test: vi.fn(),
+        listModels: vi.fn()
+      }
+    });
   });
 
   afterEach(cleanup);

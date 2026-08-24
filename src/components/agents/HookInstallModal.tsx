@@ -12,7 +12,7 @@ type HookInstallModalProps = {
   onCancel: () => void;
 };
 
-const localProviders: HookProvider[] = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "qwen", "gemini"];
+const localProviders: HookProvider[] = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini"];
 const sshProviders: HookProvider[] = ["claude", "codex", "codebuddy", "opencode", "qoder"];
 
 const providerNames: Record<HookProvider, string> = {
@@ -22,8 +22,7 @@ const providerNames: Record<HookProvider, string> = {
   opencode: "OpenCode",
   qoder: "Qoder",
   gemini: "Gemini CLI",
-  copilot: "GitHub Copilot",
-  qwen: "Qwen Code"
+  copilot: "GitHub Copilot"
 };
 
 function getInitialProjectPath(session: TerminalSession) {

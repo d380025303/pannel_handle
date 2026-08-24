@@ -16,10 +16,6 @@ function qoderLine(id, inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "assistant", uuid: `row-${id}`, message: { id, model: "qoder-model", usage: { input_tokens: inputTokens, output_tokens: outputTokens }, content: [] } })}\n`;
 }
 
-function qwenLine(id, inputTokens, outputTokens) {
-  return `${JSON.stringify({ type: "assistant", uuid: `row-${id}`, message: { id, model: "qwen3-coder-plus", usage: { input_tokens: inputTokens, output_tokens: outputTokens }, content: [] } })}\n`;
-}
-
 function codeBuddyLine(id, inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "message", providerData: { messageId: id, model: "hy3", usage: { inputTokens, outputTokens } } })}\n`;
 }
@@ -70,6 +66,20 @@ async function flush() {
 }
 
 describe("agent token live statistics", () => {
+  it("ignores hooks from removed providers", async () => {
+    const harness = createHarness();
+    harness.service.handleHook({
+      provider: "qwen",
+      input: { ...harness.input, hook_event_name: "SessionStart" },
+      session: { ...harness.session, agentProvider: "qwen" }
+    });
+    await flush();
+
+    expect(harness.statsStore.setBaseline).not.toHaveBeenCalled();
+    expect(harness.statsStore.update).not.toHaveBeenCalled();
+    expect(harness.service.getLive("panel-1")).toBeNull();
+  });
+
   it("emits only current-turn Codex conversation messages through the live reader", async () => {
     const oldMessage = `${JSON.stringify({ type: "response_item", payload: { type: "message", id: "old", role: "assistant", phase: "final", content: [{ type: "output_text", text: "old" }] } })}\n`;
     const sink = { startTurn: vi.fn(), appendMessages: vi.fn(), completeTurn: vi.fn(), clearSession: vi.fn() };
@@ -355,42 +365,6 @@ describe("agent token live statistics", () => {
         tokens: expect.objectContaining({ totalTokens: 145 })
       })));
       expect(service.getLive("panel-qoder")?.state).toBe("completed");
-    } finally {
-      service.shutdown();
-      await rm(tempDirectory, { recursive: true, force: true });
-    }
-  });
-
-  it("tracks and persists Qwen Code transcript usage", async () => {
-    const tempDirectory = await mkdtemp(path.join(tmpdir(), "pannel-handle-qwen-token-"));
-    const transcriptPath = path.join(tempDirectory, "qwen.jsonl");
-    await writeFile(transcriptPath, qwenLine("one", 80, 20), "utf-8");
-    const intervals = [];
-    const statsStore = { setBaseline: vi.fn(), markEnded: vi.fn(), update: vi.fn(input => input) };
-    const service = createAgentTokenStatsService({
-      terminalManager: {}, statsStore, sshSessionRuntime: {}, retryDelaysMs: [0],
-      setIntervalFn: callback => { intervals.push(callback); return callback; },
-      clearIntervalFn: vi.fn()
-    });
-    const session = { id: "panel-qwen", type: "windows", title: "Qwen Code", cwd: "C:\\work", agentProvider: "qwen" };
-    const input = { session_id: "agent-qwen", transcript_path: transcriptPath, cwd: "C:\\work" };
-
-    try {
-      service.handleHook({ provider: "qwen", input: { ...input, hook_event_name: "SessionStart" }, session });
-      await vi.waitFor(() => expect(statsStore.setBaseline).toHaveBeenCalledWith("qwen", "agent-qwen", expect.objectContaining({ totalTokens: 100 }), expect.anything()));
-      service.handleHook({ provider: "qwen", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
-      await vi.waitFor(() => expect(service.getLive("panel-qwen")?.state).toBe("generating"));
-      await appendFile(transcriptPath, qwenLine("two", 10, 5), "utf-8");
-      await intervals[0]();
-      await vi.waitFor(() => expect(service.getLive("panel-qwen")).toMatchObject({ tokens: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }));
-
-      service.handleHook({ provider: "qwen", input: { ...input, hook_event_name: "Stop" }, session });
-      await vi.waitFor(() => expect(statsStore.update).toHaveBeenCalledWith(expect.objectContaining({
-        provider: "qwen",
-        agentSessionId: "agent-qwen",
-        tokens: expect.objectContaining({ totalTokens: 115 })
-      })));
-      expect(service.getLive("panel-qwen")?.state).toBe("completed");
     } finally {
       service.shutdown();
       await rm(tempDirectory, { recursive: true, force: true });

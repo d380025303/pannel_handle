@@ -9,7 +9,8 @@ const {
   safeInteger
 } = require("../services/token-usage/agent-token-transcript.cjs");
 
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "qwen", "gemini"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini"];
+const STORED_TOKEN_STATS_PROVIDERS = [...TOKEN_STATS_PROVIDERS, "qwen"];
 const SCHEMA_VERSION = 6;
 const LEGACY_STORE_VERSIONS = [1, 2];
 const TOKEN_COLUMNS = {
@@ -357,14 +358,14 @@ function createAgentTokenStatsStore({
       for (const record of records) writeRecord(record);
       for (const [date, providers] of Object.entries(parsed.daily || {})) {
         for (const [provider, tokens] of Object.entries(providers || {})) {
-          if (TOKEN_STATS_PROVIDERS.includes(provider)) addDaily(date, provider, tokens);
+          if (STORED_TOKEN_STATS_PROVIDERS.includes(provider)) addDaily(date, provider, tokens);
         }
       }
       for (const [key, value] of Object.entries(parsed.baselines || {})) {
         const separator = key.indexOf(":");
         const provider = key.slice(0, separator);
         const agentSessionId = key.slice(separator + 1);
-        if (!TOKEN_STATS_PROVIDERS.includes(provider) || !agentSessionId) continue;
+        if (!STORED_TOKEN_STATS_PROVIDERS.includes(provider) || !agentSessionId) continue;
         const baseline = value?.tokens ? value : { tokens: value, capabilities: emptyCapabilityUsage("unavailable") };
         writeBaseline(provider, agentSessionId, baseline.tokens, baseline.capabilities || emptyCapabilityUsage("unavailable"));
       }
@@ -499,7 +500,7 @@ function createAgentTokenStatsStore({
   }
 
   function queryFilter(provider, startAt, alias = "s") {
-    const clauses = [`${alias}.updated_at >= ?`];
+    const clauses = [`${alias}.updated_at >= ?`, `${alias}.provider <> 'qwen'`];
     const parameters = [startAt];
     if (provider !== "all") {
       clauses.push(`${alias}.provider = ?`);
@@ -538,7 +539,7 @@ function createAgentTokenStatsStore({
       .map(id => ({ provider: id, sessionCount: safeInteger(breakdownByProvider.get(id)?.session_count), tokens: tokensFromRow(breakdownByProvider.get(id)) }));
 
     const dailyParameters = [dayKey(startAt), ...(provider === "all" ? [] : [provider])];
-    const dailyRows = database.prepare(`SELECT date, ${TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ")} FROM token_daily WHERE date >= ?${provider === "all" ? "" : " AND provider = ?"} GROUP BY date ORDER BY date`).all(...dailyParameters);
+    const dailyRows = database.prepare(`SELECT date, ${TOKEN_FIELDS.map(field => `COALESCE(SUM(${TOKEN_COLUMNS[field]}), 0) AS ${TOKEN_COLUMNS[field]}`).join(", ")} FROM token_daily WHERE date >= ? AND provider <> 'qwen'${provider === "all" ? "" : " AND provider = ?"} GROUP BY date ORDER BY date`).all(...dailyParameters);
     const dailyTrend = dailyRows.map(row => ({ date: row.date, tokens: tokensFromRow(row) }));
 
     const topSkills = database.prepare(`SELECT k.name, SUM(k.count) AS count FROM token_session_skills k JOIN token_sessions s ON s.id = k.session_id WHERE ${filter.sql} GROUP BY k.name ORDER BY count DESC, k.name`).all(...filter.parameters).map(row => ({ name: row.name, count: safeInteger(row.count) }));

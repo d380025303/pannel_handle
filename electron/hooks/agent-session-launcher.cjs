@@ -8,7 +8,6 @@ const AGENT_COMMANDS = Object.freeze({
   opencode: "opencode",
   qoder: "qoder",
   copilot: "copilot",
-  qwen: "qwen",
   gemini: "gemini"
 });
 const MIN_GEMINI_VERSION = "0.26.0";
@@ -16,6 +15,9 @@ const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
 const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
 const AGENT_EXIT_MARKER_SUFFIX = "AGENT_EXIT__";
+const OPENROUTER_ENV_KEY = "OPENROUTER_API_KEY";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~:/@+-]{0,199}$/;
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -27,12 +29,24 @@ function getAgentCommand(provider) {
   return command;
 }
 
+function buildOpenRouterCodexCommand(model) {
+  if (!OPENROUTER_MODEL_PATTERN.test(String(model || ""))) {
+    throw new Error("请选择有效的 OpenRouter 模型。");
+  }
+  const overrides = [
+    "model_provider='openrouter'",
+    `model='${model}'`,
+    "model_providers.openrouter.name='OpenRouter'",
+    `model_providers.openrouter.base_url='${OPENROUTER_BASE_URL}'`,
+    "model_providers.openrouter.env_key='OPENROUTER_API_KEY'",
+    "model_providers.openrouter.wire_api='responses'"
+  ];
+  return `codex ${overrides.map(value => `-c \"${value}\"`).join(" ")}`;
+}
+
 function getAgentInstallHint(provider) {
   if (provider === "copilot") {
     return " 请先安装 GitHub Copilot CLI：Windows 可运行 winget install GitHub.Copilot，WSL 可运行 npm install -g @github/copilot。";
-  }
-  if (provider === "qwen") {
-    return " 请先运行 npm install -g @qwen-code/qwen-code。";
   }
   if (provider === "gemini") {
     return " 请先运行 npm install -g @google/gemini-cli@latest。";
@@ -82,7 +96,9 @@ function readGeminiVersion(session, spawnSync) {
 function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
-  let agentCommand = command;
+  let agentCommand = session.agentProvider === "codex" && session.codexBackend === "openrouter"
+    ? buildOpenRouterCodexCommand(session.codexModel)
+    : command;
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
     if (!runtime.hookUrl || !runtime.sessionId) {
@@ -118,10 +134,10 @@ function buildSshCommandCheckWarningCommand(provider, error) {
   return `printf '%s\\n' ${shellQuote(`[Pannel Handle] Remote ${provider} command check failed: ${message}. Starting anyway.`)} >&2`;
 }
 
-function buildLocalCodexStartCommand(binding) {
+function buildLocalCodexStartCommand(binding, session = {}) {
   const powerShellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
   const args = [
-    "codex",
+    session.codexBackend === "openrouter" ? buildOpenRouterCodexCommand(session.codexModel) : "codex",
     "-C",
     powerShellQuote(binding.workspacePath),
     "-s",
@@ -150,7 +166,8 @@ function createAgentSessionLauncher({
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
   getLocalBridgeShell = () => "powershell.exe",
-  getHomeDirectory = () => os.homedir()
+  getHomeDirectory = () => os.homedir(),
+  openRouterService
 }) {
   const switchingSessions = new Map();
   function resolveDefaultWorkingDirectory(session) {
@@ -169,9 +186,6 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentProvider === "copilot") {
       throw new Error("GitHub Copilot CLI 首期仅支持 Windows 和 WSL 会话。");
     }
-    if (session.type === "ssh" && session.agentProvider === "qwen") {
-      throw new Error("Qwen Code 首期仅支持 Windows 和 WSL 会话。");
-    }
     if (session.type === "ssh" && session.agentProvider === "gemini") {
       throw new Error("Gemini CLI 首期仅支持 Windows 和 WSL 会话。");
     }
@@ -185,6 +199,23 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentLocation === "local" && session.agentProvider !== "codex") {
       throw new Error("SSH 本地桥接首期仅支持 Codex。");
     }
+    if (session.codexBackend === "openrouter") {
+      if (session.agentProvider !== "codex") throw new Error("OpenRouter 后端仅支持 Codex 会话。");
+      if (session.type === "ssh" && session.agentLocation !== "local") {
+        throw new Error("远程 SSH Codex 暂不支持 OpenRouter，请使用本机桥接或远端自行配置。");
+      }
+      if (!OPENROUTER_MODEL_PATTERN.test(String(session.codexModel || ""))) {
+        throw new Error("请选择有效的 OpenRouter 模型。");
+      }
+      if (!openRouterService) throw new Error("OpenRouter 服务不可用。");
+      openRouterService.getApiKey();
+    }
+  }
+
+  function getOpenRouterRuntimeEnv(session) {
+    return session.agentProvider === "codex" && session.codexBackend === "openrouter"
+      ? { [OPENROUTER_ENV_KEY]: openRouterService.getApiKey() }
+      : {};
   }
 
   function assertLocalCommand(session) {
@@ -318,10 +349,10 @@ function createAgentSessionLauncher({
         terminalTransport: "local-agent",
         runtimeShell: getLocalBridgeShell(),
         runtimeCwd: binding.workspacePath,
-        runtimeEnv: { [binding.tokenEnv]: binding.token },
+        runtimeEnv: { [binding.tokenEnv]: binding.token, ...getOpenRouterRuntimeEnv(session) },
         runtimeInitialCommand: wrapAgentStartCommand(
           { type: "windows", shell: getLocalBridgeShell() },
-          buildLocalCodexStartCommand(binding)
+          buildLocalCodexStartCommand(binding, session)
         )
       });
     } catch (err) {
@@ -372,7 +403,7 @@ function createAgentSessionLauncher({
       }
     }
     const runtimeInitialCommand = await prepareLocal(request);
-    return terminalManager.createSession({ ...request, runtimeInitialCommand });
+    return terminalManager.createSession({ ...request, runtimeInitialCommand, runtimeEnv: getOpenRouterRuntimeEnv(request) });
   }
 
   async function launchSession(template, options = {}) {
@@ -392,7 +423,7 @@ function createAgentSessionLauncher({
         session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
         const runtimeInitialCommand = await prepareLocal(launchTemplate);
-        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand });
+        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, runtimeInitialCommand, runtimeEnv: getOpenRouterRuntimeEnv(launchTemplate) });
       }
     }
     if (recordUsage) onTemplateLaunched(launchTemplate.id);
@@ -419,6 +450,8 @@ function createAgentSessionLauncher({
       agentProvider: provider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      codexBackend: provider === "codex" ? "openai" : undefined,
+      codexModel: undefined,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,
@@ -450,7 +483,8 @@ function createAgentSessionLauncher({
       const replacement = terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
-        runtimeInitialCommand
+        runtimeInitialCommand,
+        runtimeEnv: getOpenRouterRuntimeEnv(target)
       });
       return target.type === "ssh" ? await finishSsh(replacement) : replacement;
     })();
@@ -468,6 +502,7 @@ function createAgentSessionLauncher({
 module.exports = {
   AGENT_COMMANDS,
   buildAgentStartCommand,
+  buildOpenRouterCodexCommand,
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,

@@ -104,14 +104,6 @@ describe("agent-notification-manager", () => {
     expect(notifications[0].options.title).toMatch(/^Qoder /);
   });
 
-  it("uses the Qwen Code provider name", () => {
-    const { manager, notifications } = createHarness();
-
-    manager.handleStatus(status("completed", "qwen"));
-
-    expect(notifications[0].options.title).toMatch(/^Qwen Code /);
-  });
-
   it("uses the Gemini CLI provider name", () => {
     const { manager, notifications } = createHarness();
     manager.handleStatus(status("completed", "gemini"));
