@@ -72,6 +72,7 @@ function createMocks(overrides = {}) {
     const invocation = `${command} ${(args || []).join(" ")}`;
     if (invocation.includes("codebuddy --version")) return { status: 0, stdout: "2.137.1" };
     if (invocation.includes("gemini --version")) return { status: 0, stdout: "0.56.0" };
+    if (invocation.includes("grok --version")) return { status: 0, stdout: "grok 0.2.106" };
     return { status: 0, stdout: "found" };
   });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
@@ -98,7 +99,8 @@ describe("agent-session-launcher", () => {
       opencode: "opencode",
       qoder: "qoder",
       copilot: "copilot",
-      gemini: "gemini"
+      gemini: "gemini",
+      grok: "grok"
     });
   });
 
@@ -128,6 +130,22 @@ describe("agent-session-launcher", () => {
     await expect(wsl.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "gemini" }))
       .rejects.toThrow("原生 Gemini CLI");
     await expect(wsl.launcher.createSession({ type: "ssh", cwd: "/work", agentProvider: "gemini" }))
+      .rejects.toThrow("仅支持 Windows 和 WSL");
+  });
+
+  it("requires official Grok CLI 0.2.106 or newer and rejects SSH", async () => {
+    const old = createMocks({
+      spawnSync: vi.fn((command) => command === "where.exe"
+        ? { status: 0, stdout: "grok.exe" }
+        : { status: 0, stdout: "grok 0.2.105" })
+    });
+    await expect(old.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "grok" }))
+      .rejects.toThrow("最低 0.2.106");
+
+    const current = createMocks();
+    await expect(current.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "grok" }))
+      .resolves.toMatchObject({ agentProvider: "grok" });
+    await expect(current.launcher.createSession({ type: "ssh", cwd: "/work", agentProvider: "grok" }))
       .rejects.toThrow("仅支持 Windows 和 WSL");
   });
 

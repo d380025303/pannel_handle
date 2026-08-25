@@ -1,8 +1,9 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 
-const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini"];
+const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const PROVIDER_CONFIG = {
   claude: {
     configPath: [".claude", "settings.local.json"],
@@ -103,6 +104,28 @@ const PROVIDER_CONFIG = {
       ["SessionEnd", "*"]
     ]
   },
+  grok: {
+    global: true,
+    configPath: [".grok", "hooks", "pannel-handle.json"],
+    windowsScriptPath: [".grok", "hooks", "pannel-handle-grok-hook.ps1"],
+    wslScriptPath: [".grok", "hooks", "pannel-handle-grok-hook.sh"],
+    windowsAsset: "pannel-handle-grok-hook.ps1",
+    wslAsset: "pannel-handle-grok-hook.sh",
+    windowsCommand: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File pannel-handle-grok-hook.ps1",
+    wslCommand: "bash pannel-handle-grok-hook.sh",
+    events: [
+      ["SessionStart", ""],
+      ["UserPromptSubmit", ""],
+      ["PreToolUse", ".*"],
+      ["PostToolUse", ".*"],
+      ["PostToolUseFailure", ".*"],
+      ["PermissionDenied", ".*"],
+      ["Stop", ""],
+      ["StopFailure", ""],
+      ["Notification", ".*"],
+      ["SessionEnd", ""]
+    ]
+  },
   copilot: {
     configPath: [".github", "hooks", "pannel-handle.json"],
     windowsScriptPath: [".github", "hooks", "scripts", "pannel-handle-copilot-hook.ps1"],
@@ -131,7 +154,7 @@ const PROVIDER_CONFIG = {
 };
 
 function isManagedCommand(command) {
-  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|copilot-|gemini-)?hook\.(?:ps1|sh)/i.test(command);
+  return typeof command === "string" && /pannel-handle-(?:codex-|codebuddy-|qoder-|copilot-|gemini-|grok-)?hook\.(?:ps1|sh)/i.test(command);
 }
 
 function normalizeProviders(providers) {
@@ -298,7 +321,7 @@ function buildConfig(config, provider, platform, commandOverride) {
   for (const [eventName, matcher] of definition.events) {
     const groups = Array.isArray(next.hooks[eventName]) ? next.hooks[eventName] : [];
     groups.push({
-      matcher,
+      ...(provider === "grok" && !matcher ? {} : { matcher }),
       hooks: [{ type: "command", command }]
     });
     next.hooks[eventName] = groups;
@@ -393,16 +416,38 @@ function atomicWrite(fsApi, filePath, content) {
   fsApi.renameSync(tempPath, filePath);
 }
 
-function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets"), fsApi = fs, spawnSync = defaultSpawnSync } = {}) {
+function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets"), fsApi = fs, spawnSync = defaultSpawnSync, getHomeDirectory = () => os.homedir() } = {}) {
+  function getWslHomePath(target) {
+    const result = spawnSync("wsl.exe", ["-d", target.wslDistro, "--", "sh", "-lc", "printf %s \"$HOME\""], {
+      encoding: "utf-8",
+      windowsHide: true
+    });
+    const homePath = String(result.stdout || "").trim();
+    if (result.error || result.status !== 0 || !homePath.startsWith("/")) {
+      throw new Error("无法读取 WSL 用户主目录，不能安装 Grok Hook。");
+    }
+    return homePath;
+  }
+
   function getProviderPaths(projectPath, target, provider) {
     const definition = PROVIDER_CONFIG[provider];
     const isWsl = target.type === "wsl";
     const projectPathApi = isWsl ? path.posix : path;
+    const rootPath = definition.global
+      ? (isWsl ? getWslHomePath(target) : getHomeDirectory())
+      : projectPath;
     return {
-      configPath: definition.configPath ? projectPathApi.join(projectPath, ...definition.configPath) : undefined,
-      scriptPath: projectPathApi.join(projectPath, ...(definition.scriptPath || (isWsl ? definition.wslScriptPath : definition.windowsScriptPath))),
+      configPath: definition.configPath ? projectPathApi.join(rootPath, ...definition.configPath) : undefined,
+      scriptPath: projectPathApi.join(rootPath, ...(definition.scriptPath || (isWsl ? definition.wslScriptPath : definition.windowsScriptPath))),
       assetPath: path.join(assetsDir, definition.asset || (isWsl ? definition.wslAsset : definition.windowsAsset))
     };
+  }
+
+  function getCommandOverride(paths, target, provider) {
+    if (provider !== "grok") return undefined;
+    return target.type === "wsl"
+      ? `bash ${shellQuote(paths.scriptPath)}`
+      : `powershell.exe -NoProfile -ExecutionPolicy Bypass -File '${paths.scriptPath.replace(/'/g, "''")}'`;
   }
 
   function inspect(target, providers = PROVIDERS) {
@@ -419,7 +464,7 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
         const expectedScript = targetFsApi.readFileSync(paths.assetPath, "utf-8");
         const scriptMatches = targetFsApi.existsSync(paths.scriptPath) && targetFsApi.readFileSync(paths.scriptPath, "utf-8") === expectedScript;
         const config = paths.configPath ? readJsonFile(targetFsApi, paths.configPath) : undefined;
-        const expectedConfig = config ? buildConfig(config.value, provider, target.type) : undefined;
+        const expectedConfig = config ? buildConfig(config.value, provider, target.type, getCommandOverride(paths, target, provider)) : undefined;
         const managedCount = config ? countManagedCommands(config.value) : (targetFsApi.existsSync(paths.scriptPath) ? 1 : 0);
         const expectedCount = PROVIDER_CONFIG[provider].events?.length || 1;
         const configMatches = config ? JSON.stringify(config.value) === JSON.stringify(expectedConfig) : true;
@@ -455,7 +500,7 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
         const script = targetFsApi.readFileSync(paths.assetPath, "utf-8");
         if (paths.configPath) {
           const config = readJsonFile(targetFsApi, paths.configPath);
-          writes.push([paths.configPath, `${JSON.stringify(buildConfig(config.value, provider, target.type), null, 2)}\n`]);
+          writes.push([paths.configPath, `${JSON.stringify(buildConfig(config.value, provider, target.type, getCommandOverride(paths, target, provider)), null, 2)}\n`]);
         }
         writes.push([paths.scriptPath, script]);
       }

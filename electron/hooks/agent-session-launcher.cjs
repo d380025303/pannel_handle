@@ -8,9 +8,11 @@ const AGENT_COMMANDS = Object.freeze({
   opencode: "opencode",
   qoder: "qoder",
   copilot: "copilot",
-  gemini: "gemini"
+  gemini: "gemini",
+  grok: "grok"
 });
 const MIN_GEMINI_VERSION = "0.26.0";
+const MIN_GROK_VERSION = "0.2.106";
 const MIN_CODEBUDDY_BRIDGE_VERSION = "2.54.0";
 const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
 const OPENCODE_REMOTE_AGENT = "pannel-handle-remote";
@@ -37,6 +39,9 @@ function getAgentInstallHint(provider) {
   }
   if (provider === "gemini") {
     return " 请先运行 npm install -g @google/gemini-cli@latest。";
+  }
+  if (provider === "grok") {
+    return " 请安装或升级 xAI 官方 Grok CLI：Windows 运行 irm https://x.ai/cli/install.ps1 | iex，WSL 运行 curl -fsSL https://x.ai/cli/install.sh | bash。";
   }
   return provider === "codebuddy"
     ? " 请先运行 npm install -g @tencent-ai/codebuddy-code。"
@@ -98,6 +103,25 @@ function readGeminiVersion(session, spawnSync) {
   if (!match) throw new Error(`无法识别 Gemini CLI 版本。${getAgentInstallHint("gemini")}`);
   if (compareVersions(match[1], MIN_GEMINI_VERSION) < 0) {
     throw new Error(`Gemini CLI 版本过低（当前 ${match[1]}，最低 ${MIN_GEMINI_VERSION}）。${getAgentInstallHint("gemini")}`);
+  }
+  return match[1];
+}
+
+function readGrokVersion(session, spawnSync) {
+  const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
+  const result = session.type === "wsl"
+    ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", "resolved=$(command -v grok) || exit 127; case \"$resolved\" in /mnt/*) echo WINDOWS_SHIM >&2; exit 126;; esac; grok --version"], options)
+    : spawnSync("cmd.exe", ["/d", "/s", "/c", "grok --version"], options);
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || "").includes("WINDOWS_SHIM")
+      ? "WSL 中检测到的是 Windows Grok shim，请在该 WSL 发行版内安装原生 Grok CLI。"
+      : `无法读取 Grok CLI 版本。${getAgentInstallHint("grok")}`;
+    throw new Error(detail);
+  }
+  const match = String(result.stdout || result.stderr || "").match(/\b(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\b/);
+  if (!match) throw new Error(`无法识别 Grok CLI 版本。${getAgentInstallHint("grok")}`);
+  if (compareVersions(match[1], MIN_GROK_VERSION) < 0) {
+    throw new Error(`Grok CLI 版本过低（当前 ${match[1]}，最低 ${MIN_GROK_VERSION}）。${getAgentInstallHint("grok")}`);
   }
   return match[1];
 }
@@ -285,6 +309,9 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentProvider === "gemini") {
       throw new Error("Gemini CLI 首期仅支持 Windows 和 WSL 会话。");
     }
+    if (session.type === "ssh" && session.agentProvider === "grok") {
+      throw new Error("Grok CLI 首期仅支持 Windows 和 WSL 会话。");
+    }
     const cwd = String(session.cwd || "").trim();
     if (!cwd || cwd === "~") {
       throw new Error("选择 Agent CLI 时必须填写明确的项目工作目录。");
@@ -310,6 +337,7 @@ function createAgentSessionLauncher({
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
     }
     if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
+    if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
     if (session.agentProvider === "codebuddy" && session.agentLocation === "local") readCodeBuddyVersion(spawnSync);
     if (session.type === "windows" && session.agentProvider === "copilot") {
       const powerShell = spawnSync("where.exe", ["pwsh"], { encoding: "utf-8", windowsHide: true });
@@ -629,5 +657,6 @@ module.exports = {
   getAgentCommand,
   compareVersions,
   readCodeBuddyVersion,
-  readGeminiVersion
+  readGeminiVersion,
+  readGrokVersion
 };

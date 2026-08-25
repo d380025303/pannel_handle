@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 
-const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini"]);
+const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
 const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 

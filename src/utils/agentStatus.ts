@@ -49,6 +49,7 @@ function getAgentName(status: AgentStatusPayload) {
   if (status.provider === "qoder") return "Qoder";
   if (status.provider === "copilot") return "GitHub Copilot";
   if (status.provider === "gemini") return "Gemini CLI";
+  if (status.provider === "grok") return "Grok CLI";
   return "Claude";
 }
 

@@ -450,7 +450,7 @@ export type ProjectSearchOptions = {
   includeIgnored?: boolean;
 };
 
-export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
 export type CodexBackend = "openai" | "openrouter";
 
 export type OpenRouterModel = {
@@ -554,7 +554,7 @@ export type AgentStatusPayload = {
 
 export type AgentConversationMessage = {
   id: string;
-  provider: "codex" | "codebuddy" | "gemini";
+  provider: "codex" | "codebuddy" | "gemini" | "grok";
   kind: "user" | "commentary" | "final" | "reply";
   text: string;
   timestamp: number;
@@ -563,7 +563,7 @@ export type AgentConversationMessage = {
 export type AgentConversationTurn = {
   sessionId: string;
   sessionTitle: string;
-  provider: "codex" | "codebuddy" | "gemini";
+  provider: "codex" | "codebuddy" | "gemini" | "grok";
   status: "running" | "completed" | "unsupported";
   supported: boolean;
   messages: AgentConversationMessage[];
@@ -576,7 +576,7 @@ export type AgentConversationSnapshot = {
 
 export type AgentConversationHistoryItem = {
   ref: string;
-  provider: "codex" | "codebuddy" | "gemini";
+  provider: "codex" | "codebuddy" | "gemini" | "grok";
   title: string;
   preview: string;
   cwd: string;
@@ -586,13 +586,13 @@ export type AgentConversationHistoryItem = {
 };
 
 export type AgentConversationHistoryError = {
-  provider: "codex" | "codebuddy" | "gemini";
+  provider: "codex" | "codebuddy" | "gemini" | "grok";
   message: string;
 };
 
 export type AgentConversationHistoryListInput = {
   panelSessionId: string;
-  providers?: Array<"codex" | "codebuddy" | "gemini">;
+  providers?: Array<"codex" | "codebuddy" | "gemini" | "grok">;
   scope?: "cwd" | "all";
   includeArchived?: boolean;
   query?: string;
@@ -770,7 +770,7 @@ export type AgentCapabilityUsage = {
 
 export type AgentTokenSessionRecord = {
   id: string;
-  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
   agentSessionId: string;
   panelSessionId: string;
   templateId?: string;
@@ -788,10 +788,10 @@ export type AgentTokenSessionRecord = {
 export type AgentTokenDashboard = {
   generatedAt: number;
   range: "7d" | "30d" | "all";
-  provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+  provider: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
   summary: { sessionCount: number; averageTokens: number; skillCalls: number; mcpCalls: number; tokens: AgentTokenTotals };
   dailyTrend: Array<{ date: string; tokens: AgentTokenTotals }>;
-  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini"; sessionCount: number; tokens: AgentTokenTotals }>;
+  providerBreakdown: Array<{ provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok"; sessionCount: number; tokens: AgentTokenTotals }>;
   topSkills: Array<{ name: string; count: number }>;
   topMcpServers: Array<{ name: string; count: number; tools: Array<{ name: string; count: number }> }>;
   sessions: AgentTokenSessionRecord[];
@@ -802,7 +802,7 @@ export type AgentTokenDashboard = {
 
 export type AgentTokenLiveSnapshot = {
   panelSessionId: string;
-  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+  provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
   state: "waiting" | "generating" | "completed" | "unavailable";
   tokens: AgentTokenTotals;
   capabilities: AgentCapabilityUsage;
@@ -813,7 +813,7 @@ export type AgentTokenLiveSnapshot = {
 };
 
 export type AgentTokenStatsApi = {
-  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  getDashboard: (options?: { range?: "7d" | "30d" | "all"; provider?: "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok"; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
   getLive: (sessionId: string) => Promise<AgentTokenLiveSnapshot | null>;
   clear: () => Promise<boolean>;
   onChanged: (callback: (payload: { timestamp: number }) => void) => () => void;

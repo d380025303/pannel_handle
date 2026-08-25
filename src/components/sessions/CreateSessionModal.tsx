@@ -57,7 +57,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
 
   const isSsh = selectedShellId === "ssh";
   useEffect(() => {
-    if (isSsh && (agentProvider === "copilot" || agentProvider === "gemini")) setAgentProvider(undefined);
+    if (isSsh && (agentProvider === "copilot" || agentProvider === "gemini" || agentProvider === "grok")) setAgentProvider(undefined);
   }, [agentProvider, isSsh]);
   const canCreate = useMemo(
     () => (!isSsh || sshHost.trim().length > 0)
@@ -151,7 +151,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
               SSH
             </button>
           </div>
-          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini"] : []} onChange={(provider) => {
+          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => {
             setAgentProvider(provider);
             if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");
             if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local");

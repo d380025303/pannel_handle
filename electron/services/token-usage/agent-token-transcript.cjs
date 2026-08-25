@@ -100,6 +100,21 @@ function normalizeGeminiUsage(usage) {
   };
 }
 
+function normalizeGrokUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const inputTokens = safeInteger(usage.inputTokens ?? usage.input_tokens);
+  const cachedInputTokens = safeInteger(usage.cachedReadTokens ?? usage.cacheReadInputTokens ?? usage.cached_input_tokens);
+  const outputTokens = safeInteger(usage.outputTokens ?? usage.output_tokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens: 0,
+    outputTokens,
+    reasoningOutputTokens: safeInteger(usage.reasoningTokens ?? usage.reasoning_output_tokens),
+    totalTokens: safeInteger(usage.totalTokens ?? usage.total_tokens) || inputTokens + cachedInputTokens + outputTokens
+  };
+}
+
 function sumUsageDetail(details, field) {
   if (!Array.isArray(details)) return 0;
   return details.reduce((total, detail) => total + safeInteger(detail?.[field]), 0);
@@ -236,7 +251,7 @@ function codexToolOutputSucceeded(payload) {
 }
 
 function createIncrementalTranscriptParser(provider) {
-  if (!["codex", "claude", "codebuddy", "qoder", "gemini"].includes(provider)) {
+  if (!["codex", "claude", "codebuddy", "qoder", "gemini", "grok"].includes(provider)) {
     throw new Error(`Unsupported live token provider: ${provider}`);
   }
   let latestCodexTokens = null;
@@ -244,6 +259,7 @@ function createIncrementalTranscriptParser(provider) {
   const codeBuddyMessages = new Map();
   const qoderMessages = new Map();
   const geminiMessages = new Map();
+  const grokTurns = new Map();
   const models = new Set();
   const skillCalls = new Map();
   const mcpCalls = new Map();
@@ -368,6 +384,29 @@ function createIncrementalTranscriptParser(provider) {
     return recordGeminiMessage(item);
   }
 
+  function applyGrokRecord(item) {
+    const params = item?.params || {};
+    const update = params.update || {};
+    const updateType = update.sessionUpdate;
+    if (!updateType) return false;
+    if (updateType === "turn_completed") {
+      const usage = normalizeGrokUsage(update.usage);
+      const turnId = String(params._meta?.promptId || update.prompt_id || params._meta?.eventId || item.timestamp || grokTurns.size);
+      if (usage) grokTurns.set(turnId, usage);
+      const model = update.usage?.modelUsage && Object.keys(update.usage.modelUsage)[0];
+      if (model) models.add(model);
+      return Boolean(usage);
+    }
+    if (updateType !== "tool_call") return false;
+    const metadata = update._meta?.["x.ai/tool"] || {};
+    const namespace = String(metadata.namespace || "").trim();
+    const name = String(update.tool_name || metadata.name || metadata.kind || "").trim();
+    const qualifiedName = namespace && namespace !== "grok_build" && name
+      ? `mcp__${namespace}__${name}`
+      : name;
+    return recordToolCall(qualifiedName, update.rawInput || metadata.input, update.toolCallId || params._meta?.eventId);
+  }
+
   function pushLine(line) {
     let item;
     try { item = JSON.parse(line); } catch { return false; }
@@ -402,6 +441,7 @@ function createIncrementalTranscriptParser(provider) {
     }
 
     if (provider === "gemini") return applyGeminiRecord(item);
+    if (provider === "grok") return applyGrokRecord(item);
 
     const providerData = item?.providerData;
     const capabilityChanged = recordCodeBuddyTools(item);
@@ -426,7 +466,9 @@ function createIncrementalTranscriptParser(provider) {
         ? qoderMessages
         : provider === "gemini"
           ? geminiMessages
-          : codeBuddyMessages;
+          : provider === "grok"
+            ? grokTurns
+            : codeBuddyMessages;
     if (messages.size === 0 && !capabilities.skills.totalCalls && !capabilities.mcp.totalCalls) return null;
     const tokens = emptyTokens();
     for (const usage of messages.values()) addTokens(tokens, usage);
@@ -442,7 +484,7 @@ function cloneTokens(tokens) {
 
 function parseTranscriptText(provider, text) {
   const lines = String(text || "").split(/\r?\n/).filter(Boolean);
-  if (["codex", "claude", "codebuddy", "qoder", "gemini"].includes(provider)) {
+  if (["codex", "claude", "codebuddy", "qoder", "gemini", "grok"].includes(provider)) {
     const parser = createIncrementalTranscriptParser(provider);
     if (provider === "gemini") {
       try {
@@ -460,7 +502,7 @@ function parseTranscriptText(provider, text) {
     }
     for (const line of lines) parser.pushLine(line);
     const result = parser.getResult();
-    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini CLI" : "CodeBuddy"} transcript does not contain usage yet.`);
+    if (!result) throw new Error(`${provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini CLI" : provider === "grok" ? "Grok CLI" : "CodeBuddy"} transcript does not contain usage yet.`);
     return result;
   }
 
@@ -533,6 +575,7 @@ module.exports = {
   normalizeCodeBuddyUsage,
   normalizeQoderTokenUsage,
   normalizeGeminiUsage,
+  normalizeGrokUsage,
   normalizeCapabilityUsage,
   normalizeCodexUsage,
   parseTranscriptFile,

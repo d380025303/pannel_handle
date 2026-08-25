@@ -7,17 +7,17 @@ export const QODER_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 
 export type AgentUsageViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" }
+  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" | "grok" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" | "grok" };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini"
+  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini" || session?.agentProvider === "grok"
     ? session.agentProvider
     : undefined;
   const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter")
-    || provider === "copilot"
+    || provider === "copilot" || provider === "grok"
     || (provider === "codebuddy" && session?.type === "windows")
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
     || (provider === "gemini" && (session?.type === "windows" || session?.type === "wsl"));
@@ -28,7 +28,7 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
 
   const load = useCallback(async (force = false) => {
     if (!sessionId || !provider || !isSupported) return;
-    if (provider === "copilot") {
+    if (provider === "copilot" || provider === "grok") {
       setState({ status: "error", provider });
       return;
     }
@@ -55,7 +55,7 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
       return;
     }
 
-    if (provider === "copilot") {
+    if (provider === "copilot" || provider === "grok") {
       setState({ status: "error", provider });
       return;
     }

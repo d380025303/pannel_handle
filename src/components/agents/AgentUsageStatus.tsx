@@ -59,6 +59,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const isQoder = provider === "qoder";
   const isCopilot = provider === "copilot";
   const isGemini = provider === "gemini";
+  const isGrok = provider === "grok";
   const isCreditProvider = isCodeBuddy || isQoder;
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
     ? state.snapshot.summary
@@ -143,12 +144,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
+        title={t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
         onClick={onRefresh}
-        disabled={isCopilot}
+        disabled={isCopilot || isGrok}
       >
         <Gauge aria-hidden="true" />
-        <span>{t(isCopilot ? "usage.copilotUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : isGemini ? "usage.geminiUnavailable" : "usage.unavailable")}</span>
+        <span>{t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : isGemini ? "usage.geminiUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }

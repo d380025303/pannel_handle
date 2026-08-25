@@ -56,6 +56,21 @@ function createFixture() {
       { id: "ga2", timestamp: "2026-08-20T02:02:00Z", type: "gemini", content: "Gemini answer" }
     ] } })
   ].join("\n"), "utf-8");
+
+  const grokSession = path.join(homeDir, ".grok", "sessions", "C%3A%5Cwork", "019f877f-f9bd-7d03-bc33-9bebe6a9529f");
+  fs.mkdirSync(grokSession, { recursive: true });
+  fs.writeFileSync(path.join(grokSession, "summary.json"), JSON.stringify({
+    info: { id: "019f877f-f9bd-7d03-bc33-9bebe6a9529f", cwd: "C:\\work" },
+    generated_title: "Grok title",
+    session_summary: "Grok summary",
+    created_at: "2026-08-20T03:00:00Z",
+    updated_at: "2026-08-20T03:02:00Z"
+  }), "utf-8");
+  fs.writeFileSync(path.join(grokSession, "updates.jsonl"), [
+    JSON.stringify({ timestamp: 300000, params: { _meta: { promptId: "prompt-1", eventId: "user-1", chunkId: 1 }, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Grok question" } } } }),
+    JSON.stringify({ timestamp: 301000, params: { _meta: { promptId: "prompt-1", eventId: "agent-1", chunkId: 2 }, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Grok " } } } }),
+    JSON.stringify({ timestamp: 302000, params: { _meta: { promptId: "prompt-1", eventId: "agent-2", chunkId: 3 }, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } } } })
+  ].join("\n"), "utf-8");
   return homeDir;
 }
 
@@ -120,6 +135,19 @@ describe("Agent conversation history service", () => {
     const detail = await service.getHistoryMessages({ panelSessionId: "run-1", conversationRef: history.items[0].ref });
     expect(detail.messages.map(message => message.text)).toEqual(["Gemini answer", "Gemini question"]);
     expect(JSON.stringify(detail.messages)).not.toContain("obsolete");
+  });
+
+  it("lists Grok summaries and combines visible message chunks", async () => {
+    const service = localService(createFixture());
+    const history = await service.listHistory({ panelSessionId: "run-1", providers: ["grok"], scope: "cwd" });
+    expect(history.errors).toEqual([]);
+    expect(history.items[0]).toMatchObject({ provider: "grok", title: "Grok title", preview: "Grok summary", cwd: "C:\\work" });
+
+    const detail = await service.getHistoryMessages({ panelSessionId: "run-1", conversationRef: history.items[0].ref });
+    expect(detail.messages.map(message => [message.kind, message.text])).toEqual([
+      ["reply", "Grok answer"],
+      ["user", "Grok question"]
+    ]);
   });
 
   it("rejects forged conversation references", async () => {

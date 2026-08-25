@@ -11,8 +11,8 @@ import type {
 } from "../../vite-env";
 import { useI18n } from "../../i18n";
 
-function providerName(provider?: "codex" | "codebuddy" | "gemini") {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "gemini" ? "Gemini CLI" : "Codex";
+function providerName(provider?: "codex" | "codebuddy" | "gemini" | "grok") {
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "gemini" ? "Gemini CLI" : provider === "grok" ? "Grok CLI" : "Codex";
 }
 
 function highlightText(text: string, query: string, nextIndex: () => number, activeIndex: number): ReactNode {
@@ -50,7 +50,7 @@ function highlightChildren(children: ReactNode, query: string, nextIndex: () => 
   return cloneElement(children, undefined, highlightChildren(children.props.children, query, nextIndex, activeIndex));
 }
 
-type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "gemini";
+type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "gemini" | "grok";
 
 export function AgentConversationPanel({
   snapshot,
@@ -97,7 +97,7 @@ export function AgentConversationPanel({
   const historyProviderFilters = useMemo(
     () => session?.type === "ssh"
       ? (["all", "codex", "codebuddy"] as const)
-      : (["all", "codex", "codebuddy", "gemini"] as const),
+      : (["all", "codex", "codebuddy", "gemini", "grok"] as const),
     [session?.type]
   );
 
@@ -120,7 +120,7 @@ export function AgentConversationPanel({
       const result = await window.agentConversationApi.listHistory({
         panelSessionId: session.id,
         providers: providerFilter === "all"
-          ? (session.type === "ssh" ? ["codex", "codebuddy"] : ["codex", "codebuddy", "gemini"])
+          ? (session.type === "ssh" ? ["codex", "codebuddy"] : ["codex", "codebuddy", "gemini", "grok"])
           : [providerFilter],
         scope,
         includeArchived,

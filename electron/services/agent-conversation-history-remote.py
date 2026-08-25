@@ -8,7 +8,7 @@ import re
 import sqlite3
 import sys
 
-PROVIDERS = {"codex", "codebuddy", "gemini"}
+PROVIDERS = {"codex", "codebuddy", "gemini", "grok"}
 
 
 def decode_payload():
@@ -193,6 +193,62 @@ def list_gemini(payload):
     return items
 
 
+def grok_session_dirs():
+    root = os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok")
+    return [directory for directory in glob.glob(os.path.join(root, "sessions", "*", "*"))
+            if os.path.isdir(directory) and re.fullmatch(r"[0-9a-fA-F-]{36}", os.path.basename(directory))]
+
+
+def grok_messages(directory):
+    messages = {}
+    for item in iter_jsonl(os.path.join(directory, "updates.jsonl")):
+        params = item.get("params") or {}
+        update = params.get("update") or {}
+        update_type = update.get("sessionUpdate")
+        if update_type not in {"user_message_chunk", "agent_message_chunk"}:
+            continue
+        content = update.get("content")
+        text = content if isinstance(content, str) else get_text(content) if isinstance(content, list) else str((content or {}).get("text") or "")
+        if not text:
+            continue
+        meta = params.get("_meta") or {}
+        kind = "user" if update_type == "user_message_chunk" else "reply"
+        prompt_id = str(meta.get("promptId") or update.get("prompt_id") or meta.get("eventId") or item.get("timestamp") or len(messages))
+        key = f"{prompt_id}:{kind}"
+        if key in messages:
+            messages[key]["text"] += text
+            messages[key]["timestamp"] = min(messages[key]["timestamp"], timestamp_ms(item.get("timestamp")))
+        else:
+            messages[key] = {"id": key, "provider": "grok", "kind": kind, "text": text, "timestamp": timestamp_ms(item.get("timestamp"))}
+    return [{**message, "text": message["text"].strip()} for message in messages.values() if message["text"].strip()]
+
+
+def list_grok(payload):
+    expected_cwd = str(payload.get("cwd") or "").rstrip("/")
+    items = []
+    for directory in grok_session_dirs():
+        summary_file = os.path.join(directory, "summary.json")
+        try:
+            with open(summary_file, encoding="utf-8") as source:
+                summary = json.load(source)
+        except (OSError, ValueError):
+            continue
+        cwd = str((summary.get("info") or {}).get("cwd") or "")
+        if payload.get("scope") != "all" and cwd.rstrip("/") != expected_cwd:
+            continue
+        preview = str(summary.get("session_summary") or "").strip()
+        session_id = os.path.basename(directory)
+        items.append({
+            "ref": f"grok:{session_id}", "provider": "grok",
+            "title": str(summary.get("generated_title") or preview or "Grok conversation").strip(),
+            "preview": preview, "cwd": cwd,
+            "createdAt": timestamp_ms(summary.get("created_at")),
+            "updatedAt": timestamp_ms(summary.get("last_active_at") or summary.get("updated_at")) or int(os.path.getmtime(summary_file) * 1000),
+            "archived": False,
+        })
+    return items
+
+
 def parse_messages(provider, file_name):
     messages = []
     seen = set()
@@ -281,16 +337,16 @@ def cursor(payload):
 
 
 def list_history(payload):
-    providers = payload.get("providers") or ["codex", "codebuddy", "gemini"]
+    providers = payload.get("providers") or ["codex", "codebuddy", "gemini", "grok"]
     if any(provider not in PROVIDERS for provider in providers):
         raise RuntimeError("Unsupported history provider")
     items = []
     errors = []
     for provider in providers:
         try:
-            items.extend(list_codex(payload) if provider == "codex" else list_gemini(payload) if provider == "gemini" else list_codebuddy(payload))
+            items.extend(list_codex(payload) if provider == "codex" else list_gemini(payload) if provider == "gemini" else list_grok(payload) if provider == "grok" else list_codebuddy(payload))
         except Exception:
-            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'Gemini' if provider == 'gemini' else 'CodeBuddy'} history is unavailable."})
+            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'Gemini' if provider == 'gemini' else 'Grok' if provider == 'grok' else 'CodeBuddy'} history is unavailable."})
     query = str(payload.get("query") or "").strip().lower()
     if query:
         items = [item for item in items if any(query in str(item.get(field) or "").lower() for field in ("title", "preview", "cwd"))]
@@ -302,15 +358,22 @@ def list_history(payload):
 
 
 def history_messages(payload):
-    match = re.fullmatch(r"(codex|codebuddy|gemini):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
+    match = re.fullmatch(r"(codex|codebuddy|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
     if not match:
         raise RuntimeError("Invalid conversation reference")
     provider, session_id = match.groups()
-    file_name = codex_rollout(session_id) if provider == "codex" else gemini_transcript(session_id) if provider == "gemini" else codebuddy_transcript(session_id)
+    if provider == "grok":
+        directory = next((candidate for candidate in grok_session_dirs() if os.path.basename(candidate) == session_id), None)
+        if not directory:
+            raise RuntimeError("Grok conversation is unavailable")
+        messages = grok_messages(directory)
+        file_name = None
+    else:
+        file_name = codex_rollout(session_id) if provider == "codex" else gemini_transcript(session_id) if provider == "gemini" else codebuddy_transcript(session_id)
     if provider == "gemini":
         messages = [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
                     for item in gemini_messages(file_name) if isinstance(item.get("content"), str) and item.get("content").strip()]
-    else:
+    elif provider != "grok":
         messages = parse_messages(provider, file_name)
     messages = sorted(messages, key=lambda item: -item["timestamp"])
     offset = cursor(payload)

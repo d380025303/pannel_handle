@@ -20,13 +20,29 @@ function codeBuddyLine(id, inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "message", providerData: { messageId: id, model: "hy3", usage: { inputTokens, outputTokens } } })}\n`;
 }
 
-function createMemoryFiles(initial = "") {
+function grokTurnLine(promptId, inputTokens, cachedReadTokens, outputTokens) {
+  return `${JSON.stringify({
+    timestamp: 1,
+    params: {
+      _meta: { promptId },
+      update: {
+        sessionUpdate: "turn_completed",
+        usage: { inputTokens, cachedReadTokens, outputTokens, totalTokens: inputTokens + cachedReadTokens + outputTokens, modelUsage: { "grok-build": {} } }
+      }
+    }
+  })}\n`;
+}
+
+function createMemoryFiles(initial = "", { beforeStat } = {}) {
   let content = Buffer.from(initial);
   return {
     append(value) { content = Buffer.concat([content, Buffer.from(value)]); },
     truncate(value = "") { content = Buffer.from(value); },
     promises: {
-      stat: vi.fn(async () => ({ size: content.length })),
+      stat: vi.fn(async () => {
+        await beforeStat?.();
+        return { size: content.length };
+      }),
       open: vi.fn(async () => ({
         read: async (target, offset, length, position) => {
           const source = content.subarray(position, position + length);
@@ -39,8 +55,8 @@ function createMemoryFiles(initial = "") {
   };
 }
 
-function createHarness({ initial = "", now = 1_000, conversationSink = null } = {}) {
-  const files = createMemoryFiles(initial);
+function createHarness({ initial = "", now = 1_000, conversationSink = null, beforeStat } = {}) {
+  const files = createMemoryFiles(initial, { beforeStat });
   const broadcasts = [];
   const intervals = [];
   let clock = now;
@@ -304,7 +320,7 @@ describe("agent token live statistics", () => {
       session_id: "main-agent",
       transcript_path: "C:\\work\\main.jsonl"
     };
-    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart" }, session });
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart", source: "resume" }, session });
     await flush();
     harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
     await flush();
@@ -329,6 +345,79 @@ describe("agent token live statistics", () => {
       tokens: { inputTokens: 60, outputTokens: 30 }
     });
     expect(harness.statsStore.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["startup", undefined])("keeps the first CodeBuddy usage outside the %s session baseline", async (source) => {
+    let releaseStat;
+    const statGate = new Promise(resolve => { releaseStat = resolve; });
+    const harness = createHarness({ beforeStat: () => statGate });
+    const session = { ...harness.session, agentProvider: "codebuddy" };
+    const input = {
+      ...harness.input,
+      session_id: "codebuddy-new",
+      transcript_path: "C:\\work\\codebuddy-new.jsonl"
+    };
+
+    harness.service.handleHook({
+      provider: "codebuddy",
+      input: { ...input, hook_event_name: "SessionStart", ...(source ? { source } : {}) },
+      session
+    });
+    harness.files.append(codeBuddyLine("first-response", 80, 25));
+    releaseStat();
+
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")).toMatchObject({
+      provider: "codebuddy",
+      tokens: { inputTokens: 80, outputTokens: 25, totalTokens: 105 }
+    }));
+  });
+
+  it("resets a reused CodeBuddy tracker after clear", async () => {
+    const harness = createHarness({ initial: codeBuddyLine("before-clear", 100, 20) });
+    const session = { ...harness.session, agentProvider: "codebuddy" };
+    const input = {
+      ...harness.input,
+      session_id: "codebuddy-clear",
+      transcript_path: "C:\\work\\codebuddy-clear.jsonl"
+    };
+
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart", source: "resume" }, session });
+    await flush();
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart", source: "clear" }, session });
+    harness.files.truncate();
+    harness.service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
+    await flush();
+    harness.files.append(codeBuddyLine("after-clear", 35, 12));
+    await harness.intervals[0]();
+
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")).toMatchObject({
+      provider: "codebuddy",
+      state: "generating",
+      tokens: { inputTokens: 35, outputTokens: 12, totalTokens: 47 }
+    }));
+  });
+
+  it("tracks Grok usage from ACP updates with snake-case hook events", async () => {
+    const harness = createHarness();
+    const session = { ...harness.session, agentProvider: "grok" };
+    const input = {
+      sessionId: "grok-session",
+      transcriptPath: "C:\\work\\updates.jsonl"
+    };
+
+    harness.service.handleHook({ provider: "grok", input: { ...input, hookEventName: "session_start" }, session });
+    await flush();
+    harness.service.handleHook({ provider: "grok", input: { ...input, hookEventName: "user_prompt_submit" }, session });
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")?.state).toBe("generating"));
+    harness.files.append(grokTurnLine("turn-one", 12, 8, 5));
+    await harness.intervals[0]();
+
+    await vi.waitFor(() => expect(harness.service.getLive("panel-1")).toMatchObject({
+      provider: "grok",
+      state: "generating",
+      tokens: { inputTokens: 12, cachedInputTokens: 8, outputTokens: 5, totalTokens: 25 },
+      models: ["grok-build"]
+    }));
   });
 
   it("tracks and persists Qoder transcript usage", async () => {

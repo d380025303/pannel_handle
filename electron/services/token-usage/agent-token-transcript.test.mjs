@@ -35,6 +35,35 @@ describe("agent token transcript parser", () => {
     ] }, null, 2));
     expect(result.tokens).toMatchObject({ inputTokens: 10, cachedInputTokens: 2, outputTokens: 3, totalTokens: 15 });
   });
+
+  it("sums Grok per-turn usage and deduplicates Grok tool updates", () => {
+    const turn = (promptId, usage) => JSON.stringify({
+      timestamp: 1,
+      params: { _meta: { promptId }, update: { sessionUpdate: "turn_completed", usage } }
+    });
+    const tool = (eventId, namespace, name) => JSON.stringify({
+      timestamp: 2,
+      params: {
+        _meta: { eventId },
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: eventId,
+          _meta: { "x.ai/tool": { namespace, name, kind: "execute" } },
+          rawInput: { value: 1 }
+        }
+      }
+    });
+    const result = parseTranscriptText("grok", [
+      turn("one", { inputTokens: 10, cachedReadTokens: 20, outputTokens: 5, reasoningTokens: 2, totalTokens: 35, modelUsage: { "grok-build": {} } }),
+      turn("two", { inputTokens: 7, cachedReadTokens: 3, outputTokens: 4, reasoningTokens: 1, totalTokens: 14, modelUsage: { "grok-build": {} } }),
+      tool("tool-one", "jira", "get_issue"),
+      tool("tool-one", "jira", "get_issue")
+    ].join("\n"));
+
+    expect(result.tokens).toEqual({ inputTokens: 17, cachedInputTokens: 23, cacheWriteInputTokens: 0, outputTokens: 9, reasoningOutputTokens: 3, totalTokens: 49 });
+    expect(result.models).toEqual(["grok-build"]);
+    expect(result.capabilities.mcp).toMatchObject({ totalCalls: 1, servers: [{ name: "jira", count: 1, tools: [{ name: "get_issue", count: 1 }] }] });
+  });
   it("reads the latest cumulative Codex token event", () => {
     const result = parseTranscriptText("codex", [
       JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 20, reasoning_output_tokens: 5, total_tokens: 120 } } } }),

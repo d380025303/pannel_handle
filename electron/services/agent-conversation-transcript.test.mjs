@@ -13,6 +13,14 @@ describe("Agent conversation transcript parser", () => {
     ].join("\n"), { includeUser: true });
     expect(messages.map(message => [message.kind, message.text])).toEqual([["user", "问题"], ["reply", "答案"]]);
   });
+  it("parses Grok user and assistant ACP chunks while excluding thoughts", () => {
+    const messages = parseAgentConversationText("grok", [
+      JSON.stringify({ timestamp: 1, params: { _meta: { eventId: "u1" }, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "问题" } } } }),
+      JSON.stringify({ timestamp: 2, params: { _meta: { eventId: "t1" }, update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "私有推理" } } } }),
+      JSON.stringify({ timestamp: 3, params: { _meta: { eventId: "a1" }, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "答案" } } } })
+    ].join("\n"), { includeUser: true });
+    expect(messages.map(message => [message.kind, message.text])).toEqual([["user", "问题"], ["reply", "答案"]]);
+  });
   it("parses user-visible Codex history while excluding reasoning and tools", () => {
     const messages = parseAgentConversationText("codex", [
       JSON.stringify({ type: "response_item", timestamp: "2026-01-01T00:00:00Z", payload: { id: "u1", type: "message", role: "user", content: [{ type: "input_text", text: "question" }] } }),

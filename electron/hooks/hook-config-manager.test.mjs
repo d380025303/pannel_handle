@@ -168,6 +168,23 @@ afterEach(() => {
 });
 
 describe("hook-config-manager", () => {
+  it("installs Grok hooks in the user-level directory without touching project config", () => {
+    const projectPath = createProject();
+    const homePath = createProject();
+    const manager = createHookConfigManager({ assetsDir, getHomeDirectory: () => homePath });
+
+    const result = manager.install({ type: "windows", path: projectPath }, ["grok"]);
+    const configPath = path.join(homePath, ".grok", "hooks", "pannel-handle.json");
+    const scriptPath = path.join(homePath, ".grok", "hooks", "pannel-handle-grok-hook.ps1");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+    expect(result.ok).toBe(true);
+    expect(result.providers.grok).toMatchObject({ status: "installed", configPath, scriptPath, managedHookCount: 10 });
+    expect(config.hooks.SessionStart[0]).not.toHaveProperty("matcher");
+    expect(config.hooks.PreToolUse[0]).toMatchObject({ matcher: ".*", hooks: [expect.objectContaining({ command: expect.stringContaining(scriptPath) })] });
+    expect(fs.existsSync(path.join(projectPath, ".grok"))).toBe(false);
+  });
+
   it("installs all supported hooks into an empty Windows project", () => {
     const projectPath = createProject();
     const manager = createHookConfigManager({ assetsDir });

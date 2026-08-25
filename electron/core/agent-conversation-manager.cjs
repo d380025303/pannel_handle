@@ -27,7 +27,7 @@ function createAgentConversationManager({ broadcast }) {
   }
 
   function startTurn({ sessionId, sessionTitle, provider, supported, userMessage, userMessageId, timestamp = Date.now() }) {
-    if (provider !== "codex" && provider !== "codebuddy") return;
+    if (provider !== "codex" && provider !== "codebuddy" && provider !== "grok") return;
     const existingTurn = turns.get(sessionId);
     const messages = existingTurn?.messages || [];
     const currentTurnStartIndex = messages.length;

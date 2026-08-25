@@ -58,7 +58,8 @@ describe("TitleBar session actions", () => {
       "OpenCode",
       "Qoder",
       "GitHub Copilot",
-      "Gemini CLI"
+      "Gemini CLI",
+      "Grok CLI"
     ]);
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));

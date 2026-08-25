@@ -82,7 +82,7 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
           {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider
             && (isLocalSshAgent
               ? supportsLocalBridge(option.value)
-              : !(session.type === "ssh" && (option.value === "copilot" || option.value === "gemini")))).map(option => (
+              : !(session.type === "ssh" && (option.value === "copilot" || option.value === "gemini" || option.value === "grok")))).map(option => (
             <button key={option.value} type="button" role="menuitem" onClick={() => void switchTo(option.value)}>
               {option.label}
             </button>

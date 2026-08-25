@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgentTokenDashboard } from "../vite-env";
 
 export type TokenStatsRange = "7d" | "30d" | "all";
-export type TokenStatsProvider = "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini";
+export type TokenStatsProvider = "all" | "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
 
 export function useAgentTokenStats(range: TokenStatsRange, provider: TokenStatsProvider, offset: number) {
   const [dashboard, setDashboard] = useState<AgentTokenDashboard | null>(null);

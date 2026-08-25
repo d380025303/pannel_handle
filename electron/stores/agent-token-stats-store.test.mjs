@@ -42,7 +42,7 @@ function downgradeProviderConstraints(databaseFile) {
       const replacement = `${table}_provider_v1`;
       database.exec(schema
         .replace(new RegExp(`^CREATE TABLE\\s+[\"']?${table}[\"']?`, "i"), `CREATE TABLE ${replacement}`)
-        .replace("provider IN ('codex', 'claude', 'codebuddy', 'opencode', 'qoder', 'copilot', 'qwen', 'gemini')", "provider IN ('codex', 'claude', 'codebuddy')"));
+        .replace("provider IN ('codex', 'claude', 'codebuddy', 'opencode', 'qoder', 'copilot', 'qwen', 'gemini', 'grok')", "provider IN ('codex', 'claude', 'codebuddy')"));
       const columns = database.prepare(`PRAGMA table_info(${table})`).all().map(column => `"${column.name}"`).join(", ");
       database.exec(`INSERT INTO ${replacement} (${columns}) SELECT ${columns} FROM ${table}`);
       database.exec(`DROP TABLE ${table}`);
@@ -123,6 +123,17 @@ describe("agent token statistics SQLite store", () => {
     expect(dashboard.providerBreakdown).toEqual([
       expect.objectContaining({ provider: "qoder", sessionCount: 1 })
     ]);
+    store.close();
+  });
+
+  it("includes Grok sessions in totals and provider filtering", () => {
+    const { store } = fixture();
+    store.update({ provider: "grok", agentSessionId: "grok-one", panelSessionId: "panel", title: "Grok", location: "wsl", models: ["grok-build"], tokens: tokens(190) });
+
+    const dashboard = store.getDashboard({ range: "all", provider: "grok" });
+    expect(dashboard.summary.tokens.totalTokens).toBe(190);
+    expect(dashboard.sessions[0]).toMatchObject({ provider: "grok", location: "wsl", models: ["grok-build"] });
+    expect(dashboard.providerBreakdown).toEqual([expect.objectContaining({ provider: "grok", sessionCount: 1 })]);
     store.close();
   });
 

@@ -11,7 +11,8 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     opencode: new Map(),
     qoder: new Map(),
     copilot: new Map(),
-    gemini: new Map()
+    gemini: new Map(),
+    grok: new Map()
   };
   const openCodeResponseStates = new Map();
   let hookServer = null;
@@ -87,7 +88,20 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   }
 
   function getEventName(input) {
-    return input.hook_event_name || input.eventName || input.event_name || "Unknown";
+    const value = input.hook_event_name || input.hookEventName || input.eventName || input.event_name || "Unknown";
+    const aliases = {
+      session_start: "SessionStart",
+      user_prompt_submit: "UserPromptSubmit",
+      pre_tool_use: "PreToolUse",
+      post_tool_use: "PostToolUse",
+      post_tool_use_failure: "PostToolUseFailure",
+      permission_denied: "PermissionDenied",
+      stop: "Stop",
+      stop_failure: "StopFailure",
+      notification: "Notification",
+      session_end: "SessionEnd"
+    };
+    return aliases[value] || value;
   }
 
   function getToolName(input) {
@@ -517,6 +531,17 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return null;
   }
 
+  function mapGrokHookStatus(input) {
+    const eventName = getEventName(input);
+    if (eventName === "PermissionDenied") return "failed";
+    if (eventName === "PostToolUseFailure" || eventName === "StopFailure") return "failed";
+    if (eventName === "PostToolUse" && isToolFailure(input)) return "failed";
+    if (["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"].includes(eventName)) return "running";
+    if (eventName === "Stop") return "completed";
+    if (eventName === "SessionEnd") return "ended";
+    return null;
+  }
+
   function mapCodeBuddyHookStatus(input) {
     const eventName = getEventName(input);
     const notificationType = input.notification_type || input.notificationType;
@@ -558,6 +583,9 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   function getHookStatus(provider, input) {
     if (provider === "gemini") {
       return mapGeminiHookStatus(input);
+    }
+    if (provider === "grok") {
+      return mapGrokHookStatus(input);
     }
     if (provider === "codex") {
       return mapCodexHookStatus(input);
@@ -699,6 +727,10 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       }
       if (req.method === "POST" && req.url === "/gemini-hook") {
         handleRequest("gemini", req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url === "/grok-hook") {
+        handleRequest("grok", req, res);
         return;
       }
 

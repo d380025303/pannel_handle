@@ -15,7 +15,7 @@ function normalizeTimestamp(value) {
 }
 
 function createAgentConversationTranscriptParser(provider, options = {}) {
-  if (provider !== "codex" && provider !== "codebuddy" && provider !== "gemini") {
+  if (provider !== "codex" && provider !== "codebuddy" && provider !== "gemini" && provider !== "grok") {
     throw new Error(`Unsupported Agent conversation provider: ${provider}`);
   }
 
@@ -76,6 +76,32 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
     };
   }
 
+  function parseGrok(item) {
+    const params = item?.params || {};
+    const update = params.update || {};
+    const updateType = update.sessionUpdate;
+    const isUser = updateType === "user_message_chunk";
+    if (!isUser && updateType !== "agent_message_chunk") return null;
+    if (isUser && !options.includeUser) return null;
+    const content = update.content;
+    const text = typeof content === "string"
+      ? content.trim()
+      : Array.isArray(content)
+        ? getText(content)
+        : typeof content?.text === "string"
+          ? content.text.trim()
+          : "";
+    if (!text) return null;
+    const meta = params._meta || {};
+    return {
+      id: String(meta.eventId || `${meta.promptId || "turn"}:${meta.chunkId || item.timestamp || text}`),
+      provider,
+      kind: isUser ? "user" : "reply",
+      text,
+      timestamp: normalizeTimestamp(item.timestamp)
+    };
+  }
+
   function pushLine(line) {
     let item;
     try {
@@ -94,7 +120,7 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
       }
       return output;
     }
-    const message = provider === "codex" ? parseCodex(item) : provider === "gemini" ? parseGemini(item) : parseCodeBuddy(item);
+    const message = provider === "codex" ? parseCodex(item) : provider === "gemini" ? parseGemini(item) : provider === "grok" ? parseGrok(item) : parseCodeBuddy(item);
     if (!message || seenMessageIds.has(message.id)) return [];
     seenMessageIds.add(message.id);
     return [message];

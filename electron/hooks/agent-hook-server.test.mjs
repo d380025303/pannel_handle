@@ -640,6 +640,24 @@ describe("agent-hook-server", () => {
     expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "gemini" }));
   });
 
+  it("normalizes Grok hook fields and maps lifecycle status", () => {
+    const { server, terminalManager, agentTokenStatsService } = createServer();
+    for (const [eventName, expectedStatus] of [
+      ["user_prompt_submit", "running"],
+      ["permission_denied", "failed"],
+      ["stop", "completed"],
+      ["session_end", "ended"]
+    ]) {
+      const input = { hookEventName: eventName, sessionId: "grok-1", pannel_handle_session_id: "run-1" };
+      expect(server.handleAgentHook("grok", input)).toBe(true);
+      expect(terminalManager.broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider: "grok",
+        status: expectedStatus
+      }));
+    }
+    expect(agentTokenStatsService.handleHook).toHaveBeenCalledWith(expect.objectContaining({ provider: "grok" }));
+  });
+
   it("maps Copilot permission, failure, completion, and session hooks", () => {
     const { server, terminalManager, agentTokenStatsService } = createServer();
 

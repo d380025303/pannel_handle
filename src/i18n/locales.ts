@@ -268,6 +268,7 @@ export type TranslationKey =
   | "usage.geminiTitle"
   | "usage.qoderTotal"
   | "usage.copilotUnavailable"
+  | "usage.grokUnavailable"
   | "usage.qoderActivities"
   | "usage.qoderActivityUnavailable"
   | "usage.qoderActivityEmpty"
@@ -1020,6 +1021,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.geminiTitle": "Gemini 配额",
     "usage.qoderTotal": "全部可用额度",
     "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
+    "usage.grokUnavailable": "Grok CLI 暂无稳定的账户额度接口",
     "usage.qoderActivities": "活动额度",
     "usage.qoderActivityUnavailable": "活动额度暂不可用，请刷新后重试",
     "usage.qoderActivityEmpty": "当前没有可用活动额度",
@@ -1764,6 +1766,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.geminiTitle": "Gemini quota",
     "usage.qoderTotal": "Total available quota",
     "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
+    "usage.grokUnavailable": "Grok CLI does not expose a stable account quota API",
     "usage.qoderActivities": "Promotional quota",
     "usage.qoderActivityUnavailable": "Promotional quota is unavailable. Refresh to retry.",
     "usage.qoderActivityEmpty": "No promotional quota is currently available",

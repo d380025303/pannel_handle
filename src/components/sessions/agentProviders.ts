@@ -7,7 +7,8 @@ export const AGENT_PROVIDER_OPTIONS: ReadonlyArray<{ value: AgentProvider; label
   { value: "opencode", label: "OpenCode" },
   { value: "qoder", label: "Qoder" },
   { value: "copilot", label: "GitHub Copilot" },
-  { value: "gemini", label: "Gemini CLI" }
+  { value: "gemini", label: "Gemini CLI" },
+  { value: "grok", label: "Grok CLI" }
 ];
 
 export const LOCAL_BRIDGE_AGENT_PROVIDERS = new Set<AgentProvider>(["codex", "codebuddy", "opencode"]);

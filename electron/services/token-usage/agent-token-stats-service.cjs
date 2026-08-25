@@ -21,8 +21,8 @@ const { createCopilotOtelParser, getCopilotOtelPath } = require("./copilot-otel.
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
-const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini"];
-const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "gemini"];
+const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
+const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "gemini", "grok"];
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -87,6 +87,20 @@ function isLocalSshBridge(session) {
 
 function hasHostReadableTranscript(session) {
   return session?.type === "windows" || session?.type === "wsl" || isLocalSshBridge(session);
+}
+
+function getHookEventName(input) {
+  const value = input?.hook_event_name || input?.hookEventName || input?.eventName || input?.event_name;
+  return ({
+    session_start: "SessionStart",
+    user_prompt_submit: "UserPromptSubmit",
+    pre_tool_use: "PreToolUse",
+    post_tool_use: "PostToolUse",
+    post_tool_use_failure: "PostToolUseFailure",
+    stop: "Stop",
+    stop_failure: "StopFailure",
+    session_end: "SessionEnd"
+  })[value] || value;
 }
 
 function isNestedAgentTranscript(provider, transcriptPath) {
@@ -332,7 +346,7 @@ function createAgentTokenStatsService({
     tracker.offset = 0;
     tracker.pendingBytes = Buffer.alloc(0);
     tracker.parser = tracker.provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(tracker.provider);
-    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini"
+    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini" || tracker.provider === "grok"
       ? createAgentConversationTranscriptParser(tracker.provider)
       : null;
     // 主 parser 已重建，子 agent 文件需要从头重新喂入（parser 按 messageId 去重，不会重复计数）。
@@ -362,7 +376,7 @@ function createAgentTokenStatsService({
         pendingBytes: Buffer.alloc(0),
         subagentReaders: new Map(),
         parser: provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(provider),
-        conversationParser: provider === "codex" || provider === "codebuddy" || provider === "gemini"
+        conversationParser: provider === "codex" || provider === "codebuddy" || provider === "gemini" || provider === "grok"
           ? createAgentConversationTranscriptParser(provider)
           : null,
         conversationActive: false,
@@ -370,6 +384,7 @@ function createAgentTokenStatsService({
         rawCapabilities: emptyCapabilityUsage(),
         sessionBaseline: provider === "copilot" ? emptyTokens() : null,
         sessionCapabilityBaseline: provider === "copilot" ? emptyCapabilityUsage("unavailable") : null,
+        sessionBaselineInitialized: provider === "copilot",
         turnBaseline: emptyTokens(),
         turnStartedAt: null,
         state: "waiting",
@@ -400,6 +415,31 @@ function createAgentTokenStatsService({
       models: [...tracker.models],
       updatedAt: tracker.updatedAt
     };
+  }
+
+  function initializeSessionBaseline(tracker, tokens = tracker.rawTokens, capabilities = tracker.rawCapabilities) {
+    tracker.sessionBaseline = cloneTokens(tokens);
+    tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(capabilities);
+    tracker.sessionBaselineInitialized = true;
+  }
+
+  function initializeCodeBuddySessionStartBaseline(tracker, input) {
+    if (tracker.provider !== "codebuddy") return false;
+    const source = String(input?.source || "").trim().toLowerCase();
+    if (source === "resume" || source === "compact") return false;
+    if (source === "clear") {
+      resetLiveReader(tracker);
+      tracker.fileIdentity = null;
+      tracker.rawTokens = emptyTokens();
+      tracker.rawCapabilities = emptyCapabilityUsage();
+      tracker.models = [];
+      tracker.turnBaseline = emptyTokens();
+      tracker.turnStartedAt = null;
+      tracker.outputTokensPerSecond = 0;
+      tracker.state = "waiting";
+    }
+    initializeSessionBaseline(tracker, emptyTokens(), emptyCapabilityUsage());
+    return source === "clear";
   }
 
   function emitLive(tracker) {
@@ -541,8 +581,7 @@ function createAgentTokenStatsService({
           tracker.rawCapabilities = normalizeCapabilityUsage(result.capabilities);
           tracker.models = result.models;
           persistCopilotTracker(tracker, result);
-          if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(result.tokens);
-          if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(result.capabilities);
+          if (!tracker.sessionBaselineInitialized) initializeSessionBaseline(tracker, result.tokens, result.capabilities);
           if (tracker.state === "generating" && tracker.turnStartedAt) {
             const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline);
             const turnOutput = Math.max(0, visible.outputTokens - safeInteger(tracker.turnBaseline?.outputTokens));
@@ -577,10 +616,14 @@ function createAgentTokenStatsService({
   }
 
   async function startLiveTurn(tracker) {
+    // CodeBuddy 的 Hook 请求返回后 CLI 会立即继续生成；若首次异步读取尚未开始，
+    // 先以 Hook 到达时已经解析到的值定基线，避免第一条 usage 被读取过程吞进基线。
+    if (tracker.provider === "codebuddy" && !tracker.sessionBaselineInitialized && !tracker.pollPromise) {
+      initializeSessionBaseline(tracker);
+    }
     await pollLive(tracker, { emit: false });
     tracker.conversationActive = true;
-    if (!tracker.sessionBaseline) tracker.sessionBaseline = cloneTokens(tracker.rawTokens);
-    if (!tracker.sessionCapabilityBaseline) tracker.sessionCapabilityBaseline = normalizeCapabilityUsage(tracker.rawCapabilities);
+    if (!tracker.sessionBaselineInitialized) initializeSessionBaseline(tracker);
     const visible = subtractTokens(tracker.rawTokens, tracker.sessionBaseline);
     tracker.turnBaseline = cloneTokens(visible);
     tracker.turnStartedAt = now();
@@ -619,7 +662,7 @@ function createAgentTokenStatsService({
   }
 
   function getStopFinalMessage(provider, input) {
-    if (provider !== "codex" && provider !== "gemini") return null;
+    if (provider !== "codex" && provider !== "gemini" && provider !== "grok") return null;
     const text = input?.prompt_response ?? input?.last_assistant_message ?? input?.lastAssistantMessage;
     if (typeof text !== "string" || !text.trim()) return null;
     const messageId = input?.event_id || input?.eventId || input?.turn_id || input?.turnId;
@@ -642,7 +685,7 @@ function createAgentTokenStatsService({
         handleOpenCodeHook(input, session);
         return;
       }
-      const eventName = input?.hook_event_name || input?.eventName || input?.event_name;
+      const eventName = getHookEventName(input);
       const agentSessionId = input?.session_id || input?.sessionId;
       const transcriptPath = input?.transcript_path || input?.transcriptPath;
       if (isNestedAgentTranscript(provider, transcriptPath)) return;
@@ -653,8 +696,11 @@ function createAgentTokenStatsService({
       }
 
       const tracker = ensureLiveTracker({ provider, input, session });
-      if (tracker && eventName === "SessionStart") void pollLive(tracker);
-      if ((provider === "codex" || provider === "codebuddy" || provider === "gemini") && (eventName === "UserPromptSubmit" || eventName === "BeforeAgent")) {
+      if (tracker && eventName === "SessionStart") {
+        const deferCodeBuddyClearRead = initializeCodeBuddySessionStartBaseline(tracker, input);
+        if (!deferCodeBuddyClearRead) void pollLive(tracker);
+      }
+      if ((provider === "codex" || provider === "codebuddy" || provider === "gemini" || provider === "grok") && (eventName === "UserPromptSubmit" || eventName === "BeforeAgent")) {
         conversationSink?.startTurn?.({
           sessionId: session.id,
           sessionTitle: session.title,
@@ -669,7 +715,7 @@ function createAgentTokenStatsService({
       if (tracker && (eventName === "Stop" || eventName === "AfterAgent")) {
         const finalMessage = getStopFinalMessage(provider, input);
         void completeLiveTurn(tracker).finally(() => completeConversationTurn(session.id, finalMessage));
-      } else if ((provider === "codex" || provider === "codebuddy" || provider === "gemini") && (eventName === "Stop" || eventName === "AfterAgent")) {
+      } else if ((provider === "codex" || provider === "codebuddy" || provider === "gemini" || provider === "grok") && (eventName === "Stop" || eventName === "AfterAgent")) {
         completeConversationTurn(session.id, getStopFinalMessage(provider, input));
       }
 

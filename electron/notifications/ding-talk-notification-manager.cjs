@@ -14,6 +14,7 @@ function getProviderName(provider) {
   if (provider === "qoder") return "Qoder";
   if (provider === "copilot") return "GitHub Copilot";
   if (provider === "gemini") return "Gemini CLI";
+  if (provider === "grok") return "Grok CLI";
   return "Claude";
 }
 

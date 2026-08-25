@@ -72,7 +72,7 @@ describe("AgentConversationPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
     expect(await screen.findByText("Historical answer")).toBeTruthy();
     expect(screen.getByText("Historical question")).toBeTruthy();
-    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "gemini"], scope: "cwd" }));
+    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "gemini", "grok"], scope: "cwd" }));
     expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
   });
 
