@@ -150,4 +150,34 @@ describe("single-subfolder chain collapsing", () => {
     expect(nodes[0].entry.path).toBe("/a");
     expect(nodes[0].chainPrefix).toBeNull();
   });
+
+  it("shows every directory level when automatic chain collapsing is disabled", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const c = directory("c", "/a/b/c");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+      "/a/b": { status: "ready", entries: [c] },
+      "/a/b/c": { status: "ready", entries: [file("target.ts", "/a/b/c/target.ts")] },
+    };
+
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(["/a", "/a/b", "/a/b/c"]), "", false);
+
+    expect(nodes.map(({ entry }) => entry.name)).toEqual(["a", "b", "c", "target.ts"]);
+    expect(nodes.map(({ depth }) => depth)).toEqual([0, 1, 2, 3]);
+    expect(nodes.every(({ chainPrefix }) => chainPrefix === null)).toBe(true);
+  });
+
+  it("keeps uncollapsed ancestors when searching", () => {
+    const rootEntry = directory("a", "/a");
+    const b = directory("b", "/a/b");
+    const state: DirectoryTreeState = {
+      "/a": { status: "ready", entries: [b] },
+      "/a/b": { status: "ready", entries: [file("target.ts", "/a/b/target.ts")] },
+    };
+
+    const nodes = flattenLoadedTree(rootEntry, state, new Set(), "target", false);
+
+    expect(nodes.map(({ entry }) => entry.name)).toEqual(["a", "b", "target.ts"]);
+  });
 });

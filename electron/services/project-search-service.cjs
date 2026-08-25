@@ -51,14 +51,14 @@ function getSession(terminalManager, sessionId) {
 
 function getWorkspaceRoot(session) {
   if (session.type === "windows") {
-    const displayPath = normalizeWindowsPath(session.fileRoot || session.cwd, os.homedir());
+    const displayPath = normalizeWindowsPath(session.cwd, os.homedir());
     return {
       displayRoot: displayPath,
       hostRoot: displayPath
     };
   }
 
-  const configuredPath = session.fileRoot || session.cwd || "~";
+  const configuredPath = session.cwd || "~";
   const displayPath = normalizeWslPath(configuredPath) === "~"
     ? "/home"
     : normalizeWslPath(configuredPath);
@@ -715,7 +715,7 @@ function createProjectSearchService({
 
     if (session.type !== "ssh") {
       const localSession = getSession(terminalManager, sessionId);
-      let configuredRoot = rootPath || localSession.fileRoot || localSession.cwd || ".";
+      let configuredRoot = rootPath || localSession.cwd || ".";
       if (String(configuredRoot).startsWith("~") && remoteFileService) {
         const home = await remoteFileService.getHome(sessionId);
         configuredRoot = configuredRoot === "~"
@@ -752,7 +752,7 @@ function createProjectSearchService({
       throw new Error("Remote file search is not available.");
     }
     const home = await remoteFileService.getHome(sessionId);
-    const configuredCwd = String(rootPath || session.fileRoot || session.cwd || "~").trim() || "~";
+    const configuredCwd = String(rootPath || session.cwd || "~").trim() || "~";
     const root = configuredCwd === "~"
       ? home
       : configuredCwd.startsWith("~/")

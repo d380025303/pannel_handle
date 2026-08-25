@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { TEXT_PREVIEW_LIMIT, createRemoteFileService } from "./remote-file-service.cjs";
+import { OFFICE_PREVIEW_LIMIT, TEXT_PREVIEW_LIMIT, createRemoteFileService } from "./remote-file-service.cjs";
 
 function createTerminalManager(session) {
   return {
@@ -250,6 +250,79 @@ describe("remote-file-service", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("creates read-only Office previews for Windows files", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-office-"));
+    const filePath = path.join(dir, "report.docx");
+    fs.writeFileSync(filePath, Buffer.from("fake-docx"));
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: dir }),
+        sessionStore: createSessionStore(),
+        sftpFactory: () => createSftpMock()
+      });
+
+      const preview = await service.previewFile("run-1", filePath);
+      expect(preview).toEqual(expect.objectContaining({
+        kind: "office",
+        format: "word",
+        mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size: 9,
+        previewId: expect.any(String)
+      }));
+      const response = service.createPreviewStreamResponse(preview.previewId);
+      expect(response.headers).toEqual(expect.objectContaining({
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff"
+      }));
+      await expect(readStream(response.data)).resolves.toEqual(Buffer.from("fake-docx"));
+      expect(service.releasePreview(preview.previewId)).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads SSH Office previews to the managed cache and deletes them on release", async () => {
+    const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-office-cache-"));
+    const sftp = createSftpMock({
+      stat: vi.fn(async () => ({ size: 12 })),
+      fastGet: vi.fn(async (_remotePath, localPath) => fs.promises.writeFile(localPath, "fake-sheet"))
+    });
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "ssh", sshConfig: { host: "example.com", extraArgs: [] } }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp,
+      previewCacheRoot: cacheRoot
+    });
+    try {
+      const preview = await service.previewFile("run-1", "/tmp/report.xlsx");
+      expect(preview).toEqual(expect.objectContaining({ kind: "office", format: "spreadsheet", size: 12 }));
+      expect(sftp.fastGet).toHaveBeenCalledWith("/tmp/report.xlsx", expect.stringMatching(/\.xlsx$/));
+      const cachedFiles = fs.readdirSync(cacheRoot);
+      expect(cachedFiles).toHaveLength(1);
+
+      expect(service.releasePreview(preview.previewId)).toBe(true);
+      await vi.waitFor(() => expect(fs.existsSync(path.join(cacheRoot, cachedFiles[0]))).toBe(false));
+    } finally {
+      await service.shutdown();
+      fs.rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized Office previews before reading file contents", async () => {
+    const stat = vi.fn(async () => ({ size: OFFICE_PREVIEW_LIMIT + 1, isFile: () => true }));
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({ id: "run-1", type: "wsl", cwd: "/home/me", wslDistro: "Ubuntu" }),
+      sessionStore: createSessionStore(),
+      fsApi: { promises: { stat } }
+    });
+
+    await expect(service.previewFile("run-1", "/home/me/report.pptx")).resolves.toEqual({
+      kind: "too_large",
+      size: OFFICE_PREVIEW_LIMIT + 1,
+      limit: OFFICE_PREVIEW_LIMIT
+    });
   });
 
   it("maps WSL Linux paths to the distro UNC path", async () => {

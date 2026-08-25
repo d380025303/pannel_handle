@@ -306,6 +306,9 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     if (partial && typeof partial.autoWorkBuddyCheckin === "boolean") {
       updates.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
     }
+    if (partial && typeof partial.autoCollapseFileChains === "boolean") {
+      updates.autoCollapseFileChains = partial.autoCollapseFileChains;
+    }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
     }

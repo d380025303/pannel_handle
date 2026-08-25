@@ -101,6 +101,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
+  const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<RightTool>("files");
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
@@ -206,6 +207,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
         setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
+        setAutoCollapseFileChains(config.autoCollapseFileChains);
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
         setRightToolsWidth(config.rightToolsWidth);
@@ -457,6 +459,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     const config = await window.terminalApi.setConfig({ autoWorkBuddyCheckin: !autoWorkBuddyCheckin });
     setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
   }, [autoWorkBuddyCheckin]);
+
+  const handleToggleAutoCollapseFileChains = useCallback(async () => {
+    const config = await window.terminalApi.setConfig({ autoCollapseFileChains: !autoCollapseFileChains });
+    setAutoCollapseFileChains(config.autoCollapseFileChains);
+  }, [autoCollapseFileChains]);
 
   const handleThemeChange = useCallback(async (nextThemeId: ThemeId) => {
     const config = await window.terminalApi.setConfig({ themeId: nextThemeId });
@@ -782,6 +789,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onActivePreviewTabChange={handleActivePreviewTabChange}
                   onCurrentPathChange={handleFilePanelPathChange}
                   onSearchRequest={openProjectSearch}
+                  autoCollapseFileChains={autoCollapseFileChains}
+                  onToggleAutoCollapseFileChains={handleToggleAutoCollapseFileChains}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
                   transfers={fileTransfers}
                   onShowTransfers={() => setWorkspaceTab("transfers")}

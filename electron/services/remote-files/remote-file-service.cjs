@@ -8,6 +8,7 @@ const SftpClient = require("ssh2-sftp-client");
 const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
+const OFFICE_PREVIEW_LIMIT = 50 * 1024 * 1024;
 const TRANSFER_PROGRESS_INTERVAL_MS = 250;
 const MEDIA_PROTOCOL = "pannel-media";
 const IMAGE_MIME_BY_EXTENSION = new Map([
@@ -27,6 +28,11 @@ const VIDEO_MIME_BY_EXTENSION = new Map([
   [".ogv", "video/ogg"],
   [".mov", "video/quicktime"],
   [".m4v", "video/mp4"]
+]);
+const OFFICE_TYPE_BY_EXTENSION = new Map([
+  [".docx", { format: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }],
+  [".xlsx", { format: "spreadsheet", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }],
+  [".pptx", { format: "presentation", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }]
 ]);
 
 function normalizeRemotePath(value) {
@@ -113,6 +119,10 @@ function getMediaType(filePath) {
     return { kind: "video", mime: VIDEO_MIME_BY_EXTENSION.get(extension) };
   }
   return null;
+}
+
+function getOfficeType(filePath) {
+  return OFFICE_TYPE_BY_EXTENSION.get(path.extname(String(filePath || "")).toLowerCase()) || null;
 }
 
 function getPreviewTokenFromUrl(url) {
@@ -253,16 +263,56 @@ function joinWslPath(basePath, name) {
   return path.posix.join(normalizedBase, name);
 }
 
-function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi }) {
+function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi, previewCacheRoot = path.join(os.tmpdir(), "pannel-handle-office-preview") }) {
   const clients = new Map();
   const previews = new Map();
+  const previewCleanupTasks = new Set();
   const activeDownloads = new Map();
+  let previewCacheReady = null;
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
     terminalManager,
     sessionStore,
     knownHostStore,
     sftpFactory
   });
+
+  function schedulePreviewFileCleanup(hostPath) {
+    if (!hostPath) return;
+    const cleanup = fsApi.promises.rm(hostPath, { force: true })
+      .catch(() => undefined)
+      .finally(() => previewCleanupTasks.delete(cleanup));
+    previewCleanupTasks.add(cleanup);
+  }
+
+  function ensurePreviewCache() {
+    previewCacheReady ||= (async () => {
+      await fsApi.promises.rm(previewCacheRoot, { recursive: true, force: true });
+      await fsApi.promises.mkdir(previewCacheRoot, { recursive: true });
+    })();
+    return previewCacheReady;
+  }
+
+  function registerPreview(sessionId, hostPath, size, descriptor, temporary = false) {
+    const previewId = crypto.randomBytes(18).toString("base64url");
+    previews.set(previewId, {
+      sessionId,
+      hostPath,
+      size,
+      kind: descriptor.kind || "office",
+      format: descriptor.format,
+      mime: descriptor.mime,
+      temporary,
+      createdAt: Date.now()
+    });
+    return {
+      kind: descriptor.kind || "office",
+      format: descriptor.format,
+      size,
+      mime: descriptor.mime,
+      previewId,
+      url: `${MEDIA_PROTOCOL}://preview/${encodeURIComponent(previewId)}`
+    };
+  }
 
   function getSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
@@ -365,7 +415,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
 
   async function previewLocalFile(sessionId, session, filePath) {
     const mediaType = getMediaType(filePath);
-    if (!mediaType) {
+    const officeType = getOfficeType(filePath);
+    if (!mediaType && !officeType) {
       return readLocalText(session, filePath);
     }
 
@@ -374,25 +425,11 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (typeof stat.isFile === "function" && !stat.isFile()) {
       return { kind: "binary", size: Number(stat.size || 0) };
     }
-
-    const previewId = crypto.randomBytes(18).toString("base64url");
     const size = Number(stat.size || 0);
-    previews.set(previewId, {
-      sessionId,
-      hostPath,
-      size,
-      kind: mediaType.kind,
-      mime: mediaType.mime,
-      createdAt: Date.now()
-    });
-
-    return {
-      kind: mediaType.kind,
-      size,
-      mime: mediaType.mime,
-      previewId,
-      url: `${MEDIA_PROTOCOL}://preview/${encodeURIComponent(previewId)}`
-    };
+    if (officeType && size > OFFICE_PREVIEW_LIMIT) {
+      return { kind: "too_large", size, limit: OFFICE_PREVIEW_LIMIT };
+    }
+    return registerPreview(sessionId, hostPath, size, mediaType || officeType);
   }
 
   async function writeLocalText(session, filePath, content, expectedVersion, options = {}) {
@@ -488,6 +525,47 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (session.type !== "ssh") {
       return previewLocalFile(sessionId, session, remotePath);
     }
+    const officeType = getOfficeType(remotePath);
+    if (officeType) {
+      const normalizedPath = normalizeRemotePath(remotePath);
+      const client = await getClient(sessionId);
+      const stat = await client.stat(normalizedPath);
+      const size = Number(stat.size || 0);
+      if (size > OFFICE_PREVIEW_LIMIT) {
+        return { kind: "too_large", size, limit: OFFICE_PREVIEW_LIMIT };
+      }
+      await ensurePreviewCache();
+      const previewId = crypto.randomBytes(18).toString("base64url");
+      const hostPath = path.join(previewCacheRoot, `${previewId}${path.extname(normalizedPath).toLowerCase()}`);
+      try {
+        if (typeof client.fastGet === "function") {
+          await client.fastGet(normalizedPath, hostPath);
+        } else {
+          await client.get(normalizedPath, hostPath);
+        }
+        previews.set(previewId, {
+          sessionId,
+          hostPath,
+          size,
+          kind: "office",
+          format: officeType.format,
+          mime: officeType.mime,
+          temporary: true,
+          createdAt: Date.now()
+        });
+        return {
+          kind: "office",
+          format: officeType.format,
+          size,
+          mime: officeType.mime,
+          previewId,
+          url: `${MEDIA_PROTOCOL}://preview/${encodeURIComponent(previewId)}`
+        };
+      } catch (error) {
+        schedulePreviewFileCleanup(hostPath);
+        throw error;
+      }
+    }
     return readText(sessionId, remotePath);
   }
 
@@ -495,7 +573,11 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (typeof previewId !== "string" || !previewId) {
       return false;
     }
-    return previews.delete(previewId);
+    const preview = previews.get(previewId);
+    if (!preview) return false;
+    previews.delete(previewId);
+    if (preview.temporary) schedulePreviewFileCleanup(preview.hostPath);
+    return true;
   }
 
   function createPreviewStreamResponse(previewIdOrUrl, rangeHeader) {
@@ -532,7 +614,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",
       "Content-Type": preview.mime,
-      "Content-Length": String(contentLength)
+      "Content-Length": String(contentLength),
+      "X-Content-Type-Options": "nosniff"
     };
     if (range) {
       headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
@@ -908,7 +991,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     clients.delete(sessionId);
     for (const [previewId, preview] of previews) {
       if (preview.sessionId === sessionId) {
-        previews.delete(previewId);
+        releasePreview(previewId);
       }
     }
     if (client) {
@@ -924,7 +1007,12 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     await Promise.all(Array.from(activeDownloads.keys()).map((transferId) => cancelDownload(transferId)));
     const ids = Array.from(clients.keys());
     await Promise.all(ids.map((id) => disconnect(id)));
-    previews.clear();
+    for (const previewId of Array.from(previews.keys())) releasePreview(previewId);
+    await Promise.all(Array.from(previewCleanupTasks));
+    if (previewCacheReady) {
+      await previewCacheReady.catch(() => undefined);
+      await fsApi.promises.rm(previewCacheRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   return {
@@ -944,6 +1032,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     createEntry,
     moveEntry,
     deleteEntry,
+    initializePreviewCache: ensurePreviewCache,
     disconnect,
     shutdown
   };
@@ -951,6 +1040,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
 
 module.exports = {
   TEXT_PREVIEW_LIMIT,
+  OFFICE_PREVIEW_LIMIT,
   MEDIA_PROTOCOL,
   normalizeWslPath,
   toWslHostPath,

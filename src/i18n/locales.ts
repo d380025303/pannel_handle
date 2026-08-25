@@ -517,11 +517,18 @@ export type TranslationKey =
   | "files.deleteEntry"
   | "files.tooLarge"
   | "files.binary"
+  | "files.loadingOfficePreview"
+  | "files.officeLoadFailed"
+  | "files.officeUnsupportedHint"
+  | "files.officeWorksheets"
+  | "files.officeSpreadsheetTruncated"
+  | "files.officeEmptyWorkbook"
   | "files.previewMode"
   | "files.editMode"
   | "files.newFile"
   | "files.newDirectory"
-  | "files.changeRoot"
+  | "files.enableAutoCollapse"
+  | "files.disableAutoCollapse"
   | "files.back"
   | "files.forward"
   | "files.sortBy"
@@ -530,8 +537,10 @@ export type TranslationKey =
   | "files.sortModified"
   | "files.sortSize"
   | "files.rename"
+  | "files.name"
   | "files.move"
   | "files.copyPath"
+  | "files.copyName"
   | "files.targetDirectory"
   | "files.nameConflict"
   | "files.overwrite"
@@ -1270,11 +1279,18 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.deleteEntry": "删除",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
+    "files.loadingOfficePreview": "正在加载 Office 预览...",
+    "files.officeLoadFailed": "无法加载 Office 预览。",
+    "files.officeUnsupportedHint": "文件可能已损坏、加密，或包含暂不支持的内容。",
+    "files.officeWorksheets": "工作表",
+    "files.officeSpreadsheetTruncated": "工作表较大，仅显示前 10,000 个单元格范围。",
+    "files.officeEmptyWorkbook": "工作簿中没有可预览的工作表。",
     "files.previewMode": "预览模式",
     "files.editMode": "编辑模式",
     "files.newFile": "新建文件",
     "files.newDirectory": "新建文件夹",
-    "files.changeRoot": "更换文件根目录",
+    "files.enableAutoCollapse": "开启自动折叠单目录链",
+    "files.disableAutoCollapse": "关闭自动折叠单目录链",
     "files.back": "后退",
     "files.forward": "前进",
     "files.sortBy": "文件排序",
@@ -1283,8 +1299,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.sortModified": "最近修改",
     "files.sortSize": "大小降序",
     "files.rename": "重命名",
+    "files.name": "名称",
     "files.move": "移动",
     "files.copyPath": "复制路径",
+    "files.copyName": "复制文件名",
     "files.targetDirectory": "目标目录",
     "files.nameConflict": "目标中已存在同名项目",
     "files.overwrite": "覆盖",
@@ -2015,11 +2033,18 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.deleteEntry": "Delete",
     "files.tooLarge": "File is {size}. Download it to view locally.",
     "files.binary": "Binary file. Download it to view locally.",
+    "files.loadingOfficePreview": "Loading Office preview...",
+    "files.officeLoadFailed": "Unable to load the Office preview.",
+    "files.officeUnsupportedHint": "The file may be damaged, encrypted, or contain unsupported content.",
+    "files.officeWorksheets": "Worksheets",
+    "files.officeSpreadsheetTruncated": "This worksheet is large. Only the first 10,000-cell range is shown.",
+    "files.officeEmptyWorkbook": "The workbook has no worksheets to preview.",
     "files.previewMode": "Preview mode",
     "files.editMode": "Edit mode",
     "files.newFile": "New file",
     "files.newDirectory": "New folder",
-    "files.changeRoot": "Change file root",
+    "files.enableAutoCollapse": "Enable automatic single-folder chain collapsing",
+    "files.disableAutoCollapse": "Disable automatic single-folder chain collapsing",
     "files.back": "Back",
     "files.forward": "Forward",
     "files.sortBy": "File sorting",
@@ -2028,8 +2053,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.sortModified": "Recently modified",
     "files.sortSize": "Size descending",
     "files.rename": "Rename",
+    "files.name": "Name",
     "files.move": "Move",
     "files.copyPath": "Copy path",
+    "files.copyName": "Copy name",
     "files.targetDirectory": "Target directory",
     "files.nameConflict": "An item with the same name already exists",
     "files.overwrite": "Overwrite",

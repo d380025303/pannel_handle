@@ -4626,6 +4626,12 @@ button.agent-usage-status[aria-expanded="true"] {
   background: var(--color-bg-hover);
 }
 
+.remote-file-actions .icon-button[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
 .remote-file-actions .icon-button:focus-visible {
   outline: 1px solid var(--color-accent);
   outline-offset: 1px;
@@ -5309,6 +5315,130 @@ button.agent-usage-status[aria-expanded="true"] {
   height: 100%;
 }
 
+.remote-preview-office {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-bg-app);
+}
+
+.remote-preview-office > .remote-file-empty,
+.remote-preview-office > .remote-file-error {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.remote-preview-office > .remote-file-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.remote-preview-office > .remote-file-error small {
+  color: var(--color-text-subtle);
+}
+
+.remote-office-render-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.remote-preview-office-word .remote-office-render-host {
+  padding: 24px;
+  background: #72767d;
+}
+
+.remote-preview-office-word .office-docx-wrapper {
+  padding: 0;
+  background: transparent;
+}
+
+.remote-preview-office-word .office-docx-wrapper > section.office-docx {
+  margin: 0 auto 20px;
+  box-shadow: 0 3px 14px rgb(0 0 0 / 35%);
+}
+
+.remote-preview-office-presentation .remote-office-render-host {
+  padding: 20px;
+  background: #25282d;
+}
+
+.remote-office-spreadsheet {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.remote-office-sheet-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 5px 8px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.remote-office-sheet-tabs button {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.remote-office-sheet-tabs button[aria-selected="true"] {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+  background: var(--color-bg-control);
+}
+
+.remote-office-warning {
+  flex: none;
+  padding: 5px 10px;
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  font-size: 11px;
+}
+
+.remote-office-sheet-viewport {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.remote-office-sheet-viewport table {
+  border-spacing: 0;
+  table-layout: fixed;
+  color: #202124;
+  background: #fff;
+  font: 12px/1.35 Arial, sans-serif;
+}
+
+.remote-office-sheet-viewport td {
+  min-width: 48px;
+  height: 24px;
+  padding: 3px 5px;
+  overflow: hidden;
+  border: 1px solid #d8dde3;
+  text-overflow: ellipsis;
+}
+
 .remote-preview-status {
   display: flex;
   justify-content: space-between;
@@ -5890,16 +6020,17 @@ button.agent-usage-status[aria-expanded="true"] {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: clamp(12px, 2.5vw, 32px);
+  padding: clamp(8px, 1.2vw, 16px);
   background: color-mix(in srgb, var(--color-bg-app) 72%, var(--color-bg-panel));
 }
 
 .remote-preview-markdown-content {
   box-sizing: border-box;
-  width: min(100%, 960px);
+  width: 100%;
+  max-width: none;
   min-height: 100%;
-  margin: 0 auto;
-  padding: clamp(20px, 3.5vw, 44px);
+  margin: 0;
+  padding: clamp(16px, 2vw, 28px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   color: var(--color-text);

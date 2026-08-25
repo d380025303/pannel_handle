@@ -53,7 +53,8 @@ export function flattenLoadedTree(
   root: RemoteFileEntry | null,
   directories: DirectoryTreeState,
   expandedPaths: ReadonlySet<string>,
-  searchQuery = ""
+  searchQuery = "",
+  autoCollapseSingleDirectoryChains = true
 ) {
   if (!root) return [];
   const query = searchQuery.trim().toLowerCase();
@@ -61,7 +62,10 @@ export function flattenLoadedTree(
   const visit = (entry: RemoteFileEntry, depth: number, parentPath: string | null, chainPrefix: string | null = null): VisibleTreeNode[] => {
     const directory = entry.type === "directory" ? directories[entry.path] : undefined;
 
-    if (directory?.status === "ready" && directory.entries.length === 1 && directory.entries[0].type === "directory") {
+    if (autoCollapseSingleDirectoryChains
+      && directory?.status === "ready"
+      && directory.entries.length === 1
+      && directory.entries[0].type === "directory") {
       const child = directory.entries[0];
       const combined = chainPrefix ? `${chainPrefix} / ${entry.name}` : entry.name;
       return visit(child, depth, parentPath, combined);

@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteFilePanel } from "./RemoteFilePanel";
-import type { RemoteFileApi, RemoteFileEntry, TerminalSession } from "../../vite-env";
+import type { ClipboardApi, RemoteFileApi, RemoteFileEntry, TerminalSession } from "../../vite-env";
 
 const rootPath = "C:\\workspace";
 const childPath = `${rootPath}\\patches`;
@@ -33,6 +33,27 @@ describe("RemoteFilePanel directory navigation", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("ignores legacy file roots and does not expose a root change action", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const legacyRoot = "C:\\legacy-root";
+    const session = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows",
+      fileRoot: legacyRoot
+    } as TerminalSession & { fileRoot: string };
+
+    render(<RemoteFilePanel session={session} />);
+
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, rootPath));
+    expect(remoteFileApi.list).not.toHaveBeenCalledWith(session.id, legacyRoot);
+    expect(screen.queryByRole("button", { name: "更换文件根目录" })).toBeNull();
   });
 
   it("finishes expanding a directory after navigation history changes", async () => {
@@ -82,7 +103,31 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.getByPlaceholderText("新建文件夹")).toBeTruthy();
   });
 
-  it("closes rename editing without requesting a move when the name is unchanged", async () => {
+  it("copies the selected entry name from the context menu", async () => {
+    window.remoteFileApi = createRemoteFileApi();
+    const writeText = vi.fn(async () => true);
+    window.clipboardApi = { writeText } as unknown as ClipboardApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} />);
+
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "复制文件名" }));
+
+    expect(writeText).toHaveBeenCalledWith("patches");
+    expect(writeText).not.toHaveBeenCalledWith(childPath);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("opens rename in a dialog and closes it without requesting a move when the name is unchanged", async () => {
     const remoteFileApi = createRemoteFileApi();
     window.remoteFileApi = remoteFileApi;
     const session: TerminalSession = {
@@ -100,12 +145,109 @@ describe("RemoteFilePanel directory navigation", () => {
     fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "重命名" }));
 
-    const input = screen.getByDisplayValue("patches");
+    const dialog = screen.getByRole("dialog", { name: "重命名" });
+    const input = within(dialog).getByDisplayValue("patches");
+    expect(patches.closest("button")!.querySelector("input")).toBeNull();
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(screen.queryByDisplayValue("patches")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "重命名" })).toBeNull());
     expect(remoteFileApi.moveEntry).not.toHaveBeenCalled();
     expect(screen.queryByRole("heading", { name: "目标中已存在同名项目" })).toBeNull();
+  });
+
+  it("submits a changed name from the rename dialog", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.moveEntry = vi.fn(async () => ({ status: "completed" as const, name: "renamed", path: `${rootPath}\\renamed` }));
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} />);
+
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "重命名" }));
+
+    const dialog = screen.getByRole("dialog", { name: "重命名" });
+    const input = within(dialog).getByDisplayValue("patches");
+    fireEvent.change(input, { target: { value: "renamed" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "重命名" }));
+
+    await waitFor(() => expect(remoteFileApi.moveEntry).toHaveBeenCalledWith(
+      session.id,
+      childPath,
+      rootPath,
+      "renamed",
+      "cancel"
+    ));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "重命名" })).toBeNull());
+  });
+
+  it("keeps the existing conflict choices after submitting a rename", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} />);
+
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "重命名" }));
+
+    const dialog = screen.getByRole("dialog", { name: "重命名" });
+    fireEvent.change(within(dialog).getByDisplayValue("patches"), { target: { value: "renamed" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "重命名" }));
+
+    expect(await screen.findByRole("heading", { name: "目标中已存在同名项目" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "覆盖" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "自动重命名" })).toBeTruthy();
+  });
+
+  it("cancels the rename dialog from Escape, the cancel button, and the backdrop", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} />);
+
+    const patches = await screen.findByTitle(childPath);
+    const openRename = () => {
+      fireEvent.contextMenu(patches.closest("button")!, { clientX: 20, clientY: 30 });
+      fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "重命名" }));
+    };
+
+    openRename();
+    fireEvent.keyDown(within(screen.getByRole("dialog", { name: "重命名" })).getByDisplayValue("patches"), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "重命名" })).toBeNull();
+
+    openRename();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "重命名" })).getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("dialog", { name: "重命名" })).toBeNull();
+
+    openRename();
+    fireEvent.click(screen.getByRole("dialog", { name: "重命名" }).parentElement!);
+    expect(screen.queryByRole("dialog", { name: "重命名" })).toBeNull();
+    expect(remoteFileApi.moveEntry).not.toHaveBeenCalled();
   });
 
   it("keeps toolbar, path, sorting, and directory filtering available in the compact layout", async () => {
@@ -141,6 +283,62 @@ describe("RemoteFilePanel directory navigation", () => {
     await waitFor(() => expect(screen.queryByTitle(`${childPath}\\01_SCHEMA`)).toBeNull());
     fireEvent.change(searchInput, { target: { value: "01_SCHEMA" } });
     expect(await screen.findByTitle(`${childPath}\\01_SCHEMA`)).toBeTruthy();
+  });
+
+  it("exposes the automatic chain-collapse toggle in the toolbar", async () => {
+    window.remoteFileApi = createRemoteFileApi();
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    const onToggle = vi.fn();
+
+    const { rerender } = render(
+      <RemoteFilePanel
+        session={session}
+        autoCollapseFileChains
+        onToggleAutoCollapseFileChains={onToggle}
+      />
+    );
+
+    const disableButton = await screen.findByRole("button", { name: "关闭自动折叠单目录链" });
+    expect(disableButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(disableButton);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <RemoteFilePanel
+        session={session}
+        autoCollapseFileChains={false}
+        onToggleAutoCollapseFileChains={onToggle}
+      />
+    );
+    expect(screen.getByRole("button", { name: "开启自动折叠单目录链" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("does not preload the next single-directory level when automatic collapsing is disabled", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
+
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.click(patches.closest("button")!);
+    await screen.findByTitle(`${childPath}\\01_SCHEMA`);
+
+    expect(remoteFileApi.list).not.toHaveBeenCalledWith(session.id, `${childPath}\\01_SCHEMA`);
   });
 
   it("uses an in-app confirmation dialog for deletion instead of blocking the Electron window", async () => {

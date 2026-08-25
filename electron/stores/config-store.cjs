@@ -16,6 +16,7 @@ function createConfigStore({ configFile }) {
   let config = {
     autoRestore: true,
     autoWorkBuddyCheckin: true,
+    autoCollapseFileChains: true,
     debugMode: false,
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
@@ -27,6 +28,7 @@ function createConfigStore({ configFile }) {
     return {
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
+      autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
@@ -43,6 +45,7 @@ function createConfigStore({ configFile }) {
         config = {
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
+          autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
@@ -75,6 +78,7 @@ function createConfigStore({ configFile }) {
     return {
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
+      autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
@@ -90,6 +94,9 @@ function createConfigStore({ configFile }) {
       }
       if (typeof partial.autoWorkBuddyCheckin === "boolean") {
         config.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
+      }
+      if (typeof partial.autoCollapseFileChains === "boolean") {
+        config.autoCollapseFileChains = partial.autoCollapseFileChains;
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;

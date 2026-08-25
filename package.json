@@ -23,6 +23,7 @@
     "dist:portable": "node scripts/patch-electron-builder-rcedit.cjs && pnpm build && pnpm mobile:check && electron-builder"
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "1.2.4",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
@@ -40,6 +41,8 @@
     "@xterm/xterm": "^6.0.0",
     "bonjour-service": "1.3.0",
     "chokidar": "^5.0.0",
+    "docx-preview": "0.4.0",
+    "exceljs": "4.4.0",
     "highlight.js": "^11.11.1",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^1.17.0",

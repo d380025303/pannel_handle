@@ -575,7 +575,6 @@ function createAgentSessionLauncher({
       title: session.title,
       shell: session.shell,
       cwd: session.cwd,
-      fileRoot: session.fileRoot,
       fileSort: session.fileSort,
       preferredDiskMountPoint: session.preferredDiskMountPoint,
       initialCommand: session.initialCommand,

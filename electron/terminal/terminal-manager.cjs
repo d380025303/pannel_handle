@@ -287,7 +287,6 @@ function createTerminalManager({
       title: session.title,
       shell: session.shell,
       cwd: session.cwd,
-      fileRoot: session.fileRoot,
       fileSort: session.fileSort,
       preferredDiskMountPoint: session.preferredDiskMountPoint,
       createdAt: session.createdAt,
@@ -660,7 +659,6 @@ function createTerminalManager({
       title,
       shell,
       cwd,
-      fileRoot: options.fileRoot,
       fileSort: options.fileSort,
       preferredDiskMountPoint: options.preferredDiskMountPoint,
       type,
@@ -730,10 +728,10 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileRoot, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
+      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -794,10 +792,6 @@ function createTerminalManager({
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();
       libraryUpdates.cwd = session.cwd;
-    }
-    if (typeof fileRoot === "string" && fileRoot.trim()) {
-      session.fileRoot = fileRoot.trim();
-      libraryUpdates.fileRoot = session.fileRoot;
     }
     if (fileSort && ["name", "modifiedAt", "size"].includes(fileSort.key)) {
       session.fileSort = { key: fileSort.key, direction: fileSort.direction === "desc" ? "desc" : "asc" };

@@ -20,7 +20,7 @@ function createHarness() {
     getSession: vi.fn(() => ({ id: "run-1", type: "windows", cwd: "C:\\workspace" }))
   };
   const module = createRemoteFilesModule({
-    app: { getFileIcon: vi.fn() },
+    app: { getFileIcon: vi.fn(), getPath: vi.fn(() => "C:\\Temp\\pannel-handle-test") },
     nativeImage: { createFromPath: vi.fn() },
     ipcMain,
     protocol,
@@ -61,10 +61,7 @@ describe("remote-files module", () => {
     expect(harness.handlers.get("remote-files:start-download-drag")).toEqual(expect.any(Function));
     expect(harness.handlers.get("file-transfers:choose-upload")).toEqual(expect.any(Function));
     expect(harness.handlers.get("file-transfers:clear")).toEqual(expect.any(Function));
-    await expect(harness.handlers.get("remote-files:choose-root")({}, {
-      sessionId: "run-1",
-      currentRoot: "C:\\workspace"
-    })).resolves.toEqual({ canceled: true });
+    expect(harness.handlers.has("remote-files:choose-root")).toBe(false);
     await expect(harness.handlers.get("file-transfers:choose-download")({}, {
       sessionId: "run-1",
       remotePath: "C:\\workspace\\note.txt",

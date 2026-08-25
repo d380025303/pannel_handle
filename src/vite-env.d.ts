@@ -29,7 +29,6 @@ export type TerminalSession = {
   title: string;
   shell: string;
   cwd: string;
-  fileRoot?: string;
   fileSort?: FileSort;
   preferredDiskMountPoint?: string;
   createdAt: number;
@@ -85,6 +84,7 @@ export type Locale = "zh-CN" | "en-US";
 export type AppConfig = {
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
+  autoCollapseFileChains: boolean;
   debugMode: boolean;
   lastActiveSessionIds: string[];
   themeId: ThemeId;
@@ -178,7 +178,18 @@ export type RemoteMediaPreview =
   | { kind: "image"; size: number; mime: string; previewId: string; url: string }
   | { kind: "video"; size: number; mime: string; previewId: string; url: string };
 
-export type RemoteFilePreview = RemoteTextPreview | RemoteMediaPreview;
+export type RemoteOfficeFormat = "word" | "spreadsheet" | "presentation";
+
+export type RemoteOfficePreview = {
+  kind: "office";
+  format: RemoteOfficeFormat;
+  size: number;
+  mime: string;
+  previewId: string;
+  url: string;
+};
+
+export type RemoteFilePreview = RemoteTextPreview | RemoteMediaPreview | RemoteOfficePreview;
 
 export type RemoteTextWriteResult =
   | { status: "saved"; size: number; version: string }
@@ -857,7 +868,7 @@ export type RemoteAgentApi = {
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileRoot?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  updateSession: (id: string, updates: { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   getHistory: (id: string) => Promise<string>;
@@ -929,7 +940,6 @@ export type RemoteFileApi = {
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string, options?: { force?: boolean; format?: { bom?: boolean; eol?: "lf" | "crlf" | "cr" } }) => Promise<RemoteTextWriteResult>;
   createEntry: (sessionId: string, parentPath: string, name: string, kind: "file" | "directory", conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
   moveEntry: (sessionId: string, sourcePath: string, targetDirectory: string, name?: string, conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
-  chooseRoot: (sessionId: string, currentRoot: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[] | string[]) => Promise<RemoteFileBatchUploadResult>;
   downloadFile: (transferId: string, sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;

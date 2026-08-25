@@ -74,11 +74,12 @@ describe("session-store", () => {
     expect(sessions[1].codexModel).toBeUndefined();
     expect(sessions[1].codexExperimentalAcknowledged).toBeUndefined();
   });
-  it("persists an independent file root and normalized file sorting", () => {
+  it("ignores legacy file roots and normalizes file sorting", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{ id: "1", title: "Files", type: "windows", cwd: "C:\\terminal", fileRoot: " C:\\repo ", fileSort: { key: "modifiedAt", direction: "desc" } }]));
     const [session] = createStore(sessionsFile).loadLibrary();
-    expect(session).toMatchObject({ cwd: "C:\\terminal", fileRoot: "C:\\repo", fileSort: { key: "modifiedAt", direction: "desc" } });
+    expect(session).toMatchObject({ cwd: "C:\\terminal", fileSort: { key: "modifiedAt", direction: "desc" } });
+    expect(session).not.toHaveProperty("fileRoot");
   });
 
   it("persists the preferred disk mount point only for SSH sessions", () => {

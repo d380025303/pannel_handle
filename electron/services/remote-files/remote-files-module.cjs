@@ -1,4 +1,5 @@
 const { Readable } = require("node:stream");
+const path = require("node:path");
 const { createFileTransferManager } = require("./file-transfer-manager.cjs");
 const { createFileWatchManager } = require("./file-watch-manager.cjs");
 const { MEDIA_PROTOCOL, createRemoteFileService } = require("./remote-file-service.cjs");
@@ -55,7 +56,8 @@ function createRemoteFilesModule({
     sessionStore,
     knownHostStore,
     sshSessionRuntime,
-    shellApi
+    shellApi,
+    previewCacheRoot: path.join(app.getPath("userData"), "office-preview-cache")
   });
   const fileTransferManager = createFileTransferManager({
     remoteFileService: fileService,
@@ -63,13 +65,14 @@ function createRemoteFilesModule({
   });
   const fileWatchManager = createFileWatchManager({ terminalManager, broadcast });
 
+  void fileService.initializePreviewCache().catch(() => undefined);
+
   registerMediaPreviewProtocol(protocol, fileService);
   registerRemoteFileIpcHandlers({
     app,
     nativeImage,
     ipcMain,
     dialog,
-    terminalManager,
     windowManager,
     remoteFileService: fileService,
     fileTransferManager,
