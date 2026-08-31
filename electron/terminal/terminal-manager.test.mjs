@@ -2,7 +2,13 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { AGENT_EXIT_MARKER, buildSshArgs, createTerminalManager, getDefaultShell } = require("./terminal-manager.cjs");
+const {
+  AGENT_EXIT_MARKER,
+  buildSshArgs,
+  createTerminalManager,
+  getDefaultShell,
+  resolveRunnableExecutable
+} = require("./terminal-manager.cjs");
 
 function createMockTerm() {
   const dataHandlers = [];
@@ -111,15 +117,48 @@ afterEach(() => {
 
 describe("terminal-manager", () => {
   it("uses PowerShell 7 as the default Windows shell when pwsh is available", () => {
-    const executableAvailable = vi.fn(() => true);
+    const resolveExecutable = vi.fn(() => "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
 
-    expect(getDefaultShell({ platform: "win32", executableAvailable })).toBe("pwsh.exe");
-    expect(executableAvailable).toHaveBeenCalledWith("pwsh.exe");
+    expect(getDefaultShell({ platform: "win32", resolveExecutable }))
+      .toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+    expect(resolveExecutable).toHaveBeenCalledWith("pwsh.exe");
   });
 
   it("falls back to Windows PowerShell when PowerShell 7 is unavailable", () => {
-    expect(getDefaultShell({ platform: "win32", executableAvailable: () => false }))
+    expect(getDefaultShell({ platform: "win32", resolveExecutable: () => null }))
       .toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  });
+
+  it("skips an unusable pwsh alias and returns the next runnable candidate", () => {
+    const execFile = vi.fn((executable) => {
+      if (executable === "where.exe") {
+        return [
+          "C:\\Users\\test\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe",
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+        ].join("\r\n");
+      }
+      if (executable.includes("WindowsApps")) {
+        throw Object.assign(new Error("Access denied"), { code: "EACCES" });
+      }
+      return "";
+    });
+
+    expect(resolveRunnableExecutable("pwsh.exe", execFile))
+      .toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+    expect(execFile).toHaveBeenCalledWith(
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
+      expect.objectContaining({ timeout: 3000 })
+    );
+  });
+
+  it("returns null when every resolved pwsh candidate fails to start", () => {
+    const execFile = vi.fn((executable) => {
+      if (executable === "where.exe") return "C:\\WindowsApps\\pwsh.exe\r\n";
+      throw Object.assign(new Error("Access denied"), { code: "EACCES" });
+    });
+
+    expect(resolveRunnableExecutable("pwsh.exe", execFile)).toBeNull();
   });
 
   it("spawns PowerShell 7 for a Windows session without an explicit shell", () => {

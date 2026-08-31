@@ -91,29 +91,53 @@ function consumeAgentCommandInput(currentState, data) {
   };
 }
 
-function isExecutableAvailable(executable) {
+function resolveRunnableExecutable(executable, execFile = execFileSync) {
+  let output;
   try {
-    execFileSync("where.exe", [executable], {
-      stdio: "ignore",
+    output = execFile("where.exe", [executable], {
+      encoding: "utf-8",
       windowsHide: true
     });
-    return true;
   } catch {
-    return false;
+    return null;
   }
+
+  const candidates = String(output || "")
+    .split(/\r?\n/)
+    .map(candidate => candidate.trim())
+    .filter(Boolean)
+    .filter((candidate, index, values) =>
+      values.findIndex(value => value.toLowerCase() === candidate.toLowerCase()) === index
+    );
+
+  for (const candidate of candidates) {
+    try {
+      execFile(candidate, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"], {
+        stdio: "ignore",
+        timeout: 3000,
+        windowsHide: true
+      });
+      return candidate;
+    } catch {
+      // Continue past stale WindowsApps aliases and try the next resolved executable.
+    }
+  }
+
+  return null;
 }
 
 function getDefaultShell({
   platform = process.platform,
   env = process.env,
-  executableAvailable = isExecutableAvailable
+  resolveExecutable = resolveRunnableExecutable
 } = {}) {
   if (platform !== "win32") {
     return env.SHELL || "bash";
   }
 
-  if (executableAvailable("pwsh.exe")) {
-    return "pwsh.exe";
+  const pwshPath = resolveExecutable("pwsh.exe");
+  if (pwshPath) {
+    return pwshPath;
   }
 
   return "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -985,6 +1009,7 @@ module.exports = {
   AGENT_EXIT_MARKER,
   createTerminalManager,
   getDefaultShell,
+  resolveRunnableExecutable,
   getWslShell,
   getSshShell,
   buildSshArgs

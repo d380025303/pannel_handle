@@ -1,12 +1,14 @@
 const path = require("node:path");
 const { normalizeWslPath, toWslHostPath } = require("./remote-file-service.cjs");
 
-function createFileWatchManager({ terminalManager, broadcast }) {
+const WSL_UNC_PREFIX = "\\\\wsl.localhost\\";
+
+function createFileWatchManager({ terminalManager, broadcast, chokidarLoader = () => import("chokidar") }) {
   const watchers = new Map();
   let chokidarPromise = null;
 
   function getChokidar() {
-    chokidarPromise ||= import("chokidar").then((module) => module.default || module);
+    chokidarPromise ||= Promise.resolve(chokidarLoader()).then((module) => module.default || module);
     return chokidarPromise;
   }
 
@@ -26,7 +28,18 @@ function createFileWatchManager({ terminalManager, broadcast }) {
       ? toWslHostPath(session.wslDistro, normalizeWslPath(displayPath))
       : path.resolve(displayPath));
     const chokidar = await getChokidar();
-    const watcher = chokidar.watch(hostPaths, { persistent: true, ignoreInitial: true, depth: 0, awaitWriteFinish: { stabilityThreshold: 180, pollInterval: 50 } });
+    const watchOptions = {
+      persistent: true,
+      ignoreInitial: true,
+      depth: 0,
+      awaitWriteFinish: { stabilityThreshold: 180, pollInterval: 50 }
+    };
+    if (session.type === "wsl" && hostPaths.some((hostPath) => hostPath.toLowerCase().startsWith(WSL_UNC_PREFIX))) {
+      watchOptions.usePolling = true;
+      watchOptions.interval = 250;
+      watchOptions.binaryInterval = 500;
+    }
+    const watcher = chokidar.watch(hostPaths, watchOptions);
     let timer = null;
     const changed = new Set();
     const flush = () => {

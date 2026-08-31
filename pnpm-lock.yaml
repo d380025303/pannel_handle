@@ -101,6 +101,9 @@ importers:
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
+      util-deprecate:
+        specifier: 1.0.2
+        version: 1.0.2
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.19.19)(jiti@2.7.0)
