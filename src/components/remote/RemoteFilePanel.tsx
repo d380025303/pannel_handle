@@ -159,6 +159,10 @@ function getPreviewIdFromTab(tab: PreviewTabState) {
   return tab.state.status === "ready" ? getPreviewId(tab.state.preview) : null;
 }
 
+function normalizeEditorContent(content: string) {
+  return content.replace(/\r\n|\r/g, "\n");
+}
+
 function isPreviewTabDirty(tab: PreviewTabState) {
   return tab.state.status === "ready"
     && tab.state.preview.kind === "text"
@@ -911,19 +915,22 @@ export function RemoteFilePanel({
         }
         return;
       }
-      updatePreviewTab(tabId, (tab) => ({
-        ...tab,
-        state: {
-          status: "ready",
-          sessionId,
-          path: entry.path,
-          fileName: entry.name,
-          preview: nextPreview
-        },
-        originalContent: nextPreview.kind === "text" ? nextPreview.content : "",
-        editorContent: nextPreview.kind === "text" ? nextPreview.content : "",
-        viewMode: isMarkdownFile(entry.name) ? "preview" : "edit"
-      }));
+      updatePreviewTab(tabId, (tab) => {
+        const nextEditorContent = nextPreview.kind === "text" ? normalizeEditorContent(nextPreview.content) : "";
+        return {
+          ...tab,
+          state: {
+            status: "ready",
+            sessionId,
+            path: entry.path,
+            fileName: entry.name,
+            preview: nextPreview
+          },
+          originalContent: nextEditorContent,
+          editorContent: nextEditorContent,
+          viewMode: isMarkdownFile(entry.name) ? "preview" : "edit"
+        };
+      });
     } catch (err) {
       const currentTab = previewTabsRef.current.find((tab) => tab.id === tabId);
       if (!currentTab || currentTab.previewRequestId !== requestId) return;
@@ -1352,13 +1359,16 @@ export function RemoteFilePanel({
         }
         return;
       }
-      updatePreviewTab(tabId, (t) => ({
-        ...t,
-        state: { ...targetState, preview: nextPreview },
-        originalContent: nextPreview.kind === "text" ? nextPreview.content : "",
-        editorContent: nextPreview.kind === "text" ? nextPreview.content : "",
-        viewMode: isMarkdownFile(targetTab.fileName) ? "preview" : "edit"
-      }));
+      updatePreviewTab(tabId, (t) => {
+        const nextEditorContent = nextPreview.kind === "text" ? normalizeEditorContent(nextPreview.content) : "";
+        return {
+          ...t,
+          state: { ...targetState, preview: nextPreview },
+          originalContent: nextEditorContent,
+          editorContent: nextEditorContent,
+          viewMode: isMarkdownFile(targetTab.fileName) ? "preview" : "edit"
+        };
+      });
     } catch (err) {
       const currentTab = previewTabsRef.current.find((t) => t.id === tabId);
       if (!currentTab || currentTab.previewRequestId !== requestId) return;

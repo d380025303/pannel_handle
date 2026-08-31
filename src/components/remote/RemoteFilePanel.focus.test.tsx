@@ -151,6 +151,94 @@ describe("RemoteFilePanel file activation", () => {
     expect(previewFile).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ["CRLF", "one\r\ntwo", "crlf" as const],
+    ["CR", "one\rtwo", "cr" as const],
+    ["LF", "one\ntwo", "lf" as const]
+  ])("does not mark an untouched %s file as dirty", async (_label, content, eol) => {
+    const previewFile = vi.fn(async () => ({
+      kind: "text" as const,
+      size: Buffer.byteLength(content),
+      content,
+      version: "version-1",
+      encoding: "utf-8" as const,
+      bom: false,
+      eol
+    }));
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async () => [{ name: "notes.txt", path: filePath, type: "file", size: content.length, modifiedAt: 0 }]),
+      previewFile,
+      releasePreview: vi.fn(async () => true),
+      onDownloadProgress: vi.fn(() => () => undefined),
+      watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true),
+      onChanged: vi.fn(() => () => undefined),
+      onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    const previewHost = document.createElement("div");
+    document.body.append(previewHost);
+    let activePreviewTabId: string | null = null;
+    const onActivePreviewTabChange = vi.fn((tabId: string | null) => {
+      activePreviewTabId = tabId;
+    });
+    const onDirtyChange = vi.fn();
+    const onPreviewTabsChange = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const view = render(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+        onDirtyChange={onDirtyChange}
+        onPreviewTabsChange={onPreviewTabsChange}
+      />
+    );
+
+    fireEvent.click((await screen.findByTitle(filePath)).closest("button")!);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <RemoteFilePanel
+        session={session}
+        previewHost={previewHost}
+        activePreviewTabId={activePreviewTabId}
+        onActivePreviewTabChange={onActivePreviewTabChange}
+        onDirtyChange={onDirtyChange}
+        onPreviewTabsChange={onPreviewTabsChange}
+      />
+    );
+
+    await waitFor(() => expect(previewHost.querySelector(".cm-editor")).not.toBeNull());
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fileName: "notes.txt", dirty: false })
+    ]));
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+    expect(previewHost.querySelector(".remote-preview-dirty")).toBeNull();
+
+    const previewChangeCount = onPreviewTabsChange.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "重新加载文件" }));
+    await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onPreviewTabsChange.mock.calls.length).toBeGreaterThan(previewChangeCount));
+    expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fileName: "notes.txt", dirty: false })
+    ]);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(previewHost.querySelector(".remote-preview-dirty")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
+    expect(confirm).not.toHaveBeenCalled();
+    previewHost.remove();
+  });
+
   it("reports the full asynchronous native drag lifecycle", async () => {
     let finishDrag!: (result: { canceled: false; localPath: string }) => void;
     const startDownloadDrag = vi.fn(() => new Promise<{ canceled: false; localPath: string }>((resolve) => {
