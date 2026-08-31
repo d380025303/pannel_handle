@@ -81,6 +81,7 @@ export function AgentConversationPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
+  const panelRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const followTopRef = useRef(true);
@@ -192,10 +193,15 @@ export function AgentConversationPanel({
     });
   }, [detailMessages.length, normalizedSearchQuery]);
 
+  const isCompactLayout = useCallback(() => {
+    const width = panelRef.current?.getBoundingClientRect().width || 0;
+    return width > 0 && width <= 520;
+  }, []);
   const openSearch = useCallback(() => {
+    if (isCompactLayout()) setHistoryOpen(false);
     setSearchOpen(true);
     requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, []);
+  }, [isCompactLayout]);
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setSearchQuery("");
@@ -205,6 +211,14 @@ export function AgentConversationPanel({
   const moveSearch = useCallback((direction: number) => {
     if (totalMatches) setActiveMatchIndex(current => (current + direction + totalMatches) % totalMatches);
   }, [totalMatches]);
+  const toggleHistory = useCallback(() => {
+    if (!historyOpen && isCompactLayout()) closeSearch();
+    setHistoryOpen(current => !current);
+  }, [closeSearch, historyOpen, isCompactLayout]);
+  const selectConversation = useCallback((ref: string) => {
+    setSelectedRef(ref);
+    if (isCompactLayout()) setHistoryOpen(false);
+  }, [isCompactLayout]);
 
   useEffect(() => {
     const nextTotal = scrollRef.current?.querySelectorAll("mark.agent-conversation-search-match").length || 0;
@@ -227,6 +241,9 @@ export function AgentConversationPanel({
       } else if (event.key === "Escape" && searchOpen) {
         event.preventDefault();
         closeSearch();
+      } else if (event.key === "Escape" && historyOpen && isCompactLayout()) {
+        event.preventDefault();
+        setHistoryOpen(false);
       } else if (event.key === "Enter" && searchOpen && normalizedSearchQuery) {
         event.preventDefault();
         moveSearch(event.shiftKey ? -1 : 1);
@@ -234,7 +251,7 @@ export function AgentConversationPanel({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closeSearch, moveSearch, normalizedSearchQuery, openSearch, searchOpen]);
+  }, [closeSearch, historyOpen, isCompactLayout, moveSearch, normalizedSearchQuery, openSearch, searchOpen]);
 
   const detailTitle = showingLive ? turn?.sessionTitle : selectedHistory?.title;
   const detailProvider = showingLive ? turn?.provider : selectedHistory?.provider;
@@ -314,7 +331,7 @@ export function AgentConversationPanel({
   }
 
   return (
-    <section className={`agent-conversation-panel${historyOpen ? " history-open" : ""}${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
+    <section ref={panelRef} className={`agent-conversation-panel${historyOpen ? " history-open" : ""}${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
       <aside id="agent-conversation-history" className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"} hidden={!historyOpen}>
         <div className="agent-conversation-history-filters">
           <div className="agent-conversation-history-provider" role="group" aria-label={isEnglish ? "Provider" : "Agent 类型"}>
@@ -337,12 +354,12 @@ export function AgentConversationPanel({
         </div>
         <div className="agent-conversation-history-list">
           {turn && (
-            <button className={`agent-conversation-history-item live${selectedRef === "live" ? " active" : ""}`} type="button" onClick={() => setSelectedRef("live")}>
+            <button className={`agent-conversation-history-item live${selectedRef === "live" ? " active" : ""}`} type="button" onClick={() => selectConversation("live")}>
               <span><strong>{isEnglish ? "Current conversation" : "当前对话"}</strong><small className={`agent-conversation-provider ${turn.provider}`}>{providerName(turn.provider)}</small></span>
             </button>
           )}
           {historyItems.map(item => (
-            <button className={`agent-conversation-history-item${selectedRef === item.ref ? " active" : ""}`} key={item.ref} type="button" onClick={() => setSelectedRef(item.ref)}>
+            <button className={`agent-conversation-history-item${selectedRef === item.ref ? " active" : ""}`} key={item.ref} type="button" onClick={() => selectConversation(item.ref)}>
               <span><strong>{item.title}</strong><small className={`agent-conversation-provider ${item.provider}`}>{providerName(item.provider)}</small></span>
               <small title={item.cwd}>{item.cwd}</small>
               <time dateTime={new Date(item.updatedAt).toISOString()}>{new Date(item.updatedAt).toLocaleString(locale)}</time>
@@ -370,7 +387,7 @@ export function AgentConversationPanel({
               aria-label={historyOpen ? (isEnglish ? "Collapse conversation history" : "收起对话历史") : (isEnglish ? "Expand conversation history" : "展开对话历史")}
               aria-controls="agent-conversation-history"
               aria-expanded={historyOpen}
-              onClick={() => setHistoryOpen(current => !current)}
+              onClick={toggleHistory}
             >
               <History aria-hidden="true" />
             </button>

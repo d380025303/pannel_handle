@@ -6741,6 +6741,7 @@ button.agent-usage-status[aria-expanded="true"] {
   .mcp-form-grid { grid-template-columns: 1fr; }
 }
 .agent-conversation-panel {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: 100%;
@@ -7186,12 +7187,19 @@ button.agent-usage-status[aria-expanded="true"] {
 @container right-tools (max-width: 520px) {
   .agent-conversation-panel.history-open {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 168px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .agent-conversation-history {
+    position: absolute;
+    z-index: 2;
+    inset: 42px 0 0;
     border-right: 0;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 0;
+  }
+
+  .agent-conversation-panel.history-open .agent-conversation-search-toggle {
+    display: none;
   }
 
   .agent-conversation-history-filters {
@@ -7227,10 +7235,6 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 @container right-tools (max-width: 340px) {
-  .agent-conversation-panel.history-open {
-    grid-template-rows: 200px minmax(0, 1fr);
-  }
-
   .agent-conversation-history-filters {
     grid-template-columns: minmax(0, 1fr);
   }

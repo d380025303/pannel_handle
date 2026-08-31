@@ -157,6 +157,60 @@ describe("AgentConversationPanel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "展开对话历史" }).getAttribute("aria-expanded")).toBe("false"));
   });
 
+  it("returns to conversation details after selecting an item in the compact history view", () => {
+    render(
+      <AgentConversationPanel
+        snapshot={baseSnapshot}
+        session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }}
+      />
+    );
+    const panel = document.querySelector<HTMLElement>(".agent-conversation-panel")!;
+    const rectSpy = vi.spyOn(panel, "getBoundingClientRect").mockReturnValue({ width: 380 } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.click(screen.getByRole("button", { name: /当前对话/ }));
+
+    expect(screen.queryByRole("complementary", { name: "对话历史" })).toBeNull();
+    expect(screen.getByRole("button", { name: "展开对话历史" }).getAttribute("aria-expanded")).toBe("false");
+    rectSpy.mockRestore();
+  });
+
+  it("keeps history open after selecting an item in the wide layout", () => {
+    render(
+      <AgentConversationPanel
+        snapshot={baseSnapshot}
+        session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }}
+      />
+    );
+    const panel = document.querySelector<HTMLElement>(".agent-conversation-panel")!;
+    const rectSpy = vi.spyOn(panel, "getBoundingClientRect").mockReturnValue({ width: 600 } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.click(screen.getByRole("button", { name: /当前对话/ }));
+
+    expect(screen.getByRole("complementary", { name: "对话历史" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "收起对话历史" }).getAttribute("aria-expanded")).toBe("true");
+    rectSpy.mockRestore();
+  });
+
+  it("closes compact history with Escape", () => {
+    render(
+      <AgentConversationPanel
+        snapshot={baseSnapshot}
+        session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }}
+      />
+    );
+    const panel = document.querySelector<HTMLElement>(".agent-conversation-panel")!;
+    const rectSpy = vi.spyOn(panel, "getBoundingClientRect").mockReturnValue({ width: 380 } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("complementary", { name: "对话历史" })).toBeNull();
+    expect(screen.getByRole("button", { name: "展开对话历史" }).getAttribute("aria-expanded")).toBe("false");
+    rectSpy.mockRestore();
+  });
+
   it("shows an empty state when the active session has no conversation", () => {
     render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }} />);
     expect(screen.getByText("当前会话暂无 Agent 对话。")).toBeTruthy();
