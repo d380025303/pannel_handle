@@ -70,6 +70,41 @@ describe("SessionPickerModal frequent templates", () => {
     expect(container.querySelector("[draggable='true']")).toBeNull();
   });
 
+  it("renders every saved session in the shared two-column list container", () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...createSession(`session-${index}`),
+      tags: [`Tag ${index}`, "Long tag kept visible"]
+    }));
+    const { container } = render(
+      <I18nProvider locale="zh-CN">
+        <SessionPickerModal
+          pendingSessions={sessions}
+          runningSessions={[]}
+          pickerManual={false}
+          onLaunch={vi.fn()}
+          onStartFresh={vi.fn()}
+          onDelete={vi.fn()}
+          onDuplicate={vi.fn()}
+          onEdit={vi.fn()}
+          onImport={vi.fn()}
+          onExport={vi.fn()}
+          launchTemplates={[]}
+          onCreateLaunchTemplate={vi.fn()}
+          onUpdateLaunchTemplate={vi.fn()}
+          onDeleteLaunchTemplate={vi.fn()}
+          onLaunchTemplate={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    const sessionPanel = container.querySelector(".session-picker-session-panel");
+    const list = sessionPanel?.querySelector(".picker-list");
+    expect(screen.getByRole("heading", { name: "恢复会话" })).toBeTruthy();
+    expect(list?.querySelectorAll(".picker-item")).toHaveLength(sessions.length);
+    expect(list?.querySelectorAll(".picker-item-tags")).toHaveLength(sessions.length);
+  });
+
   it("switches from session templates to launch templates", () => {
     render(
       <I18nProvider locale="zh-CN">

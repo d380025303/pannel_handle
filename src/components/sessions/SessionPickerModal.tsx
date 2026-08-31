@@ -213,7 +213,7 @@ export function SessionPickerModal({
               onLaunch={onLaunchTemplate}
             />
           ) : (
-          <>
+          <div className="session-picker-session-panel">
           <div className="picker-library-actions">
             <button className="modal-button" type="button" onClick={handleImport} disabled={isImporting || isExporting}>
               <Upload aria-hidden="true" />
@@ -378,7 +378,7 @@ export function SessionPickerModal({
               )}
             </>
           )}
-          </>
+          </div>
           )}
         </div>
         <div className="modal-footer">
