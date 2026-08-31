@@ -277,6 +277,7 @@ function buildLocalCodeBuddyStartCommand(binding) {
 
 function createAgentSessionLauncher({
   terminalManager,
+  sessionStore,
   hookConfigManager,
   remoteHookConfigService,
   sshSessionRuntime,
@@ -569,6 +570,26 @@ function createAgentSessionLauncher({
     return terminalManager.listSessions();
   }
 
+  async function duplicateRunningSession(sessionId) {
+    const source = terminalManager.getSession(sessionId);
+    if (!source) throw new Error("Session is not running.");
+
+    const storedTemplate = source.templateId ? sessionStore?.getTemplate(source.templateId) : undefined;
+    if (storedTemplate) {
+      return launchSession(storedTemplate, { recordUsage: true });
+    }
+
+    const transientTemplate = sessionStore.normalizeTemplate({
+      ...source,
+      id: source.id,
+      createdAt: Date.now()
+    });
+    return launchSession(transientTemplate, {
+      useProvidedTemplate: true,
+      templateId: undefined
+    });
+  }
+
   function createReplacementTemplate(session, provider) {
     return {
       id: session.templateId || session.id,
@@ -639,7 +660,7 @@ function createAgentSessionLauncher({
     }
   }
 
-  return { createSession, launchSession, launchSessions, switchAgent };
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent };
 }
 
 module.exports = {

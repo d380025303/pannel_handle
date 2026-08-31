@@ -40,6 +40,12 @@
   background: var(--color-action-hover);
 }
 
+.mini-action.loading {
+  opacity: 0.55;
+  cursor: wait;
+  pointer-events: none;
+}
+
 .mini-action.danger:hover {
   background: var(--color-danger-hover);
 }

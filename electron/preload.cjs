@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   launchSessions: (sessions, launchMode) => ipcRenderer.invoke("sessions:launch-selected", sessions, launchMode),
   deleteSavedSession: (id) => ipcRenderer.invoke("sessions:delete-saved", id),
   duplicateSession: (id) => ipcRenderer.invoke("sessions:duplicate", id),
+  duplicateRunningSession: (id) => ipcRenderer.invoke("sessions:duplicate-running", id),
   reorderRunningSessions: (orderedIds) => ipcRenderer.invoke("sessions:reorder-running", orderedIds),
   onSessionsChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);

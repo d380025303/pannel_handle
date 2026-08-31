@@ -21,6 +21,39 @@ function session(id: string, agentProvider: TerminalSession["agentProvider"]): T
 afterEach(cleanup);
 
 describe("useTerminalSessions", () => {
+  it("duplicates a running session in the background and reports launch failures", async () => {
+    let onSessionsChanged = (_sessions: TerminalSession[]) => {};
+    const duplicateRunningSession = vi.fn()
+      .mockResolvedValueOnce(session("run-2", "codex"))
+      .mockRejectedValueOnce(new Error("duplicate failed"));
+    window.terminalApi = {
+      loadSavedSessions: vi.fn(async () => []),
+      getConfig: vi.fn(async () => ({ autoRestore: false, lastActiveSessionIds: [] })),
+      onSessionsChanged: vi.fn((callback: (sessions: TerminalSession[]) => void) => {
+        onSessionsChanged = callback;
+        return () => {};
+      }),
+      onAgentStatus: vi.fn((_callback: (payload: AgentStatusPayload) => void) => () => {}),
+      duplicateRunningSession
+    } as unknown as typeof window.terminalApi;
+    window.launchTemplateApi = {
+      list: vi.fn(async () => [])
+    } as unknown as typeof window.launchTemplateApi;
+
+    const { result } = renderHook(() => useTerminalSessions());
+    await waitFor(() => expect(window.terminalApi.loadSavedSessions).toHaveBeenCalled());
+    act(() => onSessionsChanged([session("run-1", "codex")]));
+
+    await act(async () => result.current.duplicateRunningSession("run-1"));
+    expect(duplicateRunningSession).toHaveBeenCalledWith("run-1");
+    expect(result.current.activeId).toBe("run-1");
+    expect(result.current.startupError).toBeNull();
+
+    await act(async () => result.current.duplicateRunningSession("run-1"));
+    expect(result.current.activeId).toBe("run-1");
+    expect(result.current.startupError).toBe("duplicate failed");
+  });
+
   it("selects the replacement runtime returned by Agent switching", async () => {
     let onSessionsChanged = (_sessions: TerminalSession[]) => {};
     const replacement = session("run-3", "claude");

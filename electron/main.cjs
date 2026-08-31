@@ -311,6 +311,7 @@ if (!gotSingleInstanceLock) {
     });
     agentSessionLauncher = createAgentSessionLauncher({
       terminalManager,
+      sessionStore,
       hookConfigManager,
       remoteHookConfigService,
       sshSessionRuntime,

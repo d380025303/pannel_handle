@@ -315,6 +315,15 @@ export function useTerminalSessions() {
     setPendingSessions((prev) => prev ? [...prev, duplicated] : null);
   }, []);
 
+  const duplicateRunningSession = useCallback(async (id: string) => {
+    setStartupError(null);
+    try {
+      await window.terminalApi.duplicateRunningSession(id);
+    } catch (err: any) {
+      setStartupError(err?.message || String(err));
+    }
+  }, []);
+
   const reorderRunningSessions = useCallback(async (orderedIds: string[]) => {
     setSessions(prev => {
       const map = new Map(prev.map(s => [s.id, s]));
@@ -361,6 +370,7 @@ export function useTerminalSessions() {
     startFresh,
     deleteFromLibrary,
     duplicateFromLibrary,
+    duplicateRunningSession,
     createLaunchTemplate,
     updateLaunchTemplate,
     deleteLaunchTemplate,

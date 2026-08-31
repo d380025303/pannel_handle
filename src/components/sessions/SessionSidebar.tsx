@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { GripVertical, Pencil, Search, Webhook, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, GripVertical, Pencil, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
@@ -12,6 +12,7 @@ type SessionSidebarProps = {
   agentStatusesBySessionId: Record<string, AgentStatusPayload>;
   onSelectSession: (id: string) => void;
   onEditSession: (session: TerminalSession) => void;
+  onDuplicateSession: (id: string) => Promise<void>;
   onInstallHooks: (session: TerminalSession) => void;
   onCloseSession: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -30,6 +31,7 @@ export function SessionSidebar({
   agentStatusesBySessionId,
   onSelectSession,
   onEditSession,
+  onDuplicateSession,
   onInstallHooks,
   onCloseSession,
   onReorder
@@ -38,6 +40,8 @@ export function SessionSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(() => new Set());
+  const duplicatingIdsRef = useRef(new Set<string>());
 
   const isFiltering = searchQuery.trim().length > 0;
 
@@ -113,6 +117,22 @@ export function SessionSidebar({
     setDragOverId(null);
   };
 
+  const handleDuplicateSession = async (sessionId: string) => {
+    if (duplicatingIdsRef.current.has(sessionId)) return;
+    duplicatingIdsRef.current.add(sessionId);
+    setDuplicatingIds((current) => new Set(current).add(sessionId));
+    try {
+      await onDuplicateSession(sessionId);
+    } finally {
+      duplicatingIdsRef.current.delete(sessionId);
+      setDuplicatingIds((current) => {
+        const next = new Set(current);
+        next.delete(sessionId);
+        return next;
+      });
+    }
+  };
+
   return (
     <aside className="session-sidebar">
       <div className="sidebar-search">
@@ -182,6 +202,17 @@ export function SessionSidebar({
                   )}
                 </span>
                 <span className="session-actions">
+                  <span
+                    className={`mini-action${duplicatingIds.has(session.id) ? " loading" : ""}`}
+                    title={duplicatingIds.has(session.id) ? t("sidebar.duplicatingSession") : t("sidebar.duplicateSession")}
+                    aria-disabled={duplicatingIds.has(session.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDuplicateSession(session.id);
+                    }}
+                  >
+                    <Copy aria-hidden="true" />
+                  </span>
                   <span
                     className="mini-action"
                     title={t("sidebar.installHooks")}

@@ -121,6 +121,8 @@ export type TranslationKey =
   | "sidebar.clearSearch"
   | "sidebar.empty"
   | "sidebar.installHooks"
+  | "sidebar.duplicateSession"
+  | "sidebar.duplicatingSession"
   | "sidebar.editSession"
   | "sidebar.closeSession"
   | "sidebar.confirmClose"
@@ -882,6 +884,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.clearSearch": "清除搜索",
     "sidebar.empty": "没有匹配的会话",
     "sidebar.installHooks": "安装项目 Hook",
+    "sidebar.duplicateSession": "复制并在后台启动新会话",
+    "sidebar.duplicatingSession": "正在复制会话",
     "sidebar.editSession": "编辑会话",
     "sidebar.closeSession": "关闭",
     "sidebar.confirmClose": "再次点击确认关闭",
@@ -1635,6 +1639,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.clearSearch": "Clear search",
     "sidebar.empty": "No matching sessions",
     "sidebar.installHooks": "Install project hooks",
+    "sidebar.duplicateSession": "Duplicate and start in background",
+    "sidebar.duplicatingSession": "Duplicating session",
     "sidebar.editSession": "Edit session",
     "sidebar.closeSession": "Close",
     "sidebar.confirmClose": "Click again to confirm close",

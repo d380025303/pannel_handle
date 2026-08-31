@@ -889,6 +889,7 @@ export type TerminalApi = {
   launchSessions: (sessions: TerminalSession[], launchMode: "manual" | "restore") => Promise<TerminalSession[]>;
   deleteSavedSession: (id: string) => Promise<TerminalSession[]>;
   duplicateSession: (id: string) => Promise<TerminalSession>;
+  duplicateRunningSession: (id: string) => Promise<TerminalSession>;
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;

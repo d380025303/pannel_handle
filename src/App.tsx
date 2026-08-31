@@ -569,6 +569,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
             onSelectSession={handleSelectSession}
             onEditSession={setEditDialogSession}
+            onDuplicateSession={terminalSessions.duplicateRunningSession}
             onInstallHooks={setHookInstallSession}
             onCloseSession={handleCloseSession}
             onReorder={terminalSessions.reorderRunningSessions}

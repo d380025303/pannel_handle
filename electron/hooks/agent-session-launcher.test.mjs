@@ -76,8 +76,31 @@ function createMocks(overrides = {}) {
     return { status: 0, stdout: "found" };
   });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
+  const sessionStore = {
+    getTemplate: vi.fn(() => undefined),
+    normalizeTemplate: vi.fn((template) => ({
+      id: template.id,
+      title: template.title,
+      shell: template.shell,
+      cwd: template.cwd,
+      createdAt: template.createdAt,
+      initialCommand: template.initialCommand,
+      agentProvider: template.agentProvider,
+      agentLocation: template.agentLocation,
+      localAgentCwd: template.localAgentCwd,
+      codexBackend: template.codexBackend,
+      codexModel: template.codexModel,
+      codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
+      type: template.type,
+      wslDistro: template.wslDistro,
+      sshConfig: template.sshConfig,
+      quickCommands: template.quickCommands || [],
+      tags: template.tags || []
+    }))
+  };
   const launcher = createAgentSessionLauncher({
     terminalManager,
+    sessionStore,
     hookConfigManager,
     remoteHookConfigService,
     sshSessionRuntime,
@@ -87,10 +110,69 @@ function createMocks(overrides = {}) {
     getDefaultShell,
     ...overrides
   });
-  return { launcher, terminalManager, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, getDefaultShell, sessions };
+  return { launcher, terminalManager, sessionStore, hookConfigManager, remoteHookConfigService, sshSessionRuntime, sshHookTunnelService, onTemplateLaunched, spawnSync, getDefaultShell, sessions };
 }
 
 describe("agent-session-launcher", () => {
+  it("duplicates a persisted running session from its saved template", async () => {
+    const mocks = createMocks();
+    const template = {
+      id: "template-1",
+      title: "Workspace",
+      shell: "powershell.exe",
+      cwd: "C:\\work",
+      createdAt: 1,
+      type: "windows",
+      quickCommands: [],
+      tags: ["crm"]
+    };
+    mocks.sessions.push({ ...template, id: "run-source", templateId: template.id, title: "Workspace #2" });
+    mocks.sessionStore.getTemplate.mockReturnValue(template);
+
+    const duplicated = await mocks.launcher.duplicateRunningSession("run-source");
+
+    expect(duplicated).toMatchObject({ id: "run-1", templateId: template.id, title: template.title });
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(template, {});
+    expect(mocks.onTemplateLaunched).toHaveBeenCalledWith(template.id);
+    expect(mocks.sessionStore.normalizeTemplate).not.toHaveBeenCalled();
+  });
+
+  it("duplicates a transient running session without creating a template link", async () => {
+    const mocks = createMocks();
+    const source = {
+      id: "run-source",
+      title: "Temporary",
+      shell: "powershell.exe",
+      cwd: "C:\\work",
+      createdAt: 1,
+      type: "windows",
+      initialCommand: "pnpm dev",
+      quickCommands: [{ id: "test", command: "pnpm test", mode: "write" }],
+      tags: ["local"]
+    };
+    mocks.sessions.push(source);
+
+    const duplicated = await mocks.launcher.duplicateRunningSession(source.id);
+
+    expect(duplicated).toMatchObject({
+      id: "run-1",
+      templateId: undefined,
+      initialCommand: source.initialCommand,
+      quickCommands: source.quickCommands,
+      tags: source.tags
+    });
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: source.id, cwd: source.cwd }),
+      { useProvidedTemplate: true, templateId: undefined }
+    );
+    expect(mocks.onTemplateLaunched).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplication when the source session is no longer running", async () => {
+    const { launcher } = createMocks();
+    await expect(launcher.duplicateRunningSession("missing")).rejects.toThrow("Session is not running.");
+  });
+
   it("maps all supported providers to fixed CLI commands", () => {
     expect(AGENT_COMMANDS).toEqual({
       claude: "claude",

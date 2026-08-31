@@ -2,8 +2,8 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { SessionSidebar } from "./SessionSidebar";
@@ -29,6 +29,7 @@ function renderSidebar(agentStatus?: AgentStatusPayload) {
         agentStatusesBySessionId={agentStatus ? { [session.id]: agentStatus } : {}}
         onSelectSession={noop}
         onEditSession={noop}
+        onDuplicateSession={async () => undefined}
         onInstallHooks={noop}
         onCloseSession={noop}
         onReorder={noop}
@@ -83,5 +84,39 @@ describe("SessionSidebar Agent summary", () => {
 
   it("clamps long summaries to two lines", () => {
     expect(componentStyles).toMatch(/\.agent-status-summary\s*{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*overflow:\s*hidden;/s);
+  });
+
+  it("duplicates a running session without selecting it", async () => {
+    const onSelectSession = vi.fn();
+    let finishDuplicate: () => void = () => undefined;
+    const onDuplicateSession = vi.fn(() => new Promise<void>((resolve) => {
+      finishDuplicate = resolve;
+    }));
+    const noop = () => undefined;
+    render(
+      <I18nProvider locale="zh-CN">
+        <SessionSidebar
+          sessions={[session]}
+          activeId={session.id}
+          agentStatusesBySessionId={{}}
+          onSelectSession={onSelectSession}
+          onEditSession={noop}
+          onDuplicateSession={onDuplicateSession}
+          onInstallHooks={noop}
+          onCloseSession={noop}
+          onReorder={noop}
+        />
+      </I18nProvider>
+    );
+
+    const duplicateAction = screen.getByTitle("复制并在后台启动新会话");
+    fireEvent.click(duplicateAction);
+    fireEvent.click(duplicateAction);
+
+    await waitFor(() => expect(onDuplicateSession).toHaveBeenCalledWith(session.id));
+    expect(onDuplicateSession).toHaveBeenCalledTimes(1);
+    expect(onSelectSession).not.toHaveBeenCalled();
+    finishDuplicate();
+    await waitFor(() => expect(screen.getByTitle("复制并在后台启动新会话")).toBeTruthy());
   });
 });
