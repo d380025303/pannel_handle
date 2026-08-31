@@ -23,6 +23,26 @@ const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 const LIVE_POLL_INTERVAL_MS = 1000;
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const LIVE_TOKEN_PROVIDERS = ["codex", "claude", "codebuddy", "qoder", "copilot", "gemini", "grok"];
+const REMOTE_DELTA_SCRIPT = [
+  "import base64,glob,json,os,sys",
+  "f=sys.argv[1]; state=json.loads(sys.argv[2]); limit=int(sys.argv[3])",
+  "def read_delta(p):",
+  " st=os.stat(p)",
+  " if st.st_size>limit: raise ValueError('Agent transcript exceeds the live monitoring size limit.')",
+  " ident=f'{st.st_dev}:{st.st_ino}'",
+  " prev=state.get(p,{})",
+  " off=int(prev.get('offset',0) or 0)",
+  " if prev.get('identity')!=ident or st.st_size<off: off=0",
+  " with open(p,'rb') as h:",
+  "  h.seek(off); data=h.read()",
+  " return {'path':p,'identity':ident,'start':off,'offset':off+len(data),'data':base64.b64encode(data).decode('ascii')}",
+  "result={'main':read_delta(f),'subagents':[]}",
+  "d=os.path.join(os.path.dirname(f),os.path.splitext(os.path.basename(f))[0],'subagents')",
+  "for p in sorted(glob.glob(os.path.join(d,'*.jsonl'))):",
+  " try: result['subagents'].append(read_delta(p))",
+  " except Exception: pass",
+  "print(json.dumps(result,separators=(',',':')))"
+].join("\n");
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
@@ -43,6 +63,10 @@ function remoteParserCommand(provider, transcriptPath) {
     "print(json.dumps(lines))"
   ].join("\n");
   return `python3 -c ${shellQuote(script)} ${shellQuote(provider)} ${shellQuote(transcriptPath)}`;
+}
+
+function remoteDeltaCommand(transcriptPath, readerState) {
+  return `python3 -c ${shellQuote(REMOTE_DELTA_SCRIPT)} ${shellQuote(transcriptPath)} ${shellQuote(JSON.stringify(readerState))} ${MAX_TRANSCRIPT_BYTES}`;
 }
 
 function runProcess(command, args, spawn = defaultSpawn) {
@@ -77,12 +101,45 @@ function runSsh(sessionId, command, sshSessionRuntime) {
     }));
 }
 
+function runSshClientCommand(client, command) {
+  return new Promise((resolve, reject) => {
+    client.exec(command, (error, stream) => {
+      if (error) { reject(error); return; }
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err); else resolve(value);
+      };
+      stream.on("data", chunk => {
+        stdout += chunk.toString("utf-8");
+        if (Buffer.byteLength(stdout, "utf-8") > Math.ceil(MAX_TRANSCRIPT_BYTES * 4 / 3) + 1024 * 1024) {
+          stream.close?.();
+          finish(new Error("Remote transcript delta exceeds the live monitoring size limit."));
+        }
+      });
+      stream.stderr?.on("data", chunk => { stderr += chunk.toString("utf-8"); });
+      stream.once?.("error", finish);
+      stream.on("close", code => {
+        if (code === 0) finish(null, stdout);
+        else finish(new Error(stderr.trim() || `Remote transcript reader exited with code ${code}.`));
+      });
+    });
+  });
+}
+
 function subtractTokens(current, baseline) {
   return Object.fromEntries(TOKEN_FIELDS.map(field => [field, Math.max(0, safeInteger(current?.[field]) - safeInteger(baseline?.[field]))]));
 }
 
 function isLocalSshBridge(session) {
   return session?.type === "ssh" && session.agentLocation === "local";
+}
+
+function isRemoteCodeBuddy(session, provider) {
+  return provider === "codebuddy" && session?.type === "ssh" && !isLocalSshBridge(session);
 }
 
 function hasHostReadableTranscript(session) {
@@ -342,11 +399,25 @@ function createAgentTokenStatsService({
     return null;
   }
 
+  function closeRemoteClient(tracker) {
+    if (!tracker?.remote) return;
+    const client = tracker.remoteClient;
+    const pendingClient = tracker.remoteClientPromise;
+    tracker.remoteClient = null;
+    tracker.remoteClientPromise = null;
+    try { client?.end?.(); } catch { /* Ignore SSH cleanup failures. */ }
+    if (!client && pendingClient) {
+      void pendingClient.then(connected => {
+        try { connected?.end?.(); } catch { /* Ignore SSH cleanup failures. */ }
+      }).catch(() => undefined);
+    }
+  }
+
   function resetLiveReader(tracker) {
     tracker.offset = 0;
     tracker.pendingBytes = Buffer.alloc(0);
     tracker.parser = tracker.provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(tracker.provider);
-    tracker.conversationParser = tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini" || tracker.provider === "grok"
+    tracker.conversationParser = !tracker.remote && (tracker.provider === "codex" || tracker.provider === "codebuddy" || tracker.provider === "gemini" || tracker.provider === "grok")
       ? createAgentConversationTranscriptParser(tracker.provider)
       : null;
     // 主 parser 已重建，子 agent 文件需要从头重新喂入（parser 按 messageId 去重，不会重复计数）。
@@ -357,15 +428,17 @@ function createAgentTokenStatsService({
   }
 
   function ensureLiveTracker({ provider, input, session }) {
-    if (!LIVE_TOKEN_PROVIDERS.includes(provider) || !hasHostReadableTranscript(session)) return null;
+    const remote = isRemoteCodeBuddy(session, provider);
+    if (!LIVE_TOKEN_PROVIDERS.includes(provider) || (!hasHostReadableTranscript(session) && !remote)) return null;
     const agentSessionId = input?.session_id || input?.sessionId;
     const transcriptPath = provider === "copilot" ? getCopilotOtelPath(session) : input?.transcript_path || input?.transcriptPath;
     if (!agentSessionId || !transcriptPath) return null;
     if (isNestedAgentTranscript(provider, transcriptPath)) return null;
-    const hostPath = getLiveHostPath(session, transcriptPath);
+    const hostPath = remote ? transcriptPath : getLiveHostPath(session, transcriptPath);
     let tracker = liveTrackers.get(session.id);
     if (!tracker || tracker.provider !== provider || tracker.agentSessionId !== agentSessionId || tracker.hostPath !== hostPath) {
       if (tracker?.timer) clearIntervalFn(tracker.timer);
+      closeRemoteClient(tracker);
       tracker = {
         panelSessionId: session.id,
         agentSessionId,
@@ -376,7 +449,7 @@ function createAgentTokenStatsService({
         pendingBytes: Buffer.alloc(0),
         subagentReaders: new Map(),
         parser: provider === "copilot" ? createCopilotOtelParser() : createIncrementalTranscriptParser(provider),
-        conversationParser: provider === "codex" || provider === "codebuddy" || provider === "gemini" || provider === "grok"
+        conversationParser: !remote && (provider === "codex" || provider === "codebuddy" || provider === "gemini" || provider === "grok")
           ? createAgentConversationTranscriptParser(provider)
           : null,
         conversationActive: false,
@@ -393,6 +466,9 @@ function createAgentTokenStatsService({
         outputTokensPerSecond: 0,
         timer: null,
         pollPromise: null,
+        remote,
+        remoteClient: null,
+        remoteClientPromise: null,
         session
       };
       liveTrackers.set(session.id, tracker);
@@ -466,7 +542,123 @@ function createAgentTokenStatsService({
     });
   }
 
+  function consumeMainBytes(tracker, buffer) {
+    const combined = Buffer.concat([tracker.pendingBytes, buffer]);
+    let lineStart = 0;
+    let parsedUsage = false;
+    const conversationMessages = [];
+    for (let index = 0; index < combined.length; index += 1) {
+      if (combined[index] !== 0x0a) continue;
+      let line = combined.subarray(lineStart, index);
+      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+      if (line.length) {
+        const text = line.toString("utf-8");
+        parsedUsage = tracker.parser.pushLine(text) || parsedUsage;
+        if (tracker.conversationActive && tracker.conversationParser) {
+          conversationMessages.push(...tracker.conversationParser.pushLine(text));
+        } else if (tracker.conversationParser) {
+          tracker.conversationParser.pushLine(text);
+        }
+      }
+      lineStart = index + 1;
+    }
+    tracker.pendingBytes = combined.subarray(lineStart);
+    if (conversationMessages.length) conversationSink?.appendMessages?.(tracker.panelSessionId, conversationMessages);
+    return parsedUsage;
+  }
+
+  function consumeSubagentBytes(tracker, reader, buffer) {
+    const combined = Buffer.concat([reader.pendingBytes, buffer]);
+    let lineStart = 0;
+    for (let index = 0; index < combined.length; index += 1) {
+      if (combined[index] !== 0x0a) continue;
+      let line = combined.subarray(lineStart, index);
+      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+      if (line.length) tracker.parser.pushLine(line.toString("utf-8"));
+      lineStart = index + 1;
+    }
+    reader.pendingBytes = combined.subarray(lineStart);
+  }
+
+  async function ensureRemoteClient(tracker) {
+    if (tracker.remoteClient) return tracker.remoteClient;
+    if (!tracker.remoteClientPromise) {
+      const request = sshSessionRuntime.connectClient(tracker.session.id, {
+        actionName: "Agent live token statistics",
+        timeoutMs: 10000
+      }).then(client => {
+        if (tracker.remoteClientPromise !== request) {
+          try { client.end?.(); } catch { /* Ignore stale connection cleanup failures. */ }
+          throw new Error("Remote token tracker was closed.");
+        }
+        tracker.remoteClient = client;
+        client.on?.("close", () => {
+          if (tracker.remoteClient === client) tracker.remoteClient = null;
+        });
+        return client;
+      }).finally(() => {
+        if (tracker.remoteClientPromise === request) tracker.remoteClientPromise = null;
+      });
+      tracker.remoteClientPromise = request;
+    }
+    return tracker.remoteClientPromise;
+  }
+
+  function getRemoteReaderState(tracker) {
+    const state = {
+      [tracker.hostPath]: { identity: tracker.fileIdentity, offset: tracker.offset }
+    };
+    for (const [filePath, reader] of tracker.subagentReaders) {
+      state[filePath] = { identity: reader.fileIdentity, offset: reader.offset };
+    }
+    return state;
+  }
+
+  async function readRemoteAppendedBytes(tracker) {
+    const client = await ensureRemoteClient(tracker);
+    let output;
+    try {
+      output = await runSshClientCommand(client, remoteDeltaCommand(tracker.hostPath, getRemoteReaderState(tracker)));
+    } catch (error) {
+      if (tracker.remoteClient === client) closeRemoteClient(tracker);
+      throw error;
+    }
+    const result = JSON.parse(output);
+    const main = result?.main;
+    if (!main || main.path !== tracker.hostPath || !Number.isInteger(main.offset) || !Number.isInteger(main.start)) {
+      throw new Error("Remote transcript reader returned an invalid response.");
+    }
+    const mainReset = main.start === 0 && (tracker.offset > 0 || (tracker.fileIdentity && tracker.fileIdentity !== main.identity));
+    if (mainReset) {
+      resetLiveReader(tracker);
+    }
+    tracker.fileIdentity = main.identity;
+    tracker.offset = main.offset;
+    let parsedUsage = consumeMainBytes(tracker, Buffer.from(String(main.data || ""), "base64"));
+
+    for (const item of Array.isArray(result.subagents) ? result.subagents : []) {
+      if (!item?.path || !Number.isInteger(item.offset) || !Number.isInteger(item.start)) continue;
+      let reader = tracker.subagentReaders.get(item.path);
+      if (!reader) {
+        reader = { fileIdentity: null, offset: 0, pendingBytes: Buffer.alloc(0) };
+        tracker.subagentReaders.set(item.path, reader);
+      }
+      if (mainReset && item.start > 0) continue;
+      if (item.start === 0 && (reader.offset > 0 || (reader.fileIdentity && reader.fileIdentity !== item.identity))) {
+        reader.offset = 0;
+        reader.pendingBytes = Buffer.alloc(0);
+      }
+      reader.fileIdentity = item.identity;
+      reader.offset = item.offset;
+      const before = tracker.parser.getResult()?.tokens?.totalTokens;
+      consumeSubagentBytes(tracker, reader, Buffer.from(String(item.data || ""), "base64"));
+      parsedUsage = tracker.parser.getResult()?.tokens?.totalTokens !== before || parsedUsage;
+    }
+    return parsedUsage;
+  }
+
   async function readAppendedBytes(tracker) {
+    if (tracker.remote) return readRemoteAppendedBytes(tracker);
     const stat = await fsPromises.stat(tracker.hostPath);
     if (stat.size > MAX_TRANSCRIPT_BYTES) throw new Error("Agent transcript exceeds the live monitoring size limit.");
     const fileIdentity = `${stat.dev ?? ""}:${stat.ino ?? ""}:${stat.birthtimeMs ?? ""}`;
@@ -488,37 +680,14 @@ function createAgentTokenStatsService({
       await handle.close();
     }
     tracker.offset += bytesRead;
-    const combined = Buffer.concat([tracker.pendingBytes, buffer.subarray(0, bytesRead)]);
-    let lineStart = 0;
-    let parsedUsage = false;
-    const conversationMessages = [];
-    for (let index = 0; index < combined.length; index += 1) {
-      if (combined[index] !== 0x0a) continue;
-      let line = combined.subarray(lineStart, index);
-      if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-      if (line.length) {
-        const text = line.toString("utf-8");
-        parsedUsage = tracker.parser.pushLine(text) || parsedUsage;
-        if (tracker.conversationActive && tracker.conversationParser) {
-          conversationMessages.push(...tracker.conversationParser.pushLine(text));
-        } else if (tracker.conversationParser) {
-          tracker.conversationParser.pushLine(text);
-        }
-      }
-      lineStart = index + 1;
-    }
-    tracker.pendingBytes = combined.subarray(lineStart);
-    if (conversationMessages.length) {
-      conversationSink?.appendMessages?.(tracker.panelSessionId, conversationMessages);
-    }
-    return parsedUsage;
+    return consumeMainBytes(tracker, buffer.subarray(0, bytesRead));
   }
 
   // CodeBuddy 子 agent 的 usage 只写入主 transcript 同级的 `<sessionId>/subagents/agent-*.jsonl`。
   // 这里增量 tail 这些文件并把行喂入主 parser（messageId 各文件独立，按 UUID 天然不冲突），
   // 使实时 token 统计包含子 agent 的消耗。子 agent 行不进入 conversationParser，避免污染主会话视图。
   async function readSubagentAppendedBytes(tracker) {
-    if (tracker.provider !== "codebuddy") return;
+    if (tracker.provider !== "codebuddy" || tracker.remote) return;
     const subagentsDir = getCodeBuddySubagentsDir(tracker.hostPath);
     if (!subagentsDir) return;
     let entries;
@@ -553,16 +722,7 @@ function createAgentTokenStatsService({
           await handle.close();
         }
         reader.offset += bytesRead;
-        const combined = Buffer.concat([reader.pendingBytes, buffer.subarray(0, bytesRead)]);
-        let lineStart = 0;
-        for (let index = 0; index < combined.length; index += 1) {
-          if (combined[index] !== 0x0a) continue;
-          let line = combined.subarray(lineStart, index);
-          if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
-          if (line.length) tracker.parser.pushLine(line.toString("utf-8"));
-          lineStart = index + 1;
-        }
-        reader.pendingBytes = combined.subarray(lineStart);
+        consumeSubagentBytes(tracker, reader, buffer.subarray(0, bytesRead));
       } catch { /* 跳过暂时不可读的子 agent transcript */ }
     }
   }
@@ -658,6 +818,7 @@ function createAgentTokenStatsService({
     tracker.state = "completed";
     tracker.updatedAt = now();
     stopLiveTimer(tracker);
+    closeRemoteClient(tracker);
     emitLive(tracker);
   }
 
@@ -705,7 +866,7 @@ function createAgentTokenStatsService({
           sessionId: session.id,
           sessionTitle: session.title,
           provider,
-          supported: Boolean(tracker),
+          supported: Boolean(tracker?.conversationParser),
           userMessage: input.prompt,
           userMessageId: input.event_id || input.eventId || input.turn_id || input.turnId,
           timestamp: now()
@@ -730,6 +891,7 @@ function createAgentTokenStatsService({
     markEnded(panelSessionId) {
       const tracker = liveTrackers.get(panelSessionId);
       stopLiveTimer(tracker);
+      closeRemoteClient(tracker);
       liveTrackers.delete(panelSessionId);
       openCodeTrackers.delete(panelSessionId);
       remoteSnapshots.delete(panelSessionId);
@@ -737,7 +899,10 @@ function createAgentTokenStatsService({
       conversationSink?.clearSession?.(panelSessionId);
     },
     shutdown() {
-      for (const tracker of liveTrackers.values()) stopLiveTimer(tracker);
+      for (const tracker of liveTrackers.values()) {
+        stopLiveTimer(tracker);
+        closeRemoteClient(tracker);
+      }
       liveTrackers.clear();
       openCodeTrackers.clear();
       remoteSnapshots.clear();
@@ -747,8 +912,10 @@ function createAgentTokenStatsService({
 
 module.exports = {
   LIVE_POLL_INTERVAL_MS,
+  REMOTE_DELTA_SCRIPT,
   createAgentTokenStatsService,
   isNestedAgentTranscript,
+  remoteDeltaCommand,
   remoteParserCommand,
   shellQuote,
   subtractTokens

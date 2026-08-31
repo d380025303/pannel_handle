@@ -1,12 +1,13 @@
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createAgentTokenStatsService } = require("./agent-token-stats-service.cjs");
+const { createAgentTokenStatsService, REMOTE_DELTA_SCRIPT } = require("./agent-token-stats-service.cjs");
 
 function codexLine(inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens } } } })}\n`;
@@ -55,6 +56,48 @@ function createMemoryFiles(initial = "", { beforeStat } = {}) {
   };
 }
 
+function remoteDelta(pathname, mainText = "", { mainOffset = 0, subagents = [] } = {}) {
+  const mainBytes = Buffer.from(mainText);
+  return JSON.stringify({
+    main: {
+      path: pathname,
+      identity: "1:1",
+      start: mainOffset,
+      offset: mainOffset + mainBytes.length,
+      data: mainBytes.toString("base64")
+    },
+    subagents: subagents.map(({ path: subagentPath, text, offset = 0 }, index) => {
+      const bytes = Buffer.from(text);
+      return {
+        path: subagentPath,
+        identity: `1:${index + 2}`,
+        start: offset,
+        offset: offset + bytes.length,
+        data: bytes.toString("base64")
+      };
+    })
+  });
+}
+
+function createSshClient(responses) {
+  const client = new EventEmitter();
+  const queue = [...responses];
+  client.end = vi.fn();
+  client.exec = vi.fn((_command, callback) => {
+    const stream = new EventEmitter();
+    stream.stderr = new EventEmitter();
+    stream.close = vi.fn();
+    callback(null, stream);
+    queueMicrotask(() => {
+      const response = queue.length > 1 ? queue.shift() : queue[0];
+      if (response?.stderr) stream.stderr.emit("data", Buffer.from(response.stderr));
+      if (response?.stdout) stream.emit("data", Buffer.from(response.stdout));
+      stream.emit("close", response?.code ?? 0);
+    });
+  });
+  return client;
+}
+
 function createHarness({ initial = "", now = 1_000, conversationSink = null, beforeStat } = {}) {
   const files = createMemoryFiles(initial, { beforeStat });
   const broadcasts = [];
@@ -82,6 +125,30 @@ async function flush() {
 }
 
 describe("agent token live statistics", () => {
+  it("reads main and CodeBuddy subagent deltas with the remote Python helper", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "pannel-remote-token-"));
+    try {
+      const transcriptPath = path.join(directory, "session.jsonl");
+      const subagentsDirectory = path.join(directory, "session", "subagents");
+      const mainLine = codeBuddyLine("python-main", 2, 1);
+      const subagentLine = codeBuddyLine("python-sub", 3, 2);
+      await mkdir(subagentsDirectory, { recursive: true });
+      await writeFile(transcriptPath, mainLine);
+      await writeFile(path.join(subagentsDirectory, "agent-1.jsonl"), subagentLine);
+
+      const result = spawnSync(process.platform === "win32" ? "python" : "python3", [
+        "-c", REMOTE_DELTA_SCRIPT, transcriptPath, "{}", String(64 * 1024 * 1024)
+      ], { encoding: "utf-8" });
+      expect(result.status, result.stderr).toBe(0);
+      const payload = JSON.parse(result.stdout);
+      expect(Buffer.from(payload.main.data, "base64").toString("utf-8")).toBe(mainLine);
+      expect(payload.subagents).toHaveLength(1);
+      expect(Buffer.from(payload.subagents[0].data, "base64").toString("utf-8")).toBe(subagentLine);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("ignores hooks from removed providers", async () => {
     const harness = createHarness();
     harness.service.handleHook({
@@ -176,7 +243,7 @@ describe("agent token live statistics", () => {
     expect(harness.service.getLive("panel-1")).toBeNull();
   });
 
-  it("marks pure remote SSH turns as unsupported without polling the transcript", () => {
+  it("keeps pure remote SSH conversations unsupported", () => {
     const sink = { startTurn: vi.fn() };
     const harness = createHarness({ conversationSink: sink });
     harness.service.handleHook({
@@ -185,6 +252,119 @@ describe("agent token live statistics", () => {
       session: { ...harness.session, type: "ssh", agentLocation: "remote", agentProvider: "codebuddy" }
     });
     expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ provider: "codebuddy", supported: false }));
+    expect(harness.service.getLive("panel-1")).not.toBeNull();
+    harness.service.markEnded("panel-1");
+  });
+
+  it("streams remote CodeBuddy token deltas over one reusable SSH connection", async () => {
+    const transcriptPath = "/home/test/.codebuddy/session.jsonl";
+    const mainLine = codeBuddyLine("main-1", 10, 5);
+    const subagentLine = codeBuddyLine("sub-1", 3, 2);
+    const liveClient = createSshClient([
+      { stdout: remoteDelta(transcriptPath) },
+      { stdout: remoteDelta(transcriptPath) },
+      {
+        stdout: remoteDelta(transcriptPath, mainLine, {
+          subagents: [{ path: "/home/test/.codebuddy/session/subagents/agent-1.jsonl", text: subagentLine }]
+        })
+      },
+      {
+        stdout: remoteDelta(transcriptPath, "", {
+          mainOffset: Buffer.byteLength(mainLine),
+          subagents: [{
+            path: "/home/test/.codebuddy/session/subagents/agent-1.jsonl",
+            text: "",
+            offset: Buffer.byteLength(subagentLine)
+          }]
+        })
+      }
+    ]);
+    const completedClient = createSshClient([{ stdout: JSON.stringify([mainLine.trim(), subagentLine.trim()]) }]);
+    const baselineClient = createSshClient([{ stdout: JSON.stringify([]) }]);
+    const connectClient = vi.fn(async (_sessionId, options) => {
+      if (options.actionName === "Agent live token statistics") return liveClient;
+      if (options.actionName === "Agent token statistics") {
+        return connectClient.mock.calls.filter(([, value]) => value.actionName === "Agent token statistics").length === 1
+          ? baselineClient
+          : completedClient;
+      }
+      throw new Error(`Unexpected SSH action: ${options.actionName}`);
+    });
+    const intervals = [];
+    const broadcasts = [];
+    const sink = { startTurn: vi.fn(), completeTurn: vi.fn() };
+    const statsStore = { setBaseline: vi.fn(), update: vi.fn(input => input), markEnded: vi.fn() };
+    const service = createAgentTokenStatsService({
+      terminalManager: {}, statsStore, sshSessionRuntime: { connectClient }, conversationSink: sink,
+      retryDelaysMs: [0],
+      setIntervalFn: callback => { intervals.push(callback); return callback; },
+      clearIntervalFn: vi.fn(),
+      broadcast: (channel, payload) => broadcasts.push({ channel, payload })
+    });
+    const session = { id: "panel-remote", type: "ssh", agentLocation: "remote", agentProvider: "codebuddy", title: "Remote", cwd: "/srv/app" };
+    const input = { session_id: "buddy-remote", transcript_path: transcriptPath, cwd: "/srv/app" };
+
+    service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart" }, session });
+    await vi.waitFor(() => expect(liveClient.exec).toHaveBeenCalledTimes(1));
+    service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "UserPromptSubmit", prompt: "inspect" }, session });
+    await vi.waitFor(() => expect(service.getLive(session.id)?.state).toBe("generating"));
+    await vi.waitFor(() => expect(liveClient.exec).toHaveBeenCalledTimes(2));
+    await intervals[0]();
+    await vi.waitFor(() => expect(service.getLive(session.id)?.tokens).toMatchObject({ inputTokens: 13, outputTokens: 7, totalTokens: 20 }));
+
+    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ supported: false }));
+    expect(connectClient.mock.calls.filter(([, options]) => options.actionName === "Agent live token statistics")).toHaveLength(1);
+    expect(broadcasts.some(event => event.payload?.tokens?.totalTokens === 20)).toBe(true);
+
+    service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "Stop" }, session });
+    await vi.waitFor(() => expect(service.getLive(session.id)?.state).toBe("completed"));
+    await vi.waitFor(() => expect(statsStore.update).toHaveBeenCalled());
+    expect(liveClient.end).toHaveBeenCalledTimes(1);
+    expect(statsStore.update).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codebuddy",
+      location: "ssh",
+      tokens: expect.objectContaining({ totalTokens: 20 })
+    }));
+    service.shutdown();
+  });
+
+  it("reconnects remote CodeBuddy live tracking after an SSH read failure", async () => {
+    const transcriptPath = "/home/test/.codebuddy/reconnect.jsonl";
+    const failedClient = createSshClient([{ code: 1, stderr: "connection reset" }]);
+    const line = codeBuddyLine("recovered-1", 4, 3);
+    const recoveredClient = createSshClient([
+      { stdout: remoteDelta(transcriptPath) },
+      { stdout: remoteDelta(transcriptPath, line) }
+    ]);
+    const baselineClient = createSshClient([{ stdout: JSON.stringify([]) }]);
+    const liveClients = [failedClient, recoveredClient];
+    const connectClient = vi.fn(async (_sessionId, options) => options.actionName === "Agent live token statistics"
+      ? liveClients.shift()
+      : baselineClient);
+    const intervals = [];
+    const service = createAgentTokenStatsService({
+      terminalManager: {},
+      statsStore: { setBaseline: vi.fn(), update: vi.fn(), markEnded: vi.fn() },
+      sshSessionRuntime: { connectClient },
+      retryDelaysMs: [0],
+      setIntervalFn: callback => { intervals.push(callback); return callback; },
+      clearIntervalFn: vi.fn()
+    });
+    const session = { id: "panel-reconnect", type: "ssh", agentLocation: "remote", agentProvider: "codebuddy", title: "Remote", cwd: "/srv/app" };
+    const input = { session_id: "buddy-reconnect", transcript_path: transcriptPath };
+
+    service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "SessionStart" }, session });
+    await vi.waitFor(() => expect(service.getLive(session.id)?.state).toBe("unavailable"));
+    expect(failedClient.end).toHaveBeenCalledTimes(1);
+
+    service.handleHook({ provider: "codebuddy", input: { ...input, hook_event_name: "UserPromptSubmit" }, session });
+    await vi.waitFor(() => expect(service.getLive(session.id)?.state).toBe("generating"));
+    await intervals[0]();
+    await vi.waitFor(() => expect(service.getLive(session.id)?.tokens.totalTokens).toBe(7));
+    expect(connectClient.mock.calls.filter(([, options]) => options.actionName === "Agent live token statistics")).toHaveLength(2);
+
+    service.markEnded(session.id);
+    expect(recoveredClient.end).toHaveBeenCalledTimes(1);
   });
 
   it("publishes session deltas and freezes the final average output rate", async () => {
