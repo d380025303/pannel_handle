@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, Download, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, SessionLibraryFileResult, SessionLibraryImportResult, TerminalSession } from "../../vite-env";
+import { matchesSessionSearch } from "../../utils/sessionSearch";
 import { LaunchTemplatePanel } from "./LaunchTemplatePanel";
 
 type SessionPickerModalProps = {
@@ -113,20 +114,10 @@ export function SessionPickerModal({
   }, [onCancel]);
 
   const filteredSessions = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
     return pendingSessions.filter((session) => {
       const tags = (session.tags ?? []).map((tag) => tag.toLowerCase());
       const matchesTags = Array.from(selectedTags).every((tag) => tags.includes(tag.toLowerCase()));
-      const matchesSearch = !query || (
-        session.title.toLowerCase().includes(query) ||
-        session.type.toLowerCase().includes(query) ||
-        session.shell.toLowerCase().includes(query) ||
-        session.cwd.toLowerCase().includes(query) ||
-        Boolean(session.wslDistro?.toLowerCase().includes(query)) ||
-        Boolean(session.sshConfig?.host?.toLowerCase().includes(query)) ||
-        Boolean(session.sshConfig?.username?.toLowerCase().includes(query)) ||
-        tags.some((tag) => tag.includes(query))
-      );
+      const matchesSearch = matchesSessionSearch(session, searchQuery);
       return matchesTags && matchesSearch;
     });
   }, [pendingSessions, searchQuery, selectedTags]);

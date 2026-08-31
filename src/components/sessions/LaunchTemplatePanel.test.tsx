@@ -68,6 +68,54 @@ describe("LaunchTemplatePanel", () => {
     }));
   });
 
+  it("searches session templates while creating without changing hidden selections", async () => {
+    const onCreate = vi.fn().mockResolvedValue(createLaunchTemplate([]));
+    renderPanel({
+      onCreate,
+      sessionTemplates: [
+        { ...createSession("one", "Frontend"), tags: ["Work"] },
+        {
+          ...createSession("two", "Production"),
+          type: "ssh",
+          shell: "ssh",
+          cwd: "/srv/app",
+          sshConfig: { host: "server.example.com", username: "deploy" }
+        }
+      ]
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "New launch template" }));
+    fireEvent.change(screen.getByPlaceholderText("For example: Daily development"), { target: { value: "Deploy" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Frontend/ }));
+
+    const search = screen.getByPlaceholderText("Search sessions or tags...");
+    fireEvent.change(search, { target: { value: "server.example.com" } });
+    expect(screen.queryByRole("checkbox", { name: /Frontend/ })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Production/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith({
+      name: "Deploy",
+      sessionTemplateIds: ["one", "two"]
+    }));
+  });
+
+  it("searches and clears session templates while editing", () => {
+    renderPanel({
+      launchTemplates: [createLaunchTemplate(["one"])],
+      sessionTemplates: [createSession("one", "Frontend"), createSession("two", "Backend")]
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit session: Daily" }));
+    const search = screen.getByPlaceholderText("Search sessions or tags...");
+    fireEvent.change(search, { target: { value: "missing" } });
+    expect(screen.getByText("No matching sessions")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByRole("checkbox", { name: /Frontend/ })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /Backend/ })).toBeTruthy();
+  });
+
   it("disables empty profiles and reports partial launch failures", async () => {
     const onLaunch = vi.fn().mockResolvedValue({
       launchedSessionIds: ["running-one"],

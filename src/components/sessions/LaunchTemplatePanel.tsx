@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { GripVertical, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, TerminalSession } from "../../vite-env";
+import { matchesSessionSearch } from "../../utils/sessionSearch";
 
 type LaunchTemplatePanelProps = {
   launchTemplates: LaunchTemplate[];
@@ -41,7 +42,12 @@ function LaunchTemplateEditor({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const sessionById = useMemo(() => new Map(sessionTemplates.map(item => [item.id, item])), [sessionTemplates]);
+  const filteredSessionTemplates = useMemo(
+    () => sessionTemplates.filter(session => matchesSessionSearch(session, searchQuery)),
+    [searchQuery, sessionTemplates]
+  );
 
   const toggleMember = (id: string) => {
     setSessionTemplateIds((current) => (
@@ -115,9 +121,28 @@ function LaunchTemplateEditor({
 
       <fieldset className="launch-template-member-picker">
         <legend>{t("launchTemplate.members")}</legend>
+        {sessionTemplates.length > 0 && (
+          <div className="picker-search">
+            <Search className="picker-search-icon" aria-hidden="true" />
+            <input
+              className="modal-input picker-search-input"
+              type="text"
+              placeholder={t("picker.searchPlaceholder")}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            {searchQuery.trim() && (
+              <button className="picker-search-clear" type="button" onClick={() => setSearchQuery("")} aria-label={t("sidebar.clearSearch")}>
+                <X aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        )}
         {sessionTemplates.length === 0 ? (
           <p className="launch-template-hint">{t("picker.empty")}</p>
-        ) : sessionTemplates.map((session) => (
+        ) : filteredSessionTemplates.length === 0 ? (
+          <p className="launch-template-hint">{t("picker.noMatches")}</p>
+        ) : filteredSessionTemplates.map((session) => (
           <label key={session.id}>
             <input
               type="checkbox"
