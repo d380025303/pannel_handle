@@ -169,6 +169,51 @@ describe("remote-file-service", () => {
     }
   });
 
+  it("allows Windows file operations outside the session working directory", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-outside-"));
+    const workingDirectory = path.join(root, "workspace");
+    const outsideDirectory = path.join(root, "shared");
+    const outsideFile = path.join(outsideDirectory, "note.txt");
+    fs.mkdirSync(workingDirectory);
+    fs.mkdirSync(outsideDirectory);
+    fs.writeFileSync(outsideFile, "before", "utf-8");
+    try {
+      const service = createRemoteFileService({
+        terminalManager: createTerminalManager({ id: "run-1", type: "windows", cwd: workingDirectory }),
+        sessionStore: createSessionStore(),
+        shellApi: createShellMock()
+      });
+
+      await expect(service.list("run-1", outsideDirectory)).resolves.toEqual([
+        expect.objectContaining({ name: "note.txt", path: outsideFile })
+      ]);
+      const preview = await service.readText("run-1", outsideFile);
+      await expect(service.writeText("run-1", outsideFile, "after", preview.version)).resolves.toEqual(
+        expect.objectContaining({ status: "saved" })
+      );
+      expect(fs.readFileSync(outsideFile, "utf-8")).toBe("after");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("allows SSH listing outside the configured session working directory", async () => {
+    const sftp = createSftpMock();
+    const service = createRemoteFileService({
+      terminalManager: createTerminalManager({
+        id: "run-1",
+        type: "ssh",
+        cwd: "/srv/app",
+        sshConfig: { host: "example.com", username: "deploy", port: 22, extraArgs: [] }
+      }),
+      sessionStore: createSessionStore(),
+      sftpFactory: () => sftp
+    });
+
+    await expect(service.list("run-1", "/etc")).resolves.toEqual([]);
+    expect(sftp.list).toHaveBeenCalledWith("/etc");
+  });
+
   it("previews and writes Windows text files with conflict detection", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-files-"));
     const filePath = path.join(dir, "note.txt");

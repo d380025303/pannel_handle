@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RemoteFileEntry } from "../vite-env";
-import { findLoadedPathChain, flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState } from "./remoteFileTree";
+import { findLoadedPathChain, flattenLoadedTree, isPathInside, isTreeRoot, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState } from "./remoteFileTree";
 
 const directory = (name: string, path: string): RemoteFileEntry => ({ name, path, type: "directory", size: 0, modifiedAt: 0 });
 const file = (name: string, path: string): RemoteFileEntry => ({ name, path, type: "file", size: 10, modifiedAt: 0 });
@@ -40,6 +40,8 @@ describe("remote file tree", () => {
     expect(isPathInside("/tmp", "/")).toBe(true);
     expect(parentTreePath("/home/me/project/src")).toBe("/home/me/project");
     expect(parentTreePath("/")).toBe("/");
+    expect(isTreeRoot("/")).toBe(true);
+    expect(isTreeRoot("/home")).toBe(false);
   });
 
   it("keeps navigation inside case-insensitive Windows roots", () => {
@@ -48,7 +50,15 @@ describe("remote file tree", () => {
     expect(isPathInside("C:\\work\\project-old", "C:\\work\\project")).toBe(false);
     expect(isPathInside("C:\\work", "C:\\work\\project")).toBe(false);
     expect(sameTreePath(parentTreePath("C:\\work\\project"), "C:\\work")).toBe(true);
-    expect(parentTreePath("C:\\")).toBe("C:");
+    expect(parentTreePath("C:\\")).toBe("C:/");
+    expect(isTreeRoot("C:\\")).toBe(true);
+    expect(isTreeRoot("C:\\work")).toBe(false);
+  });
+
+  it("does not navigate above a Windows UNC share root", () => {
+    expect(parentTreePath("\\\\server\\share\\folder")).toBe("//server/share");
+    expect(parentTreePath("\\\\server\\share\\")).toBe("//server/share");
+    expect(isTreeRoot("\\\\server\\share\\")).toBe(true);
   });
 
   it("removes a cached branch without affecting siblings", () => {

@@ -20,13 +20,23 @@ export function normalizeTreePath(value: string) {
 
 export function parentTreePath(value: string) {
   const normalized = normalizeTreePath(value);
-  if (normalized === "/" || normalized === "." || /^[a-zA-Z]:$/.test(normalized)) {
+  if (normalized === "/" || normalized === ".") {
+    return normalized;
+  }
+  if (/^[a-zA-Z]:$/.test(normalized)) {
+    return `${normalized}/`;
+  }
+  if (/^\/\/[^/]+\/[^/]+$/.test(normalized)) {
     return normalized;
   }
   const separatorIndex = normalized.lastIndexOf("/");
   if (separatorIndex <= 0) return "/";
   const parent = normalized.slice(0, separatorIndex);
   return /^[a-zA-Z]:$/.test(parent) ? `${parent}/` : parent;
+}
+
+export function isTreeRoot(value: string) {
+  return sameTreePath(value, parentTreePath(value));
 }
 
 function isWindowsTreePath(value: string) {

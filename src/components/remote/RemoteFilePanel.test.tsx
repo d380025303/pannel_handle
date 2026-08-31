@@ -56,6 +56,79 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.queryByRole("button", { name: "更换文件根目录" })).toBeNull();
   });
 
+  it("navigates above the session working directory and accepts another absolute path", async () => {
+    const outsidePath = "D:\\shared";
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.createEntry = vi.fn(async (_sessionId, parentPath, name) => ({
+      status: "completed" as const,
+      path: `${parentPath}\\${name}`,
+      name
+    }));
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    const { container } = render(<RemoteFilePanel session={session} />);
+
+    await screen.findByTitle(childPath);
+    const parentButton = screen.getByRole("button", { name: "上级目录" }) as HTMLButtonElement;
+    expect(parentButton.disabled).toBe(false);
+    fireEvent.click(parentButton);
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, "C:/"));
+
+    const pathInput = container.querySelector<HTMLInputElement>(".remote-file-path input")!;
+    fireEvent.change(pathInput, { target: { value: outsidePath } });
+    fireEvent.keyDown(pathInput, { key: "Enter" });
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, outsidePath));
+
+    const outsideRoot = await waitFor(() => {
+      const match = screen.getAllByTitle(outsidePath).find((element) => element.classList.contains("remote-file-name"));
+      expect(match).toBeTruthy();
+      return match!;
+    });
+    fireEvent.contextMenu(outsideRoot.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "新建文件夹" }));
+    const createInput = screen.getByPlaceholderText("新建文件夹");
+    fireEvent.change(createInput, { target: { value: "created" } });
+    fireEvent.keyDown(createInput, { key: "Enter" });
+
+    await waitFor(() => expect(remoteFileApi.createEntry).toHaveBeenCalledWith(
+      session.id,
+      outsidePath,
+      "created",
+      "directory",
+      "cancel"
+    ));
+  });
+
+  it("disables parent navigation only at a filesystem root", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    const { container } = render(<RemoteFilePanel session={session} />);
+    await screen.findByTitle(childPath);
+    const pathInput = container.querySelector<HTMLInputElement>(".remote-file-path input")!;
+    fireEvent.change(pathInput, { target: { value: "C:\\" } });
+    fireEvent.keyDown(pathInput, { key: "Enter" });
+
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, "C:\\"));
+    await waitFor(() => expect((screen.getByRole("button", { name: "上级目录" }) as HTMLButtonElement).disabled).toBe(true));
+  });
+
   it("finishes expanding a directory after navigation history changes", async () => {
     window.remoteFileApi = createRemoteFileApi();
     const session: TerminalSession = {

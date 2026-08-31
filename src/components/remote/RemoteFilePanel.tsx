@@ -8,7 +8,7 @@ import { RemoteCodeEditor, type RemoteCodeEditorViewport, type RemoteCodeLanguag
 import { RemoteOfficePreview } from "./RemoteOfficePreview";
 import { beginInputInterruption, endInputInterruption, INPUT_RECOVERY_EVENT } from "../../hooks/inputRecovery";
 import { resolveMarkdownLink } from "../../utils/markdownLink";
-import { flattenLoadedTree, isPathInside, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
+import { flattenLoadedTree, isPathInside, isTreeRoot, parentTreePath, removeTreeBranch, sameTreePath, type DirectoryTreeState, type VisibleTreeNode } from "../../utils/remoteFileTree";
 import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, RemoteFilePreview, TerminalSession } from "../../vite-env";
 
 type RemoteFilePanelProps = {
@@ -690,12 +690,7 @@ export function RemoteFilePanel({
   const loadDirectory = useCallback(async (path: string, preserveSearch = false, skipConfirm = false) => {
     if (!sessionId) return undefined;
     const rootBoundary = navigationRootRef.current;
-    if (!rootBoundary) return undefined;
-    const targetPath = path === "." ? rootBoundary : path;
-    if (!isPathInside(targetPath, rootBoundary)) {
-      setError(t("files.outsideWorkingDirectory"));
-      return undefined;
-    }
+    const targetPath = path === "." ? rootBoundary || "." : path;
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     closeFileContextMenu();
@@ -750,7 +745,7 @@ export function RemoteFilePanel({
       if (requestRef.current === requestId) setLoading(false);
     }
     return undefined;
-  }, [closeFileContextMenu, loadTreeDirectory, onCurrentPathChange, sessionId, setRootDirectory, t]);
+  }, [closeFileContextMenu, loadTreeDirectory, onCurrentPathChange, sessionId, setRootDirectory]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -1647,7 +1642,7 @@ export function RemoteFilePanel({
               <Search aria-hidden="true" />
             </button>
           )}
-          <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} disabled={!navigationRoot || sameTreePath(currentPath, navigationRoot)} onClick={() => void loadDirectory(parentTreePath(currentPath))}>
+          <button className="icon-button" type="button" title={t("files.parentDirectory")} aria-label={t("files.parentDirectory")} disabled={!navigationRoot || isTreeRoot(currentPath)} onClick={() => void loadDirectory(parentTreePath(currentPath))}>
             <ArrowUp aria-hidden="true" />
           </button>
           {canOpenInExplorer && (
