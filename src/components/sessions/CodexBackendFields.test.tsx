@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import { CodexBackendFields } from "./CodexBackendFields";
@@ -22,6 +23,14 @@ describe("CodexBackendFields", () => {
           compatible: true,
           verification: { status: "passed", checkedAt: 1 }
         }])
+      }
+    });
+    Object.defineProperty(window, "codeBuddyCodexApi", {
+      configurable: true,
+      value: {
+        getStatus: vi.fn().mockResolvedValue({ available: true, version: "2.142.0", supportedMinor: "2.142", experimental: true }),
+        listModels: vi.fn().mockResolvedValue([{ id: "glm-5.2", name: "glm-5.2" }]),
+        verifyModel: vi.fn().mockResolvedValue({ modelId: "glm-5.2", status: "passed", checkedAt: 1, stages: [] })
       }
     });
   });
@@ -94,5 +103,24 @@ describe("CodexBackendFields", () => {
       </I18nProvider>
     );
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
+  });
+
+  it("verifies a CodeBuddy model and requires the private-bridge acknowledgement", async () => {
+    const onAcknowledged = vi.fn();
+    function Harness() {
+      const [model, setModel] = useState<string>();
+      return <CodexBackendFields backend="codebuddy" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onExperimentalAcknowledgedChange={onAcknowledged} />;
+    }
+    render(
+      <I18nProvider locale="zh-CN">
+        <Harness />
+      </I18nProvider>
+    );
+    const selector = await screen.findByRole("combobox");
+    fireEvent.change(selector, { target: { value: "glm-5.2" } });
+    await vi.waitFor(() => expect(window.codeBuddyCodexApi.verifyModel).toHaveBeenCalledWith({ modelId: "glm-5.2" }));
+    expect(await screen.findByText(/私有桥仅兼容 CodeBuddy 2.142.x/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(onAcknowledged).toHaveBeenCalledWith(true);
   });
 });

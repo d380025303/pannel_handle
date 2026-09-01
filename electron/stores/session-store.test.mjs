@@ -59,6 +59,23 @@ describe("session-store", () => {
     expect(session).toMatchObject({ codexBackend: "openrouter", codexModel: "openai/gpt-5.4", codexExperimentalAcknowledged: true });
   });
 
+  it("persists verified CodeBuddy Codex metadata for local sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "1",
+      type: "wsl",
+      cwd: "/work",
+      wslDistro: "Ubuntu",
+      agentProvider: "codex",
+      codexBackend: "codebuddy",
+      codexModel: "glm-5.2",
+      codexExperimentalAcknowledged: true
+    }]));
+
+    const [session] = createStore(sessionsFile).loadLibrary();
+    expect(session).toMatchObject({ codexBackend: "codebuddy", codexModel: "glm-5.2", codexExperimentalAcknowledged: true });
+  });
+
   it("normalizes Codex backend metadata for OpenAI and SSH sessions", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

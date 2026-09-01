@@ -82,7 +82,8 @@
       "output": "release"
     },
     "asarUnpack": [
-      "node_modules/@vscode/ripgrep-win32-*/bin/**"
+      "node_modules/@vscode/ripgrep-win32-*/bin/**",
+      "electron/services/codebuddy-codex-preload.cjs"
     ],
     "toolsets": {
       "winCodeSign": "1.1.0"

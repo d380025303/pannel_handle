@@ -6773,7 +6773,8 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .agent-conversation-panel.history-open {
-  grid-template-columns: minmax(170px, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .agent-conversation-detail {
@@ -6788,12 +6789,16 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .agent-conversation-history {
+  position: absolute;
+  z-index: 2;
+  inset: 42px 0 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   background: color-mix(in srgb, var(--color-bg-panel) 88%, var(--color-bg-app));
-  border-right: 1px solid var(--color-border);
+  border-right: 0;
+  border-bottom: 0;
 }
 
 .agent-conversation-history[hidden] {
@@ -7203,54 +7208,39 @@ button.agent-usage-status[aria-expanded="true"] {
   font-size: 12px;
 }
 
-@container right-tools (max-width: 520px) {
-  .agent-conversation-panel.history-open {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
+.agent-conversation-panel.history-open .agent-conversation-search-toggle {
+  display: none;
+}
 
-  .agent-conversation-history {
-    position: absolute;
-    z-index: 2;
-    inset: 42px 0 0;
-    border-right: 0;
-    border-bottom: 0;
-  }
+.agent-conversation-history-filters {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  padding: 7px 8px;
+}
 
-  .agent-conversation-panel.history-open .agent-conversation-search-toggle {
-    display: none;
-  }
+.agent-conversation-history-options {
+  justify-content: flex-end;
+}
 
-  .agent-conversation-history-filters {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 8px;
-    padding: 7px 8px;
-  }
+.agent-conversation-history-search {
+  grid-column: 1 / -1;
+}
 
-  .agent-conversation-history-options {
-    justify-content: flex-end;
-  }
+.agent-conversation-history-list {
+  padding: 5px 8px;
+}
 
-  .agent-conversation-history-search {
-    grid-column: 1 / -1;
-  }
+.agent-conversation-history-item {
+  margin-bottom: 4px;
+  padding: 7px 8px;
+}
 
-  .agent-conversation-history-list {
-    padding: 5px 8px;
-  }
+.agent-conversation-messages {
+  padding: 10px;
+}
 
-  .agent-conversation-history-item {
-    margin-bottom: 4px;
-    padding: 7px 8px;
-  }
-
-  .agent-conversation-messages {
-    padding: 10px;
-  }
-
-  .agent-conversation-message {
-    padding: 10px 11px;
-  }
+.agent-conversation-message {
+  padding: 10px 11px;
 }
 
 @container right-tools (max-width: 340px) {

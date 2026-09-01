@@ -394,7 +394,7 @@ async function runCodexResetCreditRequest(transport, { creditId, idempotencyKey,
 }
 
 function getCacheKey(session) {
-  const provider = session.agentProvider || "unknown";
+  const provider = session.agentProvider === "codex" && session.codexBackend === "codebuddy" ? "codebuddy" : session.agentProvider || "unknown";
   if (session.type === "windows" || isLocalSshBridge(session)) return `${provider}:windows`;
   if (session.type === "wsl") return `${provider}:wsl:${String(session.wslDistro || "").trim()}`;
   return `${provider}:ssh:${session.id}`;
@@ -402,6 +402,10 @@ function getCacheKey(session) {
 
 function isLocalSshBridge(session) {
   return session?.type === "ssh" && session.agentLocation === "local";
+}
+
+function isCodeBuddyQuotaSession(session) {
+  return session?.agentProvider === "codebuddy" || (session?.agentProvider === "codex" && session?.codexBackend === "codebuddy");
 }
 
 function createAgentUsageService({
@@ -430,7 +434,7 @@ function createAgentUsageService({
 
   async function createTransport(session) {
     if (transportFactory) return transportFactory(session);
-    if (session.agentProvider === "codebuddy") return createCodeBuddyProcessTransport(session, spawn);
+    if (isCodeBuddyQuotaSession(session)) return createCodeBuddyProcessTransport({ ...session, type: "windows" }, spawn);
     if (session.type === "ssh" && !isLocalSshBridge(session)) {
       return createSshTransport(session, sshSessionRuntime, { timeoutMs });
     }
@@ -481,9 +485,9 @@ function createAgentUsageService({
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
         transport.close();
-        throw new Error(`Reading ${session.agentProvider === "codebuddy" ? "CodeBuddy quota" : "Codex usage"} timed out.`);
+        throw new Error(`Reading ${isCodeBuddyQuotaSession(session) ? "CodeBuddy quota" : "Codex usage"} timed out.`);
       }
-      if (session.agentProvider === "codebuddy") {
+      if (isCodeBuddyQuotaSession(session)) {
         return await readCodeBuddyUsage({
           transport,
           signal: abortController.signal,
@@ -525,7 +529,7 @@ function createAgentUsageService({
     const key = getCacheKey(session);
     cacheKeysBySessionId.set(session.id, key);
     const cached = cache.get(key);
-    const effectiveCacheTtlMs = session.agentProvider === "codebuddy"
+    const effectiveCacheTtlMs = isCodeBuddyQuotaSession(session)
       ? Math.min(cacheTtlMs, CODEBUDDY_CACHE_TTL_MS)
       : session.agentProvider === "qoder"
         ? Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)

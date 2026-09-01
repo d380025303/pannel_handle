@@ -18,7 +18,7 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -356,6 +356,9 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("openrouter:test", () => openRouterService.testConnection());
   ipcMain.handle("openrouter:verify-models", (_event, input) => openRouterService.verifyModels(input));
   ipcMain.handle("openrouter:set-favorites", (_event, input) => openRouterService.setFavorites(input));
+  ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
+  ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());
+  ipcMain.handle("codebuddy-codex:verify-model", (_event, input) => codeBuddyCodexBridgeService.verifyModel(input));
 
   ipcMain.handle("workbuddy-checkin:get-status", () => workBuddyCheckinService.getStatus());
 

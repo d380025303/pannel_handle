@@ -81,6 +81,12 @@ contextBridge.exposeInMainWorld("openRouterApi", {
   setFavorites: (input) => ipcRenderer.invoke("openrouter:set-favorites", input)
 });
 
+contextBridge.exposeInMainWorld("codeBuddyCodexApi", {
+  getStatus: () => ipcRenderer.invoke("codebuddy-codex:get-status"),
+  listModels: () => ipcRenderer.invoke("codebuddy-codex:list-models"),
+  verifyModel: (input) => ipcRenderer.invoke("codebuddy-codex:verify-model", input)
+});
+
 contextBridge.exposeInMainWorld("agentConversationApi", {
   setActiveSession: (sessionId) => ipcRenderer.send("agent-conversation:set-active-session", sessionId),
   getSnapshot: () => ipcRenderer.invoke("agent-conversation:get-snapshot"),

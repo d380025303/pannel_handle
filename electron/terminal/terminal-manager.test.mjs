@@ -226,6 +226,21 @@ describe("terminal-manager", () => {
     }));
   });
 
+  it("clears CodeBuddy Codex acknowledgement when the model changes", () => {
+    const { manager } = createManager();
+    const session = manager.createSession({
+      title: "CodeBuddy Codex",
+      agentProvider: "codex",
+      codexBackend: "codebuddy",
+      codexModel: "glm-5.2",
+      codexExperimentalAcknowledged: true
+    });
+
+    expect(session.codexExperimentalAcknowledged).toBe(true);
+    manager.updateSession(session.id, { codexModel: "kimi-k2.5" });
+    expect(manager.getSession(session.id).codexExperimentalAcknowledged).toBeUndefined();
+  });
+
   it("creates a transient session without persisting or restoring it", () => {
     const configStore = createConfigStoreMock();
     const { manager, sessionStore } = createManager({ configStore });

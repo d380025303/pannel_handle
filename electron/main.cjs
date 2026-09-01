@@ -19,6 +19,7 @@ const { createClipboardImageService } = require("./services/clipboard-image-serv
 const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createOpenRouterService } = require("./services/openrouter-service.cjs");
+const { createCodeBuddyCodexBridgeService } = require("./services/codebuddy-codex-bridge-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -54,6 +55,7 @@ let launchTemplateService = null;
 let configStore = null;
 let openRouterConfigStore = null;
 let openRouterService = null;
+let codeBuddyCodexBridgeService = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -201,6 +203,9 @@ if (!gotSingleInstanceLock) {
         if (remoteAgentBridgeService) {
           void remoteAgentBridgeService.closeBinding(id);
         }
+        if (codeBuddyCodexBridgeService) {
+          codeBuddyCodexBridgeService.disconnect(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -281,6 +286,13 @@ if (!gotSingleInstanceLock) {
       store: openRouterConfigStore,
       catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
     });
+    codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
+      verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"),
+      catalogFile: path.join(app.getPath("userData"), "codebuddy-codex-model-catalog.json"),
+      preloadFile: app.isPackaged
+        ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "services", "codebuddy-codex-preload.cjs")
+        : path.join(__dirname, "services", "codebuddy-codex-preload.cjs")
+    });
     clipboardImageService = createClipboardImageService({
       clipboard,
       terminalManager,
@@ -318,6 +330,7 @@ if (!gotSingleInstanceLock) {
       sshHookTunnelService,
       remoteAgentBridgeService,
       openRouterService,
+      codeBuddyCodexBridgeService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
@@ -408,6 +421,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       projectSearchService,
       openRouterService,
+      codeBuddyCodexBridgeService,
       mobileRemoteService,
       remoteAgentBridgeService
     });
@@ -440,6 +454,9 @@ app.on("window-all-closed", () => {
   }
   if (remoteAgentBridgeService) {
     void remoteAgentBridgeService.shutdown();
+  }
+  if (codeBuddyCodexBridgeService) {
+    void codeBuddyCodexBridgeService.shutdown();
   }
   if (ideaModule) {
     void ideaModule.shutdown();

@@ -462,6 +462,19 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("reads CodeBuddy quota for a Codex session using the CodeBuddy backend", async () => {
+    const session = { id: "codex-codebuddy-1", type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: "codebuddy" };
+    const events = new EventEmitter();
+    const transportFactory = vi.fn(() => ({
+      on: (eventName, listener) => events.on(eventName, listener),
+      write: vi.fn(() => queueMicrotask(() => events.emit("error", new Error("stop")))),
+      close: vi.fn()
+    }));
+    const service = createAgentUsageService({ terminalManager: { getSession: () => session }, transportFactory });
+    await expect(service.getUsage(session.id)).rejects.toThrow("Unable to start CodeBuddy ACP");
+    expect(transportFactory).toHaveBeenCalledWith(session);
+  });
+
   it("reads and caches Qoder quota through the SDK client", async () => {
     const session = { id: "qoder-1", type: "windows", cwd: "C:\\repo", agentProvider: "qoder" };
     const close = vi.fn(async () => undefined);

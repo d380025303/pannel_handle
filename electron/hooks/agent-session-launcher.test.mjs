@@ -9,6 +9,7 @@ const {
   buildLocalCodeBuddyStartCommand,
   buildLocalOpenCodeConfig,
   buildLocalOpenCodeStartCommand,
+  buildCodeBuddyCodexCommand,
   buildOpenRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
@@ -294,6 +295,19 @@ describe("agent-session-launcher", () => {
     expect(command).not.toContain("secret-value");
   });
 
+  it("builds a CodeBuddy Codex command without embedding the session token", () => {
+    const command = buildCodeBuddyCodexCommand({ type: "windows", shell: "powershell.exe" }, {
+      baseUrl: "http://127.0.0.1:4567/v1",
+      apiKeyEnv: "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY",
+      apiKey: "session-secret",
+      catalogPath: "C:\\Data\\codebuddy-models.json",
+      model: "glm-5.3"
+    });
+    expect(command).toContain("model_providers.codebuddy.wire_api=responses");
+    expect(command).toContain("glm-5.3");
+    expect(command).not.toContain("session-secret");
+  });
+
   it("builds an authenticated OpenCode bridge config without embedding the token", () => {
     const binding = {
       workspacePath: "C:\\runtime\\run-1",
@@ -362,6 +376,25 @@ describe("agent-session-launcher", () => {
       runtimeWslEnvKeys: ["OPENROUTER_API_KEY"],
       runtimeInitialCommand: expect.not.stringContaining("secret-value")
     }));
+  });
+
+  it("injects the CodeBuddy bridge token only through the terminal environment", async () => {
+    const codeBuddyCodexBridgeService = { getLaunchConfig: vi.fn(() => ({
+      baseUrl: "http://127.0.0.1:4567/v1",
+      apiKeyEnv: "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY",
+      apiKey: "session-secret",
+      catalogPath: "C:\\Data\\codebuddy-models.json",
+      model: "glm-5.3",
+      registrationId: "launch:test"
+    })), bindSession: vi.fn() };
+    const mocks = createMocks({ codeBuddyCodexBridgeService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "codebuddy", codexModel: "glm-5.3" });
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeEnv: { PANNEL_HANDLE_CODEBUDDY_CODEX_KEY: "session-secret" },
+      runtimeWslEnvKeys: ["PANNEL_HANDLE_CODEBUDDY_CODEX_KEY"],
+      runtimeInitialCommand: expect.not.stringContaining("session-secret")
+    }));
+    expect(codeBuddyCodexBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:test");
   });
 
   it("starts CodeBuddy with its canonical command", () => {

@@ -799,16 +799,16 @@ function createTerminalManager({
       libraryUpdates.localAgentCwd = localAgentCwd || null;
     }
     if (typeof codexBackend !== "undefined") {
-      session.codexBackend = codexBackend === "openrouter" ? "openrouter" : session.agentProvider === "codex" ? "openai" : undefined;
+      session.codexBackend = codexBackend === "openrouter" || codexBackend === "codebuddy" ? codexBackend : session.agentProvider === "codex" ? "openai" : undefined;
       libraryUpdates.codexBackend = session.codexBackend || null;
     }
     if (typeof codexModel !== "undefined") {
-      session.codexModel = session.codexBackend === "openrouter" ? String(codexModel || "").trim() || undefined : undefined;
+      session.codexModel = session.codexBackend === "openrouter" || session.codexBackend === "codebuddy" ? String(codexModel || "").trim() || undefined : undefined;
       libraryUpdates.codexModel = session.codexModel || null;
     }
     const codexSelectionChanged = previousCodexBackend !== session.codexBackend || previousCodexModel !== session.codexModel;
     if (typeof codexExperimentalAcknowledged !== "undefined" || codexSelectionChanged) {
-      session.codexExperimentalAcknowledged = session.codexBackend === "openrouter" && Boolean(session.codexModel) && codexExperimentalAcknowledged === true
+      session.codexExperimentalAcknowledged = (session.codexBackend === "openrouter" || session.codexBackend === "codebuddy") && Boolean(session.codexModel) && codexExperimentalAcknowledged === true
         ? true
         : undefined;
       libraryUpdates.codexExperimentalAcknowledged = session.codexExperimentalAcknowledged || null;

@@ -462,7 +462,21 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
-export type CodexBackend = "openai" | "openrouter";
+export type CodexBackend = "openai" | "openrouter" | "codebuddy";
+
+export type CodeBuddyCodexVerification = {
+  status: "passed" | "failed" | "unavailable";
+  checkedAt: number;
+  error?: string;
+  stages?: Array<{ stage: "responses" | "function_tools" | "codex_tools"; status: "passed" | "failed"; error?: string }>;
+};
+export type CodeBuddyCodexModel = { id: string; name: string; verification?: CodeBuddyCodexVerification };
+export type CodeBuddyCodexStatus = { available: boolean; version?: string; supportedMinor: string; experimental: true; error?: string };
+export type CodeBuddyCodexApi = {
+  getStatus: () => Promise<CodeBuddyCodexStatus>;
+  listModels: () => Promise<CodeBuddyCodexModel[]>;
+  verifyModel: (input: { modelId: string; force?: boolean }) => Promise<CodeBuddyCodexVerification & { modelId: string }>;
+};
 
 export type OpenRouterModel = {
   id: string;
@@ -1178,6 +1192,7 @@ declare global {
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
     openRouterApi: OpenRouterApi;
+    codeBuddyCodexApi: CodeBuddyCodexApi;
     windowApi: WindowApi;
   }
 }

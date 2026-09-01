@@ -107,6 +107,21 @@ function readGeminiVersion(session, spawnSync) {
   return match[1];
 }
 
+function buildCodeBuddyCodexCommand(session, config) {
+  const overrides = [
+    "model_provider=codebuddy",
+    "model_providers.codebuddy.name=CodeBuddy",
+    `model_providers.codebuddy.base_url=${config.baseUrl}`,
+    `model_providers.codebuddy.env_key=${config.apiKeyEnv}`,
+    "model_providers.codebuddy.wire_api=responses",
+    `model_catalog_json=${config.catalogPath}`
+  ];
+  const args = ["codex"];
+  for (const override of overrides) args.push("-c", commandArg(session, override));
+  args.push("-m", commandArg(session, config.model));
+  return args.join(" ");
+}
+
 function readGrokVersion(session, spawnSync) {
   const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
   const result = session.type === "wsl"
@@ -129,9 +144,9 @@ function readGrokVersion(session, spawnSync) {
 function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
-  let agentCommand = session.agentProvider === "codex" && runtime.openRouter
-    ? buildOpenRouterCodexCommand(session, runtime.openRouter)
-    : command;
+  let agentCommand = command;
+  if (session.agentProvider === "codex" && runtime.openRouter) agentCommand = buildOpenRouterCodexCommand(session, runtime.openRouter);
+  if (session.agentProvider === "codex" && runtime.codeBuddyCodex) agentCommand = buildCodeBuddyCodexCommand(session, runtime.codeBuddyCodex);
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
     if (!runtime.hookUrl || !runtime.sessionId) {
@@ -284,6 +299,7 @@ function createAgentSessionLauncher({
   sshHookTunnelService,
   remoteAgentBridgeService,
   openRouterService,
+  codeBuddyCodexBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -324,8 +340,8 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentLocation === "local" && !LOCAL_BRIDGE_PROVIDERS.has(session.agentProvider)) {
       throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy 和 OpenCode。");
     }
-    if (session.type === "ssh" && session.agentProvider === "codex" && session.codexBackend === "openrouter") {
-      throw new Error("OpenRouter Codex 首期仅支持 Windows 和 WSL 会话。");
+    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "codebuddy")) {
+      throw new Error(`${session.codexBackend === "codebuddy" ? "CodeBuddy" : "OpenRouter"} Codex 首期仅支持 Windows 和 WSL 会话。`);
     }
   }
 
@@ -444,11 +460,28 @@ function createAgentSessionLauncher({
     assertLocalCommand(session);
     await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
+    const codeBuddyCodex = await codeBuddyCodexBridgeService?.getLaunchConfig(session);
+    const backend = openRouter || codeBuddyCodex;
     return {
-      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter })),
-      runtimeEnv: openRouter ? { [openRouter.apiKeyEnv]: openRouter.apiKey } : undefined,
-      runtimeWslEnvKeys: openRouter ? [openRouter.apiKeyEnv] : undefined
+      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, codeBuddyCodex })),
+      runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
+      runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
+      codeBuddyRegistrationId: codeBuddyCodex?.registrationId
     };
+  }
+
+  function bindCodeBuddyRuntime(session, runtime) {
+    if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService.bindSession(session.id, runtime.codeBuddyRegistrationId);
+    return session;
+  }
+
+  function createAndBindCodeBuddyRuntime(create, runtime) {
+    try {
+      return bindCodeBuddyRuntime(create(), runtime);
+    } catch (error) {
+      if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService?.releaseRegistration?.(runtime.codeBuddyRegistrationId);
+      throw error;
+    }
   }
 
   async function finishLocalSsh(session) {
@@ -536,7 +569,7 @@ function createAgentSessionLauncher({
       }
     }
     const runtime = await prepareLocal(request);
-    return terminalManager.createSession({ ...request, ...runtime });
+    return createAndBindCodeBuddyRuntime(() => terminalManager.createSession({ ...request, ...runtime }), runtime);
   }
 
   async function launchSession(template, options = {}) {
@@ -556,7 +589,7 @@ function createAgentSessionLauncher({
         session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
         const runtime = await prepareLocal(launchTemplate);
-        session = terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime });
+        session = createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime }), runtime);
       }
     }
     if (recordUsage) onTemplateLaunched(launchTemplate.id);
@@ -604,6 +637,7 @@ function createAgentSessionLauncher({
       localAgentCwd: session.localAgentCwd,
       codexBackend: provider === "codex" ? session.codexBackend : undefined,
       codexModel: provider === "codex" ? session.codexModel : undefined,
+      codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,
@@ -645,11 +679,11 @@ function createAgentSessionLauncher({
       const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
-      const replacement = terminalManager.launchSession(target, {
+      const replacement = createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
         ...runtime
-      });
+      }), runtime);
       return target.type === "ssh" ? await finishSsh(replacement) : replacement;
     })();
     switchingSessions.set(sessionId, operation);
@@ -671,6 +705,7 @@ module.exports = {
   buildLocalOpenCodeConfig,
   buildLocalOpenCodeStartCommand,
   buildOpenRouterCodexCommand,
+  buildCodeBuddyCodexCommand,
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,

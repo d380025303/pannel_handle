@@ -84,8 +84,8 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
           ? localAgentCwd.trim() || undefined
           : undefined,
         codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
-        codexModel: !isSsh && agentProvider === "codex" && codexBackend === "openrouter" ? codexModel : undefined,
-        codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && codexBackend === "openrouter" && codexModel ? codexExperimentalAcknowledged : undefined,
+        codexModel: !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") ? codexModel : undefined,
+        codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined,
         tags,
         sshConfig: isSsh ? {
           host: sshHost.trim(),
