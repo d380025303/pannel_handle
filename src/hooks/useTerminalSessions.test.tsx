@@ -82,6 +82,33 @@ describe("useTerminalSessions", () => {
     expect(result.current.activeId).toBe("run-3");
   });
 
+  it("selects the replacement runtime returned by Codex backend switching", async () => {
+    let onSessionsChanged = (_sessions: TerminalSession[]) => {};
+    const replacement = { ...session("run-3", "codex"), codexBackend: "openrouter" as const };
+    window.terminalApi = {
+      loadSavedSessions: vi.fn(async () => []),
+      getConfig: vi.fn(async () => ({ autoRestore: false, lastActiveSessionIds: [] })),
+      onSessionsChanged: vi.fn((callback: (sessions: TerminalSession[]) => void) => {
+        onSessionsChanged = callback;
+        return () => {};
+      }),
+      onAgentStatus: vi.fn((_callback: (payload: AgentStatusPayload) => void) => () => {}),
+      switchCodexBackend: vi.fn(async () => replacement)
+    } as unknown as typeof window.terminalApi;
+    window.launchTemplateApi = {
+      list: vi.fn(async () => [])
+    } as unknown as typeof window.launchTemplateApi;
+
+    const { result } = renderHook(() => useTerminalSessions());
+    await waitFor(() => expect(window.terminalApi.loadSavedSessions).toHaveBeenCalled());
+    act(() => onSessionsChanged([session("run-1", "codex")]));
+
+    await act(async () => result.current.switchCodexBackend("run-1", "openrouter"));
+
+    expect(window.terminalApi.switchCodexBackend).toHaveBeenCalledWith("run-1", "openrouter");
+    expect(result.current.activeId).toBe("run-3");
+  });
+
   it("shows, dismisses, and reopens OpenCode empty-response warnings per session and incident", async () => {
     let onSessionsChanged = (_sessions: TerminalSession[]) => {};
     let onAgentStatus = (_payload: AgentStatusPayload) => {};

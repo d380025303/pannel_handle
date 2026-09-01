@@ -275,6 +275,11 @@ export function useTerminalSessions() {
     setActiveId(replacement.id);
   }, []);
 
+  const switchCodexBackend = useCallback(async (id: string, backend: CodexBackend) => {
+    const replacement = await window.terminalApi.switchCodexBackend(id, backend);
+    setActiveId(replacement.id);
+  }, []);
+
   const deleteFromLibrary = useCallback(async (id: string) => {
     await window.terminalApi.deleteSavedSession(id);
     setLibrarySessions((prev) => prev.filter((session) => session.id !== id));
@@ -363,6 +368,7 @@ export function useTerminalSessions() {
     closeSession,
     updateSession,
     switchAgent,
+    switchCodexBackend,
     openPicker,
     exportLibrary,
     importLibrary,

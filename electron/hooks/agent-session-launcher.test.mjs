@@ -80,6 +80,7 @@ function createMocks(overrides = {}) {
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
   const sessionStore = {
     getTemplate: vi.fn(() => undefined),
+    updateLibrary: vi.fn(),
     normalizeTemplate: vi.fn((template) => ({
       id: template.id,
       title: template.title,
@@ -860,6 +861,84 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
     expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
     expect(mocks.sessions).toEqual([expect.objectContaining({ id: "run-1", agentProvider: "codex" })]);
+  });
+
+  it("switches only the running Codex session to a backend default model", async () => {
+    const openRouterService = {
+      getConfig: vi.fn(() => ({ defaultModelId: "openai/gpt-5.4" })),
+      getLaunchConfig: vi.fn(async session => session.codexBackend === "openrouter" ? {
+        apiKey: "secret",
+        apiKeyEnv: "OPENROUTER_API_KEY",
+        providerId: "openrouter",
+        providerName: "OpenRouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        model: session.codexModel,
+        catalogPath: "C:\\catalog.json"
+      } : null)
+    };
+    const naraRouterService = { getConfig: vi.fn(), getLaunchConfig: vi.fn(async () => null) };
+    const codeBuddyCodexBridgeService = { getConfig: vi.fn(), getLaunchConfig: vi.fn(async () => null) };
+    const mocks = createMocks({ openRouterService, naraRouterService, codeBuddyCodexBridgeService });
+    mocks.sessions.push({
+      id: "run-1",
+      templateId: "template-1",
+      title: "Codex",
+      shell: "cmd.exe",
+      cwd: "C:\\work",
+      type: "windows",
+      agentProvider: "codex",
+      codexBackend: "openai"
+    });
+
+    const result = await mocks.launcher.switchCodexBackend("run-1", "openrouter");
+
+    expect(openRouterService.getConfig).toHaveBeenCalledOnce();
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.objectContaining({
+      codexBackend: "openrouter",
+      codexModel: "openai/gpt-5.4",
+      codexExperimentalAcknowledged: undefined
+    }), expect.objectContaining({
+      useProvidedTemplate: true,
+      templateId: "template-1",
+      runtimeInitialCommand: expect.stringContaining("openai/gpt-5.4")
+    }));
+    expect(mocks.sessionStore.updateLibrary).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "run-1", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
+  });
+
+  it("keeps the current Codex session when the target backend has no default model", async () => {
+    const openRouterService = {
+      getConfig: vi.fn(() => ({ defaultModelId: "" })),
+      getLaunchConfig: vi.fn(async () => null)
+    };
+    const mocks = createMocks({ openRouterService });
+    mocks.sessions.push({
+      id: "run-1",
+      templateId: "template-1",
+      title: "Codex",
+      shell: "cmd.exe",
+      cwd: "C:\\work",
+      type: "windows",
+      agentProvider: "codex",
+      codexBackend: "openai"
+    });
+
+    await expect(mocks.launcher.switchCodexBackend("run-1", "openrouter")).rejects.toThrow("OpenRouter 默认模型");
+
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
+    expect(mocks.sessions).toEqual([expect.objectContaining({ id: "run-1", codexBackend: "openai" })]);
+  });
+
+  it("rejects Codex backend switching for SSH and non-Codex sessions", async () => {
+    const mocks = createMocks();
+    mocks.sessions.push({ id: "run-1", type: "ssh", cwd: "/work", agentProvider: "codex", codexBackend: "openai" });
+    mocks.sessions.push({ id: "run-2", type: "windows", cwd: "C:\\work", agentProvider: "claude" });
+
+    await expect(mocks.launcher.switchCodexBackend("run-1", "openrouter")).rejects.toThrow("Windows 和 WSL");
+    await expect(mocks.launcher.switchCodexBackend("run-2", "openrouter")).rejects.toThrow("Only Codex");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
   });
 
   it("rebuilds remote SSH setup with the replacement runtime id", async () => {

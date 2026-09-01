@@ -6,6 +6,7 @@ import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { AgentSwitcher } from "./components/agents/AgentSwitcher";
+import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
@@ -671,6 +672,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     />
                     <div className="terminal-status-cluster">
                       <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
+                      <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
                       <AgentTokenLiveStatus state={agentTokenLive} />
                       <AgentUsageStatus
                         state={agentUsage.state}

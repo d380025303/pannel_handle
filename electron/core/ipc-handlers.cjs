@@ -143,6 +143,10 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return agentSessionLauncher.switchAgent(String(id || ""), provider);
   });
 
+  ipcMain.handle("sessions:switch-codex-backend", async (_event, { id, backend }) => {
+    return agentSessionLauncher.switchCodexBackend(String(id || ""), backend);
+  });
+
   ipcMain.handle("sessions:close", async (_event, id) => {
     const sessions = terminalManager.closeSession(id);
     if (disconnectFileSession) {

@@ -20,6 +20,7 @@ const OPENCODE_CONFIG_ENV = "OPENCODE_CONFIG_CONTENT";
 const CODEBUDDY_REMOTE_INSTRUCTIONS_ENV = "PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS";
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
+const CODEX_BACKENDS = new Set(["openai", "openrouter", "nararouter", "codebuddy"]);
 const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
 const AGENT_EXIT_MARKER_SUFFIX = "AGENT_EXIT__";
 
@@ -656,6 +657,34 @@ function createAgentSessionLauncher({
     };
   }
 
+  async function createCodexBackendReplacement(session, backend) {
+    if (backend === "openai") {
+      return {
+        ...createReplacementTemplate(session, "codex"),
+        codexBackend: "openai",
+        codexModel: undefined,
+        codexExperimentalAcknowledged: undefined
+      };
+    }
+
+    const service = backend === "openrouter"
+      ? openRouterService
+      : backend === "nararouter"
+        ? naraRouterService
+        : codeBuddyCodexBridgeService;
+    const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : "CodeBuddy";
+    if (!service?.getConfig) throw new Error(`${providerName} Codex 服务不可用。`);
+    const config = await service.getConfig();
+    const model = String(config?.defaultModelId || "").trim();
+    if (!model) throw new Error(`请先在设置中配置 ${providerName} 默认模型。`);
+    return {
+      ...createReplacementTemplate(session, "codex"),
+      codexBackend: backend,
+      codexModel: model,
+      codexExperimentalAcknowledged: undefined
+    };
+  }
+
   async function switchAgent(sessionId, provider) {
     if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
     const operation = (async () => {
@@ -704,7 +733,39 @@ function createAgentSessionLauncher({
     }
   }
 
-  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent };
+  async function switchCodexBackend(sessionId, backend) {
+    if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
+    const operation = (async () => {
+      const session = terminalManager.getSession(sessionId);
+      if (!session) throw new Error("Session is not running.");
+      if (session.agentProvider !== "codex") throw new Error("Only Codex sessions can switch model backend.");
+      if (!CODEX_BACKENDS.has(backend)) throw new Error(`Unsupported Codex backend: ${backend}.`);
+      if (session.type === "ssh") throw new Error("Codex 模型后端切换仅支持 Windows 和 WSL 会话。");
+      if ((session.codexBackend || "openai") === backend) {
+        const current = terminalManager.listSessions().find(entry => entry.id === sessionId);
+        if (!current) throw new Error("Session is not running.");
+        return current;
+      }
+
+      const target = await createCodexBackendReplacement(session, backend);
+      const runtime = await prepareLocal(target);
+
+      terminalManager.closeSession(sessionId);
+      return createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(target, {
+        useProvidedTemplate: true,
+        templateId: session.templateId,
+        ...runtime
+      }), runtime);
+    })();
+    switchingSessions.set(sessionId, operation);
+    try {
+      return await operation;
+    } finally {
+      switchingSessions.delete(sessionId);
+    }
+  }
+
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent, switchCodexBackend };
 }
 
 module.exports = {

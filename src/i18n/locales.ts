@@ -189,6 +189,9 @@ export type TranslationKey =
   | "agentSwitch.menu"
   | "agentSwitch.switching"
   | "agentSwitch.localSshUnavailable"
+  | "codexBackendSwitch.title"
+  | "codexBackendSwitch.menu"
+  | "codexBackendSwitch.switching"
   | "session.agentCwdRequired"
   | "session.preLaunchCommand"
   | "session.codexBackend"
@@ -991,6 +994,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "选择要切换到的 Agent",
     "agentSwitch.switching": "正在切换到 {provider}",
     "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持在 Codex、CodeBuddy 与 OpenCode 之间切换",
+    "codexBackendSwitch.title": "切换当前 Codex 会话的模型后端",
+    "codexBackendSwitch.menu": "选择要切换到的 Codex 模型后端",
+    "codexBackendSwitch.switching": "正在切换到 {backend}",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.codexBackend": "Codex 模型后端",
@@ -1785,6 +1791,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "Choose an Agent to switch to",
     "agentSwitch.switching": "Switching to {provider}",
     "agentSwitch.localSshUnavailable": "Local SSH bridge sessions can only switch between Codex, CodeBuddy, and OpenCode",
+    "codexBackendSwitch.title": "Switch the model backend for this Codex session",
+    "codexBackendSwitch.menu": "Choose a Codex model backend",
+    "codexBackendSwitch.switching": "Switching to {backend}",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "session.preLaunchCommand": "Command before CLI startup",
     "session.codexBackend": "Codex model backend",
