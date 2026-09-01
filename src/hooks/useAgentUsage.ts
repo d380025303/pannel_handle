@@ -18,7 +18,7 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     ? session.agentProvider
     : undefined;
   const provider = isCodeBuddyCodexBackend ? "codebuddy" : configuredProvider;
-  const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter")
+  const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter" && session?.codexBackend !== "nararouter")
     || provider === "copilot" || provider === "grok"
     || (provider === "codebuddy" && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))

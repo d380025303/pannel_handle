@@ -64,13 +64,15 @@ function commandArg(session, value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function buildOpenRouterCodexCommand(session, config) {
+function buildRouterCodexCommand(session, config) {
+  const providerId = String(config.providerId || "openrouter");
+  const providerName = String(config.providerName || "OpenRouter");
   const overrides = [
-    "model_provider=openrouter",
-    "model_providers.openrouter.name=OpenRouter",
-    `model_providers.openrouter.base_url=${config.baseUrl}`,
-    `model_providers.openrouter.env_key=${config.apiKeyEnv}`,
-    "model_providers.openrouter.wire_api=responses",
+    `model_provider=${providerId}`,
+    `model_providers.${providerId}.name=${providerName}`,
+    `model_providers.${providerId}.base_url=${config.baseUrl}`,
+    `model_providers.${providerId}.env_key=${config.apiKeyEnv}`,
+    `model_providers.${providerId}.wire_api=responses`,
     `model_catalog_json=${config.catalogPath}`
   ];
   const args = ["codex"];
@@ -105,6 +107,10 @@ function readGeminiVersion(session, spawnSync) {
     throw new Error(`Gemini CLI 版本过低（当前 ${match[1]}，最低 ${MIN_GEMINI_VERSION}）。${getAgentInstallHint("gemini")}`);
   }
   return match[1];
+}
+
+function buildOpenRouterCodexCommand(session, config) {
+  return buildRouterCodexCommand(session, config);
 }
 
 function buildCodeBuddyCodexCommand(session, config) {
@@ -146,6 +152,7 @@ function buildAgentStartCommand(session, runtime = {}) {
   const preCommand = String(session.initialCommand || "").trim();
   let agentCommand = command;
   if (session.agentProvider === "codex" && runtime.openRouter) agentCommand = buildOpenRouterCodexCommand(session, runtime.openRouter);
+  if (session.agentProvider === "codex" && runtime.naraRouter) agentCommand = buildRouterCodexCommand(session, runtime.naraRouter);
   if (session.agentProvider === "codex" && runtime.codeBuddyCodex) agentCommand = buildCodeBuddyCodexCommand(session, runtime.codeBuddyCodex);
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
@@ -299,6 +306,7 @@ function createAgentSessionLauncher({
   sshHookTunnelService,
   remoteAgentBridgeService,
   openRouterService,
+  naraRouterService,
   codeBuddyCodexBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
@@ -340,8 +348,9 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentLocation === "local" && !LOCAL_BRIDGE_PROVIDERS.has(session.agentProvider)) {
       throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy 和 OpenCode。");
     }
-    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "codebuddy")) {
-      throw new Error(`${session.codexBackend === "codebuddy" ? "CodeBuddy" : "OpenRouter"} Codex 首期仅支持 Windows 和 WSL 会话。`);
+    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "codebuddy")) {
+      const backendName = session.codexBackend === "codebuddy" ? "CodeBuddy" : session.codexBackend === "nararouter" ? "NaraRouter" : "OpenRouter";
+      throw new Error(`${backendName} Codex 首期仅支持 Windows 和 WSL 会话。`);
     }
   }
 
@@ -460,10 +469,11 @@ function createAgentSessionLauncher({
     assertLocalCommand(session);
     await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
+    const naraRouter = await naraRouterService?.getLaunchConfig(session);
     const codeBuddyCodex = await codeBuddyCodexBridgeService?.getLaunchConfig(session);
-    const backend = openRouter || codeBuddyCodex;
+    const backend = openRouter || naraRouter || codeBuddyCodex;
     return {
-      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, codeBuddyCodex })),
+      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, codeBuddyCodex })),
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
       runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
       codeBuddyRegistrationId: codeBuddyCodex?.registrationId
@@ -705,6 +715,7 @@ module.exports = {
   buildLocalOpenCodeConfig,
   buildLocalOpenCodeStartCommand,
   buildOpenRouterCodexCommand,
+  buildRouterCodexCommand,
   buildCodeBuddyCodexCommand,
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,

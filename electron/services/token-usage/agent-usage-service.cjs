@@ -510,8 +510,8 @@ function createAgentUsageService({
   function getUsage(sessionId, options = {}) {
     const session = terminalManager.getSession(sessionId);
     if (!session) return Promise.reject(new Error("Session is not running."));
-    if (session.agentProvider === "codex" && session.codexBackend === "openrouter") {
-      return Promise.reject(new Error("OpenRouter sessions do not use ChatGPT Codex rate limits."));
+    if (session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter")) {
+      return Promise.reject(new Error(`${session.codexBackend === "nararouter" ? "NaraRouter" : "OpenRouter"} sessions do not use ChatGPT Codex rate limits.`));
     }
     if (!["codex", "codebuddy", "qoder", "gemini"].includes(session.agentProvider)) {
       return Promise.reject(new Error("Usage is only available for Codex, CodeBuddy, Qoder, and Gemini sessions."));

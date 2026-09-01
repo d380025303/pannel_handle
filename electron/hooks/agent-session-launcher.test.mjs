@@ -11,6 +11,7 @@ const {
   buildLocalOpenCodeStartCommand,
   buildCodeBuddyCodexCommand,
   buildOpenRouterCodexCommand,
+  buildRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
 } = require("./agent-session-launcher.cjs");
@@ -295,6 +296,23 @@ describe("agent-session-launcher", () => {
     expect(command).not.toContain("secret-value");
   });
 
+  it("builds a NaraRouter Codex command with an isolated provider id", () => {
+    const command = buildRouterCodexCommand({ type: "windows", shell: "powershell.exe" }, {
+      providerId: "nararouter",
+      providerName: "NaraRouter",
+      baseUrl: "https://router.bynara.id/v1",
+      apiKeyEnv: "NARAROUTER_API_KEY",
+      apiKey: "secret-value",
+      catalogPath: "C:\\Data\\nararouter-models.json",
+      model: "gpt-test"
+    });
+    expect(command).toContain("model_provider=nararouter");
+    expect(command).toContain("model_providers.nararouter.name=NaraRouter");
+    expect(command).toContain("model_providers.nararouter.wire_api=responses");
+    expect(command).toContain("NARAROUTER_API_KEY");
+    expect(command).not.toContain("secret-value");
+  });
+
   it("builds a CodeBuddy Codex command without embedding the session token", () => {
     const command = buildCodeBuddyCodexCommand({ type: "windows", shell: "powershell.exe" }, {
       baseUrl: "http://127.0.0.1:4567/v1",
@@ -375,6 +393,25 @@ describe("agent-session-launcher", () => {
       runtimeEnv: { OPENROUTER_API_KEY: "secret-value" },
       runtimeWslEnvKeys: ["OPENROUTER_API_KEY"],
       runtimeInitialCommand: expect.not.stringContaining("secret-value")
+    }));
+  });
+
+  it("injects the NaraRouter key only through the terminal environment", async () => {
+    const naraRouterService = { getLaunchConfig: vi.fn(() => ({
+      providerId: "nararouter",
+      providerName: "NaraRouter",
+      baseUrl: "https://router.bynara.id/v1",
+      apiKeyEnv: "NARAROUTER_API_KEY",
+      apiKey: "nara-secret",
+      catalogPath: "C:\\Data\\nararouter-models.json",
+      model: "gpt-test"
+    })) };
+    const mocks = createMocks({ naraRouterService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "nararouter", codexModel: "gpt-test" });
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeEnv: { NARAROUTER_API_KEY: "nara-secret" },
+      runtimeWslEnvKeys: ["NARAROUTER_API_KEY"],
+      runtimeInitialCommand: expect.not.stringContaining("nara-secret")
     }));
   });
 

@@ -22,7 +22,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -358,6 +358,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("openrouter:test", () => openRouterService.testConnection());
   ipcMain.handle("openrouter:verify-models", (_event, input) => openRouterService.verifyModels(input));
   ipcMain.handle("openrouter:set-favorites", (_event, input) => openRouterService.setFavorites(input));
+  ipcMain.handle("nararouter:get-config", () => naraRouterService.getConfig());
+  ipcMain.handle("nararouter:list-models", () => naraRouterService.listModels());
+  ipcMain.handle("nararouter:refresh-models", () => naraRouterService.refreshModels());
+  ipcMain.handle("nararouter:save-api-key", (_event, apiKey) => naraRouterService.saveApiKey(apiKey));
+  ipcMain.handle("nararouter:clear-api-key", () => naraRouterService.clearApiKey());
+  ipcMain.handle("nararouter:test", () => naraRouterService.testConnection());
+  ipcMain.handle("nararouter:verify-models", (_event, input) => naraRouterService.verifyModels(input));
+  ipcMain.handle("nararouter:set-favorites", (_event, input) => naraRouterService.setFavorites(input));
   ipcMain.handle("codebuddy-codex:get-config", () => codeBuddyCodexBridgeService.getConfig());
   ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
   ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());

@@ -17,7 +17,7 @@ function normalizePrice(value) {
   return normalized && Number.isFinite(numeric) && numeric >= 0 ? normalized : undefined;
 }
 
-function normalizeModel(model) {
+function normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing = false } = {}) {
   const id = String(model?.id || "").trim();
   if (!id) return null;
   const supportedParameters = Array.isArray(model.supportedParameters || model.supported_parameters)
@@ -38,7 +38,8 @@ function normalizeModel(model) {
       ...(promptPrice !== undefined ? { prompt: promptPrice } : {}),
       ...(completionPrice !== undefined ? { completion: completionPrice } : {})
     },
-    compatible: supportedParameters.includes("tools") && supportedParameters.includes("tool_choice")
+    compatible: (supportedParameters.includes("tools") && supportedParameters.includes("tool_choice"))
+      || (assumeCompatibleWhenCapabilitiesMissing && supportedParameters.length === 0)
   };
 }
 
@@ -78,7 +79,7 @@ function normalizeVerification(value) {
   };
 }
 
-function createOpenRouterConfigStore({ configFile, safeStorage, logger = console }) {
+function createOpenRouterConfigStore({ configFile, safeStorage, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false }) {
   let config = {
     encryptedApiKey: "",
     favoriteModelIds: [],
@@ -90,7 +91,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
 
   function encrypt(value) {
     if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
-      throw new Error("系统安全存储不可用，无法保存 OpenRouter API Key。");
+      throw new Error(`系统安全存储不可用，无法保存 ${providerName} API Key。`);
     }
     return safeStorage.encryptString(value).toString("base64");
   }
@@ -98,7 +99,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
   function decrypt(value) {
     if (!value) return "";
     if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
-      throw new Error("系统安全存储不可用，无法读取 OpenRouter API Key。");
+      throw new Error(`系统安全存储不可用，无法读取 ${providerName} API Key。`);
     }
     return safeStorage.decryptString(Buffer.from(value, "base64"));
   }
@@ -124,7 +125,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
     try {
       const parsed = JSON.parse(fs.readFileSync(configFile, "utf-8"));
       const cachedModels = Array.isArray(parsed?.cachedModels)
-        ? parsed.cachedModels.map(normalizeModel).filter(Boolean)
+        ? parsed.cachedModels.map(model => normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing })).filter(Boolean)
         : [];
       const availableIds = new Set(cachedModels.map(model => model.id));
       const favoriteModelIds = Array.isArray(parsed?.favoriteModelIds)
@@ -143,7 +144,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
         fetchedAt: Number.isFinite(parsed?.fetchedAt) ? parsed.fetchedAt : 0
       };
     } catch (error) {
-      if (error.code !== "ENOENT") logger.error("Failed to load OpenRouter config:", error);
+      if (error.code !== "ENOENT") logger.error(`Failed to load ${providerName} config:`, error);
     }
   }
 
@@ -162,7 +163,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
 
   function setApiKey(apiKey) {
     const value = String(apiKey || "").trim();
-    if (!value) throw new Error("OpenRouter API Key 不能为空。");
+    if (!value) throw new Error(`${providerName} API Key 不能为空。`);
     config.encryptedApiKey = encrypt(value);
     config.modelVerifications = {};
     save();
@@ -186,16 +187,16 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
 
   function setModelVerification(modelId, verification) {
     const id = String(modelId || "").trim();
-    if (!config.cachedModels.some(model => model.id === id)) throw new Error(`OpenRouter 模型不存在或目录尚未刷新：${id}`);
+    if (!config.cachedModels.some(model => model.id === id)) throw new Error(`${providerName} 模型不存在或目录尚未刷新：${id}`);
     const normalized = normalizeVerification(verification);
-    if (!normalized) throw new Error(`OpenRouter 模型验证状态无效：${id}`);
+    if (!normalized) throw new Error(`${providerName} 模型验证状态无效：${id}`);
     config.modelVerifications[id] = normalized;
     save();
     return { ...normalized };
   }
 
   function setCachedModels(models, fetchedAt = Date.now()) {
-    const normalized = Array.isArray(models) ? models.map(normalizeModel).filter(Boolean) : [];
+    const normalized = Array.isArray(models) ? models.map(model => normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing })).filter(Boolean) : [];
     const byId = new Map(normalized.map(model => [model.id, model]));
     config.cachedModels = [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
     config.modelVerifications = Object.fromEntries(Object.entries(config.modelVerifications).filter(([id]) => byId.has(id)));
@@ -213,7 +214,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
     const ids = [...new Set((Array.isArray(favoriteModelIds) ? favoriteModelIds : []).map(value => String(value || "").trim()).filter(Boolean))];
     for (const id of ids) {
       const model = byId.get(id);
-      if (!model) throw new Error(`OpenRouter 模型不存在或目录尚未刷新：${id}`);
+      if (!model) throw new Error(`${providerName} 模型不存在或目录尚未刷新：${id}`);
       if (!model.compatible) throw new Error(`模型 ${id} 缺少 Codex 所需的 tools/tool_choice 能力。`);
     }
     const nextDefault = String(defaultModelId || "").trim();

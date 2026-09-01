@@ -81,6 +81,17 @@ contextBridge.exposeInMainWorld("openRouterApi", {
   setFavorites: (input) => ipcRenderer.invoke("openrouter:set-favorites", input)
 });
 
+contextBridge.exposeInMainWorld("naraRouterApi", {
+  getConfig: () => ipcRenderer.invoke("nararouter:get-config"),
+  listModels: () => ipcRenderer.invoke("nararouter:list-models"),
+  refreshModels: () => ipcRenderer.invoke("nararouter:refresh-models"),
+  saveApiKey: (apiKey) => ipcRenderer.invoke("nararouter:save-api-key", apiKey),
+  clearApiKey: () => ipcRenderer.invoke("nararouter:clear-api-key"),
+  test: () => ipcRenderer.invoke("nararouter:test"),
+  verifyModels: (input) => ipcRenderer.invoke("nararouter:verify-models", input),
+  setFavorites: (input) => ipcRenderer.invoke("nararouter:set-favorites", input)
+});
+
 contextBridge.exposeInMainWorld("codeBuddyCodexApi", {
   getConfig: () => ipcRenderer.invoke("codebuddy-codex:get-config"),
   getStatus: () => ipcRenderer.invoke("codebuddy-codex:get-status"),

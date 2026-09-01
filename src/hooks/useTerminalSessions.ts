@@ -142,8 +142,8 @@ export function useTerminalSessions() {
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
       ...(isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
-      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
-      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
+      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
+      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
       tags,
       ...(typeof persist === "boolean" ? { persist } : {})
     });
@@ -174,9 +174,9 @@ export function useTerminalSessions() {
       agentLocation: agentProvider ? agentLocation ?? null : null,
       localAgentCwd: supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd ?? null : null,
       codexBackend: agentProvider === "codex" ? codexBackend ?? "openai" : null,
-      codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") ? codexModel ?? null : null,
+      codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") ? codexModel ?? null : null,
       ...(typeof codexExperimentalAcknowledged !== "undefined"
-        ? { codexExperimentalAcknowledged: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : null }
+        ? { codexExperimentalAcknowledged: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : null }
         : {}),
       sshConfig,
       quickCommands,

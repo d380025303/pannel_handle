@@ -81,6 +81,16 @@ export type TranslationKey =
   | "settings.openRouterVerifyRetry"
   | "settings.openRouterVerifying"
   | "settings.openRouterVerificationSuccess"
+  | "settings.openRouterRateLimitHint"
+  | "settings.naraRouterDescription"
+  | "settings.naraRouterSaved"
+  | "settings.naraRouterTestSuccess"
+  | "settings.naraRouterCleared"
+  | "settings.naraRouterModelsRefreshed"
+  | "settings.naraRouterFavoritesSaved"
+  | "settings.naraRouterRefreshHint"
+  | "settings.naraRouterVerificationSuccess"
+  | "settings.naraRouterRateLimitHint"
   | "settings.codeBuddyCodexTitle"
   | "settings.codeBuddyCodexNotConfigured"
   | "settings.codeBuddyCodexDescription"
@@ -191,6 +201,11 @@ export type TranslationKey =
   | "session.openRouterVerifiedRequired"
   | "session.openRouterExperimentalAcknowledge"
   | "session.openRouterExperimentalRequired"
+  | "session.naraRouterModel"
+  | "session.naraRouterKeyRequired"
+  | "session.naraRouterFavoriteRequired"
+  | "session.naraRouterModelHint"
+  | "session.naraRouterVerifiedRequired"
   | "session.codeBuddyCodexModel"
   | "session.codeBuddyCodexConfigRequired"
   | "session.codeBuddyCodexModelHint"
@@ -868,6 +883,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerifyRetry": "检测",
     "settings.openRouterVerifying": "检测中…",
     "settings.openRouterVerificationSuccess": "OpenRouter 模型兼容性检测通过。",
+    "settings.openRouterRateLimitHint": "OpenRouter 请求受限。免费模型可能已达到频率或每日额度限制，请 60 秒后重试；若仍失败，请等待额度恢复、增加 OpenRouter 额度或更换模型。",
+    "settings.naraRouterDescription": "使用 NaraRouter 作为 Codex 的模型后端。API Key 由系统安全存储加密，只在启动进程时注入环境变量。",
+    "settings.naraRouterSaved": "NaraRouter API Key 已安全保存。",
+    "settings.naraRouterTestSuccess": "NaraRouter 连接成功。",
+    "settings.naraRouterCleared": "NaraRouter API Key 已清除。",
+    "settings.naraRouterModelsRefreshed": "NaraRouter 模型目录已刷新。",
+    "settings.naraRouterFavoritesSaved": "NaraRouter 收藏模型已保存。",
+    "settings.naraRouterRefreshHint": "请先配置 API Key 并刷新当前账号可用的在线模型目录。",
+    "settings.naraRouterVerificationSuccess": "NaraRouter 模型兼容性检测通过。",
+    "settings.naraRouterRateLimitHint": "NaraRouter 请求受限。当前模型档位可能已达到频率或每日额度限制，请 60 秒后重试或更换其他可用模型。",
     "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
     "settings.codeBuddyCodexNotConfigured": "尚未配置",
     "settings.codeBuddyCodexDescription": "集中加载并验证 CodeBuddy 模型。会话只读取这里保存的模型，不再执行实时检测。",
@@ -978,6 +1003,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
     "session.openRouterExperimentalAcknowledge": "该模型仅部分兼容。我了解 Codex 可能在首轮请求或编辑操作时失败，并同意实验启动。",
     "session.openRouterExperimentalRequired": "请先确认部分兼容模型的实验风险。",
+    "session.naraRouterModel": "NaraRouter 默认模型",
+    "session.naraRouterKeyRequired": "请先在设置中配置 NaraRouter API Key。",
+    "session.naraRouterFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
+    "session.naraRouterModelHint": "进入会话后可使用 Codex 原生 /model 随时切换收藏目录中的模型。",
+    "session.naraRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
     "session.codeBuddyCodexModel": "CodeBuddy 模型",
     "session.codeBuddyCodexConfigRequired": "请先在全局设置中验证、收藏 CodeBuddy 模型并确认实验风险。",
     "session.codeBuddyCodexModelHint": "仅显示全局设置中已验证并收藏的模型。",
@@ -1647,6 +1677,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerifyRetry": "Verify",
     "settings.openRouterVerifying": "Verifying…",
     "settings.openRouterVerificationSuccess": "OpenRouter model compatibility verified.",
+    "settings.openRouterRateLimitHint": "The OpenRouter request was rate limited. Free-model frequency or daily limits may be exhausted. Retry after 60 seconds; if it still fails, wait for the quota to reset, add OpenRouter credits, or choose another model.",
+    "settings.naraRouterDescription": "Use NaraRouter as the model backend for Codex. The API key is encrypted by the system secure store and injected only into the launched process environment.",
+    "settings.naraRouterSaved": "NaraRouter API key saved securely.",
+    "settings.naraRouterTestSuccess": "NaraRouter connection succeeded.",
+    "settings.naraRouterCleared": "NaraRouter API key cleared.",
+    "settings.naraRouterModelsRefreshed": "NaraRouter model catalog refreshed.",
+    "settings.naraRouterFavoritesSaved": "NaraRouter favorite models saved.",
+    "settings.naraRouterRefreshHint": "Configure an API key and refresh the online models available to this account.",
+    "settings.naraRouterVerificationSuccess": "NaraRouter model compatibility verified.",
+    "settings.naraRouterRateLimitHint": "The NaraRouter request was rate limited. This model tier may have reached its request or daily quota; retry after 60 seconds or choose another available model.",
     "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
     "settings.codeBuddyCodexNotConfigured": "Not configured",
     "settings.codeBuddyCodexDescription": "Load and verify CodeBuddy models once in Settings. Session forms only read saved models and never run live verification.",
@@ -1757,6 +1797,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
     "session.openRouterExperimentalAcknowledge": "This model is only partially compatible. I understand Codex may fail on its first request or while editing, and accept experimental launch.",
     "session.openRouterExperimentalRequired": "Acknowledge the experimental risk for this partially compatible model first.",
+    "session.naraRouterModel": "Default NaraRouter model",
+    "session.naraRouterKeyRequired": "Configure a NaraRouter API key in Settings first.",
+    "session.naraRouterFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
+    "session.naraRouterModelHint": "After launch, use Codex's native /model command to switch among favorite models.",
+    "session.naraRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
     "session.codeBuddyCodexModel": "CodeBuddy model",
     "session.codeBuddyCodexConfigRequired": "Verify and favorite CodeBuddy models and acknowledge the experimental risk in Settings first.",
     "session.codeBuddyCodexModelHint": "Only verified favorites from global Settings are shown.",

@@ -226,6 +226,20 @@ describe("terminal-manager", () => {
     }));
   });
 
+  it("persists NaraRouter selection and clears its acknowledgement when the model changes", () => {
+    const { manager } = createManager();
+    const session = manager.createSession({
+      title: "NaraRouter",
+      agentProvider: "codex",
+      codexBackend: "nararouter",
+      codexModel: "partial-a",
+      codexExperimentalAcknowledged: true
+    });
+    expect(session).toMatchObject({ codexBackend: "nararouter", codexModel: "partial-a", codexExperimentalAcknowledged: true });
+    manager.updateSession(session.id, { codexModel: "partial-b" });
+    expect(manager.getSession(session.id).codexExperimentalAcknowledged).toBeUndefined();
+  });
+
   it("clears CodeBuddy Codex acknowledgement when the model changes", () => {
     const { manager } = createManager();
     const session = manager.createSession({

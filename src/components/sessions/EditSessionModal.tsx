@@ -64,7 +64,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
       isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
       !isSsh && agentProvider === "codex" ? codexBackend : undefined,
-      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") ? codexModel : undefined,
+      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") ? codexModel : undefined,
       quickCommands.filter((qc) => qc.command.trim().length > 0),
       isSsh ? {
         host: sshHost.trim(),
@@ -77,7 +77,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         remotePlatform
       } : undefined,
       tags,
-      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined
+      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined
       );
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));

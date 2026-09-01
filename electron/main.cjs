@@ -56,8 +56,10 @@ let launchTemplateStore = null;
 let launchTemplateService = null;
 let configStore = null;
 let openRouterConfigStore = null;
+let naraRouterConfigStore = null;
 let codeBuddyCodexConfigStore = null;
 let openRouterService = null;
+let naraRouterService = null;
 let codeBuddyCodexBridgeService = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
@@ -134,6 +136,12 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "openrouter.json"),
       safeStorage
     });
+    naraRouterConfigStore = createOpenRouterConfigStore({
+      configFile: path.join(app.getPath("userData"), "nararouter.json"),
+      safeStorage,
+      providerName: "NaraRouter",
+      assumeCompatibleWhenCapabilitiesMissing: true
+    });
     codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
       configFile: path.join(app.getPath("userData"), "codebuddy-codex.json")
     });
@@ -151,6 +159,7 @@ if (!gotSingleInstanceLock) {
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     openRouterConfigStore.load();
+    naraRouterConfigStore.load();
     codeBuddyCodexConfigStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
@@ -293,6 +302,17 @@ if (!gotSingleInstanceLock) {
       store: openRouterConfigStore,
       catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
     });
+    naraRouterService = createOpenRouterService({
+      store: naraRouterConfigStore,
+      catalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
+      providerId: "nararouter",
+      providerName: "NaraRouter",
+      baseUrl: "https://router.bynara.id/v1",
+      apiKeyEnv: "NARAROUTER_API_KEY",
+      modelsRequireApiKey: true,
+      connectionTestPath: "/models",
+      verificationHeaders: {}
+    });
     codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
       store: codeBuddyCodexConfigStore,
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
@@ -339,6 +359,7 @@ if (!gotSingleInstanceLock) {
       sshHookTunnelService,
       remoteAgentBridgeService,
       openRouterService,
+      naraRouterService,
       codeBuddyCodexBridgeService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
@@ -430,6 +451,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       projectSearchService,
       openRouterService,
+      naraRouterService,
       codeBuddyCodexBridgeService,
       mobileRemoteService,
       remoteAgentBridgeService

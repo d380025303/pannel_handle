@@ -67,6 +67,25 @@ describe("openrouter-config-store", () => {
     expect(() => store.setFavorites(["bad"], "bad")).toThrow("tools/tool_choice");
   });
 
+  it("lets NaraRouter models without capability metadata proceed to live verification", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pannel-nararouter-"));
+    dirs.push(dir);
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(value),
+      decryptString: value => value.toString()
+    };
+    const store = createOpenRouterConfigStore({
+      configFile: path.join(dir, "nararouter.json"),
+      safeStorage,
+      providerName: "NaraRouter",
+      assumeCompatibleWhenCapabilitiesMissing: true
+    });
+    store.setCachedModels([{ id: "gpt-test", pricing: { prompt: "0.000001" } }], 123);
+    expect(store.getCachedModels()[0]).toMatchObject({ compatible: true, pricing: { prompt: "0.000001" } });
+    expect(store.setFavorites(["gpt-test"], "gpt-test")).toMatchObject({ favoriteModelIds: ["gpt-test"], defaultModelId: "gpt-test" });
+  });
+
   it("persists model verification results and clears them when the API key changes", () => {
     const { store, configFile } = createStore();
     store.setCachedModels([{ id: "good", supported_parameters: ["tools", "tool_choice"] }], 123);

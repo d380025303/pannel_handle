@@ -76,6 +76,21 @@ describe("session-store", () => {
     expect(session).toMatchObject({ codexBackend: "codebuddy", codexModel: "glm-5.2", codexExperimentalAcknowledged: true });
   });
 
+  it("persists NaraRouter Codex metadata for local sessions", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{
+      id: "1",
+      type: "windows",
+      cwd: "C:\\work",
+      agentProvider: "codex",
+      codexBackend: "nararouter",
+      codexModel: "gpt-test",
+      codexExperimentalAcknowledged: true
+    }]));
+    const [session] = createStore(sessionsFile).loadLibrary();
+    expect(session).toMatchObject({ codexBackend: "nararouter", codexModel: "gpt-test", codexExperimentalAcknowledged: true });
+  });
+
   it("normalizes Codex backend metadata for OpenAI and SSH sessions", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

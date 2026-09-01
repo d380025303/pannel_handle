@@ -35,6 +35,23 @@ describe("CodexBackendFields", () => {
         verifyModel: vi.fn().mockResolvedValue({ modelId: "glm-5.2", status: "passed", checkedAt: 1, stages: [] })
       }
     });
+    Object.defineProperty(window, "naraRouterApi", {
+      configurable: true,
+      value: {
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: ["gpt-test"], defaultModelId: "gpt-test" }),
+        listModels: vi.fn().mockResolvedValue([{
+          id: "gpt-test",
+          name: "Nara GPT",
+          description: "",
+          contextLength: 128000,
+          inputModalities: ["text"],
+          supportedParameters: [],
+          pricing: { prompt: "0.000001" },
+          compatible: true,
+          verification: { status: "passed", checkedAt: 1 }
+        }])
+      }
+    });
   });
 
   afterEach(cleanup);
@@ -122,5 +139,17 @@ describe("CodexBackendFields", () => {
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
     expect(window.codeBuddyCodexApi.verifyModel).not.toHaveBeenCalled();
     expect(window.codeBuddyCodexApi.getStatus).not.toHaveBeenCalled();
+  });
+
+  it("selects the independent NaraRouter default and reports readiness", async () => {
+    const onReadyChange = vi.fn();
+    function Harness() {
+      const [model, setModel] = useState<string>();
+      return <CodexBackendFields backend="nararouter" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onReadyChange={onReadyChange} />;
+    }
+    render(<I18nProvider locale="zh-CN"><Harness /></I18nProvider>);
+
+    expect(await screen.findByRole("option", { name: /Nara GPT · gpt-test · 已验证/ })).toBeTruthy();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 });

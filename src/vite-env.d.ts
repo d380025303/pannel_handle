@@ -462,7 +462,7 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
-export type CodexBackend = "openai" | "openrouter" | "codebuddy";
+export type CodexBackend = "openai" | "openrouter" | "nararouter" | "codebuddy";
 
 export type CodeBuddyCodexVerification = {
   status: "passed" | "failed" | "unavailable";
@@ -549,6 +549,10 @@ export type OpenRouterApi = {
   verifyModels: (input: { modelIds: string[]; force?: boolean }) => Promise<Array<OpenRouterModelVerification & { modelId: string }>>;
   setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<OpenRouterConfig>;
 };
+
+export type NaraRouterModel = OpenRouterModel;
+export type NaraRouterConfig = OpenRouterConfig;
+export type NaraRouterApi = OpenRouterApi;
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -1204,6 +1208,7 @@ declare global {
     hookConfigApi: HookConfigApi;
     dingTalkApi: DingTalkApi;
     openRouterApi: OpenRouterApi;
+    naraRouterApi: NaraRouterApi;
     codeBuddyCodexApi: CodeBuddyCodexApi;
     windowApi: WindowApi;
   }

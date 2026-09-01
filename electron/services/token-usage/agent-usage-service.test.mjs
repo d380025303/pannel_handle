@@ -453,8 +453,8 @@ describe("agent-usage-service", () => {
     expect(transportFactory).toHaveBeenCalledWith(session);
   });
 
-  it("hides ChatGPT Codex quota for OpenRouter sessions", async () => {
-    const session = { id: "openrouter-1", type: "windows", agentProvider: "codex", codexBackend: "openrouter" };
+  it.each(["openrouter", "nararouter"])("hides ChatGPT Codex quota for %s sessions", async codexBackend => {
+    const session = { id: `${codexBackend}-1`, type: "windows", agentProvider: "codex", codexBackend };
     const transportFactory = vi.fn();
     const service = createAgentUsageService({ terminalManager: { getSession: () => session }, transportFactory });
 

@@ -14,8 +14,15 @@ function isFreeOpenRouterModel(model: OpenRouterModel) {
   return id === "openrouter/free" || id.endsWith(":free");
 }
 
-export function OpenRouterSettings() {
+type RouterSettingsProps = {
+  provider?: "openrouter" | "nararouter";
+};
+
+export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsProps) {
   const { locale, t } = useI18n();
+  const isNaraRouter = provider === "nararouter";
+  const providerName = isNaraRouter ? "NaraRouter" : "OpenRouter";
+  const routerApi = isNaraRouter ? window.naraRouterApi : window.openRouterApi;
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<OpenRouterConfig>({ hasApiKey: false, favoriteModelIds: [] });
   const [models, setModels] = useState<OpenRouterModel[]>([]);
@@ -27,7 +34,7 @@ export function OpenRouterSettings() {
   const [result, setResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   const load = async () => {
-    const [nextConfig, nextModels] = await Promise.all([window.openRouterApi.getConfig(), window.openRouterApi.listModels()]);
+    const [nextConfig, nextModels] = await Promise.all([routerApi.getConfig(), routerApi.listModels()]);
     setConfig(nextConfig);
     setModels(nextModels);
   };
@@ -38,8 +45,8 @@ export function OpenRouterSettings() {
     const needle = query.trim().toLowerCase();
     return models.filter(model => model.compatible
       && (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle))
-      && (!freeOnly || isFreeOpenRouterModel(model)));
-  }, [freeOnly, models, query]);
+      && (isNaraRouter || !freeOnly || isFreeOpenRouterModel(model)));
+  }, [freeOnly, isNaraRouter, models, query]);
 
   const verificationText = (model: OpenRouterModel) => {
     const verification = model.verification;
@@ -47,7 +54,7 @@ export function OpenRouterSettings() {
     if (verification.status === "passed") return t("settings.openRouterVerificationPassed");
     const stage = verification.failedStage ? `${t(verificationStageKey(verification.failedStage))} · ` : "";
     if (verification.status === "partial") return `${t("settings.openRouterVerificationPartial")}：${stage}${verification.error || ""}`;
-    if (verification.status === "unavailable") return `${t("settings.openRouterVerificationUnavailable")}：${stage}${verification.error || ""}`;
+    if (verification.status === "unavailable") return `${t("settings.openRouterVerificationUnavailable")}：${stage}${verification.errorKind === "rate_limit" ? t(isNaraRouter ? "settings.naraRouterRateLimitHint" : "settings.openRouterRateLimitHint") : verification.error || ""}`;
     return `${t("settings.openRouterVerificationFailed")}：${stage}${verification.error || ""}`;
   };
 
@@ -80,10 +87,12 @@ export function OpenRouterSettings() {
     setVerifyingModelId(modelId);
     setResult(null);
     try {
-      const [verification] = await window.openRouterApi.verifyModels({ modelIds: [modelId], force: true });
+      const [verification] = await routerApi.verifyModels({ modelIds: [modelId], force: true });
       await load();
-      if (verification.status === "failed" || verification.status === "unavailable") throw new Error(`${modelId}：${verification.error || t("settings.openRouterVerificationFailed")}`);
-      setResult({ kind: "success", message: verification.status === "partial" ? t("settings.openRouterVerificationPartialSuccess") : t("settings.openRouterVerificationSuccess") });
+      if (verification.status === "failed" || verification.status === "unavailable") {
+        throw new Error(`${modelId}：${verification.errorKind === "rate_limit" ? t(isNaraRouter ? "settings.naraRouterRateLimitHint" : "settings.openRouterRateLimitHint") : verification.error || t("settings.openRouterVerificationFailed")}`);
+      }
+      setResult({ kind: "success", message: verification.status === "partial" ? t("settings.openRouterVerificationPartialSuccess") : t(isNaraRouter ? "settings.naraRouterVerificationSuccess" : "settings.openRouterVerificationSuccess") });
     } catch (error) {
       setResult({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -95,43 +104,43 @@ export function OpenRouterSettings() {
     <section className="settings-section openrouter-settings">
       <div className="collapsible-header" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(value => !value)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(value => !value); } }}>
         <span className={`collapsible-chevron${open ? "" : " collapsed"}`} aria-hidden="true">▾</span>
-        <h4>OpenRouter</h4>
+        <h4>{providerName}</h4>
         <span className="settings-section-status">{config.hasApiKey ? t("settings.openRouterConfigured") : t("settings.openRouterNotConfigured")}</span>
       </div>
       {open && <>
-        <p className="settings-help">{t("settings.openRouterDescription")}</p>
+        <p className="settings-help">{t(isNaraRouter ? "settings.naraRouterDescription" : "settings.openRouterDescription")}</p>
         <label className="settings-field">
           <span className="modal-label">API Key</span>
-          <input className="modal-input" type="password" autoComplete="off" disabled={busy} value={apiKey} placeholder={config.hasApiKey ? t("settings.openRouterKeyStored") : "sk-or-v1-..."} onChange={event => setApiKey(event.target.value)} />
+          <input className="modal-input" type="password" autoComplete="off" disabled={busy} value={apiKey} placeholder={config.hasApiKey ? t("settings.openRouterKeyStored") : isNaraRouter ? "sk-nry-..." : "sk-or-v1-..."} onChange={event => setApiKey(event.target.value)} />
         </label>
         <div className="settings-actions">
-          <button className="modal-button primary" type="button" disabled={busy || !apiKey.trim()} onClick={() => void run(async () => { await window.openRouterApi.saveApiKey(apiKey.trim()); setApiKey(""); }, t("settings.openRouterSaved"))}>{t("common.save")}</button>
-          <button className="modal-button" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await window.openRouterApi.test(); }, t("settings.openRouterTestSuccess"))}>{t("settings.openRouterTest")}</button>
-          <button className="modal-button danger" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await window.openRouterApi.clearApiKey(); }, t("settings.openRouterCleared"))}>{t("settings.openRouterClear")}</button>
-          <button className="modal-button" type="button" disabled={busy} onClick={() => void run(async () => { setModels(await window.openRouterApi.refreshModels()); }, t("settings.openRouterModelsRefreshed"))}>{t("settings.openRouterRefreshModels")}</button>
+          <button className="modal-button primary" type="button" disabled={busy || !apiKey.trim()} onClick={() => void run(async () => { await routerApi.saveApiKey(apiKey.trim()); setApiKey(""); }, t(isNaraRouter ? "settings.naraRouterSaved" : "settings.openRouterSaved"))}>{t("common.save")}</button>
+          <button className="modal-button" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await routerApi.test(); }, t(isNaraRouter ? "settings.naraRouterTestSuccess" : "settings.openRouterTestSuccess"))}>{t("settings.openRouterTest")}</button>
+          <button className="modal-button danger" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await routerApi.clearApiKey(); }, t(isNaraRouter ? "settings.naraRouterCleared" : "settings.openRouterCleared"))}>{t("settings.openRouterClear")}</button>
+          <button className="modal-button" type="button" disabled={busy || (isNaraRouter && !config.hasApiKey)} onClick={() => void run(async () => { setModels(await routerApi.refreshModels()); }, t(isNaraRouter ? "settings.naraRouterModelsRefreshed" : "settings.openRouterModelsRefreshed"))}>{t("settings.openRouterRefreshModels")}</button>
         </div>
         <label className="settings-field">
           <span className="modal-label">{t("settings.openRouterFavorites")}</span>
           <input className="modal-input" type="search" value={query} placeholder={t("common.search")} onChange={event => setQuery(event.target.value)} />
         </label>
-        <label className="auto-restore-label">
+        {!isNaraRouter && <label className="auto-restore-label">
           <input type="checkbox" className="auto-restore-checkbox" checked={freeOnly} onChange={event => setFreeOnly(event.target.checked)} />
           <span className="auto-restore-track" />
           <span className="auto-restore-text">{t("settings.openRouterFreeModelsOnly")}</span>
-        </label>
+        </label>}
         <div className="openrouter-model-list">
           {compatibleModels.map(model => <div key={model.id} className="openrouter-model-row">
             <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} disabled={!config.favoriteModelIds.includes(model.id) && model.verification?.status !== "passed" && model.verification?.status !== "partial"} onChange={() => toggleFavorite(model.id)} />
             <span><strong>{model.name}</strong><small>{model.id}</small><small className="openrouter-model-price">{formatOpenRouterPricing(model.pricing, locale, { input: t("settings.openRouterPriceInput"), output: t("settings.openRouterPriceOutput"), unavailable: t("settings.openRouterPriceUnavailable") })}</small><small className={`openrouter-verification ${model.verification?.status || "pending"}`}>{verificationText(model)}</small></span>
             <span className="openrouter-model-actions">
               <button className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId)} onClick={() => void verifyModel(model.id)}>{verifyingModelId === model.id ? t("settings.openRouterVerifying") : t("settings.openRouterVerifyRetry")}</button>
-              {config.favoriteModelIds.includes(model.id) && <input type="radio" name="openrouter-default" checked={config.defaultModelId === model.id} aria-label={t("settings.openRouterDefaultModel")} onChange={() => setConfig(current => ({ ...current, defaultModelId: model.id }))} />}
+              {config.favoriteModelIds.includes(model.id) && <input type="radio" name={`${provider}-default`} checked={config.defaultModelId === model.id} aria-label={t("settings.openRouterDefaultModel")} onChange={() => setConfig(current => ({ ...current, defaultModelId: model.id }))} />}
             </span>
           </div>)}
-          {!models.length && <p className="settings-help">{t("settings.openRouterRefreshHint")}</p>}
+          {!models.length && <p className="settings-help">{t(isNaraRouter ? "settings.naraRouterRefreshHint" : "settings.openRouterRefreshHint")}</p>}
           {Boolean(models.length) && !compatibleModels.length && <p className="settings-help">{t("settings.openRouterNoMatchingModels")}</p>}
         </div>
-        <button className="modal-button primary" type="button" disabled={busy || !config.favoriteModelIds.length} onClick={() => void run(async () => { await window.openRouterApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t("settings.openRouterFavoritesSaved"))}>{t("settings.openRouterSaveFavorites")}</button>
+        <button className="modal-button primary" type="button" disabled={busy || !config.favoriteModelIds.length} onClick={() => void run(async () => { await routerApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t(isNaraRouter ? "settings.naraRouterFavoritesSaved" : "settings.openRouterFavoritesSaved"))}>{t("settings.openRouterSaveFavorites")}</button>
         <p className="settings-help">{t("settings.openRouterNewSessionsHint")}</p>
         {result && <p className={`settings-result ${result.kind}`} role="status">{result.message}</p>}
       </>}

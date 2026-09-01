@@ -209,6 +209,7 @@ export function SettingsModal({
             )}
           </section>
           <OpenRouterSettings />
+          <OpenRouterSettings provider="nararouter" />
           <CodeBuddyCodexSettings />
           <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">
