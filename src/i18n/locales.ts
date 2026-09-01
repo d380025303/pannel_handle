@@ -59,6 +59,8 @@ export type TranslationKey =
   | "settings.openRouterRefreshModels"
   | "settings.openRouterModelsRefreshed"
   | "settings.openRouterFavorites"
+  | "settings.openRouterFreeModelsOnly"
+  | "settings.openRouterNoMatchingModels"
   | "settings.openRouterDefaultModel"
   | "settings.openRouterRefreshHint"
   | "settings.openRouterSaveFavorites"
@@ -822,6 +824,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterRefreshModels": "刷新在线模型",
     "settings.openRouterModelsRefreshed": "OpenRouter 模型目录已刷新。",
     "settings.openRouterFavorites": "兼容模型与收藏",
+    "settings.openRouterFreeModelsOnly": "仅看免费模型",
+    "settings.openRouterNoMatchingModels": "没有匹配的兼容模型。",
     "settings.openRouterDefaultModel": "设为默认模型",
     "settings.openRouterRefreshHint": "请先刷新在线模型目录。仅显示支持 tools 和 tool_choice 的模型。",
     "settings.openRouterSaveFavorites": "保存收藏与默认模型",
@@ -1577,6 +1581,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterRefreshModels": "Refresh online models",
     "settings.openRouterModelsRefreshed": "OpenRouter model catalog refreshed.",
     "settings.openRouterFavorites": "Compatible models and favorites",
+    "settings.openRouterFreeModelsOnly": "Free models only",
+    "settings.openRouterNoMatchingModels": "No matching compatible models.",
     "settings.openRouterDefaultModel": "Set as default model",
     "settings.openRouterRefreshHint": "Refresh the online catalog first. Only models supporting tools and tool_choice are shown.",
     "settings.openRouterSaveFavorites": "Save favorites and default",

@@ -9,6 +9,11 @@ function verificationStageKey(stage?: string) {
   return "settings.openRouterStageCodexTools" as const;
 }
 
+function isFreeOpenRouterModel(model: OpenRouterModel) {
+  const id = model.id.toLowerCase();
+  return id === "openrouter/free" || id.endsWith(":free");
+}
+
 export function OpenRouterSettings() {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -16,6 +21,7 @@ export function OpenRouterSettings() {
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [query, setQuery] = useState("");
+  const [freeOnly, setFreeOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [verifyingModelId, setVerifyingModelId] = useState("");
   const [result, setResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -30,8 +36,10 @@ export function OpenRouterSettings() {
 
   const compatibleModels = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return models.filter(model => model.compatible && (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle)));
-  }, [models, query]);
+    return models.filter(model => model.compatible
+      && (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle))
+      && (!freeOnly || isFreeOpenRouterModel(model)));
+  }, [freeOnly, models, query]);
 
   const verificationText = (model: OpenRouterModel) => {
     const verification = model.verification;
@@ -106,6 +114,11 @@ export function OpenRouterSettings() {
           <span className="modal-label">{t("settings.openRouterFavorites")}</span>
           <input className="modal-input" type="search" value={query} placeholder={t("common.search")} onChange={event => setQuery(event.target.value)} />
         </label>
+        <label className="auto-restore-label">
+          <input type="checkbox" className="auto-restore-checkbox" checked={freeOnly} onChange={event => setFreeOnly(event.target.checked)} />
+          <span className="auto-restore-track" />
+          <span className="auto-restore-text">{t("settings.openRouterFreeModelsOnly")}</span>
+        </label>
         <div className="openrouter-model-list">
           {compatibleModels.map(model => <div key={model.id} className="openrouter-model-row">
             <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} disabled={!config.favoriteModelIds.includes(model.id) && model.verification?.status !== "passed" && model.verification?.status !== "partial"} onChange={() => toggleFavorite(model.id)} />
@@ -116,6 +129,7 @@ export function OpenRouterSettings() {
             </span>
           </div>)}
           {!models.length && <p className="settings-help">{t("settings.openRouterRefreshHint")}</p>}
+          {Boolean(models.length) && !compatibleModels.length && <p className="settings-help">{t("settings.openRouterNoMatchingModels")}</p>}
         </div>
         <button className="modal-button primary" type="button" disabled={busy || !config.favoriteModelIds.length} onClick={() => void run(async () => { await window.openRouterApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t("settings.openRouterFavoritesSaved"))}>{t("settings.openRouterSaveFavorites")}</button>
         <p className="settings-help">{t("settings.openRouterNewSessionsHint")}</p>
