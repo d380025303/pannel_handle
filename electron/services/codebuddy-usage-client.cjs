@@ -5,6 +5,7 @@ const CODEBUDDY_USER_INFO_ID = "pannel-handle-codebuddy-user-info";
 const CODEBUDDY_HOST = "copilot.tencent.com";
 const CODEBUDDY_RESOURCE_PATH = "/billing/meter/get-user-resource";
 const CODEBUDDY_PRODUCT_CODE = "p_tcaca";
+const CODEBUDDY_FALLBACK_CHROME_VERSION = "134.0.0.0";
 const CODEBUDDY_PACKAGE_GROUPS = {
   base: new Set([
     "TCACA_code_008_cfWoLwvjU4",
@@ -26,6 +27,14 @@ const CODEBUDDY_PACKAGE_GROUPS = {
 };
 const CODEBUDDY_PACKAGE_CODES = Object.values(CODEBUDDY_PACKAGE_GROUPS)
   .flatMap(group => [...group]);
+
+function getCodeBuddyUserAgent(chromeVersion = process.versions.chrome) {
+  const normalizedVersion = String(chromeVersion || "").trim();
+  const version = /^\d+(?:\.\d+){1,3}$/.test(normalizedVersion)
+    ? normalizedVersion
+    : CODEBUDDY_FALLBACK_CHROME_VERSION;
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
+}
 
 function appendLimited(current, chunk, maxBytes) {
   const next = Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk || "");
@@ -269,6 +278,7 @@ function requestCodeBuddyResources({
       headers: {
         "content-type": "application/json",
         "content-length": body.length,
+        "user-agent": getCodeBuddyUserAgent(),
         authorization: `Bearer ${token}`,
         "x-user-id": userId
       }
@@ -338,6 +348,7 @@ module.exports = {
   CODEBUDDY_HOST,
   CODEBUDDY_PACKAGE_CODES,
   CODEBUDDY_RESOURCE_PATH,
+  getCodeBuddyUserAgent,
   normalizeCodeBuddyResourceResponse,
   readCodeBuddyUsage,
   requestCodeBuddyResources,

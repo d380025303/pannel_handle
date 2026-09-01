@@ -5,6 +5,7 @@ import type { Locale, ThemeId } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
+import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
 
 type SettingsModalProps = {
   autoRestore: boolean;
@@ -208,6 +209,7 @@ export function SettingsModal({
             )}
           </section>
           <OpenRouterSettings />
+          <CodeBuddyCodexSettings />
           <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">
             <div

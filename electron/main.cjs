@@ -32,6 +32,7 @@ const { createAgentUsageService } = require("./services/token-usage/agent-usage-
 const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
+const { createWorkBuddyModelCatalogService } = require("./services/workbuddy-model-catalog-service.cjs");
 const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
@@ -43,6 +44,7 @@ const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createOpenRouterConfigStore } = require("./stores/openrouter-config-store.cjs");
+const { createCodeBuddyCodexConfigStore } = require("./stores/codebuddy-codex-config-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
@@ -54,6 +56,7 @@ let launchTemplateStore = null;
 let launchTemplateService = null;
 let configStore = null;
 let openRouterConfigStore = null;
+let codeBuddyCodexConfigStore = null;
 let openRouterService = null;
 let codeBuddyCodexBridgeService = null;
 let dingTalkConfigStore = null;
@@ -131,6 +134,9 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "openrouter.json"),
       safeStorage
     });
+    codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
+      configFile: path.join(app.getPath("userData"), "codebuddy-codex.json")
+    });
     dingTalkConfigStore = createDingTalkConfigStore({
       configFile: path.join(app.getPath("userData"), "dingtalk.json"),
       safeStorage
@@ -145,6 +151,7 @@ if (!gotSingleInstanceLock) {
     hookConfigManager = createHookConfigManager();
     configStore.loadConfig();
     openRouterConfigStore.load();
+    codeBuddyCodexConfigStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
@@ -287,6 +294,8 @@ if (!gotSingleInstanceLock) {
       catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
     });
     codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
+      store: codeBuddyCodexConfigStore,
+      workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
       verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"),
       catalogFile: path.join(app.getPath("userData"), "codebuddy-codex-model-catalog.json"),
       preloadFile: app.isPackaged

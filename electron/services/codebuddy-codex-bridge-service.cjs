@@ -6,8 +6,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { responsesToChat, createResponseAccumulator } = require("./codebuddy-codex-protocol.cjs");
+const { getPromotionDisplay } = require("./workbuddy-model-catalog-service.cjs");
 
-const SUPPORTED_CODEBUDDY_MINOR = "2.142";
 const API_KEY_ENV = "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY";
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
@@ -73,9 +73,11 @@ function buildModelCatalog(models) {
 }
 
 function createCodeBuddyCodexBridgeService({
+  store,
   verificationFile,
   catalogFile,
   preloadFile,
+  workBuddyModelCatalogService,
   spawn = defaultSpawn,
   spawnSync = defaultSpawnSync,
   now = Date.now
@@ -86,36 +88,63 @@ function createCodeBuddyCodexBridgeService({
   const internalToken = randomToken();
   let verifications = {};
   let versionCache;
-  let modelCache;
   let shuttingDown = false;
 
   try { verifications = JSON.parse(fs.readFileSync(verificationFile, "utf-8")); } catch {}
 
-  function inspectCli({ refresh = false } = {}) {
-    if (!refresh && versionCache && modelCache) return { version: versionCache, models: modelCache };
+  function inspectCliVersion({ refresh = false } = {}) {
+    if (!refresh && versionCache) return versionCache;
     const versionResult = spawnSync("cmd.exe", ["/d", "/s", "/c", "codebuddy --version"], { encoding: "utf-8", windowsHide: true, timeout: 10000, maxBuffer: 64 * 1024 });
     const version = parseCodeBuddyVersion(versionResult.stdout || versionResult.stderr);
     if (versionResult.error || versionResult.status !== 0 || !version) throw new Error("无法读取 CodeBuddy CLI 版本，请确认 Windows 已安装 CodeBuddy。");
-    if (!version.startsWith(`${SUPPORTED_CODEBUDDY_MINOR}.`)) throw new Error(`CodeBuddy Codex 实验桥仅兼容 ${SUPPORTED_CODEBUDDY_MINOR}.x，当前版本为 ${version}。`);
+    versionCache = version;
+    return version;
+  }
+
+  async function refreshModels() {
+    const version = inspectCliVersion({ refresh: true });
     const helpResult = spawnSync("cmd.exe", ["/d", "/s", "/c", "codebuddy --help"], { encoding: "utf-8", windowsHide: true, timeout: 10000, maxBuffer: 512 * 1024 });
     const ids = parseCodeBuddyModels(helpResult.stdout || helpResult.stderr);
     if (helpResult.error || helpResult.status !== 0 || !ids.length) throw new Error("无法读取 CodeBuddy 模型列表。");
-    versionCache = version;
-    modelCache = ids.map(id => ({ id, name: id, verification: verifications[`${version}:${id}`] }));
-    return { version, models: modelCache };
+    const previousById = new Map(store.getCachedModels().map(model => [model.id, model]));
+    let workBuddyById;
+    try {
+      const catalog = await workBuddyModelCatalogService?.readCatalog();
+      if (catalog) workBuddyById = new Map(catalog.map(model => [model.id, model]));
+    } catch { /* The CLI model list remains usable without WorkBuddy metadata. */ }
+    store.setCachedModels(version, ids.map(id => workBuddyById?.get(id) || (!workBuddyById && previousById.get(id)) || { id, name: id }));
+    return listModels();
   }
 
   function getStatus() {
     try {
-      const result = inspectCli();
-      return { available: true, version: result.version, supportedMinor: SUPPORTED_CODEBUDDY_MINOR, experimental: true };
+      const version = inspectCliVersion({ refresh: true });
+      return { available: true, version, experimental: true };
     } catch (error) {
-      return { available: false, supportedMinor: SUPPORTED_CODEBUDDY_MINOR, experimental: true, error: error.message };
+      return { available: false, experimental: true, error: error.message };
     }
   }
 
+  function resolveVerification(version, modelId) {
+    const exact = verifications[`${version}:${modelId}`];
+    if (exact) return exact;
+    return Object.entries(verifications)
+      .filter(([key, verification]) => key.endsWith(`:${modelId}`) && verification?.status === "passed")
+      .map(([, verification]) => verification)
+      .sort((left, right) => Number(right.checkedAt || 0) - Number(left.checkedAt || 0))[0];
+  }
+
   function listModels() {
-    return inspectCli({ refresh: true }).models;
+    const version = store.getPublicConfig().catalogVersion;
+    return store.getCachedModels().map(model => {
+      const { promotions: cachedPromotions, ...publicModel } = model;
+      const promotions = getPromotionDisplay(cachedPromotions, now());
+      return { ...publicModel, ...(promotions.length ? { promotions } : {}), verification: resolveVerification(version, model.id) };
+    });
+  }
+
+  function getConfig() {
+    return store.getPublicConfig();
   }
 
   function saveVerifications() {
@@ -126,9 +155,10 @@ function createCodeBuddyCodexBridgeService({
   }
 
   function writeCatalog() {
-    const { version, models } = inspectCli();
-    const passed = models.filter(model => verifications[`${version}:${model.id}`]?.status === "passed");
-    if (!passed.length) throw new Error("尚无通过 Codex 工具协议检测的 CodeBuddy 模型。");
+    const config = store.getPublicConfig();
+    const byId = new Map(store.getCachedModels().map(model => [model.id, model]));
+    const passed = config.favoriteModelIds.map(id => byId.get(id)).filter(model => model && resolveVerification(config.catalogVersion, model.id)?.status === "passed");
+    if (!passed.length) throw new Error("尚未在全局设置中保存通过检测的 CodeBuddy 模型。");
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
     const temporaryFile = `${catalogFile}.tmp`;
     fs.writeFileSync(temporaryFile, JSON.stringify(buildModelCatalog(passed), null, 2), "utf-8");
@@ -236,7 +266,7 @@ function createCodeBuddyCodexBridgeService({
       errorResponse(response, error.statusCode || 400, error.message || "Invalid JSON body.");
       return;
     }
-    const { models } = inspectCli();
+    const models = store.getCachedModels();
     const model = String(body.model || "");
     if (!models.some(item => item.id === model)) {
       errorResponse(response, 400, `CodeBuddy 模型不可用：${model}`);
@@ -354,10 +384,13 @@ function createCodeBuddyCodexBridgeService({
 
   async function verifyModel(input = {}) {
     const modelId = String(input.modelId || "").trim();
-    const { version, models } = inspectCli({ refresh: true });
+    const config = store.getPublicConfig();
+    const version = inspectCliVersion({ refresh: true });
+    if (!config.catalogVersion) throw new Error("请先在全局设置中刷新 CodeBuddy 模型目录。");
+    const models = store.getCachedModels();
     if (!models.some(item => item.id === modelId)) throw new Error(`CodeBuddy 模型不存在：${modelId}`);
     const cacheKey = `${version}:${modelId}`;
-    const cached = verifications[cacheKey];
+    const cached = resolveVerification(version, modelId);
     if (!input.force && cached?.status === "passed" && now() - cached.checkedAt < VERIFICATION_TTL_MS) return { modelId, ...cached };
     const stages = [];
     try {
@@ -376,19 +409,35 @@ function createCodeBuddyCodexBridgeService({
       verifications[cacheKey] = { status: "failed", checkedAt: now(), stages, error: stages.at(-1).error };
     }
     saveVerifications();
-    modelCache = undefined;
     return { modelId, ...verifications[cacheKey] };
+  }
+
+  function setFavorites(input = {}) {
+    const config = store.getPublicConfig();
+    const ids = [...new Set((Array.isArray(input.favoriteModelIds) ? input.favoriteModelIds : []).map(value => String(value || "").trim()).filter(Boolean))];
+    for (const id of ids) {
+      if (resolveVerification(config.catalogVersion, id)?.status !== "passed") {
+        throw new Error(`CodeBuddy 模型 ${id} 尚未通过 Codex 工具协议检测。`);
+      }
+    }
+    return store.setFavorites(ids, input.defaultModelId);
+  }
+
+  function setExperimentalAcknowledged(input = {}) {
+    return store.setExperimentalAcknowledged(input.acknowledged === true);
   }
 
   async function getLaunchConfig(session) {
     if (session.agentProvider !== "codex" || session.codexBackend !== "codebuddy") return null;
     if (session.type === "ssh") throw new Error("CodeBuddy Codex 实验桥首期仅支持 Windows 和 WSL 会话。");
-    const { version, models } = inspectCli({ refresh: true });
+    const version = inspectCliVersion({ refresh: true });
+    const config = store.getPublicConfig();
+    if (!config.catalogVersion) throw new Error("请先在全局设置中刷新并验证 CodeBuddy 模型。");
     const model = String(session.codexModel || "").trim();
-    if (!models.some(item => item.id === model)) throw new Error("请选择当前 CodeBuddy CLI 提供的具体模型。");
-    const verification = verifications[`${version}:${model}`];
+    if (!config.favoriteModelIds.includes(model)) throw new Error("请选择全局设置中已保存的 CodeBuddy 模型。");
+    const verification = resolveVerification(version, model);
     if (verification?.status !== "passed") throw new Error(`CodeBuddy 模型 ${model} 尚未通过 Codex 工具协议检测。`);
-    if (session.codexExperimentalAcknowledged !== true) throw new Error("请先确认 CodeBuddy Codex 私有桥的实验性风险。");
+    if (!config.experimentalAcknowledged) throw new Error("请先在全局设置中确认 CodeBuddy Codex 私有桥的实验性风险。");
     const internal = await ensureInternalListener();
     let listener = internal;
     if (session.type === "wsl" && !canUseWslLocalhost(session.wslDistro, internal.origin)) {
@@ -432,11 +481,10 @@ function createCodeBuddyCodexBridgeService({
     sessionTokens.clear();
   }
 
-  return { getStatus, listModels, verifyModel, getLaunchConfig, bindSession, releaseRegistration, disconnect, shutdown, writeCatalog };
+  return { getConfig, getStatus, listModels, refreshModels, verifyModel, setFavorites, setExperimentalAcknowledged, getLaunchConfig, bindSession, releaseRegistration, disconnect, shutdown, writeCatalog };
 }
 
 module.exports = {
-  SUPPORTED_CODEBUDDY_MINOR,
   API_KEY_ENV,
   VERIFICATION_TTL_MS,
   parseCodeBuddyVersion,

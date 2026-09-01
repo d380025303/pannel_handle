@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { formatOpenRouterPricing } from "../../utils/openRouterPricing";
-import type { CodeBuddyCodexModel, CodeBuddyCodexStatus, CodexBackend, OpenRouterModel } from "../../vite-env";
+import type { CodeBuddyCodexConfig, CodeBuddyCodexModel, CodexBackend, OpenRouterModel } from "../../vite-env";
 
 type CodexBackendFieldsProps = {
   backend: CodexBackend;
@@ -17,13 +17,13 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   const { locale, t } = useI18n();
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [openRouterDefaultModelId, setOpenRouterDefaultModelId] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [codeBuddyModels, setCodeBuddyModels] = useState<CodeBuddyCodexModel[]>([]);
-  const [codeBuddyStatus, setCodeBuddyStatus] = useState<CodeBuddyCodexStatus>();
+  const [codeBuddyConfig, setCodeBuddyConfig] = useState<CodeBuddyCodexConfig>({ favoriteModelIds: [], experimentalAcknowledged: false });
   const [codeBuddyLoading, setCodeBuddyLoading] = useState(false);
-  const [verifyingModel, setVerifyingModel] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -32,8 +32,8 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
         if (disposed) return;
         setHasApiKey(config.hasApiKey);
         setFavoriteIds(config.favoriteModelIds);
+        setOpenRouterDefaultModelId(config.defaultModelId || "");
         setModels(catalog);
-        if (!model && config.defaultModelId) onModelChange(config.defaultModelId);
       })
       .catch((reason) => {
         if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
@@ -45,15 +45,21 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   }, []);
 
   useEffect(() => {
+    if (backend === "openrouter" && !model && openRouterDefaultModelId) onModelChange(openRouterDefaultModelId);
+  }, [backend, model, onModelChange, openRouterDefaultModelId]);
+
+  useEffect(() => {
     if (backend !== "codebuddy") return;
     let disposed = false;
     setCodeBuddyLoading(true);
     setError("");
-    Promise.all([window.codeBuddyCodexApi.getStatus(), window.codeBuddyCodexApi.listModels()])
-      .then(([status, catalog]) => {
+    Promise.all([window.codeBuddyCodexApi.getConfig(), window.codeBuddyCodexApi.listModels()])
+      .then(([config, catalog]) => {
         if (disposed) return;
-        setCodeBuddyStatus(status);
-        setCodeBuddyModels(catalog);
+        setCodeBuddyConfig(config);
+        const byId = new Map(catalog.map(item => [item.id, item]));
+        setCodeBuddyModels(config.favoriteModelIds.map(id => byId.get(id)).filter((item): item is CodeBuddyCodexModel => item?.verification?.status === "passed"));
+        if (!model && config.defaultModelId) onModelChange(config.defaultModelId);
       })
       .catch(reason => {
         if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
@@ -69,7 +75,7 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   const selectedModel = favoriteModels.find(item => item.id === model);
   const verificationStatus = selectedModel?.verification?.status;
   const selectedCodeBuddyModel = codeBuddyModels.find(item => item.id === model);
-  const codeBuddyReady = codeBuddyStatus?.available === true && selectedCodeBuddyModel?.verification?.status === "passed" && experimentalAcknowledged;
+  const codeBuddyReady = codeBuddyConfig.experimentalAcknowledged && selectedCodeBuddyModel?.verification?.status === "passed";
   const ready = backend === "openai"
     || (backend === "openrouter" && hasApiKey && Boolean(model) && (verificationStatus === "passed" || (verificationStatus === "partial" && experimentalAcknowledged)))
     || (backend === "codebuddy" && codeBuddyReady);
@@ -86,23 +92,6 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   useEffect(() => {
     onReadyChange?.(ready);
   }, [onReadyChange, ready]);
-
-  const selectCodeBuddyModel = async (modelId?: string) => {
-    onModelChange(modelId);
-    onExperimentalAcknowledgedChange?.(false);
-    if (!modelId) return;
-    setVerifyingModel(modelId);
-    setError("");
-    try {
-      const verification = await window.codeBuddyCodexApi.verifyModel({ modelId });
-      setCodeBuddyModels(current => current.map(item => item.id === modelId ? { ...item, verification } : item));
-      if (verification.status !== "passed") setError(verification.error || (locale === "en-US" ? "The model failed Codex compatibility verification." : "该模型未通过 Codex 兼容性检测。"));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setVerifyingModel("");
-    }
-  };
 
   return (
     <fieldset className="modal-field codex-backend-fields">
@@ -132,19 +121,14 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
       {backend === "codebuddy" && (
         <>
           <label className="modal-field">
-            <span className="modal-label">{locale === "en-US" ? "CodeBuddy model" : "CodeBuddy 模型"}</span>
-            <select className="modal-input" value={model || ""} disabled={codeBuddyLoading || Boolean(verifyingModel) || codeBuddyModels.length === 0} onChange={(event) => void selectCodeBuddyModel(event.target.value || undefined)}>
-              <option value="">{codeBuddyLoading ? t("common.loading") : locale === "en-US" ? "Select a model" : "选择模型"}</option>
-              {codeBuddyModels.map(item => <option key={item.id} value={item.id}>{item.name} · {item.verification?.status === "passed" ? (locale === "en-US" ? "verified" : "已验证") : (locale === "en-US" ? "verification required" : "需要验证")}</option>)}
+            <span className="modal-label">{t("session.codeBuddyCodexModel")}</span>
+            <select className="modal-input" value={model || ""} disabled={codeBuddyLoading || codeBuddyModels.length === 0} onChange={(event) => onModelChange(event.target.value || undefined)}>
+              <option value="">{codeBuddyLoading ? t("common.loading") : t("session.codexModelSelect")}</option>
+              {codeBuddyModels.map(item => <option key={item.id} value={item.id}>{item.name} · {item.id}</option>)}
             </select>
           </label>
-          {verifyingModel && <span className="modal-hint">{locale === "en-US" ? `Verifying ${verifyingModel} with three live requests...` : `正在用 3 次真实请求验证 ${verifyingModel}...`}</span>}
-          {selectedCodeBuddyModel?.verification?.status === "passed" && <label className="openrouter-experimental-warning">
-            <input type="checkbox" checked={experimentalAcknowledged} onChange={(event) => onExperimentalAcknowledgedChange?.(event.target.checked)} />
-            <span>{locale === "en-US" ? `I understand this private bridge is pinned to CodeBuddy ${codeBuddyStatus?.supportedMinor || "2.142"}.x and may break after an upgrade.` : `我已了解该私有桥仅兼容 CodeBuddy ${codeBuddyStatus?.supportedMinor || "2.142"}.x，升级后可能失效。`}</span>
-          </label>}
-          {!ready && <div className="modal-error">{error || codeBuddyStatus?.error || (selectedCodeBuddyModel?.verification?.status === "passed" ? (locale === "en-US" ? "Acknowledge the experimental risk to continue." : "请确认实验性风险后继续。") : (locale === "en-US" ? "Select a model and complete compatibility verification." : "请选择模型并完成兼容性检测。"))}</div>}
-          <span className="modal-hint">{locale === "en-US" ? `Codex remains the agent; model requests use the signed-in Windows CodeBuddy ${codeBuddyStatus?.version || ""}.` : `Agent 仍为 Codex；模型请求复用 Windows 已登录的 CodeBuddy ${codeBuddyStatus?.version || ""}。`}</span>
+          {!ready && <div className="modal-error">{error || t("session.codeBuddyCodexConfigRequired")}</div>}
+          <span className="modal-hint">{t("session.codeBuddyCodexModelHint")}</span>
         </>
       )}
     </fieldset>

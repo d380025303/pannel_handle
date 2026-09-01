@@ -13,12 +13,14 @@ export type AgentUsageViewState =
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const provider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini" || session?.agentProvider === "grok"
+  const isCodeBuddyCodexBackend = session?.agentProvider === "codex" && session.codexBackend === "codebuddy";
+  const configuredProvider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini" || session?.agentProvider === "grok"
     ? session.agentProvider
     : undefined;
+  const provider = isCodeBuddyCodexBackend ? "codebuddy" : configuredProvider;
   const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter")
     || provider === "copilot" || provider === "grok"
-    || (provider === "codebuddy" && session?.type === "windows")
+    || (provider === "codebuddy" && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
     || (provider === "gemini" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });

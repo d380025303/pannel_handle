@@ -7,6 +7,7 @@ const {
   CODEBUDDY_HOST,
   CODEBUDDY_PACKAGE_CODES,
   CODEBUDDY_RESOURCE_PATH,
+  getCodeBuddyUserAgent,
   normalizeCodeBuddyResourceResponse,
   requestCodeBuddyResources,
   runCodeBuddyUserInfoRequest
@@ -53,6 +54,16 @@ function createAcpTransport(options = {}) {
 }
 
 describe("codebuddy-usage-client", () => {
+  it("builds a Windows Chrome user agent from the Electron runtime version with a safe fallback", () => {
+    expect(getCodeBuddyUserAgent("134.0.6998.89")).toBe(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.89 Safari/537.36"
+    );
+    expect(getCodeBuddyUserAgent()).toMatch(
+      /^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/\d+(?:\.\d+){1,3} Safari\/537\.36$/
+    );
+    expect(getCodeBuddyUserAgent("invalid\r\nheader")).toContain("Chrome/134.0.0.0");
+  });
+
   it("normalizes, groups, sorts, and totals visible precise quota resources", () => {
     const snapshot = normalizeCodeBuddyResourceResponse(response([
       resource({ ResourceId: "bonus", PackageCode: "TCACA_code_007_nzdH5h4Nl0", PackageName: "Bonus", CycleCapacitySizePrecise: "50.5", CycleCapacityRemainPrecise: "10.25" }),
@@ -135,6 +146,7 @@ describe("codebuddy-usage-client", () => {
       path: CODEBUDDY_RESOURCE_PATH,
       method: "POST",
       headers: {
+        "user-agent": expect.stringMatching(/^Mozilla\/5\.0 .* Chrome\/\d+(?:\.\d+){1,3} Safari\/537\.36$/),
         authorization: "Bearer secret-token",
         "x-user-id": "user-1"
       }

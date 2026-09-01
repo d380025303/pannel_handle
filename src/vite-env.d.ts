@@ -470,12 +470,24 @@ export type CodeBuddyCodexVerification = {
   error?: string;
   stages?: Array<{ stage: "responses" | "function_tools" | "codex_tools"; status: "passed" | "failed"; error?: string }>;
 };
-export type CodeBuddyCodexModel = { id: string; name: string; verification?: CodeBuddyCodexVerification };
-export type CodeBuddyCodexStatus = { available: boolean; version?: string; supportedMinor: string; experimental: true; error?: string };
+export type CodeBuddyCodexPromotion = { id: string; label: string; color?: string; descriptionZh?: string; descriptionEn?: string };
+export type CodeBuddyCodexModel = { id: string; name: string; promotions?: CodeBuddyCodexPromotion[]; verification?: CodeBuddyCodexVerification };
+export type CodeBuddyCodexStatus = { available: boolean; version?: string; experimental: true; error?: string };
+export type CodeBuddyCodexConfig = {
+  favoriteModelIds: string[];
+  defaultModelId?: string;
+  catalogVersion?: string;
+  fetchedAt?: number;
+  experimentalAcknowledged: boolean;
+};
 export type CodeBuddyCodexApi = {
+  getConfig: () => Promise<CodeBuddyCodexConfig>;
   getStatus: () => Promise<CodeBuddyCodexStatus>;
   listModels: () => Promise<CodeBuddyCodexModel[]>;
+  refreshModels: () => Promise<CodeBuddyCodexModel[]>;
   verifyModel: (input: { modelId: string; force?: boolean }) => Promise<CodeBuddyCodexVerification & { modelId: string }>;
+  setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<CodeBuddyCodexConfig>;
+  setExperimentalAcknowledged: (input: { acknowledged: boolean }) => Promise<CodeBuddyCodexConfig>;
 };
 
 export type OpenRouterModel = {

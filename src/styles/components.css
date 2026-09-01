@@ -159,8 +159,16 @@
   gap: 12px;
 }
 
-.settings-dialog {
-  width: 680px;
+.modal-dialog.settings-dialog {
+  width: min(960px, 92vw);
+  height: 90vh;
+  max-height: 90vh;
+}
+
+.settings-dialog .settings-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .auto-restore-checkbox {
@@ -748,6 +756,28 @@
 
 .openrouter-model-row .openrouter-verification {
   margin-top: 3px;
+}
+
+.openrouter-model-row .codebuddy-model-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: visible;
+}
+
+.openrouter-model-row .codebuddy-promotion-badge {
+  display: inline-block;
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.openrouter-model-row .codebuddy-promotion-description {
+  margin-top: 3px;
+  white-space: normal;
 }
 
 .openrouter-model-row .openrouter-verification.passed {

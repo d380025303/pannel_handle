@@ -157,7 +157,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
             if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local");
           }} />
           {agentProvider === "codex" && !isSsh && (
-            <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
+            <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
           )}
           {isSsh && agentProvider && (
             <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />

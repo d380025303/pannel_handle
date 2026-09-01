@@ -28,8 +28,10 @@ describe("CodexBackendFields", () => {
     Object.defineProperty(window, "codeBuddyCodexApi", {
       configurable: true,
       value: {
-        getStatus: vi.fn().mockResolvedValue({ available: true, version: "2.142.0", supportedMinor: "2.142", experimental: true }),
-        listModels: vi.fn().mockResolvedValue([{ id: "glm-5.2", name: "glm-5.2" }]),
+        getConfig: vi.fn().mockResolvedValue({ favoriteModelIds: ["glm-5.2"], defaultModelId: "glm-5.2", catalogVersion: "2.142.0", experimentalAcknowledged: true }),
+        getStatus: vi.fn().mockResolvedValue({ available: true, version: "2.142.0", experimental: true }),
+        listModels: vi.fn().mockResolvedValue([{ id: "glm-5.2", name: "glm-5.2", verification: { status: "passed", checkedAt: 1 } }]),
+        refreshModels: vi.fn(),
         verifyModel: vi.fn().mockResolvedValue({ modelId: "glm-5.2", status: "passed", checkedAt: 1, stages: [] })
       }
     });
@@ -105,22 +107,20 @@ describe("CodexBackendFields", () => {
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 
-  it("verifies a CodeBuddy model and requires the private-bridge acknowledgement", async () => {
-    const onAcknowledged = vi.fn();
+  it("selects a globally configured CodeBuddy model without live verification", async () => {
+    const onReadyChange = vi.fn();
     function Harness() {
       const [model, setModel] = useState<string>();
-      return <CodexBackendFields backend="codebuddy" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onExperimentalAcknowledgedChange={onAcknowledged} />;
+      return <CodexBackendFields backend="codebuddy" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onReadyChange={onReadyChange} />;
     }
     render(
       <I18nProvider locale="zh-CN">
         <Harness />
       </I18nProvider>
     );
-    const selector = await screen.findByRole("combobox");
-    fireEvent.change(selector, { target: { value: "glm-5.2" } });
-    await vi.waitFor(() => expect(window.codeBuddyCodexApi.verifyModel).toHaveBeenCalledWith({ modelId: "glm-5.2" }));
-    expect(await screen.findByText(/私有桥仅兼容 CodeBuddy 2.142.x/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(onAcknowledged).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("option", { name: "glm-5.2 · glm-5.2" })).toBeTruthy();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(window.codeBuddyCodexApi.verifyModel).not.toHaveBeenCalled();
+    expect(window.codeBuddyCodexApi.getStatus).not.toHaveBeenCalled();
   });
 });

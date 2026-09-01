@@ -82,9 +82,13 @@ contextBridge.exposeInMainWorld("openRouterApi", {
 });
 
 contextBridge.exposeInMainWorld("codeBuddyCodexApi", {
+  getConfig: () => ipcRenderer.invoke("codebuddy-codex:get-config"),
   getStatus: () => ipcRenderer.invoke("codebuddy-codex:get-status"),
   listModels: () => ipcRenderer.invoke("codebuddy-codex:list-models"),
-  verifyModel: (input) => ipcRenderer.invoke("codebuddy-codex:verify-model", input)
+  refreshModels: () => ipcRenderer.invoke("codebuddy-codex:refresh-models"),
+  verifyModel: (input) => ipcRenderer.invoke("codebuddy-codex:verify-model", input),
+  setFavorites: (input) => ipcRenderer.invoke("codebuddy-codex:set-favorites", input),
+  setExperimentalAcknowledged: (input) => ipcRenderer.invoke("codebuddy-codex:set-experimental-acknowledged", input)
 });
 
 contextBridge.exposeInMainWorld("agentConversationApi", {

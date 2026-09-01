@@ -18,6 +18,10 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
+function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
+  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
+}
+
 function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
@@ -133,9 +137,7 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     return terminalManager.renameSession(id, title);
   });
 
-  ipcMain.handle("sessions:update", async (_event, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags }) => {
-    return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, sshConfig, quickCommands, tags });
-  });
+  ipcMain.handle("sessions:update", async (_event, input) => updateSessionFromIpc(terminalManager, input));
 
   ipcMain.handle("sessions:switch-agent", async (_event, { id, provider }) => {
     return agentSessionLauncher.switchAgent(String(id || ""), provider);
@@ -356,9 +358,13 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("openrouter:test", () => openRouterService.testConnection());
   ipcMain.handle("openrouter:verify-models", (_event, input) => openRouterService.verifyModels(input));
   ipcMain.handle("openrouter:set-favorites", (_event, input) => openRouterService.setFavorites(input));
+  ipcMain.handle("codebuddy-codex:get-config", () => codeBuddyCodexBridgeService.getConfig());
   ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
   ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());
+  ipcMain.handle("codebuddy-codex:refresh-models", () => codeBuddyCodexBridgeService.refreshModels());
   ipcMain.handle("codebuddy-codex:verify-model", (_event, input) => codeBuddyCodexBridgeService.verifyModel(input));
+  ipcMain.handle("codebuddy-codex:set-favorites", (_event, input) => codeBuddyCodexBridgeService.setFavorites(input));
+  ipcMain.handle("codebuddy-codex:set-experimental-acknowledged", (_event, input) => codeBuddyCodexBridgeService.setExperimentalAcknowledged(input));
 
   ipcMain.handle("workbuddy-checkin:get-status", () => workBuddyCheckinService.getStatus());
 
@@ -398,5 +404,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
 }
 
 module.exports = {
-  registerIpcHandlers
+  registerIpcHandlers,
+  updateSessionFromIpc
 };

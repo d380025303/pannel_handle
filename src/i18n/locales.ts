@@ -81,6 +81,25 @@ export type TranslationKey =
   | "settings.openRouterVerifyRetry"
   | "settings.openRouterVerifying"
   | "settings.openRouterVerificationSuccess"
+  | "settings.codeBuddyCodexTitle"
+  | "settings.codeBuddyCodexNotConfigured"
+  | "settings.codeBuddyCodexDescription"
+  | "settings.codeBuddyCodexRefreshModels"
+  | "settings.codeBuddyCodexModelsRefreshed"
+  | "settings.codeBuddyCodexModels"
+  | "settings.codeBuddyCodexVerified"
+  | "settings.codeBuddyCodexVerificationPending"
+  | "settings.codeBuddyCodexVerificationFailed"
+  | "settings.codeBuddyCodexVerificationSuccess"
+  | "settings.codeBuddyCodexVerify"
+  | "settings.codeBuddyCodexVerifying"
+  | "settings.codeBuddyCodexDefaultModel"
+  | "settings.codeBuddyCodexRefreshHint"
+  | "settings.codeBuddyCodexSaveFavorites"
+  | "settings.codeBuddyCodexFavoritesSaved"
+  | "settings.codeBuddyCodexAcknowledge"
+  | "settings.codeBuddyCodexAcknowledgementSaved"
+  | "settings.codeBuddyCodexNewSessionsHint"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -172,6 +191,9 @@ export type TranslationKey =
   | "session.openRouterVerifiedRequired"
   | "session.openRouterExperimentalAcknowledge"
   | "session.openRouterExperimentalRequired"
+  | "session.codeBuddyCodexModel"
+  | "session.codeBuddyCodexConfigRequired"
+  | "session.codeBuddyCodexModelHint"
   | "session.agentLocation"
   | "session.agentLocationLocal"
   | "session.agentLocationRemote"
@@ -846,6 +868,25 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerifyRetry": "检测",
     "settings.openRouterVerifying": "检测中…",
     "settings.openRouterVerificationSuccess": "OpenRouter 模型兼容性检测通过。",
+    "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
+    "settings.codeBuddyCodexNotConfigured": "尚未配置",
+    "settings.codeBuddyCodexDescription": "集中加载并验证 CodeBuddy 模型。会话只读取这里保存的模型，不再执行实时检测。",
+    "settings.codeBuddyCodexRefreshModels": "刷新本机模型",
+    "settings.codeBuddyCodexModelsRefreshed": "CodeBuddy 模型目录已刷新。",
+    "settings.codeBuddyCodexModels": "已检测模型与收藏",
+    "settings.codeBuddyCodexVerified": "已验证",
+    "settings.codeBuddyCodexVerificationPending": "待检测",
+    "settings.codeBuddyCodexVerificationFailed": "检测失败",
+    "settings.codeBuddyCodexVerificationSuccess": "CodeBuddy 模型兼容性检测通过。",
+    "settings.codeBuddyCodexVerify": "检测",
+    "settings.codeBuddyCodexVerifying": "检测中…",
+    "settings.codeBuddyCodexDefaultModel": "设为默认模型",
+    "settings.codeBuddyCodexRefreshHint": "请先刷新本机 CodeBuddy 模型目录。",
+    "settings.codeBuddyCodexSaveFavorites": "保存收藏与默认模型",
+    "settings.codeBuddyCodexFavoritesSaved": "CodeBuddy 收藏模型已保存。",
+    "settings.codeBuddyCodexAcknowledge": "我已了解该私有桥不预设 CLI 兼容版本；升级后同名且已检测通过的模型继续视为可用，新模型仍需检测。",
+    "settings.codeBuddyCodexAcknowledgementSaved": "CodeBuddy 实验风险确认已更新。",
+    "settings.codeBuddyCodexNewSessionsHint": "会话仅可选择这里已验证并收藏的模型；CLI 版本变化不会重置同名模型的检测、收藏和风险确认。",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -937,6 +978,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
     "session.openRouterExperimentalAcknowledge": "该模型仅部分兼容。我了解 Codex 可能在首轮请求或编辑操作时失败，并同意实验启动。",
     "session.openRouterExperimentalRequired": "请先确认部分兼容模型的实验风险。",
+    "session.codeBuddyCodexModel": "CodeBuddy 模型",
+    "session.codeBuddyCodexConfigRequired": "请先在全局设置中验证、收藏 CodeBuddy 模型并确认实验风险。",
+    "session.codeBuddyCodexModelHint": "仅显示全局设置中已验证并收藏的模型。",
     "session.agentLocation": "Agent 运行位置",
     "session.agentLocationLocal": "本地桥接",
     "session.agentLocationRemote": "远端运行",
@@ -1603,6 +1647,25 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerifyRetry": "Verify",
     "settings.openRouterVerifying": "Verifying…",
     "settings.openRouterVerificationSuccess": "OpenRouter model compatibility verified.",
+    "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
+    "settings.codeBuddyCodexNotConfigured": "Not configured",
+    "settings.codeBuddyCodexDescription": "Load and verify CodeBuddy models once in Settings. Session forms only read saved models and never run live verification.",
+    "settings.codeBuddyCodexRefreshModels": "Refresh local models",
+    "settings.codeBuddyCodexModelsRefreshed": "CodeBuddy model catalog refreshed.",
+    "settings.codeBuddyCodexModels": "Verified models and favorites",
+    "settings.codeBuddyCodexVerified": "Verified",
+    "settings.codeBuddyCodexVerificationPending": "Not verified",
+    "settings.codeBuddyCodexVerificationFailed": "Verification failed",
+    "settings.codeBuddyCodexVerificationSuccess": "CodeBuddy model compatibility verified.",
+    "settings.codeBuddyCodexVerify": "Verify",
+    "settings.codeBuddyCodexVerifying": "Verifying…",
+    "settings.codeBuddyCodexDefaultModel": "Set as default model",
+    "settings.codeBuddyCodexRefreshHint": "Refresh the local CodeBuddy model catalog first.",
+    "settings.codeBuddyCodexSaveFavorites": "Save favorites and default",
+    "settings.codeBuddyCodexFavoritesSaved": "CodeBuddy favorite models saved.",
+    "settings.codeBuddyCodexAcknowledge": "I understand this private bridge does not assume CLI version compatibility; after an upgrade, unchanged models that already passed verification remain available, while new models still require verification.",
+    "settings.codeBuddyCodexAcknowledgementSaved": "CodeBuddy experimental acknowledgement updated.",
+    "settings.codeBuddyCodexNewSessionsHint": "Sessions can only select verified favorites saved here. CLI version changes preserve verification, favorites, and risk acknowledgement for unchanged models.",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -1694,6 +1757,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
     "session.openRouterExperimentalAcknowledge": "This model is only partially compatible. I understand Codex may fail on its first request or while editing, and accept experimental launch.",
     "session.openRouterExperimentalRequired": "Acknowledge the experimental risk for this partially compatible model first.",
+    "session.codeBuddyCodexModel": "CodeBuddy model",
+    "session.codeBuddyCodexConfigRequired": "Verify and favorite CodeBuddy models and acknowledge the experimental risk in Settings first.",
+    "session.codeBuddyCodexModelHint": "Only verified favorites from global Settings are shown.",
     "session.agentLocation": "Agent location",
     "session.agentLocationLocal": "Local bridge",
     "session.agentLocationRemote": "Run remotely",
