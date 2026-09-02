@@ -123,10 +123,73 @@ function parseVerificationStream(text, providerName = "OpenRouter") {
     }
     if (payload.type === "response.completed") completed = true;
     if (payload.type === "error" || payload.type === "response.failed") {
-      throw new Error(extractResponseError(payload) || `${providerName} Responses 流返回失败事件。`);
+      const responseError = payload?.response?.error;
+      const payloadError = payload?.error;
+      const rawError = payloadError?.metadata?.raw?.error;
+      const errorCode = String(
+        responseError?.type
+        || responseError?.code
+        || payloadError?.type
+        || payloadError?.code
+        || rawError?.type
+        || rawError?.code
+        || payload?.code
+        || ""
+      ).trim();
+      const requestId = String(
+        responseError?.request_id
+        || payloadError?.request_id
+        || rawError?.request_id
+        || payload?.request_id
+        || ""
+      ).trim();
+      throw Object.assign(
+        new Error(extractResponseError(payload) || `${providerName} Responses 流返回失败事件。`),
+        {
+          responseStreamFailure: true,
+          ...(errorCode ? { errorCode } : {}),
+          ...(requestId ? { requestId } : {})
+        }
+      );
     }
   }
   if (!completed) throw new Error(`${providerName} Responses 流在完成前断开。`);
+}
+
+function normalizeNaraRouterPrice(value, usdToIdr) {
+  const creditsPerThousand = Number(value);
+  const exchangeRate = Number(usdToIdr);
+  if (!Number.isFinite(creditsPerThousand) || creditsPerThousand < 0 || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return undefined;
+  return String(creditsPerThousand / exchangeRate / 1000);
+}
+
+function enrichNaraRouterModels(models, plansPayload, pricingPayload) {
+  const plans = Array.isArray(plansPayload?.data) ? plansPayload.data : [];
+  const prices = Array.isArray(pricingPayload?.data) ? pricingPayload.data : [];
+  const usdToIdr = Number(pricingPayload?.usd_to_idr);
+  const freePlan = plans.find(plan => String(plan?.code || "").toLowerCase() === "free");
+  if (!freePlan || !Array.isArray(freePlan.models)) throw new Error("NaraRouter 未返回有效的免费套餐模型目录。");
+  if (!prices.length || !Number.isFinite(usdToIdr) || usdToIdr <= 0) throw new Error("NaraRouter 未返回有效的模型价格目录。");
+
+  const freeModelIds = new Set(freePlan.models.map(value => String(value || "").trim()).filter(Boolean));
+  const pricesById = new Map(prices.map(price => [String(price?.alias || "").trim(), price]).filter(([id]) => id));
+  return models.map(model => {
+    const id = String(model?.id || "").trim();
+    const price = pricesById.get(id);
+    const prompt = normalizeNaraRouterPrice(price?.input_credit_per_1k, usdToIdr);
+    const completion = normalizeNaraRouterPrice(price?.output_credit_per_1k, usdToIdr);
+    return {
+      ...model,
+      freeTierEligible: freeModelIds.has(id),
+      ...(prompt !== undefined || completion !== undefined ? {
+        pricing: {
+          ...(model?.pricing || {}),
+          ...(prompt !== undefined ? { prompt } : {}),
+          ...(completion !== undefined ? { completion } : {})
+        }
+      } : {})
+    };
+  });
 }
 
 function createOpenRouterService({
@@ -142,7 +205,8 @@ function createOpenRouterService({
   apiKeyEnv = OPENROUTER_API_KEY_ENV,
   modelsRequireApiKey = false,
   connectionTestPath = "/key",
-  verificationHeaders = { "X-OpenRouter-Metadata": "enabled" }
+  verificationHeaders = { "X-OpenRouter-Metadata": "enabled" },
+  metadataBaseUrl = ""
 }) {
   const rateLimitCooldowns = new Map();
 
@@ -175,14 +239,21 @@ function createOpenRouterService({
   async function refreshModels() {
     const apiKey = modelsRequireApiKey ? store.getApiKey() : "";
     if (modelsRequireApiKey && !apiKey) throw new Error(`请先配置 ${providerName} API Key。`);
-    const payload = await requestJson(`${baseUrl}/models`, {
-      headers: {
-        Accept: "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      }
-    });
-    const models = Array.isArray(payload?.data) ? payload.data : [];
+    const [payload, plansPayload, pricingPayload] = await Promise.all([
+      requestJson(`${baseUrl}/models`, {
+        headers: {
+          Accept: "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+        }
+      }),
+      ...(metadataBaseUrl ? [
+        requestJson(`${metadataBaseUrl}/plans`, { headers: { Accept: "application/json" } }),
+        requestJson(`${metadataBaseUrl}/pricing`, { headers: { Accept: "application/json" } })
+      ] : [])
+    ]);
+    let models = Array.isArray(payload?.data) ? payload.data : [];
     if (!models.length) throw new Error(`${providerName} 未返回可用模型目录。`);
+    if (metadataBaseUrl) models = enrichNaraRouterModels(models, plansPayload, pricingPayload);
     store.setCachedModels(models, now());
     return listModels();
   }
@@ -249,10 +320,14 @@ function createOpenRouterService({
   }
 
   function classifyError(error) {
+    const errorCode = String(error?.errorCode || "").trim().toLowerCase();
     if (error?.name === "AbortError") return "timeout";
     if (error?.httpStatus === 429) return "rate_limit";
+    if (/rate[_ -]?limit|quota/.test(errorCode)) return "rate_limit";
     if (error?.httpStatus === 408 || error?.httpStatus >= 500) return "provider";
+    if (/service[_ -]?unavailable|internal[_ -]?error|server[_ -]?error/.test(errorCode)) return "provider";
     if (error?.httpStatus >= 400) return "unsupported";
+    if (/validation[_ -]?error|bad[_ -]?request|unsupported|invalid/.test(errorCode)) return "unsupported";
     if (error instanceof TypeError || /fetch|network|socket|ECONN|ENOTFOUND/i.test(String(error?.message || error))) return "network";
     return "unknown";
   }
@@ -323,7 +398,7 @@ function createOpenRouterService({
     if (codexTools.status === "failed") {
       failure = codexTools;
       status = TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind) ? "unavailable" : "failed";
-      if (codexTools.errorKind === "unsupported") {
+      if (!TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind)) {
         const functionTools = await runStage("function_tools");
         if (functionTools.status === "passed") {
           status = "partial";
@@ -331,7 +406,7 @@ function createOpenRouterService({
         } else if (TRANSIENT_VERIFICATION_ERRORS.has(functionTools.errorKind)) {
           status = "unavailable";
           failure = functionTools;
-        } else if (functionTools.errorKind === "unsupported") {
+        } else {
           const responses = await runStage("responses");
           if (responses.status === "passed") {
             status = "failed";
@@ -340,9 +415,6 @@ function createOpenRouterService({
             status = TRANSIENT_VERIFICATION_ERRORS.has(responses.errorKind) ? "unavailable" : "failed";
             failure = responses;
           }
-        } else {
-          status = "failed";
-          failure = functionTools;
         }
       }
     }
@@ -487,6 +559,8 @@ module.exports = {
   buildVerificationRequest,
   parseVerificationStream,
   buildCodexModelCatalog,
+  normalizeNaraRouterPrice,
+  enrichNaraRouterModels,
   createOpenRouterService,
   toCodexInputModalities
 };

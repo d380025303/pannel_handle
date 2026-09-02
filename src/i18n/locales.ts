@@ -75,6 +75,8 @@ export type TranslationKey =
   | "settings.openRouterVerificationFailed"
   | "settings.openRouterVerificationUnavailable"
   | "settings.openRouterVerificationPartialSuccess"
+  | "settings.openRouterResponsesRejected"
+  | "settings.openRouterProviderDetail"
   | "settings.openRouterStageResponses"
   | "settings.openRouterStageFunctionTools"
   | "settings.openRouterStageCodexTools"
@@ -880,6 +882,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerificationFailed": "检测失败",
     "settings.openRouterVerificationUnavailable": "暂时不可用",
     "settings.openRouterVerificationPartialSuccess": "基础 Responses 与普通函数工具检测通过；完整 Codex 工具协议未通过，可作为实验模型使用。",
+    "settings.openRouterResponsesRejected": "当前模型未通过 Codex 所需的 Responses 请求，请更换模型。",
+    "settings.openRouterProviderDetail": "服务端详情",
     "settings.openRouterStageResponses": "基础 Responses",
     "settings.openRouterStageFunctionTools": "普通函数工具",
     "settings.openRouterStageCodexTools": "完整 Codex 工具协议",
@@ -1677,6 +1681,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerificationFailed": "Verification failed",
     "settings.openRouterVerificationUnavailable": "Temporarily unavailable",
     "settings.openRouterVerificationPartialSuccess": "Basic Responses and function tools passed; the full Codex tool protocol failed. This model can be used experimentally.",
+    "settings.openRouterResponsesRejected": "This model did not pass the Responses request required by Codex. Choose another model.",
+    "settings.openRouterProviderDetail": "Provider details",
     "settings.openRouterStageResponses": "Basic Responses",
     "settings.openRouterStageFunctionTools": "Function tools",
     "settings.openRouterStageCodexTools": "Full Codex tool protocol",

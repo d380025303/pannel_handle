@@ -61,7 +61,11 @@ describe("openrouter-service", () => {
   });
 
   it("supports an authenticated NaraRouter catalog and isolated launch provider", async () => {
-    const fetchImpl = vi.fn(async url => new Response(JSON.stringify({ data: [{ id: "gpt-test" }] }), { status: 200 }));
+    const fetchImpl = vi.fn(async url => {
+      if (url.endsWith("/plans")) return new Response(JSON.stringify({ data: [{ code: "free", models: ["gpt-test"] }] }), { status: 200 });
+      if (url.endsWith("/pricing")) return new Response(JSON.stringify({ data: [{ alias: "gpt-test", input_credit_per_1k: 2, output_credit_per_1k: 6 }], usd_to_idr: 20000 }), { status: 200 });
+      return new Response(JSON.stringify({ data: [{ id: "gpt-test" }] }), { status: 200 });
+    });
     const { service, store, catalogFile } = fixture({
       fetchImpl,
       serviceOptions: {
@@ -71,7 +75,8 @@ describe("openrouter-service", () => {
         apiKeyEnv: "NARAROUTER_API_KEY",
         modelsRequireApiKey: true,
         connectionTestPath: "/models",
-        verificationHeaders: {}
+        verificationHeaders: {},
+        metadataBaseUrl: "https://router.bynara.id/api"
       }
     });
 
@@ -79,10 +84,40 @@ describe("openrouter-service", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://router.bynara.id/v1/models", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer sk-secret" })
     }));
-    expect(store.setCachedModels).toHaveBeenCalledWith([{ id: "gpt-test" }], 100000);
+    expect(fetchImpl).toHaveBeenCalledWith("https://router.bynara.id/api/plans", { headers: { Accept: "application/json" } });
+    expect(fetchImpl).toHaveBeenCalledWith("https://router.bynara.id/api/pricing", { headers: { Accept: "application/json" } });
+    expect(store.setCachedModels).toHaveBeenCalledWith([{
+      id: "gpt-test",
+      freeTierEligible: true,
+      pricing: { prompt: expect.any(String), completion: expect.any(String) }
+    }], 100000);
+    const [cachedModels] = store.setCachedModels.mock.calls[0];
+    expect(Number(cachedModels[0].pricing.prompt)).toBeCloseTo(0.0000001, 12);
+    expect(Number(cachedModels[0].pricing.completion)).toBeCloseTo(0.0000003, 12);
+    expect(JSON.stringify(fetchImpl.mock.calls.filter(([url]) => !url.endsWith("/models")))).not.toContain("sk-secret");
 
     const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "nararouter" });
     expect(launch).toMatchObject({ providerId: "nararouter", providerName: "NaraRouter", apiKeyEnv: "NARAROUTER_API_KEY", catalogPath: catalogFile });
+  });
+
+  it("keeps the old NaraRouter cache when metadata refresh fails", async () => {
+    const fetchImpl = vi.fn(async url => {
+      if (url.endsWith("/pricing")) return new Response(JSON.stringify({ message: "pricing unavailable" }), { status: 503 });
+      if (url.endsWith("/plans")) return new Response(JSON.stringify({ data: [{ code: "free", models: [] }] }), { status: 200 });
+      return new Response(JSON.stringify({ data: [{ id: "gpt-test" }] }), { status: 200 });
+    });
+    const { service, store } = fixture({
+      fetchImpl,
+      serviceOptions: {
+        providerName: "NaraRouter",
+        baseUrl: "https://router.bynara.id/v1",
+        modelsRequireApiKey: true,
+        metadataBaseUrl: "https://router.bynara.id/api"
+      }
+    });
+
+    await expect(service.refreshModels()).rejects.toThrow("pricing unavailable");
+    expect(store.setCachedModels).not.toHaveBeenCalled();
   });
 
   it("converts the generated catalog path for WSL", async () => {
@@ -115,6 +150,15 @@ describe("openrouter-service", () => {
     expect(() => parseVerificationStream('data: {"type":"response.completed"}\n')).not.toThrow();
     expect(() => parseVerificationStream('data: {"type":"error","message":"upstream failed"}\n')).toThrow("upstream failed");
     expect(() => parseVerificationStream('data: {"type":"response.created"}\n')).toThrow("完成前断开");
+  });
+
+  it("keeps structured metadata from Responses stream failures", () => {
+    try {
+      parseVerificationStream('data: {"type":"response.failed","response":{"error":{"type":"rate_limited","message":"Retry later","request_id":"req-stream"}}}\n');
+      throw new Error("Expected the stream parser to fail");
+    } catch (error) {
+      expect(error).toMatchObject({ message: "Retry later", responseStreamFailure: true, errorCode: "rate_limited", requestId: "req-stream" });
+    }
   });
 
   it("records an HTTP failure without exposing the API key", async () => {
@@ -161,6 +205,80 @@ describe("openrouter-service", () => {
       ["codex_tools", "failed"]
     ]);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks a model partial when a successful SSE connection reports a Codex tool rejection", async () => {
+    const rejected = new Response('data: {"type":"response.failed","response":{"error":{"message":"The model rejected this request. It may not support the input you sent or a parameter is invalid."}}}\n\ndata: [DONE]\n', {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(rejected)
+      .mockResolvedValueOnce(completedResponse());
+    const { service } = fixture({ fetchImpl, verifications: {} });
+
+    const [result] = await service.verifyModels({ modelIds: ["openai/gpt-test"] });
+
+    expect(result).toMatchObject({
+      status: "partial",
+      failedStage: "codex_tools",
+      errorKind: "unknown",
+      error: expect.stringContaining("model rejected this request")
+    });
+    expect(result.stages.map(stage => [stage.stage, stage.status])).toEqual([
+      ["function_tools", "passed"],
+      ["codex_tools", "failed"]
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not downgrade a streamed rate limit to partial compatibility", async () => {
+    const fetchImpl = vi.fn(async () => new Response('data: {"type":"error","error":{"type":"rate_limited","message":"Rate limit exceeded","request_id":"req-rate"}}\n\ndata: [DONE]\n', {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    }));
+    const { service } = fixture({ fetchImpl, verifications: {} });
+
+    const [result] = await service.verifyModels({ modelIds: ["openai/gpt-test"] });
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failedStage: "codex_tools",
+      errorKind: "rate_limit",
+      errorCode: "rate_limited",
+      requestId: "req-rate"
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a NaraRouter bad_request at the basic Responses stage without changing endpoints", async () => {
+    const fetchImpl = vi.fn(async () => new Response('data: {"type":"response.failed","response":{"error":{"type":"bad_request","message":"The model rejected this request.","request_id":"req-nara"}}}\n\ndata: [DONE]\n', {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    }));
+    const { service } = fixture({
+      fetchImpl,
+      verifications: {},
+      serviceOptions: { providerName: "NaraRouter", baseUrl: "https://router.bynara.id/v1", verificationHeaders: {} }
+    });
+
+    const [result] = await service.verifyModels({ modelIds: ["openai/gpt-test"] });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failedStage: "responses",
+      errorKind: "unsupported",
+      errorCode: "bad_request",
+      requestId: "req-nara",
+      error: "The model rejected this request."
+    });
+    expect(result.stages.map(stage => [stage.stage, stage.status])).toEqual([
+      ["responses", "failed"],
+      ["function_tools", "failed"],
+      ["codex_tools", "failed"]
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls.every(([url]) => url === "https://router.bynara.id/v1/responses")).toBe(true);
   });
 
   it("checks basic Responses only when both Codex and function tools are unsupported", async () => {

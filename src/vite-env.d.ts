@@ -501,6 +501,7 @@ export type OpenRouterModel = {
     prompt?: string;
     completion?: string;
   };
+  freeTierEligible?: boolean;
   compatible: boolean;
   verification?: OpenRouterModelVerification;
 };

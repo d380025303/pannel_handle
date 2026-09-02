@@ -38,6 +38,7 @@ function normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing = false
       ...(promptPrice !== undefined ? { prompt: promptPrice } : {}),
       ...(completionPrice !== undefined ? { completion: completionPrice } : {})
     },
+    ...(typeof model.freeTierEligible === "boolean" ? { freeTierEligible: model.freeTierEligible } : {}),
     compatible: (supportedParameters.includes("tools") && supportedParameters.includes("tool_choice"))
       || (assumeCompatibleWhenCapabilitiesMissing && supportedParameters.length === 0)
   };

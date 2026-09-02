@@ -311,7 +311,8 @@ if (!gotSingleInstanceLock) {
       apiKeyEnv: "NARAROUTER_API_KEY",
       modelsRequireApiKey: true,
       connectionTestPath: "/models",
-      verificationHeaders: {}
+      verificationHeaders: {},
+      metadataBaseUrl: "https://router.bynara.id/api"
     });
     codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
       store: codeBuddyCodexConfigStore,

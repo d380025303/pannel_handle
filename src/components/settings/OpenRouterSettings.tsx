@@ -14,6 +14,10 @@ function isFreeOpenRouterModel(model: OpenRouterModel) {
   return id === "openrouter/free" || id.endsWith(":free");
 }
 
+function isFreeRouterModel(model: OpenRouterModel, isNaraRouter: boolean) {
+  return isNaraRouter ? model.freeTierEligible === true : isFreeOpenRouterModel(model);
+}
+
 type RouterSettingsProps = {
   provider?: "openrouter" | "nararouter";
 };
@@ -45,16 +49,23 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
     const needle = query.trim().toLowerCase();
     return models.filter(model => model.compatible
       && (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle))
-      && (isNaraRouter || !freeOnly || isFreeOpenRouterModel(model)));
+      && (!freeOnly || isFreeRouterModel(model, isNaraRouter)));
   }, [freeOnly, isNaraRouter, models, query]);
 
   const verificationText = (model: OpenRouterModel) => {
-    const verification = model.verification;
+    return verificationResultText(model.verification);
+  };
+
+  const verificationResultText = (verification: OpenRouterModel["verification"]) => {
     if (!verification) return t("settings.openRouterVerificationPending");
     if (verification.status === "passed") return t("settings.openRouterVerificationPassed");
     const stage = verification.failedStage ? `${t(verificationStageKey(verification.failedStage))} · ` : "";
     if (verification.status === "partial") return `${t("settings.openRouterVerificationPartial")}：${stage}${verification.error || ""}`;
     if (verification.status === "unavailable") return `${t("settings.openRouterVerificationUnavailable")}：${stage}${verification.errorKind === "rate_limit" ? t(isNaraRouter ? "settings.naraRouterRateLimitHint" : "settings.openRouterRateLimitHint") : verification.error || ""}`;
+    if (verification.failedStage === "responses" && verification.errorKind === "unsupported") {
+      const detail = verification.error ? ` ${t("settings.openRouterProviderDetail")}：${verification.error}` : "";
+      return `${t("settings.openRouterVerificationFailed")}：${stage}${t("settings.openRouterResponsesRejected")}${detail}`;
+    }
     return `${t("settings.openRouterVerificationFailed")}：${stage}${verification.error || ""}`;
   };
 
@@ -90,7 +101,7 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
       const [verification] = await routerApi.verifyModels({ modelIds: [modelId], force: true });
       await load();
       if (verification.status === "failed" || verification.status === "unavailable") {
-        throw new Error(`${modelId}：${verification.errorKind === "rate_limit" ? t(isNaraRouter ? "settings.naraRouterRateLimitHint" : "settings.openRouterRateLimitHint") : verification.error || t("settings.openRouterVerificationFailed")}`);
+        throw new Error(`${modelId}：${verificationResultText(verification)}`);
       }
       setResult({ kind: "success", message: verification.status === "partial" ? t("settings.openRouterVerificationPartialSuccess") : t(isNaraRouter ? "settings.naraRouterVerificationSuccess" : "settings.openRouterVerificationSuccess") });
     } catch (error) {
@@ -123,11 +134,11 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
           <span className="modal-label">{t("settings.openRouterFavorites")}</span>
           <input className="modal-input" type="search" value={query} placeholder={t("common.search")} onChange={event => setQuery(event.target.value)} />
         </label>
-        {!isNaraRouter && <label className="auto-restore-label">
+        <label className="auto-restore-label">
           <input type="checkbox" className="auto-restore-checkbox" checked={freeOnly} onChange={event => setFreeOnly(event.target.checked)} />
           <span className="auto-restore-track" />
           <span className="auto-restore-text">{t("settings.openRouterFreeModelsOnly")}</span>
-        </label>}
+        </label>
         <div className="openrouter-model-list">
           {compatibleModels.map(model => <div key={model.id} className="openrouter-model-row">
             <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} disabled={!config.favoriteModelIds.includes(model.id) && model.verification?.status !== "passed" && model.verification?.status !== "partial"} onChange={() => toggleFavorite(model.id)} />

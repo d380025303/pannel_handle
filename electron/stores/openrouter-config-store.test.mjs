@@ -33,14 +33,19 @@ describe("openrouter-config-store", () => {
   it("normalizes and persists OpenRouter token pricing", () => {
     const normalized = normalizeModel({
       id: "vendor/priced",
+      freeTierEligible: true,
       pricing: { prompt: "0.0000025", completion: "0.00001", request: "0.1" }
     });
     expect(normalized.pricing).toEqual({ prompt: "0.0000025", completion: "0.00001" });
+    expect(normalized.freeTierEligible).toBe(true);
 
     const { store, configFile } = createStore();
     store.setCachedModels([normalized], 123);
     const persisted = JSON.parse(readFileSync(configFile, "utf-8"));
     expect(persisted.cachedModels[0].pricing).toEqual({ prompt: "0.0000025", completion: "0.00001" });
+    expect(persisted.cachedModels[0].freeTierEligible).toBe(true);
+    store.load();
+    expect(store.getCachedModels()[0].freeTierEligible).toBe(true);
   });
 
   it("keeps old caches compatible and rejects invalid prices", () => {
