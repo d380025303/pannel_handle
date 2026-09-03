@@ -462,7 +462,7 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
-export type CodexBackend = "openai" | "openrouter" | "nararouter" | "codebuddy";
+export type CodexBackend = "openai" | "openrouter" | "nararouter" | "minimax" | "codebuddy";
 
 export type CodeBuddyCodexVerification = {
   status: "passed" | "failed" | "unavailable";
@@ -554,6 +554,9 @@ export type OpenRouterApi = {
 export type NaraRouterModel = OpenRouterModel;
 export type NaraRouterConfig = OpenRouterConfig;
 export type NaraRouterApi = OpenRouterApi;
+export type MiniMaxModel = OpenRouterModel;
+export type MiniMaxConfig = OpenRouterConfig;
+export type MiniMaxApi = OpenRouterApi;
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -693,6 +696,7 @@ export type AgentUsageLimit = {
   unit?: "Credits";
   expiresAt?: number;
   available?: boolean;
+  unlimited?: boolean;
 };
 
 export type AgentUsageCreditSummary = {
@@ -703,6 +707,16 @@ export type AgentUsageCreditSummary = {
   usedPercent: number;
   remainingPercent: number;
   unit: "Credits";
+};
+
+export type AgentUsageCurrencySummary = {
+  kind: "currency";
+  currency: "CNY";
+  available: number;
+  cash: number;
+  voucher: number;
+  credit: number;
+  owed: number;
 };
 
 export type AgentUsageActivityQuota = {
@@ -738,10 +752,10 @@ export type AgentUsageResetCreditsSummary = {
 };
 
 export type AgentUsageSnapshot = {
-  provider: "codex" | "codebuddy" | "qoder" | "gemini";
+  provider: "codex" | "codebuddy" | "minimax" | "qoder" | "gemini";
   fetchedAt: number;
   primaryLimitId: string;
-  summary?: AgentUsageCreditSummary;
+  summary?: AgentUsageCreditSummary | AgentUsageCurrencySummary;
   resetCredits?: AgentUsageResetCreditsSummary;
   activities?: AgentUsageActivityQuota[];
   activityError?: string;
@@ -1211,6 +1225,7 @@ declare global {
     dingTalkApi: DingTalkApi;
     openRouterApi: OpenRouterApi;
     naraRouterApi: NaraRouterApi;
+    miniMaxApi: MiniMaxApi;
     codeBuddyCodexApi: CodeBuddyCodexApi;
     windowApi: WindowApi;
   }

@@ -12,6 +12,7 @@ const BACKEND_OPTIONS: Array<{ value: CodexBackend; label: string }> = [
   { value: "openai", label: "OpenAI" },
   { value: "openrouter", label: "OpenRouter" },
   { value: "nararouter", label: "NaraRouter" },
+  { value: "minimax", label: "MiniMax" },
   { value: "codebuddy", label: "CodeBuddy" }
 ];
 

@@ -57,11 +57,15 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const provider = state.status === "ready" ? state.snapshot.provider : state.status === "hidden" ? undefined : state.provider;
   const isCodeBuddy = provider === "codebuddy";
   const isQoder = provider === "qoder";
+  const isMiniMax = provider === "minimax";
   const isCopilot = provider === "copilot";
   const isGemini = provider === "gemini";
   const isGrok = provider === "grok";
   const isCreditProvider = isCodeBuddy || isQoder;
   const creditSummary = state.status === "ready" && state.snapshot.summary?.kind === "credits"
+    ? state.snapshot.summary
+    : undefined;
+  const currencySummary = state.status === "ready" && state.snapshot.summary?.kind === "currency"
     ? state.snapshot.summary
     : undefined;
   const resetCredits = state.status === "ready" && state.snapshot.provider === "codex"
@@ -134,35 +138,37 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
     return (
       <div className="agent-usage-status loading" role="status">
         <LoaderCircle className="spin" aria-hidden="true" />
-        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : isQoder ? "usage.qoderLoading" : isGemini ? "usage.geminiLoading" : "usage.loading")}</span>
+        <span>{t(isCodeBuddy ? "usage.codebuddyLoading" : isMiniMax ? "usage.miniMaxLoading" : isQoder ? "usage.qoderLoading" : isGemini ? "usage.geminiLoading" : "usage.loading")}</span>
       </div>
     );
   }
 
-  if (state.status === "error" || (!isCreditProvider && !primaryLimit)) {
+  if (state.status === "error" || (!isCreditProvider && !currencySummary && !primaryLimit)) {
     return (
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
+        title={t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isMiniMax ? "usage.miniMaxRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
         onClick={onRefresh}
         disabled={isCopilot || isGrok}
       >
         <Gauge aria-hidden="true" />
-        <span>{t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isQoder ? "usage.qoderUnavailable" : isGemini ? "usage.geminiUnavailable" : "usage.unavailable")}</span>
+        <span>{t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyUnavailable" : isMiniMax ? "usage.miniMaxUnavailable" : isQoder ? "usage.qoderUnavailable" : isGemini ? "usage.geminiUnavailable" : "usage.unavailable")}</span>
       </button>
     );
   }
 
-  const remainingPercent = creditSummary?.remainingPercent ?? primaryLimit?.remainingPercent ?? 0;
+  const remainingPercent = creditSummary?.remainingPercent ?? primaryLimit?.remainingPercent ?? (currencySummary && currencySummary.available > 0 ? 100 : 0);
   const primaryClass = getRemainingClass(remainingPercent);
   const resetLabel = primaryLimit?.resetsAt
     ? t("usage.resetsAt", { time: formatTimestamp(locale, primaryLimit.resetsAt) })
     : t("usage.resetUnavailable");
-  const triggerLabel = creditSummary
+  const triggerLabel = currencySummary
+    ? t("usage.miniMaxBalance", { available: formatAmount(locale, currencySummary.available) })
+    : creditSummary
     ? t(isQoder ? "usage.qoderRemaining" : "usage.codebuddyRemaining", { remaining: formatAmount(locale, creditSummary.remaining) })
-    : t("usage.remaining", { remaining: primaryLimit?.remainingPercent ?? 0 });
-  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : isQoder ? "usage.qoderTitle" : isGemini ? "usage.geminiTitle" : "usage.title");
+    : t(isMiniMax ? "usage.miniMaxRemaining" : "usage.remaining", { remaining: primaryLimit?.remainingPercent ?? 0 });
+  const dialogTitle = t(isCodeBuddy ? "usage.codebuddyTitle" : isMiniMax ? "usage.miniMaxTitle" : isQoder ? "usage.qoderTitle" : isGemini ? "usage.geminiTitle" : "usage.title");
   const groupedLimits = state.status === "ready" && isCreditProvider
     ? (["base", "extra", "bonus", "organization", "other"] as const)
       .map(category => ({ category, limits: state.snapshot.limits.filter(limit => limit.category === category) }))
@@ -334,6 +340,17 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                 )}
               </section>
             )}
+            {currencySummary && (
+              <div className={`agent-usage-credit-summary ${primaryClass}`}>
+                <strong>{t("usage.miniMaxBalance", { available: formatAmount(locale, currencySummary.available) })}</strong>
+                <span>{t("usage.miniMaxBalanceDetails", {
+                  cash: formatAmount(locale, currencySummary.cash),
+                  voucher: formatAmount(locale, currencySummary.voucher),
+                  credit: formatAmount(locale, currencySummary.credit),
+                  owed: formatAmount(locale, currencySummary.owed)
+                })}</span>
+              </div>
+            )}
             {!resetCredits && resetCreditFeedback && (
               <div className={`codex-reset-credit-feedback ${resetCreditFeedback.kind}`} role={resetCreditFeedback.kind === "error" ? "alert" : "status"}>
                 {resetCreditFeedback.message}
@@ -433,7 +450,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
               <div className={`agent-usage-limit ${getRemainingClass(limit.remainingPercent)}`} key={limit.id}>
                 <div className="agent-usage-limit-heading">
                   <strong>{limit.name}</strong>
-                  <span>{t("usage.limitRemaining", { remaining: limit.remainingPercent })}</span>
+                  <span>{limit.unlimited ? t("usage.unlimited") : limit.available === false ? t("usage.notInPlan") : t("usage.limitRemaining", { remaining: limit.remainingPercent })}</span>
                 </div>
                 <div
                   className="agent-usage-progress"
@@ -447,7 +464,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                   <span style={{ width: `${limit.usedPercent}%` }} />
                 </div>
                 <div className="agent-usage-limit-meta">
-                  <span>{t("usage.used", { used: limit.usedPercent })}</span>
+                  <span>{limit.unlimited ? t("usage.unlimited") : limit.available === false ? t("usage.notInPlan") : t("usage.used", { used: limit.usedPercent })}</span>
                   <span>{limit.resetsAt
                     ? t("usage.resetsAt", { time: formatTimestamp(locale, limit.resetsAt) })
                     : t("usage.resetUnavailable")}</span>

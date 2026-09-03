@@ -94,6 +94,15 @@ export type TranslationKey =
   | "settings.naraRouterRefreshHint"
   | "settings.naraRouterVerificationSuccess"
   | "settings.naraRouterRateLimitHint"
+  | "settings.miniMaxDescription"
+  | "settings.miniMaxSaved"
+  | "settings.miniMaxTestSuccess"
+  | "settings.miniMaxCleared"
+  | "settings.miniMaxModelsRefreshed"
+  | "settings.miniMaxFavoritesSaved"
+  | "settings.miniMaxRefreshHint"
+  | "settings.miniMaxVerificationSuccess"
+  | "settings.miniMaxRateLimitHint"
   | "settings.codeBuddyCodexTitle"
   | "settings.codeBuddyCodexNotConfigured"
   | "settings.codeBuddyCodexDescription"
@@ -212,6 +221,11 @@ export type TranslationKey =
   | "session.naraRouterFavoriteRequired"
   | "session.naraRouterModelHint"
   | "session.naraRouterVerifiedRequired"
+  | "session.miniMaxModel"
+  | "session.miniMaxKeyRequired"
+  | "session.miniMaxFavoriteRequired"
+  | "session.miniMaxModelHint"
+  | "session.miniMaxVerifiedRequired"
   | "session.codeBuddyCodexModel"
   | "session.codeBuddyCodexConfigRequired"
   | "session.codeBuddyCodexModelHint"
@@ -314,6 +328,15 @@ export type TranslationKey =
   | "usage.geminiRetry"
   | "usage.geminiTitle"
   | "usage.qoderTotal"
+  | "usage.miniMaxLoading"
+  | "usage.miniMaxUnavailable"
+  | "usage.miniMaxRetry"
+  | "usage.miniMaxRemaining"
+  | "usage.miniMaxTitle"
+  | "usage.miniMaxBalance"
+  | "usage.miniMaxBalanceDetails"
+  | "usage.unlimited"
+  | "usage.notInPlan"
   | "usage.copilotUnavailable"
   | "usage.grokUnavailable"
   | "usage.qoderActivities"
@@ -902,6 +925,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.naraRouterRefreshHint": "请先配置 API Key 并刷新当前账号可用的在线模型目录。",
     "settings.naraRouterVerificationSuccess": "NaraRouter 模型兼容性检测通过。",
     "settings.naraRouterRateLimitHint": "NaraRouter 请求受限。当前模型档位可能已达到频率或每日额度限制，请 60 秒后重试或更换其他可用模型。",
+    "settings.miniMaxDescription": "使用 MiniMax 作为 Codex 模型后端，支持 Token Plan 与普通按量 API Key。密钥仅加密保存在本机。",
+    "settings.miniMaxSaved": "MiniMax API Key 已安全保存。",
+    "settings.miniMaxTestSuccess": "MiniMax 连接成功。",
+    "settings.miniMaxCleared": "MiniMax API Key 已清除。",
+    "settings.miniMaxModelsRefreshed": "MiniMax 模型目录已刷新。",
+    "settings.miniMaxFavoritesSaved": "MiniMax 收藏模型已保存。",
+    "settings.miniMaxRefreshHint": "请先配置 API Key 并刷新当前密钥可用的在线模型目录。",
+    "settings.miniMaxVerificationSuccess": "MiniMax 模型兼容性检测通过。",
+    "settings.miniMaxRateLimitHint": "MiniMax 请求受限。请等待当前速率或 Token Plan 额度窗口恢复后重试。",
     "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
     "settings.codeBuddyCodexNotConfigured": "尚未配置",
     "settings.codeBuddyCodexDescription": "集中加载并验证 CodeBuddy 模型。会话只读取这里保存的模型，不再执行实时检测。",
@@ -1020,6 +1052,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.naraRouterFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
     "session.naraRouterModelHint": "进入会话后可使用 Codex 原生 /model 随时切换收藏目录中的模型。",
     "session.naraRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
+    "session.miniMaxModel": "MiniMax 默认模型",
+    "session.miniMaxKeyRequired": "请先在设置中配置 MiniMax API Key。",
+    "session.miniMaxFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
+    "session.miniMaxModelHint": "进入会话后可使用 Codex 原生 /model 切换已收藏的 MiniMax 模型。",
+    "session.miniMaxVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
     "session.codeBuddyCodexModel": "CodeBuddy 模型",
     "session.codeBuddyCodexConfigRequired": "请先在全局设置中验证、收藏 CodeBuddy 模型并确认实验风险。",
     "session.codeBuddyCodexModelHint": "仅显示全局设置中已验证并收藏的模型。",
@@ -1122,6 +1159,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.geminiRetry": "Gemini 配额不可用，点击重试",
     "usage.geminiTitle": "Gemini 配额",
     "usage.qoderTotal": "全部可用额度",
+    "usage.miniMaxLoading": "正在读取 MiniMax 额度...",
+    "usage.miniMaxUnavailable": "MiniMax 额度暂不可用",
+    "usage.miniMaxRetry": "重试读取 MiniMax 额度",
+    "usage.miniMaxRemaining": "MiniMax 剩余 {remaining}%",
+    "usage.miniMaxTitle": "MiniMax 额度",
+    "usage.miniMaxBalance": "MiniMax 可用余额 ¥{available}",
+    "usage.miniMaxBalanceDetails": "现金 ¥{cash} · 代金券 ¥{voucher} · 授信 ¥{credit} · 欠款 ¥{owed}",
+    "usage.unlimited": "不限量",
+    "usage.notInPlan": "不在当前套餐",
     "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
     "usage.grokUnavailable": "Grok CLI 暂无稳定的账户额度接口",
     "usage.qoderActivities": "活动额度",
@@ -1702,6 +1748,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.naraRouterRefreshHint": "Configure an API key and refresh the online models available to this account.",
     "settings.naraRouterVerificationSuccess": "NaraRouter model compatibility verified.",
     "settings.naraRouterRateLimitHint": "The NaraRouter request was rate limited. This model tier may have reached its request or daily quota; retry after 60 seconds or choose another available model.",
+    "settings.miniMaxDescription": "Use MiniMax as the Codex model backend with either a Token Plan key or a pay-as-you-go API key. The key is encrypted locally.",
+    "settings.miniMaxSaved": "MiniMax API key saved securely.",
+    "settings.miniMaxTestSuccess": "MiniMax connection succeeded.",
+    "settings.miniMaxCleared": "MiniMax API key cleared.",
+    "settings.miniMaxModelsRefreshed": "MiniMax model catalog refreshed.",
+    "settings.miniMaxFavoritesSaved": "MiniMax favorite models saved.",
+    "settings.miniMaxRefreshHint": "Configure an API key and refresh the online models available to this key.",
+    "settings.miniMaxVerificationSuccess": "MiniMax model compatibility verified.",
+    "settings.miniMaxRateLimitHint": "The MiniMax request was rate limited. Wait for the rate or Token Plan quota window to recover, then retry.",
     "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
     "settings.codeBuddyCodexNotConfigured": "Not configured",
     "settings.codeBuddyCodexDescription": "Load and verify CodeBuddy models once in Settings. Session forms only read saved models and never run live verification.",
@@ -1820,6 +1875,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.naraRouterFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
     "session.naraRouterModelHint": "After launch, use Codex's native /model command to switch among favorite models.",
     "session.naraRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
+    "session.miniMaxModel": "Default MiniMax model",
+    "session.miniMaxKeyRequired": "Configure a MiniMax API key in Settings first.",
+    "session.miniMaxFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
+    "session.miniMaxModelHint": "After launch, use Codex's native /model command to switch among favorite MiniMax models.",
+    "session.miniMaxVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
     "session.codeBuddyCodexModel": "CodeBuddy model",
     "session.codeBuddyCodexConfigRequired": "Verify and favorite CodeBuddy models and acknowledge the experimental risk in Settings first.",
     "session.codeBuddyCodexModelHint": "Only verified favorites from global Settings are shown.",
@@ -1922,6 +1982,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.geminiRetry": "Gemini quota unavailable. Click to retry.",
     "usage.geminiTitle": "Gemini quota",
     "usage.qoderTotal": "Total available quota",
+    "usage.miniMaxLoading": "Reading MiniMax quota...",
+    "usage.miniMaxUnavailable": "MiniMax quota unavailable",
+    "usage.miniMaxRetry": "Retry MiniMax quota",
+    "usage.miniMaxRemaining": "MiniMax {remaining}% left",
+    "usage.miniMaxTitle": "MiniMax quota",
+    "usage.miniMaxBalance": "MiniMax available balance ¥{available}",
+    "usage.miniMaxBalanceDetails": "Cash ¥{cash} · vouchers ¥{voucher} · credit ¥{credit} · owed ¥{owed}",
+    "usage.unlimited": "Unlimited",
+    "usage.notInPlan": "Not in current plan",
     "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
     "usage.grokUnavailable": "Grok CLI does not expose a stable account quota API",
     "usage.qoderActivities": "Promotional quota",

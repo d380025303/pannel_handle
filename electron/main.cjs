@@ -21,6 +21,7 @@ const { createProjectSearchService } = require("./services/project-search-servic
 const { createOpenRouterService, buildChatBridgeVerificationRequest, validateChatBridgeVerification } = require("./services/openrouter-service.cjs");
 const { createCodeBuddyCodexBridgeService } = require("./services/codebuddy-codex-bridge-service.cjs");
 const { createResponsesChatCompletionsBridgeService } = require("./services/responses-chat-completions-bridge-service.cjs");
+const { MINIMAX_BASE_URL, MINIMAX_CHAT_COMPLETIONS_URL, MINIMAX_API_KEY_ENV, transformMiniMaxModels, adaptMiniMaxChatRequest } = require("./services/minimax-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -58,10 +59,13 @@ let launchTemplateService = null;
 let configStore = null;
 let openRouterConfigStore = null;
 let naraRouterConfigStore = null;
+let miniMaxConfigStore = null;
 let codeBuddyCodexConfigStore = null;
 let openRouterService = null;
 let naraRouterService = null;
 let naraRouterBridgeService = null;
+let miniMaxService = null;
+let miniMaxBridgeService = null;
 let codeBuddyCodexBridgeService = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
@@ -145,6 +149,13 @@ if (!gotSingleInstanceLock) {
       assumeCompatibleWhenCapabilitiesMissing: true,
       verificationProfile: "chat-completions-bridge-v1"
     });
+    miniMaxConfigStore = createOpenRouterConfigStore({
+      configFile: path.join(app.getPath("userData"), "minimax.json"),
+      safeStorage,
+      providerName: "MiniMax",
+      assumeCompatibleWhenCapabilitiesMissing: true,
+      verificationProfile: "chat-completions-bridge-v1"
+    });
     codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
       configFile: path.join(app.getPath("userData"), "codebuddy-codex.json")
     });
@@ -163,6 +174,7 @@ if (!gotSingleInstanceLock) {
     configStore.loadConfig();
     openRouterConfigStore.load();
     naraRouterConfigStore.load();
+    miniMaxConfigStore.load();
     codeBuddyCodexConfigStore.load();
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
@@ -228,6 +240,9 @@ if (!gotSingleInstanceLock) {
         if (naraRouterBridgeService) {
           naraRouterBridgeService.disconnect(id);
         }
+        if (miniMaxBridgeService) {
+          miniMaxBridgeService.disconnect(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -251,7 +266,8 @@ if (!gotSingleInstanceLock) {
     });
     agentUsageService = createAgentUsageService({
       terminalManager,
-      sshSessionRuntime
+      sshSessionRuntime,
+      miniMaxConfigStore
     });
     workBuddyCheckinService = createWorkBuddyCheckinService();
     workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
@@ -312,7 +328,8 @@ if (!gotSingleInstanceLock) {
       providerId: "nararouter",
       providerName: "NaraRouter",
       upstreamUrl: "https://router.bynara.id/v1/chat/completions",
-      apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY"
+      apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY",
+      ignoredToolTypes: ["web_search", "web_search_preview"]
     });
     naraRouterService = createOpenRouterService({
       store: naraRouterConfigStore,
@@ -331,6 +348,33 @@ if (!gotSingleInstanceLock) {
       verificationRequestBuilder: buildChatBridgeVerificationRequest,
       verificationResultValidator: validateChatBridgeVerification,
       verificationStrategy: "all"
+    });
+    miniMaxBridgeService = createResponsesChatCompletionsBridgeService({
+      providerId: "minimax",
+      providerName: "MiniMax",
+      upstreamUrl: MINIMAX_CHAT_COMPLETIONS_URL,
+      apiKeyEnv: MINIMAX_API_KEY_ENV,
+      ignoredToolTypes: ["web_search", "web_search_preview"],
+      requestAdapter: adaptMiniMaxChatRequest,
+      allowFinishReasonAsDone: true
+    });
+    miniMaxService = createOpenRouterService({
+      store: miniMaxConfigStore,
+      catalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json"),
+      providerId: "minimax",
+      providerName: "MiniMax",
+      baseUrl: MINIMAX_BASE_URL,
+      apiKeyEnv: MINIMAX_API_KEY_ENV,
+      modelsRequireApiKey: true,
+      connectionTestPath: "/models",
+      verificationHeaders: {},
+      responsesTransport: input => miniMaxBridgeService.fetchResponses(input),
+      launchAdapter: (session, config) => miniMaxBridgeService.getLaunchConfig(session, config),
+      catalogCapabilities: { textOnly: true, reasoningSummaries: false, defaultContextWindow: 128000 },
+      verificationRequestBuilder: buildChatBridgeVerificationRequest,
+      verificationResultValidator: validateChatBridgeVerification,
+      verificationStrategy: "all",
+      transformModels: transformMiniMaxModels
     });
     codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
       store: codeBuddyCodexConfigStore,
@@ -380,6 +424,8 @@ if (!gotSingleInstanceLock) {
       openRouterService,
       naraRouterService,
       naraRouterBridgeService,
+      miniMaxService,
+      miniMaxBridgeService,
       codeBuddyCodexBridgeService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
@@ -472,6 +518,7 @@ if (!gotSingleInstanceLock) {
       projectSearchService,
       openRouterService,
       naraRouterService,
+      miniMaxService,
       codeBuddyCodexBridgeService,
       mobileRemoteService,
       remoteAgentBridgeService
@@ -511,6 +558,9 @@ app.on("window-all-closed", () => {
   }
   if (naraRouterBridgeService) {
     void naraRouterBridgeService.shutdown();
+  }
+  if (miniMaxBridgeService) {
+    void miniMaxBridgeService.shutdown();
   }
   if (ideaModule) {
     void ideaModule.shutdown();

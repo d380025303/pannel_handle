@@ -65,6 +65,9 @@ function createResponsesChatCompletionsBridgeService({
   providerName,
   upstreamUrl,
   apiKeyEnv,
+  ignoredToolTypes = [],
+  requestAdapter = request => request,
+  allowFinishReasonAsDone = false,
   fetchImpl = globalThis.fetch,
   localFetchImpl = globalThis.fetch,
   spawnSync = defaultSpawnSync
@@ -96,7 +99,7 @@ function createResponsesChatCompletionsBridgeService({
       if (!model || (registration.models.size && !registration.models.has(model))) {
         throw Object.assign(new Error(`${providerName} 模型不可用：${model || "unknown"}`), { statusCode: 400 });
       }
-      const converted = responsesToChat(body);
+      const converted = responsesToChat(body, { ignoredToolTypes });
       const controller = new AbortController();
       const abort = () => controller.abort();
       response.once("close", abort);
@@ -109,7 +112,7 @@ function createResponsesChatCompletionsBridgeService({
             Accept: "text/event-stream",
             "Content-Type": "application/json"
           },
-          body: JSON.stringify(converted.request),
+          body: JSON.stringify(requestAdapter(converted.request)),
           signal: controller.signal
         });
       } finally {
@@ -134,6 +137,7 @@ function createResponsesChatCompletionsBridgeService({
         toolKinds: converted.toolKinds,
         toolNamespaces: converted.toolNamespaces,
         requireDone: true,
+        allowFinishReasonAsDone,
         emit: event => writeSse(response, event)
       });
       accumulator.start();

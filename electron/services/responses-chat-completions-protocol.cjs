@@ -44,8 +44,9 @@ function validateResponsesRequest(body) {
   if (body.background === true) throw invalidRequest("The Chat Completions bridge does not support background Responses.");
 }
 
-function responsesToChat(body = {}) {
+function responsesToChat(body = {}, { ignoredToolTypes = [] } = {}) {
   validateResponsesRequest(body);
+  const ignoredToolTypeSet = new Set(ignoredToolTypes.map(type => String(type)));
   const messages = [];
   const customTools = new Set();
   const toolAliases = new Map();
@@ -105,6 +106,7 @@ function responsesToChat(body = {}) {
 
   function convertTool(tool, namespace = "") {
     if (!tool || typeof tool !== "object") throw invalidRequest("Codex tool definition must be an object.");
+    if (ignoredToolTypeSet.has(String(tool.type || ""))) return [];
     if (tool.type === "namespace") {
       const namespaceName = String(tool.name || "").trim();
       if (!namespaceName) throw invalidRequest("Codex tool namespace name is required.");
@@ -184,7 +186,7 @@ function responsesToChat(body = {}) {
   };
 }
 
-function createResponseAccumulator({ model, customTools = new Set(), toolAliases = new Map(), toolKinds = new Map(), toolNamespaces = new Map(), requireDone = false, emit = () => {} }) {
+function createResponseAccumulator({ model, customTools = new Set(), toolAliases = new Map(), toolKinds = new Map(), toolNamespaces = new Map(), requireDone = false, allowFinishReasonAsDone = false, emit = () => {} }) {
   const responseId = `resp_${crypto.randomUUID().replace(/-/g, "")}`;
   const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
   const createdAt = Math.floor(Date.now() / 1000);
@@ -194,6 +196,7 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   let usage;
   let failure;
   let sawDone = false;
+  let sawFinishReason = false;
   const toolCalls = new Map();
 
   function send(type, value) {
@@ -225,6 +228,16 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
         ...(chunk.error.request_id ? { request_id: String(chunk.error.request_id).slice(0, 200) } : {})
       };
       return;
+    }
+    if (chunk.base_resp && Number(chunk.base_resp.status_code) !== 0) {
+      failure = {
+        code: String(chunk.base_resp.status_code || "provider_error"),
+        message: String(chunk.base_resp.status_msg || "Chat Completions upstream returned a business error.").slice(0, 1000)
+      };
+      return;
+    }
+    if (Array.isArray(chunk.choices) && chunk.choices.some(choice => choice?.finish_reason !== null && choice?.finish_reason !== undefined && String(choice.finish_reason).trim())) {
+      sawFinishReason = true;
     }
     if (chunk.usage) usage = chunk.usage;
     const delta = chunk.choices?.[0]?.delta || {};
@@ -265,7 +278,9 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
 
   function finish() {
     if (lineBuffer.trimStart().startsWith("data:")) consumePayload(lineBuffer.trimStart().slice(5).trim());
-    if (!failure && requireDone && !sawDone) failure = { code: "incomplete_stream", message: "Chat Completions stream ended before [DONE]." };
+    if (!failure && requireDone && !sawDone && !(allowFinishReasonAsDone && sawFinishReason)) {
+      failure = { code: "incomplete_stream", message: "Chat Completions stream ended before [DONE]." };
+    }
     if (failure) {
       const response = { id: responseId, object: "response", created_at: createdAt, status: "failed", model, output: [], error: failure };
       send("error", { error: failure });

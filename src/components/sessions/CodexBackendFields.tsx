@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { formatOpenRouterPricing } from "../../utils/openRouterPricing";
-import type { CodeBuddyCodexConfig, CodeBuddyCodexModel, CodexBackend, NaraRouterModel, OpenRouterModel } from "../../vite-env";
+import type { CodeBuddyCodexConfig, CodeBuddyCodexModel, CodexBackend, MiniMaxModel, NaraRouterModel, OpenRouterModel } from "../../vite-env";
 
 type CodexBackendFieldsProps = {
   backend: CodexBackend;
@@ -24,6 +24,10 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   const [naraFavoriteIds, setNaraFavoriteIds] = useState<string[]>([]);
   const [naraHasApiKey, setNaraHasApiKey] = useState(false);
   const [naraLoading, setNaraLoading] = useState(false);
+  const [miniMaxModels, setMiniMaxModels] = useState<MiniMaxModel[]>([]);
+  const [miniMaxFavoriteIds, setMiniMaxFavoriteIds] = useState<string[]>([]);
+  const [miniMaxHasApiKey, setMiniMaxHasApiKey] = useState(false);
+  const [miniMaxLoading, setMiniMaxLoading] = useState(false);
   const [error, setError] = useState("");
   const [codeBuddyModels, setCodeBuddyModels] = useState<CodeBuddyCodexModel[]>([]);
   const [codeBuddyConfig, setCodeBuddyConfig] = useState<CodeBuddyCodexConfig>({ favoriteModelIds: [], experimentalAcknowledged: false });
@@ -73,6 +77,26 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   }, [backend]);
 
   useEffect(() => {
+    if (backend !== "minimax") return;
+    let disposed = false;
+    setMiniMaxLoading(true);
+    setError("");
+    Promise.all([window.miniMaxApi.getConfig(), window.miniMaxApi.listModels()])
+      .then(([config, catalog]) => {
+        if (disposed) return;
+        setMiniMaxHasApiKey(config.hasApiKey);
+        setMiniMaxFavoriteIds(config.favoriteModelIds);
+        setMiniMaxModels(catalog);
+        if (!model && config.defaultModelId) onModelChange(config.defaultModelId);
+      })
+      .catch(reason => {
+        if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => { if (!disposed) setMiniMaxLoading(false); });
+    return () => { disposed = true; };
+  }, [backend]);
+
+  useEffect(() => {
     if (backend !== "codebuddy") return;
     let disposed = false;
     setCodeBuddyLoading(true);
@@ -104,11 +128,18 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
   }, [naraFavoriteIds, naraModels]);
   const selectedNaraModel = naraFavoriteModels.find(item => item.id === model);
   const naraVerificationStatus = selectedNaraModel?.verification?.status;
+  const miniMaxFavoriteModels = useMemo(() => {
+    const byId = new Map(miniMaxModels.map(item => [item.id, item]));
+    return miniMaxFavoriteIds.map(id => byId.get(id)).filter((item): item is MiniMaxModel => Boolean(item));
+  }, [miniMaxFavoriteIds, miniMaxModels]);
+  const selectedMiniMaxModel = miniMaxFavoriteModels.find(item => item.id === model);
+  const miniMaxVerificationStatus = selectedMiniMaxModel?.verification?.status;
   const selectedCodeBuddyModel = codeBuddyModels.find(item => item.id === model);
   const codeBuddyReady = codeBuddyConfig.experimentalAcknowledged && selectedCodeBuddyModel?.verification?.status === "passed";
   const ready = backend === "openai"
     || (backend === "openrouter" && hasApiKey && Boolean(model) && (verificationStatus === "passed" || (verificationStatus === "partial" && experimentalAcknowledged)))
     || (backend === "nararouter" && naraHasApiKey && Boolean(model) && (naraVerificationStatus === "passed" || (naraVerificationStatus === "partial" && experimentalAcknowledged)))
+    || (backend === "minimax" && miniMaxHasApiKey && Boolean(model) && (miniMaxVerificationStatus === "passed" || (miniMaxVerificationStatus === "partial" && experimentalAcknowledged)))
     || (backend === "codebuddy" && codeBuddyReady);
   const verificationLabel = (item: OpenRouterModel) => item.verification?.status === "passed"
     ? t("settings.openRouterVerificationPassed")
@@ -131,6 +162,7 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
         <button type="button" className={`shell-item ${backend === "openai" ? "selected" : ""}`} onClick={() => onBackendChange("openai")}>{t("session.codexBackendOpenAI")}</button>
         <button type="button" className={`shell-item ${backend === "openrouter" ? "selected" : ""}`} onClick={() => onBackendChange("openrouter")}>OpenRouter</button>
         <button type="button" className={`shell-item ${backend === "nararouter" ? "selected" : ""}`} onClick={() => onBackendChange("nararouter")}>NaraRouter</button>
+        <button type="button" className={`shell-item ${backend === "minimax" ? "selected" : ""}`} onClick={() => onBackendChange("minimax")}>MiniMax</button>
         <button type="button" className={`shell-item ${backend === "codebuddy" ? "selected" : ""}`} onClick={() => onBackendChange("codebuddy")}>CodeBuddy</button>
       </div>
       {backend === "openrouter" && (
@@ -165,6 +197,23 @@ export function CodexBackendFields({ backend, model, experimentalAcknowledged = 
           </label>}
           {!ready && <div className="modal-error">{error || (!naraHasApiKey ? t("session.naraRouterKeyRequired") : naraVerificationStatus === "partial" ? t("session.openRouterExperimentalRequired") : naraVerificationStatus === "failed" || naraVerificationStatus === "unavailable" ? selectedNaraModel?.verification?.error || verificationLabel(selectedNaraModel!) : naraFavoriteModels.length ? t("session.naraRouterVerifiedRequired") : t("session.naraRouterFavoriteRequired"))}</div>}
           <span className="modal-hint">{t("session.naraRouterModelHint")}</span>
+        </>
+      )}
+      {backend === "minimax" && (
+        <>
+          <label className="modal-field">
+            <span className="modal-label">{t("session.miniMaxModel")}</span>
+            <select className="modal-input" value={model || ""} disabled={miniMaxLoading || miniMaxFavoriteModels.length === 0} onChange={(event) => onModelChange(event.target.value || undefined)}>
+              <option value="">{miniMaxLoading ? t("common.loading") : t("session.codexModelSelect")}</option>
+              {miniMaxFavoriteModels.map(item => <option key={item.id} value={item.id} disabled={item.verification?.status !== "passed" && item.verification?.status !== "partial"}>{item.name} · {item.id} · {verificationLabel(item)}</option>)}
+            </select>
+          </label>
+          {miniMaxVerificationStatus === "partial" && <label className="openrouter-experimental-warning">
+            <input type="checkbox" checked={experimentalAcknowledged} onChange={(event) => onExperimentalAcknowledgedChange?.(event.target.checked)} />
+            <span>{t("session.openRouterExperimentalAcknowledge")}</span>
+          </label>}
+          {!ready && <div className="modal-error">{error || (!miniMaxHasApiKey ? t("session.miniMaxKeyRequired") : miniMaxVerificationStatus === "partial" ? t("session.openRouterExperimentalRequired") : miniMaxVerificationStatus === "failed" || miniMaxVerificationStatus === "unavailable" ? selectedMiniMaxModel?.verification?.error || verificationLabel(selectedMiniMaxModel!) : miniMaxFavoriteModels.length ? t("session.miniMaxVerifiedRequired") : t("session.miniMaxFavoriteRequired"))}</div>}
+          <span className="modal-hint">{t("session.miniMaxModelHint")}</span>
         </>
       )}
       {backend === "codebuddy" && (

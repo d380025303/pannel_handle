@@ -310,6 +310,7 @@ describe("agent-session-launcher", () => {
     expect(command).toContain("model_provider=nararouter");
     expect(command).toContain("model_providers.nararouter.name=NaraRouter");
     expect(command).toContain("model_providers.nararouter.wire_api=responses");
+    expect(command).toContain('web_search="disabled"');
     expect(command).toContain("NARAROUTER_API_KEY");
     expect(command).not.toContain("secret-value");
   });
@@ -417,6 +418,30 @@ describe("agent-session-launcher", () => {
       runtimeInitialCommand: expect.not.stringContaining("nara-session-token")
     }));
     expect(naraRouterBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:nara");
+  });
+
+  it("injects only the MiniMax bridge token and binds it to the session", async () => {
+    const miniMaxService = { getLaunchConfig: vi.fn(() => ({
+      providerId: "minimax",
+      providerName: "MiniMax",
+      baseUrl: "http://127.0.0.1:4569/v1",
+      apiKeyEnv: "PANNEL_HANDLE_MINIMAX_BRIDGE_KEY",
+      apiKey: "minimax-session-token",
+      catalogPath: "C:\\Data\\minimax-models.json",
+      model: "MiniMax-M2.5",
+      registrationId: "launch:minimax"
+    })) };
+    const miniMaxBridgeService = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
+    const mocks = createMocks({ miniMaxService, miniMaxBridgeService });
+
+    await mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "codex", codexBackend: "minimax", codexModel: "MiniMax-M2.5" });
+
+    expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeEnv: { PANNEL_HANDLE_MINIMAX_BRIDGE_KEY: "minimax-session-token" },
+      runtimeWslEnvKeys: ["PANNEL_HANDLE_MINIMAX_BRIDGE_KEY"],
+      runtimeInitialCommand: expect.not.stringContaining("minimax-session-token")
+    }));
+    expect(miniMaxBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:minimax");
   });
 
   it("injects the CodeBuddy bridge token only through the terminal environment", async () => {

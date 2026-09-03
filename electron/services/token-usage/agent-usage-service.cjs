@@ -3,9 +3,11 @@ const { EventEmitter } = require("node:events");
 const { readCodeBuddyUsage } = require("../codebuddy-usage-client.cjs");
 const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
 const { GEMINI_CACHE_TTL_MS, readGeminiUsage } = require("./gemini-usage-client.cjs");
+const { readMiniMaxUsage } = require("./minimax-usage-client.cjs");
 
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
 const CODEBUDDY_CACHE_TTL_MS = 30 * 1000;
+const MINIMAX_CACHE_TTL_MS = 30 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 1000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 const STDERR_LIMIT_BYTES = 64 * 1024;
@@ -394,7 +396,11 @@ async function runCodexResetCreditRequest(transport, { creditId, idempotencyKey,
 }
 
 function getCacheKey(session) {
-  const provider = session.agentProvider === "codex" && session.codexBackend === "codebuddy" ? "codebuddy" : session.agentProvider || "unknown";
+  const provider = session.agentProvider === "codex" && session.codexBackend === "codebuddy"
+    ? "codebuddy"
+    : session.agentProvider === "codex" && session.codexBackend === "minimax"
+      ? "minimax"
+      : session.agentProvider || "unknown";
   if (session.type === "windows" || isLocalSshBridge(session)) return `${provider}:windows`;
   if (session.type === "wsl") return `${provider}:wsl:${String(session.wslDistro || "").trim()}`;
   return `${provider}:ssh:${session.id}`;
@@ -422,7 +428,9 @@ function createAgentUsageService({
   qoderSpawn,
   qoderTerminateProcessTree,
   geminiSpawn,
-  geminiHelperFile
+  geminiHelperFile,
+  miniMaxConfigStore,
+  miniMaxFetch
 }) {
   const cache = new Map();
   const pending = new Map();
@@ -475,6 +483,16 @@ function createAgentUsageService({
           now,
           spawn: geminiSpawn || spawn,
           ...(geminiHelperFile ? { helperFile: geminiHelperFile } : {})
+        });
+      }
+      if (session.agentProvider === "codex" && session.codexBackend === "minimax") {
+        if (!miniMaxConfigStore?.getApiKey) throw new Error("MiniMax 配置服务不可用。");
+        return await readMiniMaxUsage({
+          apiKey: miniMaxConfigStore.getApiKey(),
+          signal: abortController.signal,
+          timeoutMs,
+          now,
+          fetchImpl: miniMaxFetch || globalThis.fetch
         });
       }
       transport = await createTransport(session);
@@ -531,6 +549,8 @@ function createAgentUsageService({
     const cached = cache.get(key);
     const effectiveCacheTtlMs = isCodeBuddyQuotaSession(session)
       ? Math.min(cacheTtlMs, CODEBUDDY_CACHE_TTL_MS)
+      : session.agentProvider === "codex" && session.codexBackend === "minimax"
+        ? Math.min(cacheTtlMs, MINIMAX_CACHE_TTL_MS)
       : session.agentProvider === "qoder"
         ? Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)
         : session.agentProvider === "gemini"

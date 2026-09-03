@@ -4,21 +4,24 @@ import type { AgentStatusPayload, AgentUsageResetResult, AgentUsageSnapshot, Ter
 export const AGENT_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 export const CODEBUDDY_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 export const QODER_USAGE_POLL_INTERVAL_MS = 60 * 1000;
+export const MINIMAX_USAGE_POLL_INTERVAL_MS = 60 * 1000;
 
 export type AgentUsageViewState =
   | { status: "hidden" }
-  | { status: "loading"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" | "grok" }
+  | { status: "loading"; provider: "codex" | "codebuddy" | "minimax" | "qoder" | "copilot" | "gemini" | "grok" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" | "qoder" | "copilot" | "gemini" | "grok" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "minimax" | "qoder" | "copilot" | "gemini" | "grok" };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
   const isCodeBuddyCodexBackend = session?.agentProvider === "codex" && session.codexBackend === "codebuddy";
+  const isMiniMaxCodexBackend = session?.agentProvider === "codex" && session.codexBackend === "minimax";
   const configuredProvider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini" || session?.agentProvider === "grok"
     ? session.agentProvider
     : undefined;
-  const provider = isCodeBuddyCodexBackend ? "codebuddy" : configuredProvider;
+  const provider = isCodeBuddyCodexBackend ? "codebuddy" : isMiniMaxCodexBackend ? "minimax" : configuredProvider;
   const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter" && session?.codexBackend !== "nararouter")
+    || provider === "minimax"
     || provider === "copilot" || provider === "grok"
     || (provider === "codebuddy" && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
@@ -65,6 +68,8 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     void load(false);
     const pollIntervalMs = provider === "codebuddy"
       ? CODEBUDDY_USAGE_POLL_INTERVAL_MS
+      : provider === "minimax"
+        ? MINIMAX_USAGE_POLL_INTERVAL_MS
       : provider === "qoder"
         ? QODER_USAGE_POLL_INTERVAL_MS
         : AGENT_USAGE_POLL_INTERVAL_MS;

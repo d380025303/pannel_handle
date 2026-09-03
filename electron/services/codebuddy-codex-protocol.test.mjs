@@ -141,4 +141,27 @@ describe("CodeBuddy Codex protocol", () => {
     truncated.push(Buffer.from('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
     expect(truncated.finish()).toMatchObject({ status: "failed", error: { code: "incomplete_stream" } });
   });
+
+  it.each([
+    ["stop", { content: "complete" }],
+    ["tool_calls", { tool_calls: [{ index: 0, id: "call-1", function: { name: "echo", arguments: "{}" } }] }]
+  ])("accepts finish_reason %s as an opt-in terminal signal", (finishReason, delta) => {
+    const parser = createResponseAccumulator({ model: "MiniMax-M3", requireDone: true, allowFinishReasonAsDone: true });
+    parser.start();
+    parser.push(Buffer.from(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`));
+
+    expect(parser.finish()).toMatchObject({ status: "completed" });
+  });
+
+  it("keeps finish_reason opt-in and still rejects streams without a terminal signal", () => {
+    const strict = createResponseAccumulator({ model: "model-a", requireDone: true });
+    strict.start();
+    strict.push(Buffer.from('data: {"choices":[{"delta":{"content":"complete"},"finish_reason":"stop"}]}\n\n'));
+    expect(strict.finish()).toMatchObject({ status: "failed", error: { code: "incomplete_stream" } });
+
+    const truncated = createResponseAccumulator({ model: "MiniMax-M3", requireDone: true, allowFinishReasonAsDone: true });
+    truncated.start();
+    truncated.push(Buffer.from('data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n'));
+    expect(truncated.finish()).toMatchObject({ status: "failed", error: { code: "incomplete_stream" } });
+  });
 });

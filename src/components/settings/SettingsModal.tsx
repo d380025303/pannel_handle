@@ -210,6 +210,7 @@ export function SettingsModal({
           </section>
           <OpenRouterSettings />
           <OpenRouterSettings provider="nararouter" />
+          <OpenRouterSettings provider="minimax" />
           <CodeBuddyCodexSettings />
           <MobileAccessSettings />
           <section className="settings-section ding-talk-settings">

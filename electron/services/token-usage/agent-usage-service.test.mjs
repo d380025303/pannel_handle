@@ -462,6 +462,35 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("reads and caches MiniMax Token Plan quota directly", async () => {
+    const session = { id: "minimax-1", type: "windows", agentProvider: "codex", codexBackend: "minimax" };
+    const miniMaxFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model_remains: [{
+          model_name: "MiniMax-M*",
+          current_interval_total_count: 1000,
+          current_interval_usage_count: 250,
+          current_interval_remaining_percent: 75
+        }]
+      })
+    });
+    const service = createAgentUsageService({
+      terminalManager: { getSession: () => session },
+      miniMaxConfigStore: { getApiKey: () => "sk-cp-test" },
+      miniMaxFetch,
+      now: () => 1000
+    });
+
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({
+      provider: "minimax",
+      primaryLimitId: "MiniMax-M*:interval",
+      limits: [expect.objectContaining({ total: 1000, used: 250, remaining: 750 })]
+    });
+    await service.getUsage(session.id);
+    expect(miniMaxFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("reads CodeBuddy quota for a Codex session using the CodeBuddy backend", async () => {
     const session = { id: "codex-codebuddy-1", type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: "codebuddy" };
     const events = new EventEmitter();

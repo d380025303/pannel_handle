@@ -28,6 +28,7 @@ describe("CodexBackendSwitcher", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "切换当前 Codex 会话的模型后端" }));
     expect(screen.queryByRole("menuitem", { name: "OpenAI" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "MiniMax" })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: "OpenRouter" }));
 
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("run-1", "openrouter"));

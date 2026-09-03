@@ -93,6 +93,17 @@ contextBridge.exposeInMainWorld("naraRouterApi", {
   setFavorites: (input) => ipcRenderer.invoke("nararouter:set-favorites", input)
 });
 
+contextBridge.exposeInMainWorld("miniMaxApi", {
+  getConfig: () => ipcRenderer.invoke("minimax:get-config"),
+  listModels: () => ipcRenderer.invoke("minimax:list-models"),
+  refreshModels: () => ipcRenderer.invoke("minimax:refresh-models"),
+  saveApiKey: (apiKey) => ipcRenderer.invoke("minimax:save-api-key", apiKey),
+  clearApiKey: () => ipcRenderer.invoke("minimax:clear-api-key"),
+  test: () => ipcRenderer.invoke("minimax:test"),
+  verifyModels: (input) => ipcRenderer.invoke("minimax:verify-models", input),
+  setFavorites: (input) => ipcRenderer.invoke("minimax:set-favorites", input)
+});
+
 contextBridge.exposeInMainWorld("codeBuddyCodexApi", {
   getConfig: () => ipcRenderer.invoke("codebuddy-codex:get-config"),
   getStatus: () => ipcRenderer.invoke("codebuddy-codex:get-status"),

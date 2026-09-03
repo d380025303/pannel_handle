@@ -20,7 +20,7 @@ const OPENCODE_CONFIG_ENV = "OPENCODE_CONFIG_CONTENT";
 const CODEBUDDY_REMOTE_INSTRUCTIONS_ENV = "PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS";
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
-const CODEX_BACKENDS = new Set(["openai", "openrouter", "nararouter", "codebuddy"]);
+const CODEX_BACKENDS = new Set(["openai", "openrouter", "nararouter", "minimax", "codebuddy"]);
 const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
 const AGENT_EXIT_MARKER_SUFFIX = "AGENT_EXIT__";
 
@@ -76,6 +76,7 @@ function buildRouterCodexCommand(session, config) {
     `model_providers.${providerId}.wire_api=responses`,
     `model_catalog_json=${config.catalogPath}`
   ];
+  if (providerId === "nararouter" || providerId === "minimax") overrides.push('web_search="disabled"');
   const args = ["codex"];
   for (const override of overrides) args.push("-c", commandArg(session, override));
   args.push("-m", commandArg(session, config.model));
@@ -154,6 +155,7 @@ function buildAgentStartCommand(session, runtime = {}) {
   let agentCommand = command;
   if (session.agentProvider === "codex" && runtime.openRouter) agentCommand = buildOpenRouterCodexCommand(session, runtime.openRouter);
   if (session.agentProvider === "codex" && runtime.naraRouter) agentCommand = buildRouterCodexCommand(session, runtime.naraRouter);
+  if (session.agentProvider === "codex" && runtime.miniMax) agentCommand = buildRouterCodexCommand(session, runtime.miniMax);
   if (session.agentProvider === "codex" && runtime.codeBuddyCodex) agentCommand = buildCodeBuddyCodexCommand(session, runtime.codeBuddyCodex);
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
@@ -309,6 +311,8 @@ function createAgentSessionLauncher({
   openRouterService,
   naraRouterService,
   naraRouterBridgeService,
+  miniMaxService,
+  miniMaxBridgeService,
   codeBuddyCodexBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
@@ -350,8 +354,8 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentLocation === "local" && !LOCAL_BRIDGE_PROVIDERS.has(session.agentProvider)) {
       throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy 和 OpenCode。");
     }
-    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "codebuddy")) {
-      const backendName = session.codexBackend === "codebuddy" ? "CodeBuddy" : session.codexBackend === "nararouter" ? "NaraRouter" : "OpenRouter";
+    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy")) {
+      const backendName = session.codexBackend === "codebuddy" ? "CodeBuddy" : session.codexBackend === "nararouter" ? "NaraRouter" : session.codexBackend === "minimax" ? "MiniMax" : "OpenRouter";
       throw new Error(`${backendName} Codex 首期仅支持 Windows 和 WSL 会话。`);
     }
   }
@@ -472,19 +476,22 @@ function createAgentSessionLauncher({
     await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
+    const miniMax = await miniMaxService?.getLaunchConfig(session);
     const codeBuddyCodex = await codeBuddyCodexBridgeService?.getLaunchConfig(session);
-    const backend = openRouter || naraRouter || codeBuddyCodex;
+    const backend = openRouter || naraRouter || miniMax || codeBuddyCodex;
     return {
-      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, codeBuddyCodex })),
+      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
       runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
       naraRouterRegistrationId: naraRouter?.registrationId,
+      miniMaxRegistrationId: miniMax?.registrationId,
       codeBuddyRegistrationId: codeBuddyCodex?.registrationId
     };
   }
 
   function bindCodexBridgeRuntime(session, runtime) {
     if (runtime?.naraRouterRegistrationId) naraRouterBridgeService.bindSession(session.id, runtime.naraRouterRegistrationId);
+    if (runtime?.miniMaxRegistrationId) miniMaxBridgeService.bindSession(session.id, runtime.miniMaxRegistrationId);
     if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService.bindSession(session.id, runtime.codeBuddyRegistrationId);
     return session;
   }
@@ -494,6 +501,7 @@ function createAgentSessionLauncher({
       return bindCodexBridgeRuntime(create(), runtime);
     } catch (error) {
       if (runtime?.naraRouterRegistrationId) naraRouterBridgeService?.releaseRegistration?.(runtime.naraRouterRegistrationId);
+      if (runtime?.miniMaxRegistrationId) miniMaxBridgeService?.releaseRegistration?.(runtime.miniMaxRegistrationId);
       if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService?.releaseRegistration?.(runtime.codeBuddyRegistrationId);
       throw error;
     }
@@ -675,8 +683,10 @@ function createAgentSessionLauncher({
       ? openRouterService
       : backend === "nararouter"
         ? naraRouterService
-        : codeBuddyCodexBridgeService;
-    const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : "CodeBuddy";
+        : backend === "minimax"
+          ? miniMaxService
+          : codeBuddyCodexBridgeService;
+    const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : backend === "minimax" ? "MiniMax" : "CodeBuddy";
     if (!service?.getConfig) throw new Error(`${providerName} Codex 服务不可用。`);
     const config = await service.getConfig();
     const model = String(config?.defaultModelId || "").trim();

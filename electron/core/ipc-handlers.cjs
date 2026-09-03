@@ -22,7 +22,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, miniMaxService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -370,6 +370,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("nararouter:test", () => naraRouterService.testConnection());
   ipcMain.handle("nararouter:verify-models", (_event, input) => naraRouterService.verifyModels(input));
   ipcMain.handle("nararouter:set-favorites", (_event, input) => naraRouterService.setFavorites(input));
+  ipcMain.handle("minimax:get-config", () => miniMaxService.getConfig());
+  ipcMain.handle("minimax:list-models", () => miniMaxService.listModels());
+  ipcMain.handle("minimax:refresh-models", () => miniMaxService.refreshModels());
+  ipcMain.handle("minimax:save-api-key", (_event, apiKey) => miniMaxService.saveApiKey(apiKey));
+  ipcMain.handle("minimax:clear-api-key", () => miniMaxService.clearApiKey());
+  ipcMain.handle("minimax:test", () => miniMaxService.testConnection());
+  ipcMain.handle("minimax:verify-models", (_event, input) => miniMaxService.verifyModels(input));
+  ipcMain.handle("minimax:set-favorites", (_event, input) => miniMaxService.setFavorites(input));
   ipcMain.handle("codebuddy-codex:get-config", () => codeBuddyCodexBridgeService.getConfig());
   ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
   ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());

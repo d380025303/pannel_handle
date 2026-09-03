@@ -37,8 +37,8 @@ function buildCodexModelCatalog(models, providerName = "OpenRouter", capabilitie
         display_name: model.name,
         description: model.description || `${providerName} model ${model.id}`,
         base_instructions: "You are Codex, an agentic coding assistant. Follow the developer and user instructions provided in the conversation.",
-        context_window: model.contextLength || 128000,
-        max_context_window: model.contextLength || 128000,
+        context_window: model.contextLength || capabilities.defaultContextWindow || 128000,
+        max_context_window: model.contextLength || capabilities.defaultContextWindow || 128000,
         default_reasoning_level: reasoningLevels.length ? "medium" : null,
         supported_reasoning_levels: reasoningLevels,
         input_modalities: capabilities.textOnly ? ["text"] : toCodexInputModalities(model.inputModalities),
@@ -264,7 +264,8 @@ function createOpenRouterService({
   catalogCapabilities = {},
   verificationRequestBuilder = buildVerificationRequest,
   verificationResultValidator = () => {},
-  verificationStrategy = "fallback"
+  verificationStrategy = "fallback",
+  transformModels = models => models
 }) {
   const rateLimitCooldowns = new Map();
 
@@ -312,6 +313,7 @@ function createOpenRouterService({
     let models = Array.isArray(payload?.data) ? payload.data : [];
     if (!models.length) throw new Error(`${providerName} 未返回可用模型目录。`);
     if (metadataBaseUrl) models = enrichNaraRouterModels(models, plansPayload, pricingPayload);
+    models = transformModels(models);
     store.setCachedModels(models, now());
     return listModels();
   }

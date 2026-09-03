@@ -52,6 +52,23 @@ describe("CodexBackendFields", () => {
         }])
       }
     });
+    Object.defineProperty(window, "miniMaxApi", {
+      configurable: true,
+      value: {
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: ["MiniMax-M2.5"], defaultModelId: "MiniMax-M2.5" }),
+        listModels: vi.fn().mockResolvedValue([{
+          id: "MiniMax-M2.5",
+          name: "MiniMax M2.5",
+          description: "",
+          contextLength: 204800,
+          inputModalities: ["text"],
+          supportedParameters: ["tools", "tool_choice"],
+          pricing: {},
+          compatible: true,
+          verification: { status: "passed", checkedAt: 1 }
+        }])
+      }
+    });
   });
 
   afterEach(cleanup);
@@ -150,6 +167,18 @@ describe("CodexBackendFields", () => {
     render(<I18nProvider locale="zh-CN"><Harness /></I18nProvider>);
 
     expect(await screen.findByRole("option", { name: /Nara GPT · gpt-test · 已验证/ })).toBeTruthy();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
+  });
+
+  it("selects the independent MiniMax default and reports readiness", async () => {
+    const onReadyChange = vi.fn();
+    function Harness() {
+      const [model, setModel] = useState<string>();
+      return <CodexBackendFields backend="minimax" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onReadyChange={onReadyChange} />;
+    }
+    render(<I18nProvider locale="zh-CN"><Harness /></I18nProvider>);
+
+    expect(await screen.findByRole("option", { name: /MiniMax M2.5 · MiniMax-M2.5 · 已验证/ })).toBeTruthy();
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 });

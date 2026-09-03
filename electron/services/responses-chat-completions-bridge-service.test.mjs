@@ -9,13 +9,15 @@ afterEach(async () => {
   while (services.length) await services.pop().shutdown();
 });
 
-function createService(fetchImpl) {
+function createService(fetchImpl, options = {}) {
   const service = createResponsesChatCompletionsBridgeService({
     providerId: "nararouter",
     providerName: "NaraRouter",
     upstreamUrl: "https://router.bynara.id/v1/chat/completions",
     apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY",
-    fetchImpl
+    ignoredToolTypes: ["web_search", "web_search_preview"],
+    fetchImpl,
+    ...options
   });
   services.push(service);
   return service;
@@ -78,5 +80,60 @@ describe("Responses Chat Completions bridge", () => {
     const response = await service.fetchResponses({ apiKey: "secret", body: { model: "model-a", input: "hello", stream: true } });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: { type: "telegram_required", message: "Relink your account", request_id: "req-nara" } });
+  });
+
+  it("accepts an explicit finish_reason when the provider omits [DONE]", async () => {
+    const fetchImpl = vi.fn(async () => new Response([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "OK" }, finish_reason: null }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+      ""
+    ].join("\n\n"), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    const service = createService(fetchImpl, { allowFinishReasonAsDone: true });
+
+    const response = await service.fetchResponses({ apiKey: "secret", body: { model: "model-a", input: "hello", stream: true } });
+    const responseText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(responseText).toContain('"type":"response.completed"');
+    expect(responseText).not.toContain('"type":"response.failed"');
+  });
+
+  it.each(["web_search", "web_search_preview"])("ignores unsupported %s tools while preserving function tools", async webToolType => {
+    const fetchImpl = vi.fn(async () => new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }));
+    const service = createService(fetchImpl);
+    const response = await service.fetchResponses({
+      apiKey: "secret",
+      body: {
+        model: "model-a",
+        input: "hello",
+        tools: [
+          { type: webToolType, external_web_access: true },
+          { type: "function", name: "exec_command", parameters: { type: "object" } }
+        ]
+      }
+    });
+
+    expect(response.status).toBe(200);
+    const chatBody = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(chatBody.tools).toHaveLength(1);
+    expect(chatBody.tools[0]).toMatchObject({ type: "function", function: { description: expect.stringContaining("exec_command") } });
+  });
+
+  it("rejects requests that explicitly force the ignored web search tool", async () => {
+    const fetchImpl = vi.fn();
+    const service = createService(fetchImpl);
+    const response = await service.fetchResponses({
+      apiKey: "secret",
+      body: {
+        model: "model-a",
+        input: "search",
+        tools: [{ type: "web_search" }],
+        tool_choice: { type: "web_search" }
+      }
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.message).toContain("tool_choice is not supported");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
