@@ -102,6 +102,23 @@ describe("openrouter-config-store", () => {
     expect(store.getModelVerifications()).toEqual({});
   });
 
+  it("invalidates old verification results when the transport profile changes", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pannel-nara-profile-"));
+    dirs.push(dir);
+    const configFile = path.join(dir, "nararouter.json");
+    const safeStorage = { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value), decryptString: value => value.toString() };
+    const oldStore = createOpenRouterConfigStore({ configFile, safeStorage, verificationProfile: "responses-v1" });
+    oldStore.setCachedModels([{ id: "model-a", supported_parameters: ["tools", "tool_choice"] }], 123);
+    oldStore.setModelVerification("model-a", { status: "passed", checkedAt: 456 });
+
+    const bridgeStore = createOpenRouterConfigStore({ configFile, safeStorage, verificationProfile: "chat-completions-bridge-v1" });
+    bridgeStore.load();
+    expect(bridgeStore.getCachedModels()).toHaveLength(1);
+    expect(bridgeStore.getModelVerifications()).toEqual({});
+    bridgeStore.setFavorites(["model-a"], "model-a");
+    expect(JSON.parse(readFileSync(configFile, "utf-8")).verificationProfile).toBe("chat-completions-bridge-v1");
+  });
+
   it("normalizes staged partial verification details without exposing unbounded provider data", () => {
     const { store } = createStore();
     store.setCachedModels([{ id: "good", supported_parameters: ["tools", "tool_choice"] }], 123);

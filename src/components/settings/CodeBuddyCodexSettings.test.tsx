@@ -47,6 +47,28 @@ describe("CodeBuddyCodexSettings", () => {
     await vi.waitFor(() => expect(window.codeBuddyCodexApi.setExperimentalAcknowledged).toHaveBeenCalledWith({ acknowledged: true }));
   });
 
+  it("allows a stale favorite to be removed and saves an empty selection", async () => {
+    config = { favoriteModelIds: ["glm-5.3"], defaultModelId: "glm-5.3", catalogVersion: "2.143.0", experimentalAcknowledged: true };
+    models = [{ id: "glm-5.3", name: "glm-5.3" }];
+    render(<I18nProvider locale="zh-CN"><CodeBuddyCodexSettings /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: /CodeBuddy Codex/ }));
+
+    const favorite = await screen.findByRole("checkbox", { name: "glm-5.3" });
+    expect((favorite as HTMLInputElement).disabled).toBe(false);
+    fireEvent.click(favorite);
+    fireEvent.click(screen.getByRole("button", { name: "保存收藏与默认模型" }));
+
+    await vi.waitFor(() => expect(window.codeBuddyCodexApi.setFavorites).toHaveBeenCalledWith({ favoriteModelIds: [], defaultModelId: undefined }));
+  });
+
+  it("keeps an unverified model disabled when it is not already a favorite", async () => {
+    models = [{ id: "glm-5.3", name: "glm-5.3" }];
+    render(<I18nProvider locale="zh-CN"><CodeBuddyCodexSettings /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: /CodeBuddy Codex/ }));
+
+    expect((await screen.findByRole("checkbox", { name: "glm-5.3" }) as HTMLInputElement).disabled).toBe(true);
+  });
+
   it("shows the current WorkBuddy promotion badge and localized details", async () => {
     models = [{ id: "hy3", name: "混元 3", promotions: [{ id: "free", label: "限时免费", color: "#FF0000", descriptionZh: "每日赠送免费额度。", descriptionEn: "Free daily credits." }], verification: { status: "passed", checkedAt: 1 } }];
     render(<I18nProvider locale="zh-CN"><CodeBuddyCodexSettings /></I18nProvider>);

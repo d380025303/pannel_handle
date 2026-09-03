@@ -80,7 +80,7 @@ function normalizeVerification(value) {
   };
 }
 
-function createOpenRouterConfigStore({ configFile, safeStorage, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false }) {
+function createOpenRouterConfigStore({ configFile, safeStorage, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false, verificationProfile = "" }) {
   let config = {
     encryptedApiKey: "",
     favoriteModelIds: [],
@@ -112,6 +112,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
       defaultModelId: config.defaultModelId,
       cachedModels: config.cachedModels.map(model => ({ ...model, pricing: { ...model.pricing }, supportedParameters: [...model.supportedParameters], inputModalities: [...model.inputModalities] })),
       modelVerifications: Object.fromEntries(Object.entries(config.modelVerifications).map(([id, verification]) => [id, { ...verification, ...(verification.stages ? { stages: verification.stages.map(stage => ({ ...stage })) } : {}) }])),
+      ...(verificationProfile ? { verificationProfile } : {}),
       fetchedAt: config.fetchedAt
     };
   }
@@ -133,7 +134,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
         ? [...new Set(parsed.favoriteModelIds.map(value => String(value || "").trim()).filter(id => availableIds.has(id)))]
         : [];
       const defaultModelId = favoriteModelIds.includes(parsed?.defaultModelId) ? parsed.defaultModelId : favoriteModelIds[0] || "";
-      const modelVerifications = Object.fromEntries(Object.entries(parsed?.modelVerifications || {})
+      const modelVerifications = Object.fromEntries(Object.entries(!verificationProfile || parsed?.verificationProfile === verificationProfile ? parsed?.modelVerifications || {} : {})
         .map(([id, value]) => [id, normalizeVerification(value)])
         .filter(([id, value]) => availableIds.has(id) && value));
       config = {

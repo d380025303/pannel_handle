@@ -397,23 +397,26 @@ describe("agent-session-launcher", () => {
     }));
   });
 
-  it("injects the NaraRouter key only through the terminal environment", async () => {
+  it("injects only the NaraRouter bridge token and binds it to the session", async () => {
     const naraRouterService = { getLaunchConfig: vi.fn(() => ({
       providerId: "nararouter",
       providerName: "NaraRouter",
-      baseUrl: "https://router.bynara.id/v1",
-      apiKeyEnv: "NARAROUTER_API_KEY",
-      apiKey: "nara-secret",
+      baseUrl: "http://127.0.0.1:4568/v1",
+      apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY",
+      apiKey: "nara-session-token",
       catalogPath: "C:\\Data\\nararouter-models.json",
-      model: "gpt-test"
+      model: "gpt-test",
+      registrationId: "launch:nara"
     })) };
-    const mocks = createMocks({ naraRouterService });
+    const naraRouterBridgeService = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
+    const mocks = createMocks({ naraRouterService, naraRouterBridgeService });
     await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "nararouter", codexModel: "gpt-test" });
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeEnv: { NARAROUTER_API_KEY: "nara-secret" },
-      runtimeWslEnvKeys: ["NARAROUTER_API_KEY"],
-      runtimeInitialCommand: expect.not.stringContaining("nara-secret")
+      runtimeEnv: { PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY: "nara-session-token" },
+      runtimeWslEnvKeys: ["PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY"],
+      runtimeInitialCommand: expect.not.stringContaining("nara-session-token")
     }));
+    expect(naraRouterBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:nara");
   });
 
   it("injects the CodeBuddy bridge token only through the terminal environment", async () => {

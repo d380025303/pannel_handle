@@ -28,7 +28,7 @@ function buildReasoningLevels(model) {
   ];
 }
 
-function buildCodexModelCatalog(models, providerName = "OpenRouter") {
+function buildCodexModelCatalog(models, providerName = "OpenRouter", capabilities = {}) {
   return {
     models: models.map((model, index) => {
       const reasoningLevels = buildReasoningLevels(model);
@@ -41,15 +41,15 @@ function buildCodexModelCatalog(models, providerName = "OpenRouter") {
         max_context_window: model.contextLength || 128000,
         default_reasoning_level: reasoningLevels.length ? "medium" : null,
         supported_reasoning_levels: reasoningLevels,
-        input_modalities: toCodexInputModalities(model.inputModalities),
+        input_modalities: capabilities.textOnly ? ["text"] : toCodexInputModalities(model.inputModalities),
         supports_parallel_tool_calls: true,
         apply_patch_tool_type: "freeform",
         shell_type: "shell_command",
         visibility: "list",
         supported_in_api: true,
         priority: index + 1,
-        supports_reasoning_summaries: reasoningLevels.length > 0,
-        supports_reasoning_summary_parameter: reasoningLevels.length > 0,
+        supports_reasoning_summaries: capabilities.reasoningSummaries !== false && reasoningLevels.length > 0,
+        supports_reasoning_summary_parameter: capabilities.reasoningSummaries !== false && reasoningLevels.length > 0,
         support_verbosity: false,
         truncation_policy: { mode: "tokens", limit: 10000 },
         experimental_supported_tools: []
@@ -109,8 +109,43 @@ function buildVerificationRequest(model, stage = "codex_tools") {
   };
 }
 
+function buildChatBridgeVerificationRequest(model, stage = "codex_tools") {
+  const base = {
+    model: model.id,
+    stream: true,
+    store: false,
+    max_output_tokens: 64,
+    ...(model.supportedParameters?.includes("reasoning") || model.supportedParameters?.includes("reasoning_effort")
+      ? { reasoning: { effort: "medium" } }
+      : {})
+  };
+  if (stage === "responses") return { ...base, input: "Reply only OK." };
+  if (stage === "function_tools") {
+    return [
+      {
+        ...base,
+        input: "Call mcp__codex_probe__echo exactly once with value OK.",
+        tool_choice: { type: "function", name: "mcp__codex_probe__echo" },
+        tools: [{ type: "function", name: "mcp__codex_probe__echo", description: "MCP compatibility probe", parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false } }]
+      },
+      {
+        ...base,
+        input: "Call tool_search exactly once with query MCP tools.",
+        tool_choice: { type: "tool_search" },
+        tools: [{ type: "tool_search", execution: "client", description: "Search deferred MCP tool metadata.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } }]
+      }
+    ];
+  }
+  return {
+    ...base,
+    input: "Call codex_probe_custom exactly once with input OK.",
+    tool_choice: { type: "custom", name: "codex_probe_custom" },
+    tools: [{ type: "custom", name: "codex_probe_custom", description: "Codex custom tool compatibility probe", format: { type: "text" } }]
+  };
+}
+
 function parseVerificationStream(text, providerName = "OpenRouter") {
-  let completed = false;
+  let completedResponse;
   for (const line of String(text || "").split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
     const data = line.slice(5).trim();
@@ -121,7 +156,7 @@ function parseVerificationStream(text, providerName = "OpenRouter") {
     } catch {
       continue;
     }
-    if (payload.type === "response.completed") completed = true;
+    if (payload.type === "response.completed") completedResponse = payload.response || {};
     if (payload.type === "error" || payload.type === "response.failed") {
       const responseError = payload?.response?.error;
       const payloadError = payload?.error;
@@ -153,7 +188,24 @@ function parseVerificationStream(text, providerName = "OpenRouter") {
       );
     }
   }
-  if (!completed) throw new Error(`${providerName} Responses 流在完成前断开。`);
+  if (!completedResponse) throw new Error(`${providerName} Responses 流在完成前断开。`);
+  return completedResponse;
+}
+
+function validateChatBridgeVerification(response, stage, requestIndex = 0) {
+  const output = Array.isArray(response?.output) ? response.output : [];
+  if (stage === "responses" && !output.some(item => item.type === "message" && item.content?.some(part => typeof part.text === "string"))) {
+    throw new Error("模型未通过桥返回文本输出。");
+  }
+  if (stage === "function_tools" && requestIndex === 0 && !output.some(item => item.type === "function_call" && item.name === "mcp__codex_probe__echo")) {
+    throw new Error("模型未通过桥返回 MCP 函数工具调用。");
+  }
+  if (stage === "function_tools" && requestIndex === 1 && !output.some(item => item.type === "tool_search_call" && item.execution === "client")) {
+    throw new Error("模型未通过桥返回 MCP 延迟工具搜索调用。");
+  }
+  if (stage === "codex_tools" && !output.some(item => item.type === "custom_tool_call" && item.name === "codex_probe_custom")) {
+    throw new Error("模型未通过桥返回 Codex custom 工具调用。");
+  }
 }
 
 function normalizeNaraRouterPrice(value, usdToIdr) {
@@ -206,7 +258,13 @@ function createOpenRouterService({
   modelsRequireApiKey = false,
   connectionTestPath = "/key",
   verificationHeaders = { "X-OpenRouter-Metadata": "enabled" },
-  metadataBaseUrl = ""
+  metadataBaseUrl = "",
+  responsesTransport,
+  launchAdapter,
+  catalogCapabilities = {},
+  verificationRequestBuilder = buildVerificationRequest,
+  verificationResultValidator = () => {},
+  verificationStrategy = "fallback"
 }) {
   const rateLimitCooldowns = new Map();
 
@@ -277,15 +335,16 @@ function createOpenRouterService({
 
   async function readErrorResponse(response) {
     const fallback = `${providerName} 请求失败（HTTP ${response.status}）。`;
-    const requestId = String(response.headers?.get?.("x-request-id") || response.headers?.get?.("cf-ray") || "").trim();
+    const headerRequestId = String(response.headers?.get?.("x-request-id") || response.headers?.get?.("cf-ray") || "").trim();
     try {
       const text = await response.text();
-      if (!text.trim()) return { message: fallback, httpStatus: response.status, requestId };
+      if (!text.trim()) return { message: fallback, httpStatus: response.status, requestId: headerRequestId };
       try {
         const payload = JSON.parse(text);
         const detail = extractResponseError(payload);
-        const errorCode = String(payload?.error?.code || payload?.code || "").trim();
+        const errorCode = String(payload?.error?.code || payload?.error?.type || payload?.code || payload?.type || "").trim();
         const provider = String(payload?.error?.metadata?.provider_name || payload?.error?.metadata?.provider || payload?.provider || "").trim();
+        const requestId = String(payload?.error?.request_id || payload?.request_id || headerRequestId).trim();
         const context = [provider ? `provider: ${provider}` : "", errorCode ? `code: ${errorCode}` : ""].filter(Boolean).join("，");
         const prefix = context ? `${providerName} 请求失败（HTTP ${response.status}，${context}）` : `${providerName} 请求失败（HTTP ${response.status}）`;
         return {
@@ -296,10 +355,10 @@ function createOpenRouterService({
           requestId
         };
       } catch {
-        return { message: text.trim() ? `${providerName} 请求失败（HTTP ${response.status}）：${text.trim().slice(0, 500)}` : fallback, httpStatus: response.status, requestId };
+        return { message: text.trim() ? `${providerName} 请求失败（HTTP ${response.status}）：${text.trim().slice(0, 500)}` : fallback, httpStatus: response.status, requestId: headerRequestId };
       }
     } catch {
-      return { message: fallback, httpStatus: response.status, requestId };
+      return { message: fallback, httpStatus: response.status, requestId: headerRequestId };
     }
   }
 
@@ -337,22 +396,29 @@ function createOpenRouterService({
     const timeout = setTimeout(() => controller.abort(), verificationTimeoutMs);
     try {
       if (typeof fetchImpl !== "function") throw new Error("当前运行环境不支持网络请求。");
-      const response = await fetchImpl(`${baseUrl}/responses`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "text/event-stream",
-          "Content-Type": "application/json",
-          ...verificationHeaders
-        },
-        body: JSON.stringify(buildVerificationRequest(model, stage)),
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        const detail = await readErrorResponse(response);
-        throw Object.assign(new Error(detail.message), detail);
+      const requests = verificationRequestBuilder(model, stage);
+      const requestList = Array.isArray(requests) ? requests : [requests];
+      for (let requestIndex = 0; requestIndex < requestList.length; requestIndex += 1) {
+        const body = requestList[requestIndex];
+        const response = responsesTransport
+          ? await responsesTransport({ apiKey, body, signal: controller.signal })
+          : await fetchImpl(`${baseUrl}/responses`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              Accept: "text/event-stream",
+              "Content-Type": "application/json",
+              ...verificationHeaders
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+        if (!response.ok) {
+          const detail = await readErrorResponse(response);
+          throw Object.assign(new Error(detail.message), detail);
+        }
+        verificationResultValidator(parseVerificationStream(await response.text(), providerName), stage, requestIndex);
       }
-      parseVerificationStream(await response.text(), providerName);
       return { stage, status: "passed" };
     } catch (error) {
       const errorKind = classifyError(error);
@@ -392,28 +458,59 @@ function createOpenRouterService({
       return result;
     };
 
-    const codexTools = await runStage("codex_tools");
     let status = "passed";
     let failure = null;
-    if (codexTools.status === "failed") {
-      failure = codexTools;
-      status = TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind) ? "unavailable" : "failed";
-      if (!TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind)) {
-        const functionTools = await runStage("function_tools");
-        if (functionTools.status === "passed") {
+    const isOpenRouterFreeModel = providerName === "OpenRouter" && (id === "openrouter/free" || id.endsWith(":free"));
+    if (verificationStrategy === "all") {
+      for (const stage of VERIFICATION_STAGES) {
+        const result = await runStage(stage);
+        if (result.status === "failed") {
+          failure = result;
+          status = TRANSIENT_VERIFICATION_ERRORS.has(result.errorKind) ? "unavailable" : "failed";
+          break;
+        }
+      }
+    } else if (isOpenRouterFreeModel) {
+      const functionTools = await runStage("function_tools");
+      if (functionTools.status === "passed") {
+        const codexTools = await runStage("codex_tools");
+        if (codexTools.status === "failed") {
           status = "partial";
           failure = codexTools;
-        } else if (TRANSIENT_VERIFICATION_ERRORS.has(functionTools.errorKind)) {
-          status = "unavailable";
-          failure = functionTools;
-        } else {
+        }
+      } else {
+        failure = functionTools;
+        status = TRANSIENT_VERIFICATION_ERRORS.has(functionTools.errorKind) ? "unavailable" : "failed";
+        if (!TRANSIENT_VERIFICATION_ERRORS.has(functionTools.errorKind)) {
           const responses = await runStage("responses");
-          if (responses.status === "passed") {
-            status = "failed";
-            failure = functionTools;
-          } else {
+          if (responses.status === "failed") {
             status = TRANSIENT_VERIFICATION_ERRORS.has(responses.errorKind) ? "unavailable" : "failed";
             failure = responses;
+          }
+        }
+      }
+    } else {
+      const codexTools = await runStage("codex_tools");
+      if (codexTools.status === "failed") {
+        failure = codexTools;
+        status = TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind) ? "unavailable" : "failed";
+        if (!TRANSIENT_VERIFICATION_ERRORS.has(codexTools.errorKind)) {
+          const functionTools = await runStage("function_tools");
+          if (functionTools.status === "passed") {
+            status = "partial";
+            failure = codexTools;
+          } else if (TRANSIENT_VERIFICATION_ERRORS.has(functionTools.errorKind)) {
+            status = "unavailable";
+            failure = functionTools;
+          } else {
+            const responses = await runStage("responses");
+            if (responses.status === "passed") {
+              status = "failed";
+              failure = functionTools;
+            } else {
+              status = TRANSIENT_VERIFICATION_ERRORS.has(responses.errorKind) ? "unavailable" : "failed";
+              failure = responses;
+            }
           }
         }
       }
@@ -465,7 +562,7 @@ function createOpenRouterService({
     if (!models.length) throw new Error(`请先收藏至少一个兼容的 ${providerName} 模型。`);
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
     const tmpPath = `${catalogFile}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(buildCodexModelCatalog(models, providerName), null, 2), "utf-8");
+    fs.writeFileSync(tmpPath, JSON.stringify(buildCodexModelCatalog(models, providerName, catalogCapabilities), null, 2), "utf-8");
     fs.renameSync(tmpPath, catalogFile);
     return catalogFile;
   }
@@ -524,7 +621,7 @@ function createOpenRouterService({
     }
     assertCodexCompatibility(session);
     const windowsCatalogPath = writeCatalog();
-    return {
+    const config = {
       apiKey,
       providerId,
       providerName,
@@ -533,6 +630,7 @@ function createOpenRouterService({
       model: requestedModel,
       catalogPath: session.type === "wsl" ? toWslPath(windowsCatalogPath, session.wslDistro) : windowsCatalogPath
     };
+    return launchAdapter ? launchAdapter(session, config) : config;
   }
 
   return {
@@ -557,6 +655,8 @@ module.exports = {
   MODEL_VERIFICATION_RATE_LIMIT_COOLDOWN_MS,
   VERIFICATION_STAGES,
   buildVerificationRequest,
+  buildChatBridgeVerificationRequest,
+  validateChatBridgeVerification,
   parseVerificationStream,
   buildCodexModelCatalog,
   normalizeNaraRouterPrice,

@@ -18,8 +18,9 @@ const { createDingTalkNotificationManager } = require("./notifications/ding-talk
 const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
 const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
-const { createOpenRouterService } = require("./services/openrouter-service.cjs");
+const { createOpenRouterService, buildChatBridgeVerificationRequest, validateChatBridgeVerification } = require("./services/openrouter-service.cjs");
 const { createCodeBuddyCodexBridgeService } = require("./services/codebuddy-codex-bridge-service.cjs");
+const { createResponsesChatCompletionsBridgeService } = require("./services/responses-chat-completions-bridge-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -60,6 +61,7 @@ let naraRouterConfigStore = null;
 let codeBuddyCodexConfigStore = null;
 let openRouterService = null;
 let naraRouterService = null;
+let naraRouterBridgeService = null;
 let codeBuddyCodexBridgeService = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
@@ -140,7 +142,8 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "nararouter.json"),
       safeStorage,
       providerName: "NaraRouter",
-      assumeCompatibleWhenCapabilitiesMissing: true
+      assumeCompatibleWhenCapabilitiesMissing: true,
+      verificationProfile: "chat-completions-bridge-v1"
     });
     codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
       configFile: path.join(app.getPath("userData"), "codebuddy-codex.json")
@@ -222,6 +225,9 @@ if (!gotSingleInstanceLock) {
         if (codeBuddyCodexBridgeService) {
           codeBuddyCodexBridgeService.disconnect(id);
         }
+        if (naraRouterBridgeService) {
+          naraRouterBridgeService.disconnect(id);
+        }
       }
     });
     agentNotificationManager = createAgentNotificationManager({
@@ -302,6 +308,12 @@ if (!gotSingleInstanceLock) {
       store: openRouterConfigStore,
       catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
     });
+    naraRouterBridgeService = createResponsesChatCompletionsBridgeService({
+      providerId: "nararouter",
+      providerName: "NaraRouter",
+      upstreamUrl: "https://router.bynara.id/v1/chat/completions",
+      apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY"
+    });
     naraRouterService = createOpenRouterService({
       store: naraRouterConfigStore,
       catalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
@@ -312,7 +324,13 @@ if (!gotSingleInstanceLock) {
       modelsRequireApiKey: true,
       connectionTestPath: "/models",
       verificationHeaders: {},
-      metadataBaseUrl: "https://router.bynara.id/api"
+      metadataBaseUrl: "https://router.bynara.id/api",
+      responsesTransport: input => naraRouterBridgeService.fetchResponses(input),
+      launchAdapter: (session, config) => naraRouterBridgeService.getLaunchConfig(session, config),
+      catalogCapabilities: { textOnly: true, reasoningSummaries: false },
+      verificationRequestBuilder: buildChatBridgeVerificationRequest,
+      verificationResultValidator: validateChatBridgeVerification,
+      verificationStrategy: "all"
     });
     codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
       store: codeBuddyCodexConfigStore,
@@ -361,6 +379,7 @@ if (!gotSingleInstanceLock) {
       remoteAgentBridgeService,
       openRouterService,
       naraRouterService,
+      naraRouterBridgeService,
       codeBuddyCodexBridgeService,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
@@ -489,6 +508,9 @@ app.on("window-all-closed", () => {
   }
   if (codeBuddyCodexBridgeService) {
     void codeBuddyCodexBridgeService.shutdown();
+  }
+  if (naraRouterBridgeService) {
+    void naraRouterBridgeService.shutdown();
   }
   if (ideaModule) {
     void ideaModule.shutdown();

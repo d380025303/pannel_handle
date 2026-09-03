@@ -75,6 +75,7 @@ export type TranslationKey =
   | "settings.openRouterVerificationFailed"
   | "settings.openRouterVerificationUnavailable"
   | "settings.openRouterVerificationPartialSuccess"
+  | "settings.openRouterVerificationPartialRateLimit"
   | "settings.openRouterResponsesRejected"
   | "settings.openRouterProviderDetail"
   | "settings.openRouterStageResponses"
@@ -881,7 +882,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerificationPartial": "部分兼容",
     "settings.openRouterVerificationFailed": "检测失败",
     "settings.openRouterVerificationUnavailable": "暂时不可用",
-    "settings.openRouterVerificationPartialSuccess": "基础 Responses 与普通函数工具检测通过；完整 Codex 工具协议未通过，可作为实验模型使用。",
+    "settings.openRouterVerificationPartialSuccess": "普通函数工具检测通过；完整 Codex 工具协议未通过或暂未确认，可作为实验模型使用。",
+    "settings.openRouterVerificationPartialRateLimit": "普通函数工具已通过；完整 Codex 工具协议因上游限流暂未确认，可作为实验模型使用。",
     "settings.openRouterResponsesRejected": "当前模型未通过 Codex 所需的 Responses 请求，请更换模型。",
     "settings.openRouterProviderDetail": "服务端详情",
     "settings.openRouterStageResponses": "基础 Responses",
@@ -1680,7 +1682,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterVerificationPartial": "Partially compatible",
     "settings.openRouterVerificationFailed": "Verification failed",
     "settings.openRouterVerificationUnavailable": "Temporarily unavailable",
-    "settings.openRouterVerificationPartialSuccess": "Basic Responses and function tools passed; the full Codex tool protocol failed. This model can be used experimentally.",
+    "settings.openRouterVerificationPartialSuccess": "Function tools passed; the full Codex tool protocol failed or could not be confirmed yet. This model can be used experimentally.",
+    "settings.openRouterVerificationPartialRateLimit": "Function tools passed; the full Codex tool protocol could not be confirmed because the upstream provider was rate limited. This model can be used experimentally.",
     "settings.openRouterResponsesRejected": "This model did not pass the Responses request required by Codex. Choose another model.",
     "settings.openRouterProviderDetail": "Provider details",
     "settings.openRouterStageResponses": "Basic Responses",

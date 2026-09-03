@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { MODEL_VERIFICATION_RATE_LIMIT_COOLDOWN_MS, MODEL_VERIFICATION_TTL_MS, buildCodexModelCatalog, buildVerificationRequest, createOpenRouterService, parseVerificationStream } = require("./openrouter-service.cjs");
+const { MODEL_VERIFICATION_RATE_LIMIT_COOLDOWN_MS, MODEL_VERIFICATION_TTL_MS, buildCodexModelCatalog, buildVerificationRequest, buildChatBridgeVerificationRequest, validateChatBridgeVerification, createOpenRouterService, parseVerificationStream } = require("./openrouter-service.cjs");
 const dirs = [];
 
 function completedResponse() {
@@ -17,7 +17,7 @@ afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, forc
 function fixture(overrides = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "pannel-openrouter-service-"));
   dirs.push(dir);
-  const model = { id: "openai/gpt-test", name: "GPT Test", contextLength: 128000, inputModalities: ["text"], supportedParameters: ["tools", "tool_choice"], compatible: true };
+  const model = overrides.model || { id: "openai/gpt-test", name: "GPT Test", contextLength: 128000, inputModalities: ["text"], supportedParameters: ["tools", "tool_choice"], compatible: true };
   let verifications = overrides.verifications === undefined
     ? { [model.id]: { status: "passed", checkedAt: 100000 } }
     : { ...overrides.verifications };
@@ -251,15 +251,44 @@ describe("openrouter-service", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("reports a NaraRouter bad_request at the basic Responses stage without changing endpoints", async () => {
-    const fetchImpl = vi.fn(async () => new Response('data: {"type":"response.failed","response":{"error":{"type":"bad_request","message":"The model rejected this request.","request_id":"req-nara"}}}\n\ndata: [DONE]\n', {
+  it("keeps a free model partially compatible when function tools pass before the full Codex probe is rate limited", async () => {
+    const model = { id: "z-ai/glm-5.2:free", name: "GLM 5.2 Free", contextLength: 256000, inputModalities: ["text"], supportedParameters: ["tools", "tool_choice"], compatible: true };
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(completedResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Provider returned error", code: 429, metadata: { provider_name: "Decart" } } }), { status: 429, headers: { "x-request-id": "req-free-rate" } }));
+    const { service, store } = fixture({ fetchImpl, model, verifications: {} });
+
+    const [result] = await service.verifyModels({ modelIds: [model.id] });
+
+    expect(result).toMatchObject({
+      status: "partial",
+      failedStage: "codex_tools",
+      errorKind: "rate_limit",
+      httpStatus: 429,
+      provider: "Decart",
+      requestId: "req-free-rate"
+    });
+    expect(result.stages.map(stage => [stage.stage, stage.status])).toEqual([
+      ["function_tools", "passed"],
+      ["codex_tools", "failed"]
+    ]);
+    expect(fetchImpl.mock.calls.map(([, options]) => JSON.parse(options.body).tools?.map(tool => tool.type))).toEqual([
+      ["function"],
+      ["function", "custom"]
+    ]);
+    expect(store.setModelVerification).toHaveBeenCalledWith(model.id, expect.objectContaining({ status: "partial", errorKind: "rate_limit" }));
+  });
+
+  it("reports a NaraRouter bad_request from the injected Chat Completions bridge", async () => {
+    const fetchImpl = vi.fn();
+    const responsesTransport = vi.fn(async () => new Response('data: {"type":"response.failed","response":{"error":{"type":"bad_request","message":"The model rejected this request.","request_id":"req-nara"}}}\n\ndata: [DONE]\n', {
       status: 200,
       headers: { "content-type": "text/event-stream" }
     }));
     const { service } = fixture({
       fetchImpl,
       verifications: {},
-      serviceOptions: { providerName: "NaraRouter", baseUrl: "https://router.bynara.id/v1", verificationHeaders: {} }
+      serviceOptions: { providerName: "NaraRouter", baseUrl: "https://router.bynara.id/v1", responsesTransport, verificationRequestBuilder: buildChatBridgeVerificationRequest, verificationResultValidator: validateChatBridgeVerification, verificationStrategy: "all" }
     });
 
     const [result] = await service.verifyModels({ modelIds: ["openai/gpt-test"] });
@@ -272,13 +301,41 @@ describe("openrouter-service", () => {
       requestId: "req-nara",
       error: "The model rejected this request."
     });
-    expect(result.stages.map(stage => [stage.stage, stage.status])).toEqual([
-      ["responses", "failed"],
-      ["function_tools", "failed"],
-      ["codex_tools", "failed"]
-    ]);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(fetchImpl.mock.calls.every(([url]) => url === "https://router.bynara.id/v1/responses")).toBe(true);
+    expect(result.stages.map(stage => [stage.stage, stage.status])).toEqual([["responses", "failed"]]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(responsesTransport).toHaveBeenCalledTimes(1);
+    expect(responsesTransport.mock.calls.every(([input]) => input.body.stream === true && input.body.store === false)).toBe(true);
+  });
+
+  it("requires text, function, tool search, and custom tool checks through the NaraRouter bridge", async () => {
+    const responsesTransport = vi.fn(async ({ body }) => {
+      let output;
+      if (!body.tool_choice) output = [{ type: "message", content: [{ type: "output_text", text: "OK" }] }];
+      else if (body.tool_choice.type === "tool_search") output = [{ type: "tool_search_call", execution: "client", arguments: { query: "MCP tools" } }];
+      else if (body.tool_choice.type === "custom") output = [{ type: "custom_tool_call", name: "codex_probe_custom", input: "OK" }];
+      else output = [{ type: "function_call", name: "mcp__codex_probe__echo", arguments: '{"value":"OK"}' }];
+      return new Response(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output } })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    const { service } = fixture({
+      verifications: {},
+      serviceOptions: { providerName: "NaraRouter", responsesTransport, verificationRequestBuilder: buildChatBridgeVerificationRequest, verificationResultValidator: validateChatBridgeVerification, verificationStrategy: "all" }
+    });
+
+    const [result] = await service.verifyModels({ modelIds: ["openai/gpt-test"] });
+    expect(result.status).toBe("passed");
+    expect(result.stages.map(stage => stage.stage)).toEqual(["responses", "function_tools", "codex_tools"]);
+    expect(responsesTransport).toHaveBeenCalledTimes(4);
+  });
+
+  it("passes a verified NaraRouter launch through the bridge adapter", async () => {
+    const launchAdapter = vi.fn(async (_session, config) => ({ ...config, apiKey: "bridge-token", apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY", baseUrl: "http://127.0.0.1:4321/v1", registrationId: "launch-1" }));
+    const model = { id: "openai/gpt-test", name: "GPT Test", contextLength: 128000, inputModalities: ["text", "image"], supportedParameters: ["tools", "tool_choice", "reasoning"], compatible: true };
+    const { service } = fixture({ model, serviceOptions: { providerId: "nararouter", providerName: "NaraRouter", launchAdapter, catalogCapabilities: { textOnly: true, reasoningSummaries: false } } });
+    const result = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "nararouter", codexModel: "openai/gpt-test" });
+
+    expect(result).toMatchObject({ apiKey: "bridge-token", apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY", baseUrl: "http://127.0.0.1:4321/v1", registrationId: "launch-1" });
+    expect(launchAdapter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ apiKey: "sk-secret", baseUrl: "https://openrouter.ai/api/v1" }));
+    expect(JSON.parse(readFileSync(result.catalogPath, "utf-8")).models[0]).toMatchObject({ input_modalities: ["text"], supports_reasoning_summaries: false });
   });
 
   it("checks basic Responses only when both Codex and function tools are unsupported", async () => {

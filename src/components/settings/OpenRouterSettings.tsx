@@ -60,7 +60,13 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
     if (!verification) return t("settings.openRouterVerificationPending");
     if (verification.status === "passed") return t("settings.openRouterVerificationPassed");
     const stage = verification.failedStage ? `${t(verificationStageKey(verification.failedStage))} · ` : "";
-    if (verification.status === "partial") return `${t("settings.openRouterVerificationPartial")}：${stage}${verification.error || ""}`;
+    if (verification.status === "partial") {
+      const detail = verification.error ? ` ${t("settings.openRouterProviderDetail")}：${verification.error}` : "";
+      const message = verification.errorKind === "rate_limit"
+        ? t("settings.openRouterVerificationPartialRateLimit")
+        : verification.error || "";
+      return `${t("settings.openRouterVerificationPartial")}：${stage}${message}${verification.errorKind === "rate_limit" ? detail : ""}`;
+    }
     if (verification.status === "unavailable") return `${t("settings.openRouterVerificationUnavailable")}：${stage}${verification.errorKind === "rate_limit" ? t(isNaraRouter ? "settings.naraRouterRateLimitHint" : "settings.openRouterRateLimitHint") : verification.error || ""}`;
     if (verification.failedStage === "responses" && verification.errorKind === "unsupported") {
       const detail = verification.error ? ` ${t("settings.openRouterProviderDetail")}：${verification.error}` : "";

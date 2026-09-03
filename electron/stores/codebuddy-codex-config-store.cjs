@@ -4,10 +4,16 @@ const path = require("node:path");
 function normalizeModel(model) {
   const id = String(model?.id || "").trim();
   if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+  const contextWindow = Number(model?.contextWindow);
   const promotions = Array.isArray(model?.promotions)
     ? model.promotions.filter(promotion => promotion && typeof promotion === "object").map(promotion => JSON.parse(JSON.stringify(promotion)))
     : [];
-  return { id, name: String(model?.name || id).trim() || id, ...(promotions.length ? { promotions } : {}) };
+  return {
+    id,
+    name: String(model?.name || id).trim() || id,
+    ...(Number.isSafeInteger(contextWindow) && contextWindow >= 1024 && contextWindow <= 1_000_000 ? { contextWindow } : {}),
+    ...(promotions.length ? { promotions } : {})
+  };
 }
 
 function createCodeBuddyCodexConfigStore({ configFile, logger = console }) {

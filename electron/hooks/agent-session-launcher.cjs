@@ -308,6 +308,7 @@ function createAgentSessionLauncher({
   remoteAgentBridgeService,
   openRouterService,
   naraRouterService,
+  naraRouterBridgeService,
   codeBuddyCodexBridgeService,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
@@ -477,19 +478,22 @@ function createAgentSessionLauncher({
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, codeBuddyCodex })),
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
       runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
+      naraRouterRegistrationId: naraRouter?.registrationId,
       codeBuddyRegistrationId: codeBuddyCodex?.registrationId
     };
   }
 
-  function bindCodeBuddyRuntime(session, runtime) {
+  function bindCodexBridgeRuntime(session, runtime) {
+    if (runtime?.naraRouterRegistrationId) naraRouterBridgeService.bindSession(session.id, runtime.naraRouterRegistrationId);
     if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService.bindSession(session.id, runtime.codeBuddyRegistrationId);
     return session;
   }
 
-  function createAndBindCodeBuddyRuntime(create, runtime) {
+  function createAndBindCodexBridgeRuntime(create, runtime) {
     try {
-      return bindCodeBuddyRuntime(create(), runtime);
+      return bindCodexBridgeRuntime(create(), runtime);
     } catch (error) {
+      if (runtime?.naraRouterRegistrationId) naraRouterBridgeService?.releaseRegistration?.(runtime.naraRouterRegistrationId);
       if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService?.releaseRegistration?.(runtime.codeBuddyRegistrationId);
       throw error;
     }
@@ -580,7 +584,7 @@ function createAgentSessionLauncher({
       }
     }
     const runtime = await prepareLocal(request);
-    return createAndBindCodeBuddyRuntime(() => terminalManager.createSession({ ...request, ...runtime }), runtime);
+    return createAndBindCodexBridgeRuntime(() => terminalManager.createSession({ ...request, ...runtime }), runtime);
   }
 
   async function launchSession(template, options = {}) {
@@ -600,7 +604,7 @@ function createAgentSessionLauncher({
         session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
         const runtime = await prepareLocal(launchTemplate);
-        session = createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime }), runtime);
+        session = createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime }), runtime);
       }
     }
     if (recordUsage) onTemplateLaunched(launchTemplate.id);
@@ -718,7 +722,7 @@ function createAgentSessionLauncher({
       const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
-      const replacement = createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(target, {
+      const replacement = createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
         ...runtime
@@ -751,7 +755,7 @@ function createAgentSessionLauncher({
       const runtime = await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
-      return createAndBindCodeBuddyRuntime(() => terminalManager.launchSession(target, {
+      return createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
         ...runtime

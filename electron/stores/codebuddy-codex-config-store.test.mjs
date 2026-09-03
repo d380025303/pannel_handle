@@ -46,11 +46,17 @@ describe("codebuddy-codex-config-store", () => {
     expect(JSON.parse(readFileSync(configFile, "utf-8"))).toMatchObject({ acknowledgedVersion: "2.142.1" });
   });
 
-  it("round-trips safe WorkBuddy model promotion metadata", () => {
+  it("round-trips safe WorkBuddy model capability and promotion metadata", () => {
     const { store, configFile } = createStore();
-    store.setCachedModels("2.142.0", [{ id: "hy3", name: "混元 3", promotions: [{ id: "free", badge: { label: "限时免费" }, schedule: {} }] }]);
+    store.setCachedModels("2.142.0", [
+      { id: "hy3", name: "混元 3", contextWindow: 1_000_000, promotions: [{ id: "free", badge: { label: "限时免费" }, schedule: {} }] },
+      { id: "invalid", contextWindow: 2_000_000 }
+    ]);
     const reloaded = createCodeBuddyCodexConfigStore({ configFile });
     reloaded.load();
-    expect(reloaded.getCachedModels()).toEqual([{ id: "hy3", name: "混元 3", promotions: [{ id: "free", badge: { label: "限时免费" }, schedule: {} }] }]);
+    expect(reloaded.getCachedModels()).toEqual([
+      { id: "hy3", name: "混元 3", contextWindow: 1_000_000, promotions: [{ id: "free", badge: { label: "限时免费" }, schedule: {} }] },
+      { id: "invalid", name: "invalid" }
+    ]);
   });
 });

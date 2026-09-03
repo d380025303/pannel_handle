@@ -7,9 +7,17 @@ const { createWorkBuddyAcpTransport } = require("./workbuddy-checkin-service.cjs
 const MAX_CACHE_FILE_BYTES = 1024 * 1024;
 const USER_INFO_TIMEOUT_MS = 15 * 1000;
 const USER_INFO_MAX_OUTPUT_BYTES = 256 * 1024;
+const MAX_MODEL_CONTEXT_WINDOW = 1_000_000;
 
 function normalizeText(value, maxLength = 500) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function normalizeTokenLimit(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 1024 && number <= MAX_MODEL_CONTEXT_WINDOW
+    ? number
+    : undefined;
 }
 
 function normalizeClock(value) {
@@ -55,12 +63,15 @@ function normalizeCatalogData(data) {
   return data.models.map(model => {
     const id = normalizeText(model?.id, 120);
     if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+    const contextLimits = [normalizeTokenLimit(model?.maxInputTokens), normalizeTokenLimit(model?.maxAllowedSize)].filter(Boolean);
+    const contextWindow = contextLimits.length ? Math.min(...contextLimits) : undefined;
     const sourcePromotions = Array.isArray(model?.promotions)
       ? model.promotions
       : promotions.filter(promotion => Array.isArray(promotion?.modelIds) && promotion.modelIds.includes(id));
     return {
       id,
       name: normalizeText(model?.name, 120) || id,
+      ...(contextWindow ? { contextWindow } : {}),
       promotions: sourcePromotions.map(normalizePromotion).filter(Boolean)
     };
   }).filter(Boolean);
@@ -159,6 +170,7 @@ module.exports = {
   getPromotionDisplay,
   isPromotionActive,
   normalizeCatalogData,
+  normalizeTokenLimit,
   normalizePromotion,
   selectCachedCatalog
 };

@@ -8,7 +8,8 @@ const require = createRequire(import.meta.url);
 const {
   createWorkBuddyModelCatalogService,
   getPromotionDisplay,
-  isPromotionActive
+  isPromotionActive,
+  normalizeTokenLimit
 } = require("./workbuddy-model-catalog-service.cjs");
 const dirs = [];
 
@@ -27,7 +28,7 @@ describe("WorkBuddy model catalog", () => {
         ts: 200,
         token: "must-not-leak",
         data: {
-          models: [{ id: "hy3", name: "混元 3", credits: "0x" }],
+          models: [{ id: "hy3", name: "混元 3", credits: "0x", maxInputTokens: 1_000_000, maxAllowedSize: 800_000 }],
           modelPromotions: [{ id: "free", enabled: true, priority: 200, modelIds: ["hy3"], badge: { label: "限时免费", color: "#FF0000", display: "activeOnly" }, hover: { textZh: "每日赠送免费额度。" } }]
         }
       }
@@ -42,8 +43,16 @@ describe("WorkBuddy model catalog", () => {
     expect(await service.readCatalog()).toEqual([{
       id: "hy3",
       name: "混元 3",
+      contextWindow: 800_000,
       promotions: [{ id: "free", priority: 200, badge: { label: "限时免费", color: "#FF0000" }, hover: { textZh: "每日赠送免费额度。" }, schedule: {} }]
     }]);
+  });
+
+  it("accepts only bounded integer model token limits", () => {
+    expect(normalizeTokenLimit("1000000")).toBe(1_000_000);
+    expect(normalizeTokenLimit(1023)).toBeUndefined();
+    expect(normalizeTokenLimit(1_000_001)).toBeUndefined();
+    expect(normalizeTokenLimit(128000.5)).toBeUndefined();
   });
 
   it("evaluates bounded and cross-midnight schedules in the configured timezone", () => {

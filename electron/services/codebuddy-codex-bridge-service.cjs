@@ -6,11 +6,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { responsesToChat, createResponseAccumulator } = require("./codebuddy-codex-protocol.cjs");
-const { getPromotionDisplay } = require("./workbuddy-model-catalog-service.cjs");
+const { getPromotionDisplay, normalizeCatalogData } = require("./workbuddy-model-catalog-service.cjs");
 
 const API_KEY_ENV = "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY";
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const VERIFICATION_PROTOCOL_VERSION = "tools-v2";
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+const MAX_PRODUCT_FILE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_UPSTREAM_HOSTS = new Set(["copilot.tencent.com", "www.codebuddy.ai", "staging-copilot.tencent.com", "staging-codebuddy.tencent.com"]);
 
 function randomToken() {
@@ -45,6 +47,53 @@ function parseCodeBuddyModels(output) {
   return match[1].split(",").map(value => value.trim()).filter(value => value && value !== "auto" && /^[a-z0-9][a-z0-9._-]*$/i.test(value));
 }
 
+function parseVerificationStream(text) {
+  let completedResponse;
+  let streamError;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trimStart();
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    let event;
+    try { event = JSON.parse(data); } catch { continue; }
+    if (event?.type === "response.completed") completedResponse = event.response;
+    if (event?.type === "error" || event?.type === "response.failed") {
+      streamError = event.error?.message || event.response?.error?.message || event.message;
+    }
+  }
+  if (completedResponse) return completedResponse;
+  if (streamError) throw new Error(String(streamError).slice(0, 500));
+  throw new Error("Codex Responses 流未完成。");
+}
+
+function clearRequestEstablishmentTimeout(record) {
+  if (!record?.establishmentTimeout) return;
+  clearTimeout(record.establishmentTimeout);
+  record.establishmentTimeout = undefined;
+}
+
+function readCodeBuddyProductModels({ spawnSync = defaultSpawnSync, fsModule = fs } = {}) {
+  const result = spawnSync("where.exe", ["codebuddy.cmd"], {
+    encoding: "utf-8",
+    windowsHide: true,
+    timeout: 10000,
+    maxBuffer: 64 * 1024
+  });
+  if (result.error || result.status !== 0) return [];
+  const shims = String(result.stdout || "").split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  for (const shim of shims) {
+    const productFile = path.join(path.dirname(shim), "node_modules", "@tencent-ai", "codebuddy-code", "product.json");
+    try {
+      const stats = fsModule.statSync(productFile);
+      if (!stats.isFile() || stats.size > MAX_PRODUCT_FILE_BYTES) continue;
+      const models = normalizeCatalogData(JSON.parse(fsModule.readFileSync(productFile, "utf-8")));
+      if (models.length) return models;
+    } catch { /* Try the next CodeBuddy shim or the conservative fallback. */ }
+  }
+  return [];
+}
+
 function buildModelCatalog(models) {
   return {
     models: models.map((model, index) => ({
@@ -52,8 +101,8 @@ function buildModelCatalog(models) {
       display_name: model.name || model.id,
       description: `CodeBuddy ${model.id} through the experimental Codex bridge`,
       base_instructions: "You are Codex, an agentic coding assistant. Follow the developer and user instructions provided in the conversation.",
-      context_window: 128000,
-      max_context_window: 128000,
+      context_window: model.contextWindow || 128000,
+      max_context_window: model.contextWindow || 128000,
       default_reasoning_level: null,
       supported_reasoning_levels: [],
       input_modalities: ["text"],
@@ -80,6 +129,7 @@ function createCodeBuddyCodexBridgeService({
   workBuddyModelCatalogService,
   spawn = defaultSpawn,
   spawnSync = defaultSpawnSync,
+  readLocalProductModels = () => readCodeBuddyProductModels({ spawnSync }),
   now = Date.now
 }) {
   const listeners = new Map();
@@ -126,10 +176,10 @@ function createCodeBuddyCodexBridgeService({
   }
 
   function resolveVerification(version, modelId) {
-    const exact = verifications[`${version}:${modelId}`];
+    const exact = verifications[`${version}:${VERIFICATION_PROTOCOL_VERSION}:${modelId}`];
     if (exact) return exact;
     return Object.entries(verifications)
-      .filter(([key, verification]) => key.endsWith(`:${modelId}`) && verification?.status === "passed")
+      .filter(([key, verification]) => key.endsWith(`:${VERIFICATION_PROTOCOL_VERSION}:${modelId}`) && verification?.status === "passed")
       .map(([, verification]) => verification)
       .sort((left, right) => Number(right.checkedAt || 0) - Number(left.checkedAt || 0))[0];
   }
@@ -157,7 +207,17 @@ function createCodeBuddyCodexBridgeService({
   function writeCatalog() {
     const config = store.getPublicConfig();
     const byId = new Map(store.getCachedModels().map(model => [model.id, model]));
-    const passed = config.favoriteModelIds.map(id => byId.get(id)).filter(model => model && resolveVerification(config.catalogVersion, model.id)?.status === "passed");
+    let localById = new Map();
+    try { localById = new Map(readLocalProductModels().map(model => [model.id, model])); } catch {}
+    const passed = config.favoriteModelIds.map(id => {
+      const cached = byId.get(id);
+      const local = localById.get(id);
+      if (!cached) return null;
+      return {
+        ...cached,
+        ...(local?.contextWindow ? { contextWindow: local.contextWindow } : {})
+      };
+    }).filter(model => model && resolveVerification(config.catalogVersion, model.id)?.status === "passed");
     if (!passed.length) throw new Error("尚未在全局设置中保存通过检测的 CodeBuddy 模型。");
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
     const temporaryFile = `${catalogFile}.tmp`;
@@ -200,6 +260,7 @@ function createCodeBuddyCodexBridgeService({
       cleanupPending(requestId);
       return;
     }
+    clearRequestEstablishmentTimeout(record);
     const headers = { ...request.headers };
     for (const name of ["host", "connection", "content-length", "transfer-encoding", "content-encoding", "x-pannel-bridge-token", "x-pannel-upstream-url"]) delete headers[name];
     const payload = Buffer.from(JSON.stringify(record.chatRequest), "utf-8");
@@ -222,7 +283,7 @@ function createCodeBuddyCodexBridgeService({
         return;
       }
       record.codexResponse.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
-      const accumulator = createResponseAccumulator({ model: record.model, customTools: record.customTools, toolAliases: record.toolAliases, emit: event => writeSse(record.codexResponse, event) });
+      const accumulator = createResponseAccumulator({ model: record.model, customTools: record.customTools, toolAliases: record.toolAliases, toolKinds: record.toolKinds, toolNamespaces: record.toolNamespaces, emit: event => writeSse(record.codexResponse, event) });
       accumulator.start();
       upstreamResponse.on("data", chunk => { response.write(chunk); accumulator.push(chunk); });
       upstreamResponse.on("end", () => {
@@ -250,7 +311,7 @@ function createCodeBuddyCodexBridgeService({
     const record = pending.get(requestId);
     if (!record) return;
     pending.delete(requestId);
-    clearTimeout(record.timeout);
+    clearRequestEstablishmentTimeout(record);
     if (record.child && !record.child.killed) record.child.kill();
   }
 
@@ -285,11 +346,11 @@ function createCodeBuddyCodexBridgeService({
     const child = spawn("cmd.exe", ["/d", "/s", "/c", `codebuddy -p --output-format text --model ${model} --tools "" --no-session-persistence --max-turns 1 "Reply OK"`], {
       cwd: os.homedir(), env, windowsHide: true, stdio: ["ignore", "ignore", "ignore"]
     });
-    const timeout = setTimeout(() => {
+    const establishmentTimeout = setTimeout(() => {
       errorResponse(response, 504, "CodeBuddy 未在 30 秒内建立模型请求，请检查登录状态。");
       cleanupPending(requestId);
     }, 30000);
-    pending.set(requestId, { child, timeout, codexResponse: response, chatRequest: converted.request, customTools: converted.customTools, toolAliases: converted.toolAliases, model, claims: 0, awaitingRetry: false });
+    pending.set(requestId, { child, establishmentTimeout, codexResponse: response, chatRequest: converted.request, customTools: converted.customTools, toolAliases: converted.toolAliases, toolKinds: converted.toolKinds, toolNamespaces: converted.toolNamespaces, model, claims: 0, awaitingRetry: false });
     child.on("exit", code => {
       const record = pending.get(requestId);
       if (!record || (record.claims > 0 && !record.awaitingRetry)) return;
@@ -321,7 +382,7 @@ function createCodeBuddyCodexBridgeService({
       }
       errorResponse(response, 404, "Not found.");
     } catch (error) {
-      errorResponse(response, 500, error.message || "CodeBuddy bridge failed.");
+      errorResponse(response, error.statusCode || 500, error.message || "CodeBuddy bridge failed.");
     }
   }
 
@@ -374,9 +435,7 @@ function createCodeBuddyCodexBridgeService({
       const response = await fetch(`${listener.origin}/v1/responses`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ model: modelId, stream: true, ...body }) });
       const text = await response.text();
       if (!response.ok) throw new Error(text.slice(0, 500) || `HTTP ${response.status}`);
-      const completedLine = text.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trim()).reverse().find(line => line.includes('"response.completed"'));
-      if (!completedLine) throw new Error("Codex Responses 流未完成。");
-      return JSON.parse(completedLine).response;
+      return parseVerificationStream(text);
     } finally {
       sessionTokens.delete(key);
     }
@@ -389,7 +448,7 @@ function createCodeBuddyCodexBridgeService({
     if (!config.catalogVersion) throw new Error("请先在全局设置中刷新 CodeBuddy 模型目录。");
     const models = store.getCachedModels();
     if (!models.some(item => item.id === modelId)) throw new Error(`CodeBuddy 模型不存在：${modelId}`);
-    const cacheKey = `${version}:${modelId}`;
+    const cacheKey = `${version}:${VERIFICATION_PROTOCOL_VERSION}:${modelId}`;
     const cached = resolveVerification(version, modelId);
     if (!input.force && cached?.status === "passed" && now() - cached.checkedAt < VERIFICATION_TTL_MS) return { modelId, ...cached };
     const stages = [];
@@ -397,8 +456,10 @@ function createCodeBuddyCodexBridgeService({
       const textResponse = await requestProbe(modelId, { input: "Reply only OK." });
       if (!textResponse.output?.some(item => item.type === "message" && item.content?.some(part => part.text))) throw new Error("模型未返回文本输出。");
       stages.push({ stage: "responses", status: "passed" });
-      const functionResponse = await requestProbe(modelId, { input: "Call codex_probe exactly once with value OK.", tool_choice: { type: "function", name: "codex_probe" }, tools: [{ type: "function", name: "codex_probe", description: "Compatibility probe", parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false } }] });
-      if (!functionResponse.output?.some(item => item.type === "function_call" && item.name === "codex_probe")) throw new Error("模型未返回函数工具调用。");
+      const functionResponse = await requestProbe(modelId, { input: "Call mcp__codex_probe__echo exactly once with value OK.", tool_choice: { type: "function", name: "mcp__codex_probe__echo" }, tools: [{ type: "function", name: "mcp__codex_probe__echo", description: "MCP compatibility probe", parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false } }] });
+      if (!functionResponse.output?.some(item => item.type === "function_call" && item.name === "mcp__codex_probe__echo")) throw new Error("模型未返回 MCP 函数工具调用。");
+      const toolSearchResponse = await requestProbe(modelId, { input: "Call tool_search exactly once with query MCP tools.", tool_choice: { type: "tool_search" }, tools: [{ type: "tool_search", execution: "client", description: "Search deferred MCP tool metadata.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } }] });
+      if (!toolSearchResponse.output?.some(item => item.type === "tool_search_call" && item.execution === "client" && item.arguments?.query)) throw new Error("模型未返回 MCP 延迟工具搜索调用。");
       stages.push({ stage: "function_tools", status: "passed" });
       const customResponse = await requestProbe(modelId, { input: "Call codex_probe_custom exactly once with input OK.", tool_choice: { type: "custom", name: "codex_probe_custom" }, tools: [{ type: "custom", name: "codex_probe_custom", description: "Codex custom tool compatibility probe", format: { type: "text" } }] });
       if (!customResponse.output?.some(item => item.type === "custom_tool_call" && item.name === "codex_probe_custom")) throw new Error("模型未返回 Codex custom 工具调用。");
@@ -487,8 +548,12 @@ function createCodeBuddyCodexBridgeService({
 module.exports = {
   API_KEY_ENV,
   VERIFICATION_TTL_MS,
+  VERIFICATION_PROTOCOL_VERSION,
   parseCodeBuddyVersion,
   parseCodeBuddyModels,
+  parseVerificationStream,
+  clearRequestEstablishmentTimeout,
+  readCodeBuddyProductModels,
   buildModelCatalog,
   createCodeBuddyCodexBridgeService
 };

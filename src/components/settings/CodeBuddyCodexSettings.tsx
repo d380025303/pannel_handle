@@ -85,7 +85,7 @@ export function CodeBuddyCodexSettings() {
         </label>
         <div className="openrouter-model-list">
           {visibleModels.map(model => <div key={model.id} className="openrouter-model-row">
-            <input type="checkbox" aria-label={model.id} checked={config.favoriteModelIds.includes(model.id)} disabled={model.verification?.status !== "passed"} onChange={() => toggleFavorite(model.id)} />
+            <input type="checkbox" aria-label={model.id} checked={config.favoriteModelIds.includes(model.id)} disabled={!config.favoriteModelIds.includes(model.id) && model.verification?.status !== "passed"} onChange={() => toggleFavorite(model.id)} />
             <span><span className="codebuddy-model-title"><strong>{model.name}</strong>{model.promotions?.map(promotion => <small key={promotion.id} className="codebuddy-promotion-badge" style={promotion.color ? { color: promotion.color, borderColor: promotion.color } : undefined}>{promotion.label}</small>)}</span><small>{model.id}</small>{model.promotions?.map(promotion => { const description = locale === "zh-CN" ? promotion.descriptionZh || promotion.descriptionEn : promotion.descriptionEn || promotion.descriptionZh; return description ? <small key={`${promotion.id}-description`} className="codebuddy-promotion-description">{description}</small> : null; })}<small className={`openrouter-verification ${model.verification?.status || "pending"}`}>{model.verification?.status === "passed" ? t("settings.codeBuddyCodexVerified") : model.verification?.status === "failed" ? `${t("settings.codeBuddyCodexVerificationFailed")}：${model.verification.error || ""}` : t("settings.codeBuddyCodexVerificationPending")}</small></span>
             <span className="openrouter-model-actions">
               <button className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId)} onClick={() => void verifyModel(model.id)}>{verifyingModelId === model.id ? t("settings.codeBuddyCodexVerifying") : t("settings.codeBuddyCodexVerify")}</button>
@@ -94,7 +94,7 @@ export function CodeBuddyCodexSettings() {
           </div>)}
           {!models.length && <p className="settings-help">{t("settings.codeBuddyCodexRefreshHint")}</p>}
         </div>
-        <button className="modal-button primary" type="button" disabled={busy || !config.favoriteModelIds.length} onClick={() => void run(async () => { await window.codeBuddyCodexApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t("settings.codeBuddyCodexFavoritesSaved"))}>{t("settings.codeBuddyCodexSaveFavorites")}</button>
+        <button className="modal-button primary" type="button" disabled={busy} onClick={() => void run(async () => { await window.codeBuddyCodexApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t("settings.codeBuddyCodexFavoritesSaved"))}>{t("settings.codeBuddyCodexSaveFavorites")}</button>
         <label className="openrouter-experimental-warning">
           <input type="checkbox" disabled={!config.catalogVersion || busy} checked={config.experimentalAcknowledged} onChange={(event) => void run(async () => { await window.codeBuddyCodexApi.setExperimentalAcknowledged({ acknowledged: event.target.checked }); }, t("settings.codeBuddyCodexAcknowledgementSaved"))} />
           <span>{t("settings.codeBuddyCodexAcknowledge")}</span>
