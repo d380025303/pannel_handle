@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { OFFICE_PREVIEW_LIMIT, TEXT_PREVIEW_LIMIT, createRemoteFileService } from "./remote-file-service.cjs";
+import { OFFICE_PREVIEW_LIMIT, TEXT_PREVIEW_LIMIT, createRemoteFileService as createRemoteFileServiceImpl } from "./remote-file-service.cjs";
+import { createSshFileSystem } from "../../ssh/ssh-file-system.cjs";
+import { createSshSessionRuntime } from "../../ssh/ssh-session-runtime.cjs";
 
 function createTerminalManager(session) {
   return {
@@ -14,6 +16,20 @@ function createSessionStore(secret = "plain-secret") {
   return {
     decryptSecret: vi.fn(() => secret)
   };
+}
+
+function createRemoteFileService(options) {
+  const { sessionStore, knownHostStore, sftpFactory, ...serviceOptions } = options;
+  if (!serviceOptions.sshFileSystem && sftpFactory) {
+    const sshSessionRuntime = createSshSessionRuntime({
+      terminalManager: serviceOptions.terminalManager,
+      sessionStore,
+      knownHostStore,
+      sftpFactory
+    });
+    serviceOptions.sshFileSystem = createSshFileSystem({ sshSessionRuntime, sftpFactory });
+  }
+  return createRemoteFileServiceImpl(serviceOptions);
 }
 
 function createSftpMock(overrides = {}) {

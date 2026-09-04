@@ -44,18 +44,14 @@ function createRemoteFilesModule({
   dialog,
   shellApi,
   terminalManager,
-  sessionStore,
-  knownHostStore,
-  sshSessionRuntime,
+  sshFileSystem,
   windowManager,
   broadcast,
   fallbackIconPath
 }) {
   const fileService = createRemoteFileService({
     terminalManager,
-    sessionStore,
-    knownHostStore,
-    sshSessionRuntime,
+    sshFileSystem,
     shellApi,
     previewCacheRoot: path.join(app.getPath("userData"), "office-preview-cache")
   });

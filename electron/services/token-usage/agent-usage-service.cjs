@@ -219,46 +219,6 @@ function createCodeBuddyProcessTransport(session, spawn = defaultSpawn, terminat
   };
 }
 
-async function createSshTransport(session, sshSessionRuntime, options = {}) {
-  if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
-  const client = await sshSessionRuntime.connectClient(session.id, {
-    actionName: "Codex usage connection",
-    timeoutMs: options.timeoutMs
-  });
-
-  return new Promise((resolve, reject) => {
-    client.exec("bash -lic 'exec codex app-server --stdio'", (error, stream) => {
-      if (error) {
-        try { client.end(); } catch { /* best effort */ }
-        reject(error);
-        return;
-      }
-
-      const events = new EventEmitter();
-      let closed = false;
-      stream.on("data", data => events.emit("stdout", data));
-      stream.stderr?.on("data", data => events.emit("stderr", data));
-      stream.once("error", streamError => events.emit("error", streamError));
-      stream.once("close", (code, signal) => events.emit("close", code, signal));
-
-      resolve({
-        invocation: { command: "ssh", args: ["bash", "-lic", "exec codex app-server --stdio"] },
-        on: (eventName, listener) => events.on(eventName, listener),
-        write(data) {
-          if (!closed && stream.writable) stream.write(data);
-        },
-        close() {
-          if (closed) return;
-          closed = true;
-          try { stream.end(); } catch { /* best effort */ }
-          try { stream.signal?.("TERM"); } catch { /* best effort */ }
-          try { client.end(); } catch { /* best effort */ }
-        }
-      });
-    });
-  });
-}
-
 function appendLimited(current, chunk, maxBytes) {
   const next = Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk || "");
   const remaining = maxBytes - Buffer.byteLength(current, "utf-8");
@@ -416,7 +376,7 @@ function isCodeBuddyQuotaSession(session) {
 
 function createAgentUsageService({
   terminalManager,
-  sshSessionRuntime,
+  sshAgentTransport,
   spawn = defaultSpawn,
   now = () => Date.now(),
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
@@ -444,7 +404,10 @@ function createAgentUsageService({
     if (transportFactory) return transportFactory(session);
     if (isCodeBuddyQuotaSession(session)) return createCodeBuddyProcessTransport({ ...session, type: "windows" }, spawn);
     if (session.type === "ssh" && !isLocalSshBridge(session)) {
-      return createSshTransport(session, sshSessionRuntime, { timeoutMs });
+      return sshAgentTransport.createStdioTransport(session.id, {
+        actionName: "Codex usage connection",
+        timeoutMs
+      });
     }
     const runtimeSession = isLocalSshBridge(session) ? { ...session, type: "windows" } : session;
     return createProcessTransport(runtimeSession, spawn);
@@ -675,7 +638,6 @@ module.exports = {
   createAgentUsageService,
   createCodeBuddyProcessTransport,
   createProcessTransport,
-  createSshTransport,
   getProcessInvocation,
   normalizeRateLimitResetCredits,
   normalizeRateLimitResponse,

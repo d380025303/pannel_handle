@@ -4,14 +4,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
-  createAgentUsageService,
+  createAgentUsageService: createAgentUsageServiceImpl,
   createCodeBuddyProcessTransport,
-  createSshTransport,
   getProcessInvocation,
   normalizeRateLimitResponse,
   runCodexRateLimitRequest,
   runCodexResetCreditRequest
 } = require("./agent-usage-service.cjs");
+const { createSshAgentTransport } = require("../../ssh/ssh-agent-transport.cjs");
+
+function createAgentUsageService(options) {
+  const { sshSessionRuntime, ...serviceOptions } = options;
+  if (!serviceOptions.sshAgentTransport && sshSessionRuntime) {
+    serviceOptions.sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
+  }
+  return createAgentUsageServiceImpl(serviceOptions);
+}
 
 function rateLimitResult(usedPercent = 25) {
   return {
@@ -394,7 +402,7 @@ describe("agent-usage-service", () => {
       connectClient: vi.fn(async () => client)
     };
 
-    const transport = await createSshTransport({ id: "ssh-1", type: "ssh" }, sshSessionRuntime);
+    const transport = await createSshAgentTransport({ sshSessionRuntime }).createStdioTransport("ssh-1");
     transport.write("hello\n");
     transport.close();
 

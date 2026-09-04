@@ -407,7 +407,7 @@ function runProcess(command, args, spawn = defaultSpawn) {
 
 function createAgentConversationHistoryService({
   terminalManager,
-  sshSessionRuntime,
+  sshAgentTransport,
   homeDir = os.homedir(),
   fsApi = fs,
   Database = DatabaseSync,
@@ -427,7 +427,7 @@ function createAgentConversationHistoryService({
     const payload = Buffer.from(JSON.stringify(input), "utf-8").toString("base64");
     const output = session.type === "wsl"
       ? await runProcess("wsl.exe", ["-d", session.wslDistro, "--", "python3", "-c", expression, action, payload], spawn)
-      : await sshSessionRuntime.exec(
+      : await sshAgentTransport.exec(
         session.id,
         `python3 -c ${shellQuote(expression)} ${shellQuote(action)} ${shellQuote(payload)}`,
         { actionName: "Agent conversation history", timeoutMs: REMOTE_TIMEOUT_MS }

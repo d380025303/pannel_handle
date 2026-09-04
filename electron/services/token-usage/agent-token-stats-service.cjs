@@ -56,24 +56,6 @@ function runProcess(command, args, spawn = defaultSpawn) {
   });
 }
 
-function runSsh(sessionId, command, sshSessionRuntime) {
-  return sshSessionRuntime.connectClient(sessionId, { actionName: "Agent token statistics", timeoutMs: 10000 })
-    .then(client => new Promise((resolve, reject) => {
-      client.exec(command, (error, stream) => {
-        if (error) { client.end(); reject(error); return; }
-        let stdout = "";
-        let stderr = "";
-        stream.on("data", chunk => { stdout += chunk.toString("utf-8"); });
-        stream.stderr?.on("data", chunk => { stderr += chunk.toString("utf-8"); });
-        stream.on("close", code => {
-          client.end();
-          if (code === 0) resolve(stdout);
-          else reject(new Error(stderr.trim() || `Remote transcript reader exited with code ${code}.`));
-        });
-      });
-    }));
-}
-
 function isLocalSshBridge(session) {
   return session?.type === "ssh" && session.agentLocation === "local";
 }
@@ -95,7 +77,7 @@ function getHookEventName(input) {
 function createAgentTokenStatsService({
   terminalManager,
   statsStore,
-  sshSessionRuntime,
+  sshAgentTransport,
   broadcast = () => {},
   spawn = defaultSpawn,
   now = () => Date.now(),
@@ -177,7 +159,7 @@ function createAgentTokenStatsService({
   }
 
   const liveModule = createAgentTokenLiveModule({
-    sshSessionRuntime,
+    sshAgentTransport,
     emitSnapshot: snapshot => broadcast("agent-token-live:changed", snapshot),
     onUsage: persistLiveUsage,
     onMainLine: consumeConversationLine,
@@ -194,7 +176,10 @@ function createAgentTokenStatsService({
     const command = remoteParserCommand(provider, transcriptPath);
     const output = session.type === "wsl"
       ? await runProcess("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc", command], spawn)
-      : await runSsh(session.id, command, sshSessionRuntime);
+      : await sshAgentTransport.exec(session.id, command, {
+        actionName: "Agent token statistics",
+        timeoutMs: 10000
+      });
     const lines = JSON.parse(output);
     return parseTranscriptText(provider, Array.isArray(lines) ? lines.join("\n") : "");
   }

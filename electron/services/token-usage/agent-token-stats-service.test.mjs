@@ -7,7 +7,16 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createAgentTokenStatsService, REMOTE_DELTA_SCRIPT } = require("./agent-token-stats-service.cjs");
+const { createAgentTokenStatsService: createAgentTokenStatsServiceImpl, REMOTE_DELTA_SCRIPT } = require("./agent-token-stats-service.cjs");
+const { createSshAgentTransport } = require("../../ssh/ssh-agent-transport.cjs");
+
+function createAgentTokenStatsService(options) {
+  const { sshSessionRuntime, ...serviceOptions } = options;
+  if (!serviceOptions.sshAgentTransport && sshSessionRuntime) {
+    serviceOptions.sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
+  }
+  return createAgentTokenStatsServiceImpl(serviceOptions);
+}
 
 function codexLine(inputTokens, outputTokens) {
   return `${JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens } } } })}\n`;

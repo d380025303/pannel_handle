@@ -5,8 +5,18 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import historyModule from "./agent-conversation-history-service.cjs";
+import sshAgentTransportModule from "../ssh/ssh-agent-transport.cjs";
 
-const { createAgentConversationHistoryService } = historyModule;
+const { createAgentConversationHistoryService: createAgentConversationHistoryServiceImpl } = historyModule;
+const { createSshAgentTransport } = sshAgentTransportModule;
+
+function createAgentConversationHistoryService(options) {
+  const { sshSessionRuntime, ...serviceOptions } = options;
+  if (!serviceOptions.sshAgentTransport && sshSessionRuntime) {
+    serviceOptions.sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
+  }
+  return createAgentConversationHistoryServiceImpl(serviceOptions);
+}
 const temporaryDirectories = [];
 
 function createFixture() {

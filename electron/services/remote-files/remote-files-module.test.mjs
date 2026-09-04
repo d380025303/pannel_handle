@@ -29,7 +29,7 @@ function createHarness() {
     terminalManager,
     sessionStore: {},
     knownHostStore: {},
-    sshSessionRuntime: {},
+    sshFileSystem: {},
     windowManager: { getWindowFromEvent: vi.fn(() => null) },
     broadcast: vi.fn(),
     fallbackIconPath: "C:\\app\\build\\icon.png"

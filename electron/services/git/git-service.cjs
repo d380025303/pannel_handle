@@ -1,7 +1,6 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const { spawn: defaultSpawn } = require("node:child_process");
-const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const STATUS_TIMEOUT_MS = 10000;
 const WRITE_TIMEOUT_MS = 30000;
@@ -217,11 +216,6 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err || "Unknown error");
 }
 
-function createDefaultSshClient() {
-  const { Client } = require("ssh2");
-  return new Client();
-}
-
 function createCommandError(actionName, code, stdout, stderr, canceled = false) {
   const detail = String(stderr || stdout || "").trim();
   const error = new Error(detail || (canceled ? `${actionName} canceled.` : `${actionName} failed with exit code ${code}.`));
@@ -427,14 +421,10 @@ async function mapWithConcurrency(values, concurrency, mapper) {
 
 function createGitService({
   terminalManager,
-  sessionStore,
-  knownHostStore,
-  sshSessionRuntime,
+  sshGitExecutor,
   spawn = defaultSpawn,
-  fsApi = fs,
-  clientFactory = createDefaultSshClient
+  fsApi = fs
 }) {
-  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({ terminalManager, sessionStore, knownHostStore, clientFactory, timeoutMs: STATUS_TIMEOUT_MS });
   const activeOperations = new Map();
   const activeRepositoryOperations = new Map();
 
@@ -466,57 +456,9 @@ function createGitService({
     return { session, cwd: getWorkingDirectory(session, target.cwd) };
   }
 
-  async function runSshShellCommand(session, command, options = {}) {
-    if (typeof sshRuntime.execStreaming !== "function") {
-      const stdout = await sshRuntime.exec(session.id, command, {
-        actionName: options.actionName,
-        allowExitCodes: options.allowExitCodes,
-        timeoutMs: options.timeoutMs
-      });
-      return { stdout, stderr: "", truncated: false };
-    }
-    let stdout = "";
-    let stderr = "";
-    let truncated = false;
-    const limit = options.maxOutputBytes || MAX_COMMAND_OUTPUT_BYTES;
-    const handle = await sshRuntime.execStreaming(session.id, command, {
-      actionName: options.actionName,
-      connectTimeoutMs: options.timeoutMs,
-      onStdout(data) {
-        const appended = appendLimited(stdout, data, limit);
-        stdout = appended.value;
-        truncated = truncated || appended.truncated;
-      },
-      onStderr(data) {
-        const appended = appendLimited(stderr, data, limit);
-        stderr = appended.value;
-        truncated = truncated || appended.truncated;
-      }
-    });
-    options.onCancelReady?.(() => handle.cancel());
-    const timer = setTimeout(() => handle.cancel(), options.timeoutMs || STATUS_TIMEOUT_MS);
-    let result;
-    try {
-      result = await handle.promise;
-    } finally {
-      clearTimeout(timer);
-    }
-    const allowExitCodes = options.allowExitCodes || [0];
-    if (!allowExitCodes.includes(result.exitCode)) {
-      throw createCommandError(options.actionName || "Git command", result.exitCode, stdout, stderr, result.signal === "TERM");
-    }
-    return { stdout, stderr, truncated };
-  }
-
-  function runSshCommand(session, args, options = {}) {
-    const cwd = getWorkingDirectory(session, options.cwd);
-    const command = `cd ${shellQuote(cwd)} && GIT_TERMINAL_PROMPT=0 git ${args.map(shellQuote).join(" ")}`;
-    return runSshShellCommand(session, command, options);
-  }
-
   function runGitForSession(session, args, options = {}) {
     const cwd = getWorkingDirectory(session, options.cwd);
-    if (session.type === "ssh") return runSshCommand(session, args, options);
+    if (session.type === "ssh") return sshGitExecutor.runGit(session.id, cwd, args, options);
     const environment = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
     if (session.type === "windows") {
       return runProcess(spawn, "git", args, { ...options, cwd, env: environment });
@@ -633,8 +575,7 @@ function createGitService({
         ...args
       ], { actionName: "Git repository directory scan" });
     } else {
-      const command = `cd ${shellQuote(root)} && find ${args.map(shellQuote).join(" ")}`;
-      result = await runSshShellCommand(session, command, { actionName: "Git repository directory scan" });
+      result = await sshGitExecutor.listDirectories(session.id, root, { actionName: "Git repository directory scan" });
     }
     if (result.truncated) throw new Error("Git repository directory scan output is too large.");
     return result.stdout

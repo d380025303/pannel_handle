@@ -26,7 +26,7 @@ function isNestedAgentTranscript(provider, transcriptPath) {
 }
 
 function createAgentTokenLiveModule({
-  sshSessionRuntime,
+  sshAgentTransport,
   emitSnapshot = () => {},
   onUsage = () => {},
   onMainLine = () => {},
@@ -41,7 +41,7 @@ function createAgentTokenLiveModule({
   const trackers = new Map();
   const completedSnapshots = new Map();
   const source = createTranscriptSource({
-    sshSessionRuntime,
+    sshAgentTransport,
     fsPromises,
     toWslHostPath,
     onMainLine,
@@ -103,7 +103,6 @@ function createAgentTokenLiveModule({
         pollPromise: null,
         remote: resolved.remote,
         remoteClient: null,
-        remoteClientPromise: null,
         session
       };
       trackers.set(session.id, tracker);

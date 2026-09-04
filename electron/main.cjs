@@ -25,10 +25,8 @@ const { createMobileRemoteService } = require("./services/mobile-remote-service.
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
 const { createRemoteFilesModule, registerRemoteFileScheme } = require("./services/remote-files/index.cjs");
-const { createRemoteSystemService } = require("./services/remote-system-service.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
-const { createRemoteAgentBridgeService } = require("./services/remote-agent-bridge-service.cjs");
 const { createAgentUsageService } = require("./services/token-usage/agent-usage-service.cjs");
 const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
@@ -36,8 +34,15 @@ const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-
 const { createWorkBuddyModelCatalogService } = require("./services/workbuddy-model-catalog-service.cjs");
 const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
-const { createSshHookTunnelService } = require("./ssh/ssh-hook-tunnel-service.cjs");
-const { createSshSessionRuntime } = require("./ssh/ssh-session-runtime.cjs");
+const {
+  createRemoteAgentBridgeService,
+  createRemoteSystemService,
+  createSshAgentTransport,
+  createSshFileSystem,
+  createSshGitExecutor,
+  createSshHookTunnelService,
+  createSshSessionRuntime
+} = require("./ssh/index.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
 const { createAgentTokenStatsStore } = require("./stores/agent-token-stats-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
@@ -250,14 +255,17 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       knownHostStore
     });
+    const sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
+    const sshFileSystem = createSshFileSystem({ sshSessionRuntime });
+    const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,
-      sshSessionRuntime,
+      sshAgentTransport,
       homeDir: app.getPath("home")
     });
     agentUsageService = createAgentUsageService({
       terminalManager,
-      sshSessionRuntime,
+      sshAgentTransport,
       miniMaxConfigStore
     });
     workBuddyCheckinService = createWorkBuddyCheckinService();
@@ -283,7 +291,7 @@ if (!gotSingleInstanceLock) {
     agentTokenStatsService = createAgentTokenStatsService({
       terminalManager,
       statsStore: agentTokenStatsStore,
-      sshSessionRuntime,
+      sshAgentTransport,
       broadcast: windowManager.broadcast,
       conversationSink: agentConversationManager
     });
@@ -294,9 +302,7 @@ if (!gotSingleInstanceLock) {
       protocol,
       dialog,
       terminalManager,
-      sessionStore,
-      knownHostStore,
-      sshSessionRuntime,
+      sshFileSystem,
       shellApi: shell,
       windowManager,
       broadcast: windowManager.broadcast,
@@ -445,9 +451,7 @@ if (!gotSingleInstanceLock) {
     gitModule = createGitModule({
       ipcMain,
       terminalManager,
-      sessionStore,
-      knownHostStore,
-      sshSessionRuntime
+      sshGitExecutor
     });
     projectSearchService = createProjectSearchService({
       terminalManager,

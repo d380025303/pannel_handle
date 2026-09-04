@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const {
   MAX_DIFF_ROWS,
-  createGitService,
+  createGitService: createGitServiceImpl,
   parseBranchList,
   parseHistory,
   parsePorcelainStatus,
@@ -17,6 +17,15 @@ const {
   parseStashList,
   parseUnifiedDiff
 } = require("./git-service.cjs");
+const { createSshGitExecutor } = require("../../ssh/ssh-git-executor.cjs");
+
+function createGitService(options) {
+  const { sshSessionRuntime, ...serviceOptions } = options;
+  if (!serviceOptions.sshGitExecutor && sshSessionRuntime) {
+    serviceOptions.sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
+  }
+  return createGitServiceImpl(serviceOptions);
+}
 
 const temporaryDirectories = [];
 

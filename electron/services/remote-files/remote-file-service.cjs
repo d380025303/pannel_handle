@@ -4,8 +4,6 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
-const SftpClient = require("ssh2-sftp-client");
-const { createSshSessionRuntime } = require("../../ssh/ssh-session-runtime.cjs");
 
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const OFFICE_PREVIEW_LIMIT = 50 * 1024 * 1024;
@@ -263,18 +261,11 @@ function joinWslPath(basePath, name) {
   return path.posix.join(normalizedBase, name);
 }
 
-function createRemoteFileService({ terminalManager, sessionStore, knownHostStore, sshSessionRuntime, sftpFactory = () => new SftpClient(), fsApi = fs, shellApi, previewCacheRoot = path.join(os.tmpdir(), "pannel-handle-office-preview") }) {
-  const clients = new Map();
+function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, shellApi, previewCacheRoot = path.join(os.tmpdir(), "pannel-handle-office-preview") }) {
   const previews = new Map();
   const previewCleanupTasks = new Set();
   const activeDownloads = new Map();
   let previewCacheReady = null;
-  const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
-    terminalManager,
-    sessionStore,
-    knownHostStore,
-    sftpFactory
-  });
 
   function schedulePreviewFileCleanup(hostPath) {
     if (!hostPath) return;
@@ -355,18 +346,6 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       return path.join(normalizeWindowsPath(basePath, getLocalHome(session)), name);
     }
     return joinWslPath(basePath, name);
-  }
-
-  async function getClient(sessionId) {
-    getSession(sessionId);
-    const cached = clients.get(sessionId);
-    if (cached) {
-      return cached;
-    }
-
-    const client = await sshRuntime.createSftpClient(sessionId);
-    clients.set(sessionId, client);
-    return client;
   }
 
   async function listLocal(session, filePath) {
@@ -463,8 +442,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (configuredCwd && configuredCwd !== "~" && configuredCwd.startsWith("/")) {
       return normalizeRemotePath(configuredCwd);
     }
-    const client = await getClient(sessionId);
-    return normalizeRemotePath(await client.cwd());
+    return normalizeRemotePath(await sshFileSystem.cwd(sessionId));
   }
 
   async function list(sessionId, remotePath = ".") {
@@ -472,9 +450,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (session.type !== "ssh") {
       return listLocal(session, remotePath);
     }
-    const client = await getClient(sessionId);
     const normalizedPath = normalizeRemotePath(remotePath);
-    const entries = await client.list(normalizedPath);
+    const entries = await sshFileSystem.list(sessionId, normalizedPath);
     return sortEntries(entries
       .map((entry) => ({
         name: entry.name,
@@ -497,14 +474,13 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       return readLocalText(session, remotePath);
     }
     const normalizedPath = normalizeRemotePath(remotePath);
-    const client = await getClient(sessionId);
-    const stat = await client.stat(normalizedPath);
+    const stat = await sshFileSystem.stat(sessionId, normalizedPath);
     const size = Number(stat.size || 0);
     if (size > TEXT_PREVIEW_LIMIT) {
       return { kind: "too_large", size, limit: TEXT_PREVIEW_LIMIT };
     }
 
-    const data = await client.get(normalizedPath);
+    const data = await sshFileSystem.get(sessionId, normalizedPath);
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
     if (buffer.length > TEXT_PREVIEW_LIMIT) {
       return { kind: "too_large", size: buffer.length, limit: TEXT_PREVIEW_LIMIT };
@@ -528,8 +504,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     const officeType = getOfficeType(remotePath);
     if (officeType) {
       const normalizedPath = normalizeRemotePath(remotePath);
-      const client = await getClient(sessionId);
-      const stat = await client.stat(normalizedPath);
+      const stat = await sshFileSystem.stat(sessionId, normalizedPath);
       const size = Number(stat.size || 0);
       if (size > OFFICE_PREVIEW_LIMIT) {
         return { kind: "too_large", size, limit: OFFICE_PREVIEW_LIMIT };
@@ -538,11 +513,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       const previewId = crypto.randomBytes(18).toString("base64url");
       const hostPath = path.join(previewCacheRoot, `${previewId}${path.extname(normalizedPath).toLowerCase()}`);
       try {
-        if (typeof client.fastGet === "function") {
-          await client.fastGet(normalizedPath, hostPath);
-        } else {
-          await client.get(normalizedPath, hostPath);
-        }
+        await sshFileSystem.downloadFile(`preview:${previewId}`, sessionId, normalizedPath, hostPath, { totalBytes: size });
         previews.set(previewId, {
           sessionId,
           hostPath,
@@ -645,20 +616,19 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       return writeLocalText(session, remotePath, content, expectedVersion, options);
     }
     const normalizedPath = normalizeRemotePath(remotePath);
-    const client = await getClient(sessionId);
     if (!options.force) {
-      const currentStat = await client.stat(normalizedPath);
+      const currentStat = await sshFileSystem.stat(sessionId, normalizedPath);
       if (Number(currentStat.size || 0) > TEXT_PREVIEW_LIMIT) {
         return { status: "conflict" };
       }
-      const currentData = await client.get(normalizedPath);
+      const currentData = await sshFileSystem.get(sessionId, normalizedPath);
       const currentBuffer = Buffer.isBuffer(currentData) ? currentData : Buffer.from(currentData);
       if (currentBuffer.length > TEXT_PREVIEW_LIMIT || getContentVersion(currentBuffer) !== expectedVersion) {
         return { status: "conflict" };
       }
     }
 
-    await client.put(contentBuffer, normalizedPath);
+    await sshFileSystem.put(sessionId, contentBuffer, normalizedPath);
     return {
       status: "saved",
       size: contentBuffer.length,
@@ -679,11 +649,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     }
 
     const normalizedPath = normalizeRemotePath(remotePath);
-    const client = await getClient(sessionId);
-    if (typeof client.mkdir === "function") {
-      await client.mkdir(path.posix.dirname(normalizedPath), true);
-    }
-    await client.put(buffer, normalizedPath);
+    await sshFileSystem.mkdir(sessionId, path.posix.dirname(normalizedPath), true);
+    await sshFileSystem.put(sessionId, buffer, normalizedPath);
     return { remotePath: normalizedPath };
   }
 
@@ -721,16 +688,15 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       reportProgress(totalBytes, totalBytes, true);
       return { status: "completed", remotePath: target.path };
     }
-    const client = await getClient(sessionId);
     if (reportProgress) {
-      await client.fastPut(localPath, target.path, {
+      await sshFileSystem.fastPut(sessionId, localPath, target.path, {
         step: (transferredBytes, _chunk, reportedTotalBytes) => {
           reportProgress(transferredBytes, Number(reportedTotalBytes) || totalBytes);
         }
       });
       reportProgress(totalBytes, totalBytes, true);
     } else {
-      await client.fastPut(localPath, target.path);
+      await sshFileSystem.fastPut(sessionId, localPath, target.path);
     }
     return { status: "completed", remotePath: target.path };
   }
@@ -765,7 +731,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     }
     const task = {
       canceled: false,
-      client: null,
+      ssh: session.type === "ssh",
       streams: [],
       rejectCanceled: null
     };
@@ -785,20 +751,11 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
 
     try {
       if (session.type === "ssh") {
-        const client = sftpFactory();
-        task.client = client;
-        await Promise.race([sshRuntime.createSftpClient(sessionId, { sftp: client }), canceled]);
         const normalizedPath = normalizeRemotePath(remotePath);
-        const stat = await Promise.race([client.stat(normalizedPath), canceled]);
-        const totalBytes = Number(stat?.size) || 0;
-        reportProgress(0, totalBytes);
         await Promise.race([
-          client.fastGet(normalizedPath, localPath, {
-            step: (transferredBytes, _chunk, total) => reportProgress(transferredBytes, Number(total) || totalBytes)
-          }),
+          sshFileSystem.downloadFile(transferId, sessionId, normalizedPath, localPath, { onProgress: reportProgress }),
           canceled
         ]);
-        reportProgress(totalBytes, totalBytes);
       } else {
         const sourcePath = toLocalHostPath(session, remotePath);
         const stat = await Promise.race([fsApi.promises.stat(sourcePath), canceled]);
@@ -836,13 +793,6 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       for (const stream of task.streams) {
         if (!stream.destroyed) stream.destroy();
       }
-      if (task.client) {
-        try {
-          await task.client.end();
-        } catch {
-          // Ignore close failures after a dedicated download connection.
-        }
-      }
     }
   }
 
@@ -854,13 +804,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     for (const stream of task.streams) {
       stream.destroy(Object.assign(new Error("Download canceled."), { code: "DOWNLOAD_CANCELED" }));
     }
-    if (task.client) {
-      try {
-        await task.client.end();
-      } catch {
-        // The download promise owns final cleanup.
-      }
-    }
+    if (task.ssh) await sshFileSystem.cancelDownload(String(transferId));
     return true;
   }
 
@@ -890,14 +834,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
         throw error;
       }
     }
-    const client = await getClient(sessionId);
-    if (typeof client.exists === "function") return Boolean(await client.exists(normalizeRemotePath(entryPath)));
-    try {
-      await client.stat(normalizeRemotePath(entryPath));
-      return true;
-    } catch {
-      return false;
-    }
+    return sshFileSystem.exists(sessionId, normalizeRemotePath(entryPath));
   }
 
   async function resolveConflictPath(sessionId, session, parentPath, requestedName, conflictPolicy = "cancel") {
@@ -935,9 +872,8 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       if (kind === "directory") await fsApi.promises.mkdir(hostPath);
       else await fsApi.promises.writeFile(hostPath, Buffer.alloc(0), { flag: "wx" });
     } else {
-      const client = await getClient(sessionId);
-      if (kind === "directory") await client.mkdir(target.path, false);
-      else await client.put(Buffer.alloc(0), target.path);
+      if (kind === "directory") await sshFileSystem.mkdir(sessionId, target.path, false);
+      else await sshFileSystem.put(sessionId, Buffer.alloc(0), target.path);
     }
     return { status: "completed", path: target.path, name: target.name };
   }
@@ -959,8 +895,7 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
     if (session.type !== "ssh") {
       await fsApi.promises.rename(toLocalHostPath(session, sourcePath), toLocalHostPath(session, target.path));
     } else {
-      const client = await getClient(sessionId);
-      await client.rename(normalizeRemotePath(sourcePath), target.path);
+      await sshFileSystem.rename(sessionId, normalizeRemotePath(sourcePath), target.path);
     }
     return { status: "completed", path: target.path, name: target.name };
   }
@@ -977,36 +912,22 @@ function createRemoteFileService({ terminalManager, sessionStore, knownHostStore
       return { mode: "permanent" };
     }
     const normalizedPath = normalizeRemotePath(remotePath);
-    const client = await getClient(sessionId);
-    try {
-      await client.rmdir(normalizedPath, true);
-    } catch {
-      await client.delete(normalizedPath);
-    }
+    await sshFileSystem.remove(sessionId, normalizedPath);
     return { mode: "permanent" };
   }
 
   async function disconnect(sessionId) {
-    const client = clients.get(sessionId);
-    clients.delete(sessionId);
     for (const [previewId, preview] of previews) {
       if (preview.sessionId === sessionId) {
         releasePreview(previewId);
       }
     }
-    if (client) {
-      try {
-        await client.end();
-      } catch {
-        // Ignore close failures during session cleanup.
-      }
-    }
+    await sshFileSystem?.disconnect?.(sessionId);
   }
 
   async function shutdown() {
     await Promise.all(Array.from(activeDownloads.keys()).map((transferId) => cancelDownload(transferId)));
-    const ids = Array.from(clients.keys());
-    await Promise.all(ids.map((id) => disconnect(id)));
+    await sshFileSystem?.shutdown?.();
     for (const previewId of Array.from(previews.keys())) releasePreview(previewId);
     await Promise.all(Array.from(previewCleanupTasks));
     if (previewCacheReady) {

@@ -36,37 +36,8 @@ function remoteDeltaCommand(transcriptPath, readerState) {
   return `python3 -c ${shellQuote(REMOTE_DELTA_SCRIPT)} ${shellQuote(transcriptPath)} ${shellQuote(JSON.stringify(readerState))} ${MAX_TRANSCRIPT_BYTES}`;
 }
 
-function runSshClientCommand(client, command) {
-  return new Promise((resolve, reject) => {
-    client.exec(command, (error, stream) => {
-      if (error) { reject(error); return; }
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      const finish = (err, value) => {
-        if (settled) return;
-        settled = true;
-        if (err) reject(err); else resolve(value);
-      };
-      stream.on("data", chunk => {
-        stdout += chunk.toString("utf-8");
-        if (Buffer.byteLength(stdout, "utf-8") > Math.ceil(MAX_TRANSCRIPT_BYTES * 4 / 3) + 1024 * 1024) {
-          stream.close?.();
-          finish(new Error("Remote transcript delta exceeds the live monitoring size limit."));
-        }
-      });
-      stream.stderr?.on("data", chunk => { stderr += chunk.toString("utf-8"); });
-      stream.once?.("error", finish);
-      stream.on("close", code => {
-        if (code === 0) finish(null, stdout);
-        else finish(new Error(stderr.trim() || `Remote transcript reader exited with code ${code}.`));
-      });
-    });
-  });
-}
-
 function createTranscriptSource({
-  sshSessionRuntime,
+  sshAgentTransport,
   fsPromises = fs.promises,
   toWslHostPath,
   onMainLine = () => {},
@@ -110,15 +81,8 @@ function createTranscriptSource({
   function closeRemoteClient(tracker) {
     if (!tracker?.remote) return;
     const client = tracker.remoteClient;
-    const pendingClient = tracker.remoteClientPromise;
     tracker.remoteClient = null;
-    tracker.remoteClientPromise = null;
-    try { client?.end?.(); } catch { /* Ignore SSH cleanup failures. */ }
-    if (!client && pendingClient) {
-      void pendingClient.then(connected => {
-        try { connected?.end?.(); } catch { /* Ignore SSH cleanup failures. */ }
-      }).catch(() => undefined);
-    }
+    try { client?.close?.(); } catch { /* Ignore SSH cleanup failures. */ }
   }
 
   function reset(tracker) {
@@ -173,28 +137,17 @@ function createTranscriptSource({
     reader.pendingBytes = combined.subarray(lineStart);
   }
 
-  async function ensureRemoteClient(tracker) {
+  function ensureRemoteClient(tracker) {
     if (tracker.remoteClient) return tracker.remoteClient;
-    if (!tracker.remoteClientPromise) {
-      const request = sshSessionRuntime.connectClient(tracker.session.id, {
-        actionName: "Agent live token statistics",
-        timeoutMs: 10000
-      }).then(client => {
-        if (tracker.remoteClientPromise !== request) {
-          try { client.end?.(); } catch { /* Ignore stale connection cleanup failures. */ }
-          throw new Error("Remote token tracker was closed.");
-        }
-        tracker.remoteClient = client;
-        client.on?.("close", () => {
-          if (tracker.remoteClient === client) tracker.remoteClient = null;
-        });
-        return client;
-      }).finally(() => {
-        if (tracker.remoteClientPromise === request) tracker.remoteClientPromise = null;
-      });
-      tracker.remoteClientPromise = request;
-    }
-    return tracker.remoteClientPromise;
+    tracker.remoteClient = sshAgentTransport.createReusableCommandClient(tracker.session.id, {
+      actionName: "Agent live token statistics",
+      timeoutMs: 10000,
+      commandName: "Remote transcript reader",
+      closedMessage: "Remote token tracker was closed.",
+      maxOutputBytes: Math.ceil(MAX_TRANSCRIPT_BYTES * 4 / 3) + 1024 * 1024,
+      outputLimitMessage: "Remote transcript delta exceeds the live monitoring size limit."
+    });
+    return tracker.remoteClient;
   }
 
   function getRemoteReaderState(tracker) {
@@ -206,10 +159,10 @@ function createTranscriptSource({
   }
 
   async function readRemoteAppendedBytes(tracker) {
-    const client = await ensureRemoteClient(tracker);
+    const client = ensureRemoteClient(tracker);
     let output;
     try {
-      output = await runSshClientCommand(client, remoteDeltaCommand(tracker.hostPath, getRemoteReaderState(tracker)));
+      output = await client.exec(remoteDeltaCommand(tracker.hostPath, getRemoteReaderState(tracker)));
     } catch (error) {
       if (tracker.remoteClient === client) closeRemoteClient(tracker);
       throw error;
@@ -334,6 +287,5 @@ module.exports = {
   REMOTE_DELTA_SCRIPT,
   createTranscriptSource,
   remoteDeltaCommand,
-  runSshClientCommand,
   shellQuote
 };

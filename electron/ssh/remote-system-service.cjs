@@ -1,5 +1,5 @@
 const { Client } = require("ssh2");
-const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
+const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const SECTION_MARKER = "__PANNEL_HANDLE_SECTION__";
 const VIRTUAL_FILESYSTEMS = new Set([

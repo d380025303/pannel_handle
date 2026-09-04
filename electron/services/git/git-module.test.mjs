@@ -21,7 +21,7 @@ describe("Git module", () => {
       ipcMain,
       terminalManager: { getSession: vi.fn() },
       sessionStore: {},
-      sshSessionRuntime: {}
+      sshGitExecutor: {}
     });
 
     expect(Array.from(ipcMain.handlers.keys())).toEqual(GIT_IPC_CHANNELS);

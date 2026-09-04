@@ -1,12 +1,10 @@
 const { createGitService } = require("./git-service.cjs");
 const { registerGitIpcHandlers } = require("./git-ipc-handlers.cjs");
 
-function createGitModule({ ipcMain, terminalManager, sessionStore, knownHostStore, sshSessionRuntime }) {
+function createGitModule({ ipcMain, terminalManager, sshGitExecutor }) {
   const gitService = createGitService({
     terminalManager,
-    sessionStore,
-    knownHostStore,
-    sshSessionRuntime
+    sshGitExecutor
   });
   const unregisterIpcHandlers = registerGitIpcHandlers({ ipcMain, gitService });
   let stopped = false;
