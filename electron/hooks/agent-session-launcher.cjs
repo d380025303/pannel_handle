@@ -1,5 +1,6 @@
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const os = require("node:os");
+const { buildCodexBackendCommand } = require("../services/codex-model-bridge/index.cjs");
 
 const AGENT_COMMANDS = Object.freeze({
   claude: "claude",
@@ -58,31 +59,6 @@ function isPowerShell(shell) {
   return ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable);
 }
 
-function commandArg(session, value) {
-  const text = String(value);
-  if (session.type !== "windows") return shellQuote(text);
-  if (isPowerShell(session.shell)) return `'${text.replace(/'/g, "''")}'`;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function buildRouterCodexCommand(session, config) {
-  const providerId = String(config.providerId || "openrouter");
-  const providerName = String(config.providerName || "OpenRouter");
-  const overrides = [
-    `model_provider=${providerId}`,
-    `model_providers.${providerId}.name=${providerName}`,
-    `model_providers.${providerId}.base_url=${config.baseUrl}`,
-    `model_providers.${providerId}.env_key=${config.apiKeyEnv}`,
-    `model_providers.${providerId}.wire_api=responses`,
-    `model_catalog_json=${config.catalogPath}`
-  ];
-  if (providerId === "nararouter" || providerId === "minimax") overrides.push('web_search="disabled"');
-  const args = ["codex"];
-  for (const override of overrides) args.push("-c", commandArg(session, override));
-  args.push("-m", commandArg(session, config.model));
-  return args.join(" ");
-}
-
 function compareVersions(left, right) {
   const a = String(left).split(".").map(value => Number.parseInt(value, 10) || 0);
   const b = String(right).split(".").map(value => Number.parseInt(value, 10) || 0);
@@ -111,25 +87,6 @@ function readGeminiVersion(session, spawnSync) {
   return match[1];
 }
 
-function buildOpenRouterCodexCommand(session, config) {
-  return buildRouterCodexCommand(session, config);
-}
-
-function buildCodeBuddyCodexCommand(session, config) {
-  const overrides = [
-    "model_provider=codebuddy",
-    "model_providers.codebuddy.name=CodeBuddy",
-    `model_providers.codebuddy.base_url=${config.baseUrl}`,
-    `model_providers.codebuddy.env_key=${config.apiKeyEnv}`,
-    "model_providers.codebuddy.wire_api=responses",
-    `model_catalog_json=${config.catalogPath}`
-  ];
-  const args = ["codex"];
-  for (const override of overrides) args.push("-c", commandArg(session, override));
-  args.push("-m", commandArg(session, config.model));
-  return args.join(" ");
-}
-
 function readGrokVersion(session, spawnSync) {
   const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
   const result = session.type === "wsl"
@@ -153,10 +110,14 @@ function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
   let agentCommand = command;
-  if (session.agentProvider === "codex" && runtime.openRouter) agentCommand = buildOpenRouterCodexCommand(session, runtime.openRouter);
-  if (session.agentProvider === "codex" && runtime.naraRouter) agentCommand = buildRouterCodexCommand(session, runtime.naraRouter);
-  if (session.agentProvider === "codex" && runtime.miniMax) agentCommand = buildRouterCodexCommand(session, runtime.miniMax);
-  if (session.agentProvider === "codex" && runtime.codeBuddyCodex) agentCommand = buildCodeBuddyCodexCommand(session, runtime.codeBuddyCodex);
+  if (session.agentProvider === "codex") {
+    const backend = runtime.openRouter || runtime.naraRouter || runtime.miniMax || runtime.codeBuddyCodex;
+    if (backend) {
+      agentCommand = buildCodexBackendCommand(session, runtime.codeBuddyCodex
+        ? { providerId: "codebuddy", providerName: "CodeBuddy", ...backend }
+        : backend);
+    }
+  }
 
   if (session.type === "ssh" && session.agentProvider === "opencode") {
     if (!runtime.hookUrl || !runtime.sessionId) {
@@ -310,10 +271,8 @@ function createAgentSessionLauncher({
   remoteAgentBridgeService,
   openRouterService,
   naraRouterService,
-  naraRouterBridgeService,
   miniMaxService,
-  miniMaxBridgeService,
-  codeBuddyCodexBridgeService,
+  codexModelBridgeModule,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -477,22 +436,19 @@ function createAgentSessionLauncher({
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
     const miniMax = await miniMaxService?.getLaunchConfig(session);
-    const codeBuddyCodex = await codeBuddyCodexBridgeService?.getLaunchConfig(session);
+    const codeBuddyCodex = await codexModelBridgeModule?.getCodeBuddyLaunchConfig?.(session);
     const backend = openRouter || naraRouter || miniMax || codeBuddyCodex;
+    const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
       runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
-      naraRouterRegistrationId: naraRouter?.registrationId,
-      miniMaxRegistrationId: miniMax?.registrationId,
-      codeBuddyRegistrationId: codeBuddyCodex?.registrationId
+      codexBridgeRegistration: bridgeRegistration
     };
   }
 
   function bindCodexBridgeRuntime(session, runtime) {
-    if (runtime?.naraRouterRegistrationId) naraRouterBridgeService.bindSession(session.id, runtime.naraRouterRegistrationId);
-    if (runtime?.miniMaxRegistrationId) miniMaxBridgeService.bindSession(session.id, runtime.miniMaxRegistrationId);
-    if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService.bindSession(session.id, runtime.codeBuddyRegistrationId);
+    codexModelBridgeModule?.bindSession(session.id, runtime?.codexBridgeRegistration);
     return session;
   }
 
@@ -500,9 +456,7 @@ function createAgentSessionLauncher({
     try {
       return bindCodexBridgeRuntime(create(), runtime);
     } catch (error) {
-      if (runtime?.naraRouterRegistrationId) naraRouterBridgeService?.releaseRegistration?.(runtime.naraRouterRegistrationId);
-      if (runtime?.miniMaxRegistrationId) miniMaxBridgeService?.releaseRegistration?.(runtime.miniMaxRegistrationId);
-      if (runtime?.codeBuddyRegistrationId) codeBuddyCodexBridgeService?.releaseRegistration?.(runtime.codeBuddyRegistrationId);
+      codexModelBridgeModule?.releaseRegistration(runtime?.codexBridgeRegistration);
       throw error;
     }
   }
@@ -685,7 +639,7 @@ function createAgentSessionLauncher({
         ? naraRouterService
         : backend === "minimax"
           ? miniMaxService
-          : codeBuddyCodexBridgeService;
+          : codexModelBridgeModule?.codeBuddyService;
     const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : backend === "minimax" ? "MiniMax" : "CodeBuddy";
     if (!service?.getConfig) throw new Error(`${providerName} Codex 服务不可用。`);
     const config = await service.getConfig();
@@ -789,9 +743,6 @@ module.exports = {
   buildLocalCodeBuddyStartCommand,
   buildLocalOpenCodeConfig,
   buildLocalOpenCodeStartCommand,
-  buildOpenRouterCodexCommand,
-  buildRouterCodexCommand,
-  buildCodeBuddyCodexCommand,
   wrapAgentStartCommand,
   buildLocalCodexStartCommand,
   createAgentSessionLauncher,

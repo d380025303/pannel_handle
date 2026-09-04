@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import protocol from "./codebuddy-codex-protocol.cjs";
+import protocol from "./responses-chat-completions-protocol.cjs";
 
 const { responsesToChat, createResponseAccumulator } = protocol;
 

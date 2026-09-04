@@ -19,9 +19,8 @@ const { createClipboardImageService } = require("./services/clipboard-image-serv
 const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
 const { createOpenRouterService, buildChatBridgeVerificationRequest, validateChatBridgeVerification } = require("./services/openrouter-service.cjs");
-const { createCodeBuddyCodexBridgeService } = require("./services/codebuddy-codex-bridge-service.cjs");
-const { createResponsesChatCompletionsBridgeService } = require("./services/responses-chat-completions-bridge-service.cjs");
-const { MINIMAX_BASE_URL, MINIMAX_CHAT_COMPLETIONS_URL, MINIMAX_API_KEY_ENV, transformMiniMaxModels, adaptMiniMaxChatRequest } = require("./services/minimax-service.cjs");
+const { createCodexModelBridgeModule, MINIMAX_BASE_URL, MINIMAX_API_KEY_ENV } = require("./services/codex-model-bridge/index.cjs");
+const { transformMiniMaxModels } = require("./services/minimax-service.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -63,10 +62,8 @@ let miniMaxConfigStore = null;
 let codeBuddyCodexConfigStore = null;
 let openRouterService = null;
 let naraRouterService = null;
-let naraRouterBridgeService = null;
 let miniMaxService = null;
-let miniMaxBridgeService = null;
-let codeBuddyCodexBridgeService = null;
+let codexModelBridgeModule = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
@@ -234,14 +231,8 @@ if (!gotSingleInstanceLock) {
         if (remoteAgentBridgeService) {
           void remoteAgentBridgeService.closeBinding(id);
         }
-        if (codeBuddyCodexBridgeService) {
-          codeBuddyCodexBridgeService.disconnect(id);
-        }
-        if (naraRouterBridgeService) {
-          naraRouterBridgeService.disconnect(id);
-        }
-        if (miniMaxBridgeService) {
-          miniMaxBridgeService.disconnect(id);
+        if (codexModelBridgeModule) {
+          codexModelBridgeModule.disconnect(id);
         }
       }
     });
@@ -324,12 +315,16 @@ if (!gotSingleInstanceLock) {
       store: openRouterConfigStore,
       catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
     });
-    naraRouterBridgeService = createResponsesChatCompletionsBridgeService({
-      providerId: "nararouter",
-      providerName: "NaraRouter",
-      upstreamUrl: "https://router.bynara.id/v1/chat/completions",
-      apiKeyEnv: "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY",
-      ignoredToolTypes: ["web_search", "web_search_preview"]
+    codexModelBridgeModule = createCodexModelBridgeModule({
+      codeBuddy: {
+        store: codeBuddyCodexConfigStore,
+        workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
+        verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"),
+        catalogFile: path.join(app.getPath("userData"), "codebuddy-codex-model-catalog.json"),
+        preloadFile: app.isPackaged
+          ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "services", "codex-model-bridge", "codebuddy-preload.cjs")
+          : path.join(__dirname, "services", "codex-model-bridge", "codebuddy-preload.cjs")
+      }
     });
     naraRouterService = createOpenRouterService({
       store: naraRouterConfigStore,
@@ -342,21 +337,12 @@ if (!gotSingleInstanceLock) {
       connectionTestPath: "/models",
       verificationHeaders: {},
       metadataBaseUrl: "https://router.bynara.id/api",
-      responsesTransport: input => naraRouterBridgeService.fetchResponses(input),
-      launchAdapter: (session, config) => naraRouterBridgeService.getLaunchConfig(session, config),
+      responsesTransport: codexModelBridgeModule.getResponsesTransport("nararouter"),
+      launchAdapter: codexModelBridgeModule.getLaunchAdapter("nararouter"),
       catalogCapabilities: { textOnly: true, reasoningSummaries: false },
       verificationRequestBuilder: buildChatBridgeVerificationRequest,
       verificationResultValidator: validateChatBridgeVerification,
       verificationStrategy: "all"
-    });
-    miniMaxBridgeService = createResponsesChatCompletionsBridgeService({
-      providerId: "minimax",
-      providerName: "MiniMax",
-      upstreamUrl: MINIMAX_CHAT_COMPLETIONS_URL,
-      apiKeyEnv: MINIMAX_API_KEY_ENV,
-      ignoredToolTypes: ["web_search", "web_search_preview"],
-      requestAdapter: adaptMiniMaxChatRequest,
-      allowFinishReasonAsDone: true
     });
     miniMaxService = createOpenRouterService({
       store: miniMaxConfigStore,
@@ -368,22 +354,13 @@ if (!gotSingleInstanceLock) {
       modelsRequireApiKey: true,
       connectionTestPath: "/models",
       verificationHeaders: {},
-      responsesTransport: input => miniMaxBridgeService.fetchResponses(input),
-      launchAdapter: (session, config) => miniMaxBridgeService.getLaunchConfig(session, config),
+      responsesTransport: codexModelBridgeModule.getResponsesTransport("minimax"),
+      launchAdapter: codexModelBridgeModule.getLaunchAdapter("minimax"),
       catalogCapabilities: { textOnly: true, reasoningSummaries: false, defaultContextWindow: 128000 },
       verificationRequestBuilder: buildChatBridgeVerificationRequest,
       verificationResultValidator: validateChatBridgeVerification,
       verificationStrategy: "all",
       transformModels: transformMiniMaxModels
-    });
-    codeBuddyCodexBridgeService = createCodeBuddyCodexBridgeService({
-      store: codeBuddyCodexConfigStore,
-      workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
-      verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"),
-      catalogFile: path.join(app.getPath("userData"), "codebuddy-codex-model-catalog.json"),
-      preloadFile: app.isPackaged
-        ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "services", "codebuddy-codex-preload.cjs")
-        : path.join(__dirname, "services", "codebuddy-codex-preload.cjs")
     });
     clipboardImageService = createClipboardImageService({
       clipboard,
@@ -423,10 +400,8 @@ if (!gotSingleInstanceLock) {
       remoteAgentBridgeService,
       openRouterService,
       naraRouterService,
-      naraRouterBridgeService,
       miniMaxService,
-      miniMaxBridgeService,
-      codeBuddyCodexBridgeService,
+      codexModelBridgeModule,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
@@ -519,7 +494,7 @@ if (!gotSingleInstanceLock) {
       openRouterService,
       naraRouterService,
       miniMaxService,
-      codeBuddyCodexBridgeService,
+      codeBuddyCodexBridgeService: codexModelBridgeModule.codeBuddyService,
       mobileRemoteService,
       remoteAgentBridgeService
     });
@@ -553,14 +528,8 @@ app.on("window-all-closed", () => {
   if (remoteAgentBridgeService) {
     void remoteAgentBridgeService.shutdown();
   }
-  if (codeBuddyCodexBridgeService) {
-    void codeBuddyCodexBridgeService.shutdown();
-  }
-  if (naraRouterBridgeService) {
-    void naraRouterBridgeService.shutdown();
-  }
-  if (miniMaxBridgeService) {
-    void miniMaxBridgeService.shutdown();
+  if (codexModelBridgeModule) {
+    void codexModelBridgeModule.shutdown();
   }
   if (ideaModule) {
     void ideaModule.shutdown();

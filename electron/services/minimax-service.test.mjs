@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import minimaxModule from "./minimax-service.cjs";
+import bridgeModule from "./codex-model-bridge/index.cjs";
 
-const { adaptMiniMaxChatRequest, minimaxContextWindow, transformMiniMaxModels } = minimaxModule;
+const { minimaxContextWindow, transformMiniMaxModels } = minimaxModule;
+const { adaptMiniMaxChatRequest } = bridgeModule;
 
 describe("MiniMax Codex adapter", () => {
   it("enriches the sparse OpenAI-compatible model list", () => {

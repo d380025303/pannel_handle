@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import bridge from "./codebuddy-codex-bridge-service.cjs";
+import bridge from "./codebuddy-bridge-service.cjs";
 
 const { VERIFICATION_PROTOCOL_VERSION, parseCodeBuddyVersion, parseCodeBuddyModels, parseVerificationStream, clearRequestEstablishmentTimeout, readCodeBuddyProductModels, buildModelCatalog } = bridge;
 const require = createRequire(import.meta.url);
-const { createCodeBuddyCodexConfigStore } = require("../stores/codebuddy-codex-config-store.cjs");
+const { createCodeBuddyCodexConfigStore } = require("../../stores/codebuddy-codex-config-store.cjs");
 const dirs = [];
 
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });

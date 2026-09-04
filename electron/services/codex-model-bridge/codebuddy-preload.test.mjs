@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const preloadFile = path.join(directory, "codebuddy-codex-preload.cjs");
+const preloadFile = path.join(directory, "codebuddy-preload.cjs");
 
 describe("CodeBuddy Codex preload", () => {
   it("reroutes only the authenticated model request to the local bridge", async () => {

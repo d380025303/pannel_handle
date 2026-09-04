@@ -9,9 +9,6 @@ const {
   buildLocalCodeBuddyStartCommand,
   buildLocalOpenCodeConfig,
   buildLocalOpenCodeStartCommand,
-  buildCodeBuddyCodexCommand,
-  buildOpenRouterCodexCommand,
-  buildRouterCodexCommand,
   createAgentSessionLauncher,
   wrapAgentStartCommand
 } = require("./agent-session-launcher.cjs");
@@ -282,52 +279,6 @@ describe("agent-session-launcher", () => {
       .resolves.toMatchObject({ agentProvider: "codebuddy" });
   });
 
-  it("builds an OpenRouter Codex command without embedding the API key", () => {
-    const command = buildOpenRouterCodexCommand({ type: "windows", shell: "powershell.exe" }, {
-      baseUrl: "https://openrouter.ai/api/v1",
-      apiKeyEnv: "OPENROUTER_API_KEY",
-      apiKey: "secret-value",
-      catalogPath: "C:\\Data\\openrouter-models.json",
-      model: "anthropic/claude-sonnet-4"
-    });
-
-    expect(command).toContain("model_provider");
-    expect(command).toContain("wire_api");
-    expect(command).toContain("anthropic/claude-sonnet-4");
-    expect(command).not.toContain("secret-value");
-  });
-
-  it("builds a NaraRouter Codex command with an isolated provider id", () => {
-    const command = buildRouterCodexCommand({ type: "windows", shell: "powershell.exe" }, {
-      providerId: "nararouter",
-      providerName: "NaraRouter",
-      baseUrl: "https://router.bynara.id/v1",
-      apiKeyEnv: "NARAROUTER_API_KEY",
-      apiKey: "secret-value",
-      catalogPath: "C:\\Data\\nararouter-models.json",
-      model: "gpt-test"
-    });
-    expect(command).toContain("model_provider=nararouter");
-    expect(command).toContain("model_providers.nararouter.name=NaraRouter");
-    expect(command).toContain("model_providers.nararouter.wire_api=responses");
-    expect(command).toContain('web_search="disabled"');
-    expect(command).toContain("NARAROUTER_API_KEY");
-    expect(command).not.toContain("secret-value");
-  });
-
-  it("builds a CodeBuddy Codex command without embedding the session token", () => {
-    const command = buildCodeBuddyCodexCommand({ type: "windows", shell: "powershell.exe" }, {
-      baseUrl: "http://127.0.0.1:4567/v1",
-      apiKeyEnv: "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY",
-      apiKey: "session-secret",
-      catalogPath: "C:\\Data\\codebuddy-models.json",
-      model: "glm-5.3"
-    });
-    expect(command).toContain("model_providers.codebuddy.wire_api=responses");
-    expect(command).toContain("glm-5.3");
-    expect(command).not.toContain("session-secret");
-  });
-
   it("builds an authenticated OpenCode bridge config without embedding the token", () => {
     const binding = {
       workspacePath: "C:\\runtime\\run-1",
@@ -407,17 +358,18 @@ describe("agent-session-launcher", () => {
       apiKey: "nara-session-token",
       catalogPath: "C:\\Data\\nararouter-models.json",
       model: "gpt-test",
-      registrationId: "launch:nara"
+      registrationId: "launch:nara",
+      bridgeRegistration: { backend: "nararouter", id: "launch:nara" }
     })) };
-    const naraRouterBridgeService = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
-    const mocks = createMocks({ naraRouterService, naraRouterBridgeService });
+    const codexModelBridgeModule = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
+    const mocks = createMocks({ naraRouterService, codexModelBridgeModule });
     await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "nararouter", codexModel: "gpt-test" });
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       runtimeEnv: { PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY: "nara-session-token" },
       runtimeWslEnvKeys: ["PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY"],
       runtimeInitialCommand: expect.not.stringContaining("nara-session-token")
     }));
-    expect(naraRouterBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:nara");
+    expect(codexModelBridgeModule.bindSession).toHaveBeenCalledWith(expect.any(String), { backend: "nararouter", id: "launch:nara" });
   });
 
   it("injects only the MiniMax bridge token and binds it to the session", async () => {
@@ -429,10 +381,11 @@ describe("agent-session-launcher", () => {
       apiKey: "minimax-session-token",
       catalogPath: "C:\\Data\\minimax-models.json",
       model: "MiniMax-M2.5",
-      registrationId: "launch:minimax"
+      registrationId: "launch:minimax",
+      bridgeRegistration: { backend: "minimax", id: "launch:minimax" }
     })) };
-    const miniMaxBridgeService = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
-    const mocks = createMocks({ miniMaxService, miniMaxBridgeService });
+    const codexModelBridgeModule = { bindSession: vi.fn(), releaseRegistration: vi.fn() };
+    const mocks = createMocks({ miniMaxService, codexModelBridgeModule });
 
     await mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "codex", codexBackend: "minimax", codexModel: "MiniMax-M2.5" });
 
@@ -441,26 +394,27 @@ describe("agent-session-launcher", () => {
       runtimeWslEnvKeys: ["PANNEL_HANDLE_MINIMAX_BRIDGE_KEY"],
       runtimeInitialCommand: expect.not.stringContaining("minimax-session-token")
     }));
-    expect(miniMaxBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:minimax");
+    expect(codexModelBridgeModule.bindSession).toHaveBeenCalledWith(expect.any(String), { backend: "minimax", id: "launch:minimax" });
   });
 
   it("injects the CodeBuddy bridge token only through the terminal environment", async () => {
-    const codeBuddyCodexBridgeService = { getLaunchConfig: vi.fn(() => ({
+    const codexModelBridgeModule = { getCodeBuddyLaunchConfig: vi.fn(() => ({
       baseUrl: "http://127.0.0.1:4567/v1",
       apiKeyEnv: "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY",
       apiKey: "session-secret",
       catalogPath: "C:\\Data\\codebuddy-models.json",
       model: "glm-5.3",
-      registrationId: "launch:test"
-    })), bindSession: vi.fn() };
-    const mocks = createMocks({ codeBuddyCodexBridgeService });
+      registrationId: "launch:test",
+      bridgeRegistration: { backend: "codebuddy", id: "launch:test" }
+    })), bindSession: vi.fn(), releaseRegistration: vi.fn() };
+    const mocks = createMocks({ codexModelBridgeModule });
     await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "codebuddy", codexModel: "glm-5.3" });
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
       runtimeEnv: { PANNEL_HANDLE_CODEBUDDY_CODEX_KEY: "session-secret" },
       runtimeWslEnvKeys: ["PANNEL_HANDLE_CODEBUDDY_CODEX_KEY"],
       runtimeInitialCommand: expect.not.stringContaining("session-secret")
     }));
-    expect(codeBuddyCodexBridgeService.bindSession).toHaveBeenCalledWith(expect.any(String), "launch:test");
+    expect(codexModelBridgeModule.bindSession).toHaveBeenCalledWith(expect.any(String), { backend: "codebuddy", id: "launch:test" });
   });
 
   it("starts CodeBuddy with its canonical command", () => {

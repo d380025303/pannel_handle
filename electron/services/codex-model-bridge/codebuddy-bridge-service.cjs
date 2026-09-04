@@ -5,8 +5,8 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
-const { responsesToChat, createResponseAccumulator } = require("./codebuddy-codex-protocol.cjs");
-const { getPromotionDisplay, normalizeCatalogData } = require("./workbuddy-model-catalog-service.cjs");
+const { responsesToChat, createResponseAccumulator } = require("./responses-chat-completions-protocol.cjs");
+const { getPromotionDisplay, normalizeCatalogData } = require("../workbuddy-model-catalog-service.cjs");
 
 const API_KEY_ENV = "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY";
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
