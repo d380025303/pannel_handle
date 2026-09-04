@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import minimaxModule from "./minimax-service.cjs";
-import bridgeModule from "./codex-model-bridge/index.cjs";
+import bridgeModule from "../codex-model-bridge/index.cjs";
 
 const { minimaxContextWindow, transformMiniMaxModels } = minimaxModule;
 const { adaptMiniMaxChatRequest } = bridgeModule;

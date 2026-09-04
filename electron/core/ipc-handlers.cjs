@@ -1,7 +1,6 @@
 const { ipcMain } = require("electron");
 const fs = require("node:fs");
 const { openExternalHttpUrl } = require("./external-link.cjs");
-const { VALID_LOCALES, VALID_THEME_IDS } = require("../stores/config-store.cjs");
 
 function getImportedSessions(input) {
   const parsed = JSON.parse(input);
@@ -22,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, workBuddyAutoCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, miniMaxService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -216,13 +215,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     else terminalManager.resize(id, cols, rows);
   });
 
-  ipcMain.handle("mobile-access:get-state", () => mobileRemoteService.getState());
-  ipcMain.handle("mobile-access:update-config", (_event, partial) => mobileRemoteService.updateConfig(partial));
-  ipcMain.handle("mobile-access:create-pairing", () => mobileRemoteService.createPairing());
-  ipcMain.handle("mobile-access:list-audit", () => mobileRemoteService.listAudit());
-  ipcMain.handle("mobile-access:revoke-device", (_event, deviceId) => mobileRemoteService.revokeDevice(deviceId));
-  ipcMain.handle("mobile-access:disconnect-device", () => mobileRemoteService.disconnectActiveDevice());
-
   ipcMain.handle("remote-system:metrics", (_event, { sessionId }) => {
     return remoteSystemService.getMetrics(sessionId);
   });
@@ -286,86 +278,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
     const window = windowManager.getWindowFromEvent(event);
     return window ? window.isMaximized() : false;
   });
-
-  ipcMain.handle("config:get", () => configStore.getConfig());
-
-  ipcMain.handle("config:set", (_event, partial) => {
-    const updates = {};
-    if (partial && typeof partial.autoRestore === "boolean") {
-      updates.autoRestore = partial.autoRestore;
-    }
-    if (partial && typeof partial.autoWorkBuddyCheckin === "boolean") {
-      updates.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
-    }
-    if (partial && typeof partial.autoCollapseFileChains === "boolean") {
-      updates.autoCollapseFileChains = partial.autoCollapseFileChains;
-    }
-    if (partial && typeof partial.debugMode === "boolean") {
-      updates.debugMode = partial.debugMode;
-    }
-    if (partial && typeof partial.themeId === "string" && VALID_THEME_IDS.has(partial.themeId)) {
-      updates.themeId = partial.themeId;
-    }
-    if (partial && typeof partial.locale === "string" && VALID_LOCALES.has(partial.locale)) {
-      updates.locale = partial.locale;
-    }
-    if (partial && typeof partial.rightToolsWidth === "number"
-      && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
-      updates.rightToolsWidth = partial.rightToolsWidth;
-    }
-    if (Object.keys(updates).length > 0) {
-      configStore.updateConfig(updates);
-    }
-    const config = configStore.getConfig();
-    if (Object.prototype.hasOwnProperty.call(updates, "autoWorkBuddyCheckin")) {
-      workBuddyAutoCheckinService?.setEnabled(config.autoWorkBuddyCheckin);
-    }
-    return config;
-  });
-
-  ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());
-
-  ipcMain.handle("dingtalk:set-config", (_event, input) => {
-    return dingTalkNotificationManager.updateConfig(input);
-  });
-
-  ipcMain.handle("dingtalk:clear-credentials", () => {
-    return dingTalkNotificationManager.clearCredentials();
-  });
-
-  ipcMain.handle("dingtalk:test", () => dingTalkNotificationManager.testConnection());
-
-  ipcMain.handle("openrouter:get-config", () => openRouterService.getConfig());
-  ipcMain.handle("openrouter:list-models", () => openRouterService.listModels());
-  ipcMain.handle("openrouter:refresh-models", () => openRouterService.refreshModels());
-  ipcMain.handle("openrouter:save-api-key", (_event, apiKey) => openRouterService.saveApiKey(apiKey));
-  ipcMain.handle("openrouter:clear-api-key", () => openRouterService.clearApiKey());
-  ipcMain.handle("openrouter:test", () => openRouterService.testConnection());
-  ipcMain.handle("openrouter:verify-models", (_event, input) => openRouterService.verifyModels(input));
-  ipcMain.handle("openrouter:set-favorites", (_event, input) => openRouterService.setFavorites(input));
-  ipcMain.handle("nararouter:get-config", () => naraRouterService.getConfig());
-  ipcMain.handle("nararouter:list-models", () => naraRouterService.listModels());
-  ipcMain.handle("nararouter:refresh-models", () => naraRouterService.refreshModels());
-  ipcMain.handle("nararouter:save-api-key", (_event, apiKey) => naraRouterService.saveApiKey(apiKey));
-  ipcMain.handle("nararouter:clear-api-key", () => naraRouterService.clearApiKey());
-  ipcMain.handle("nararouter:test", () => naraRouterService.testConnection());
-  ipcMain.handle("nararouter:verify-models", (_event, input) => naraRouterService.verifyModels(input));
-  ipcMain.handle("nararouter:set-favorites", (_event, input) => naraRouterService.setFavorites(input));
-  ipcMain.handle("minimax:get-config", () => miniMaxService.getConfig());
-  ipcMain.handle("minimax:list-models", () => miniMaxService.listModels());
-  ipcMain.handle("minimax:refresh-models", () => miniMaxService.refreshModels());
-  ipcMain.handle("minimax:save-api-key", (_event, apiKey) => miniMaxService.saveApiKey(apiKey));
-  ipcMain.handle("minimax:clear-api-key", () => miniMaxService.clearApiKey());
-  ipcMain.handle("minimax:test", () => miniMaxService.testConnection());
-  ipcMain.handle("minimax:verify-models", (_event, input) => miniMaxService.verifyModels(input));
-  ipcMain.handle("minimax:set-favorites", (_event, input) => miniMaxService.setFavorites(input));
-  ipcMain.handle("codebuddy-codex:get-config", () => codeBuddyCodexBridgeService.getConfig());
-  ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
-  ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());
-  ipcMain.handle("codebuddy-codex:refresh-models", () => codeBuddyCodexBridgeService.refreshModels());
-  ipcMain.handle("codebuddy-codex:verify-model", (_event, input) => codeBuddyCodexBridgeService.verifyModel(input));
-  ipcMain.handle("codebuddy-codex:set-favorites", (_event, input) => codeBuddyCodexBridgeService.setFavorites(input));
-  ipcMain.handle("codebuddy-codex:set-experimental-acknowledged", (_event, input) => codeBuddyCodexBridgeService.setExperimentalAcknowledged(input));
 
   ipcMain.handle("workbuddy-checkin:get-status", () => workBuddyCheckinService.getStatus());
 

@@ -18,9 +18,7 @@ const { createDingTalkNotificationManager } = require("./notifications/ding-talk
 const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
 const { createGitModule } = require("./services/git/git-module.cjs");
 const { createProjectSearchService } = require("./services/project-search-service.cjs");
-const { createOpenRouterService, buildChatBridgeVerificationRequest, validateChatBridgeVerification } = require("./services/openrouter-service.cjs");
-const { createCodexModelBridgeModule, MINIMAX_BASE_URL, MINIMAX_API_KEY_ENV } = require("./services/codex-model-bridge/index.cjs");
-const { transformMiniMaxModels } = require("./services/minimax-service.cjs");
+const { createCodexModelBridgeModule } = require("./services/codex-model-bridge/index.cjs");
 const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
 const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
 const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
@@ -33,6 +31,7 @@ const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-
 const { createWorkBuddyModelCatalogService } = require("./services/workbuddy-model-catalog-service.cjs");
 const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
+const { createSettingsModule } = require("./services/settings/index.cjs");
 const {
   createRemoteAgentBridgeService,
   createRemoteSystemService,
@@ -63,9 +62,7 @@ let openRouterConfigStore = null;
 let naraRouterConfigStore = null;
 let miniMaxConfigStore = null;
 let codeBuddyCodexConfigStore = null;
-let openRouterService = null;
-let naraRouterService = null;
-let miniMaxService = null;
+let settingsModule = null;
 let codexModelBridgeModule = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
@@ -300,10 +297,6 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
-    openRouterService = createOpenRouterService({
-      store: openRouterConfigStore,
-      catalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json")
-    });
     codexModelBridgeModule = createCodexModelBridgeModule({
       codeBuddy: {
         store: codeBuddyCodexConfigStore,
@@ -315,41 +308,21 @@ if (!gotSingleInstanceLock) {
           : path.join(__dirname, "services", "codex-model-bridge", "codebuddy-preload.cjs")
       }
     });
-    naraRouterService = createOpenRouterService({
-      store: naraRouterConfigStore,
-      catalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
-      providerId: "nararouter",
-      providerName: "NaraRouter",
-      baseUrl: "https://router.bynara.id/v1",
-      apiKeyEnv: "NARAROUTER_API_KEY",
-      modelsRequireApiKey: true,
-      connectionTestPath: "/models",
-      verificationHeaders: {},
-      metadataBaseUrl: "https://router.bynara.id/api",
-      responsesTransport: codexModelBridgeModule.getResponsesTransport("nararouter"),
-      launchAdapter: codexModelBridgeModule.getLaunchAdapter("nararouter"),
-      catalogCapabilities: { textOnly: true, reasoningSummaries: false },
-      verificationRequestBuilder: buildChatBridgeVerificationRequest,
-      verificationResultValidator: validateChatBridgeVerification,
-      verificationStrategy: "all"
-    });
-    miniMaxService = createOpenRouterService({
-      store: miniMaxConfigStore,
-      catalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json"),
-      providerId: "minimax",
-      providerName: "MiniMax",
-      baseUrl: MINIMAX_BASE_URL,
-      apiKeyEnv: MINIMAX_API_KEY_ENV,
-      modelsRequireApiKey: true,
-      connectionTestPath: "/models",
-      verificationHeaders: {},
-      responsesTransport: codexModelBridgeModule.getResponsesTransport("minimax"),
-      launchAdapter: codexModelBridgeModule.getLaunchAdapter("minimax"),
-      catalogCapabilities: { textOnly: true, reasoningSummaries: false, defaultContextWindow: 128000 },
-      verificationRequestBuilder: buildChatBridgeVerificationRequest,
-      verificationResultValidator: validateChatBridgeVerification,
-      verificationStrategy: "all",
-      transformModels: transformMiniMaxModels
+    settingsModule = createSettingsModule({
+      ipcMain,
+      configStore,
+      dingTalkConfigStore,
+      dingTalkNotificationManager,
+      workBuddyAutoCheckinService,
+      getMobileRemoteService: () => mobileRemoteService,
+      openRouterConfigStore,
+      naraRouterConfigStore,
+      miniMaxConfigStore,
+      codeBuddyCodexBridgeService: codexModelBridgeModule.codeBuddyService,
+      codexModelBridgeModule,
+      openRouterCatalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json"),
+      naraRouterCatalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
+      miniMaxCatalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json")
     });
     clipboardImageService = createClipboardImageService({
       clipboard,
@@ -387,9 +360,9 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       sshHookTunnelService,
       remoteAgentBridgeService,
-      openRouterService,
-      naraRouterService,
-      miniMaxService,
+      openRouterService: settingsModule.openRouterService,
+      naraRouterService: settingsModule.naraRouterService,
+      miniMaxService: settingsModule.miniMaxService,
       codexModelBridgeModule,
       getDefaultShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
@@ -456,9 +429,6 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       launchTemplateStore,
       launchTemplateService,
-      configStore,
-      dingTalkConfigStore,
-      dingTalkNotificationManager,
       windowManager,
       agentConversationManager,
       agentConversationHistoryService,
@@ -471,15 +441,9 @@ if (!gotSingleInstanceLock) {
       skillsService,
       mcpConfigService,
       workBuddyCheckinService,
-      workBuddyAutoCheckinService,
       hookConfigManager,
       remoteHookConfigService,
       projectSearchService,
-      openRouterService,
-      naraRouterService,
-      miniMaxService,
-      codeBuddyCodexBridgeService: codexModelBridgeModule.codeBuddyService,
-      mobileRemoteService,
       remoteAgentBridgeService
     });
     windowManager.createWindow();
@@ -512,6 +476,7 @@ app.on("window-all-closed", () => {
   if (remoteAgentBridgeService) {
     void remoteAgentBridgeService.shutdown();
   }
+  settingsModule?.shutdown();
   if (codexModelBridgeModule) {
     void codexModelBridgeModule.shutdown();
   }
