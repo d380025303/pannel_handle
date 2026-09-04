@@ -22,7 +22,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, agentUsageService, workBuddyCheckinService, workBuddyAutoCheckinService, agentTokenStatsStore, agentTokenStatsService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, miniMaxService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, configStore, dingTalkConfigStore, dingTalkNotificationManager, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, workBuddyAutoCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, openRouterService, naraRouterService, miniMaxService, codeBuddyCodexBridgeService, mobileRemoteService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -236,25 +236,6 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   ipcMain.handle("mcp:save", (_event, request) => mcpConfigService.save(request));
 
   ipcMain.handle("mcp:remove", (_event, request) => mcpConfigService.remove(request));
-
-  ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
-    return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
-  });
-
-  ipcMain.handle("agent-usage:consume-reset-credit", (_event, { sessionId, creditId, idempotencyKey }) => {
-    return agentUsageService.consumeResetCredit(sessionId, { creditId, idempotencyKey });
-  });
-
-  ipcMain.on("agent-usage:cancel", (_event, { sessionId }) => {
-    agentUsageService.disconnect(sessionId);
-  });
-
-  ipcMain.handle("agent-token-stats:get", (_event, options) => agentTokenStatsStore.getDashboard(options));
-  ipcMain.handle("agent-token-live:get", (_event, { sessionId }) => agentTokenStatsService.getLive(sessionId));
-  ipcMain.handle("agent-token-stats:clear", () => {
-    agentTokenStatsStore.clear();
-    return true;
-  });
 
   ipcMain.handle("project-search:list-directories", (_event, { sessionId, rootPath }) => {
     return projectSearchService.listDirectories(sessionId, rootPath);

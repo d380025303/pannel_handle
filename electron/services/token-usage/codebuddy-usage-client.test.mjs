@@ -9,8 +9,7 @@ const {
   CODEBUDDY_RESOURCE_PATH,
   getCodeBuddyUserAgent,
   normalizeCodeBuddyResourceResponse,
-  requestCodeBuddyResources,
-  runCodeBuddyUserInfoRequest
+  requestCodeBuddyResources
 } = require("./codebuddy-usage-client.cjs");
 
 function resource(overrides = {}) {
@@ -27,30 +26,6 @@ function resource(overrides = {}) {
 
 function response(accounts) {
   return { code: 0, data: { Response: { Data: { Accounts: accounts } } } };
-}
-
-function createAcpTransport(options = {}) {
-  const events = new EventEmitter();
-  const transport = {
-    writes: [],
-    close: vi.fn(),
-    on: (eventName, listener) => events.on(eventName, listener),
-    write: vi.fn(line => {
-      const message = JSON.parse(line);
-      transport.writes.push(message);
-      if (message.method === "initialize") {
-        queueMicrotask(() => events.emit("stdout", `${JSON.stringify({ id: message.id, result: {} })}\n`));
-      } else if (message.method === "_codebuddy.ai/getUserInfo") {
-        queueMicrotask(() => events.emit("stdout", `${JSON.stringify({
-          id: message.id,
-          result: options.loggedOut ? { userInfo: {} } : {
-            userInfo: { userId: "user-1", token: "secret-token" }
-          }
-        })}\n`));
-      }
-    })
-  };
-  return transport;
 }
 
 describe("codebuddy-usage-client", () => {
@@ -95,22 +70,6 @@ describe("codebuddy-usage-client", () => {
     expect(() => normalizeCodeBuddyResourceResponse(response([
       resource({ CycleCapacitySizePrecise: "invalid" })
     ]))).toThrow("usable quota resources");
-  });
-
-  it("reads nested login information through ACP without returning profile fields", async () => {
-    const transport = createAcpTransport();
-    await expect(runCodeBuddyUserInfoRequest(transport, { timeoutMs: 1000, maxOutputBytes: 1024 }))
-      .resolves.toEqual({ userId: "user-1", token: "secret-token" });
-    expect(transport.writes.map(message => message.method)).toEqual([
-      "initialize",
-      "_codebuddy.ai/getUserInfo"
-    ]);
-    expect(transport.close).toHaveBeenCalledTimes(1);
-
-    await expect(runCodeBuddyUserInfoRequest(createAcpTransport({ loggedOut: true }), {
-      timeoutMs: 1000,
-      maxOutputBytes: 1024
-    })).rejects.toThrow("sign in");
   });
 
   it("posts only the required credentials and resource request to the fixed host", async () => {

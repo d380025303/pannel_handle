@@ -7,12 +7,12 @@ const {
   emptyTokens,
   normalizeCapabilityUsage,
   safeInteger
-} = require("../services/token-usage/agent-token-transcript.cjs");
+} = require("./agent-token-transcript.cjs");
 const {
   cloneTokens,
   subtractCapabilities,
   subtractTokens
-} = require("../services/token-usage/token-usage-values.cjs");
+} = require("./token-usage-values.cjs");
 
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const STORED_TOKEN_STATS_PROVIDERS = [...TOKEN_STATS_PROVIDERS, "qwen"];

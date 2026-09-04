@@ -3,7 +3,7 @@ const path = require("node:path");
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { request: defaultHttpsRequest } = require("node:https");
-const { runCodeBuddyUserInfoRequest } = require("./codebuddy-usage-client.cjs");
+const { runCodeBuddyUserInfoRequest } = require("./codebuddy-user-info-client.cjs");
 
 const WORKBUDDY_HOST = "copilot.tencent.com";
 const WORKBUDDY_STATUS_PATH = "/v2/billing/meter/checkin-activity-status";

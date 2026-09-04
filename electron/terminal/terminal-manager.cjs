@@ -4,7 +4,7 @@ const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 const { buildSsh2ConnectionConfig, validateSsh2Config } = require("../ssh/ssh2-connection.cjs");
 const { createSsh2Terminal } = require("../ssh/ssh2-terminal.cjs");
-const { getCopilotOtelPath } = require("../services/token-usage/copilot-otel.cjs");
+const { getCopilotOtelPath } = require("../services/token-usage/index.cjs");
 
 const MAX_AGENT_COMMAND_INPUT_LENGTH = 1024;
 const CODEX_CLEAR_COMPLETION_PREFIXES = new Set(["/cl", "/cle", "/clea", "/clear"]);

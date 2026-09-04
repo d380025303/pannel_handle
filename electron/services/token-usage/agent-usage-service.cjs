@@ -1,6 +1,6 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
-const { readCodeBuddyUsage } = require("../codebuddy-usage-client.cjs");
+const { readCodeBuddyUsage } = require("./codebuddy-usage-client.cjs");
 const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
 const { GEMINI_CACHE_TTL_MS, readGeminiUsage } = require("./gemini-usage-client.cjs");
 const { readMiniMaxUsage } = require("./minimax-usage-client.cjs");

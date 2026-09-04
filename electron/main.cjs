@@ -2,7 +2,7 @@ const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
 
 if (process.argv.includes("--pannel-handle-qoder-activity-helper")) {
-  void require("./services/token-usage/qoder-activity-helper.cjs").runQoderActivityHelper();
+  void require("./services/token-usage/index.cjs").runQoderActivityHelper();
   return;
 }
 
@@ -27,8 +27,7 @@ const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
 const { createRemoteFilesModule, registerRemoteFileScheme } = require("./services/remote-files/index.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
-const { createAgentUsageService } = require("./services/token-usage/agent-usage-service.cjs");
-const { createAgentTokenStatsService } = require("./services/token-usage/agent-token-stats-service.cjs");
+const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
 const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
 const { createWorkBuddyModelCatalogService } = require("./services/workbuddy-model-catalog-service.cjs");
@@ -44,7 +43,6 @@ const {
   createSshSessionRuntime
 } = require("./ssh/index.cjs");
 const { createConfigStore } = require("./stores/config-store.cjs");
-const { createAgentTokenStatsStore } = require("./stores/agent-token-stats-store.cjs");
 const { createDingTalkConfigStore } = require("./stores/ding-talk-config-store.cjs");
 const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
@@ -78,11 +76,9 @@ let remoteSystemService = null;
 let skillsService = null;
 let mcpConfigService = null;
 let remoteAgentBridgeService = null;
-let agentUsageService = null;
+let tokenUsageModule = null;
 let workBuddyCheckinService = null;
 let workBuddyAutoCheckinService = null;
-let agentTokenStatsStore = null;
-let agentTokenStatsService = null;
 let sshHookTunnelService = null;
 let sshSessionRuntime = null;
 let remoteHookConfigService = null;
@@ -184,12 +180,6 @@ if (!gotSingleInstanceLock) {
     agentConversationManager = createAgentConversationManager({
       broadcast: windowManager.broadcast
     });
-    agentTokenStatsStore = createAgentTokenStatsStore({
-      databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
-      legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
-      onChanged: () => windowManager.broadcast("agent-token-stats:changed", { timestamp: Date.now() })
-    });
-    agentTokenStatsStore.load();
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
     const broadcast = (channel, payload) => {
       windowManager.broadcast(channel, payload);
@@ -224,12 +214,7 @@ if (!gotSingleInstanceLock) {
         if (remoteSystemService) {
           void remoteSystemService.disconnect(id);
         }
-        if (agentUsageService) {
-          agentUsageService.disconnect(id);
-        }
-        if (agentTokenStatsService) {
-          agentTokenStatsService.markEnded(id);
-        }
+        tokenUsageModule?.disconnect(id);
         if (sshHookTunnelService) {
           void sshHookTunnelService.disconnect(id);
         }
@@ -263,11 +248,6 @@ if (!gotSingleInstanceLock) {
       sshAgentTransport,
       homeDir: app.getPath("home")
     });
-    agentUsageService = createAgentUsageService({
-      terminalManager,
-      sshAgentTransport,
-      miniMaxConfigStore
-    });
     workBuddyCheckinService = createWorkBuddyCheckinService();
     workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
       checkinService: workBuddyCheckinService,
@@ -288,10 +268,13 @@ if (!gotSingleInstanceLock) {
         }
       }
     });
-    agentTokenStatsService = createAgentTokenStatsService({
+    tokenUsageModule = createTokenUsageModule({
+      ipcMain,
       terminalManager,
-      statsStore: agentTokenStatsStore,
       sshAgentTransport,
+      miniMaxConfigStore,
+      databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
+      legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
       broadcast: windowManager.broadcast,
       conversationSink: agentConversationManager
     });
@@ -381,7 +364,7 @@ if (!gotSingleInstanceLock) {
     });
     mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager });
     skillsService = createSkillsService({ homeDir: app.getPath("home") });
-    agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService });
+    agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService: tokenUsageModule });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
       sessionStore,
@@ -487,11 +470,8 @@ if (!gotSingleInstanceLock) {
       remoteSystemService,
       skillsService,
       mcpConfigService,
-      agentUsageService,
       workBuddyCheckinService,
       workBuddyAutoCheckinService,
-      agentTokenStatsStore,
-      agentTokenStatsService,
       hookConfigManager,
       remoteHookConfigService,
       projectSearchService,
@@ -538,20 +518,12 @@ app.on("window-all-closed", () => {
   if (ideaModule) {
     void ideaModule.shutdown();
   }
-  if (agentUsageService) {
-    agentUsageService.shutdown();
-  }
+  tokenUsageModule?.shutdown();
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();
   }
-  if (agentTokenStatsService) {
-    agentTokenStatsService.shutdown();
-  }
   if (agentConversationManager) {
     agentConversationManager.shutdown();
-  }
-  if (agentTokenStatsStore) {
-    agentTokenStatsStore.close();
   }
   if (gitModule) {
     gitModule.shutdown();

@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { runCodeBuddyUserInfoRequest } = require("./codebuddy-usage-client.cjs");
+const { runCodeBuddyUserInfoRequest } = require("./codebuddy-user-info-client.cjs");
 const { createWorkBuddyAcpTransport } = require("./workbuddy-checkin-service.cjs");
 
 const MAX_CACHE_FILE_BYTES = 1024 * 1024;
