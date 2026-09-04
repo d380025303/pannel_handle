@@ -8,6 +8,11 @@ const {
   normalizeCapabilityUsage,
   safeInteger
 } = require("../services/token-usage/agent-token-transcript.cjs");
+const {
+  cloneTokens,
+  subtractCapabilities,
+  subtractTokens
+} = require("../services/token-usage/token-usage-values.cjs");
 
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const STORED_TOKEN_STATS_PROVIDERS = [...TOKEN_STATS_PROVIDERS, "qwen"];
@@ -21,40 +26,6 @@ const TOKEN_COLUMNS = {
   reasoningOutputTokens: "reasoning_output_tokens",
   totalTokens: "total_tokens"
 };
-
-function cloneTokens(tokens) {
-  return Object.fromEntries(TOKEN_FIELDS.map(field => [field, safeInteger(tokens?.[field])]));
-}
-
-function subtractTokens(current, baseline) {
-  return Object.fromEntries(TOKEN_FIELDS.map(field => [field, Math.max(0, safeInteger(current?.[field]) - safeInteger(baseline?.[field]))]));
-}
-
-function capabilityItemsToMap(items) {
-  return new Map((items || []).map(item => [String(item?.name || "").trim(), safeInteger(item?.count)]).filter(([name]) => name));
-}
-
-function subtractCapabilities(current, baseline) {
-  const normalized = normalizeCapabilityUsage(current);
-  const base = normalizeCapabilityUsage(baseline, "unavailable");
-  const skills = capabilityItemsToMap(normalized.skills.items);
-  for (const [name, count] of capabilityItemsToMap(base.skills.items)) skills.set(name, Math.max(0, (skills.get(name) || 0) - count));
-  const baselineServers = new Map((base.mcp.servers || []).map(server => [server.name, capabilityItemsToMap(server.tools)]));
-  const servers = normalized.mcp.servers.map(server => ({
-    name: server.name,
-    tools: server.tools.map(tool => ({
-      name: tool.name,
-      count: Math.max(0, tool.count - (baselineServers.get(server.name)?.get(tool.name) || 0))
-    })).filter(tool => tool.count > 0)
-  })).filter(server => server.tools.length > 0);
-  return normalizeCapabilityUsage({
-    skills: {
-      availability: normalized.skills.availability,
-      items: [...skills].map(([name, count]) => ({ name, count })).filter(item => item.count > 0)
-    },
-    mcp: { availability: normalized.mcp.availability, servers }
-  });
-}
 
 function dayKey(timestamp) {
   return new Date(timestamp).toISOString().slice(0, 10);
