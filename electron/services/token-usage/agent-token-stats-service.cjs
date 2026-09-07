@@ -6,7 +6,7 @@ const {
 } = require("./agent-token-transcript.cjs");
 const { subtractTokens } = require("./token-usage-values.cjs");
 const { toWslHostPath } = require("../remote-files/index.cjs");
-const { createAgentConversationTranscriptParser } = require("../agent-conversation-transcript.cjs");
+const { createAgentConversationTranscriptParser } = require("../conversation-history/index.cjs");
 const {
   LIVE_POLL_INTERVAL_MS,
   REMOTE_DELTA_SCRIPT,

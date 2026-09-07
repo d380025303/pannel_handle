@@ -1,4 +1,4 @@
-const { ipcMain } = require("electron");
+const { ipcMain: defaultIpcMain } = require("electron");
 const fs = require("node:fs");
 const { openExternalHttpUrl } = require("./external-link.cjs");
 
@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
 }
 
-function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
 
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
@@ -206,11 +206,14 @@ function registerIpcHandlers({ terminalManager, agentSessionLauncher, sessionSto
   });
 
   ipcMain.on("terminal:resize", (_event, { id, cols, rows }) => {
+    // A renderer resize can arrive after the terminal has already closed.
+    if (!terminalManager.getSession(id)) return;
     if (mobileRemoteService) mobileRemoteService.resizeFromDesktop(id, cols, rows);
     else terminalManager.resize(id, cols, rows);
   });
 
   ipcMain.on("terminal:claim-size", (_event, { id, cols, rows }) => {
+    if (!terminalManager.getSession(id)) return;
     if (mobileRemoteService) mobileRemoteService.claimDesktopSize(id, cols, rows);
     else terminalManager.resize(id, cols, rows);
   });

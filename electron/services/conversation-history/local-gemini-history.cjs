@@ -1,0 +1,107 @@
+const path = require("node:path");
+const crypto = require("node:crypto");
+const { readJsonLines, timestampMs } = require("./history-values.cjs");
+
+function geminiProjectHash(cwd) {
+  return crypto.createHash("sha256").update(String(cwd || "")).digest("hex");
+}
+
+function getGeminiChatFiles(fsApi, homeDir, cwd, scope) {
+  const tmpRoot = path.join(process.env.GEMINI_CLI_HOME || homeDir, ".gemini", "tmp");
+  if (!fsApi.existsSync(tmpRoot)) return [];
+  const projectDirs = scope === "all"
+    ? fsApi.readdirSync(tmpRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
+    : [geminiProjectHash(cwd)];
+  const files = [];
+  for (const projectHash of projectDirs) {
+    const chats = path.join(tmpRoot, projectHash, "chats");
+    if (!fsApi.existsSync(chats)) continue;
+    for (const entry of fsApi.readdirSync(chats, { withFileTypes: true })) {
+      if (entry.isFile() && /\.jsonl?$/.test(entry.name.toLowerCase())) files.push({ filePath: path.join(chats, entry.name), projectHash });
+    }
+  }
+  return files;
+}
+
+function readGeminiRecords(fsApi, filePath) {
+  const text = fsApi.readFileSync(filePath, "utf-8");
+  if (filePath.toLowerCase().endsWith(".json")) {
+    try {
+      const value = JSON.parse(text);
+      return Array.isArray(value) ? value : [value, ...(Array.isArray(value.messages) ? value.messages : [])];
+    } catch { return []; }
+  }
+  const records = [];
+  readJsonLines(text, item => records.push(item));
+  return records;
+}
+
+function materializeGeminiMessages(records) {
+  const messages = new Map();
+  for (const item of records) {
+    if (Array.isArray(item?.$set?.messages)) {
+      messages.clear();
+      for (const message of item.$set.messages) if (message?.id) messages.set(String(message.id), message);
+      continue;
+    }
+    const rewindId = item?.$rewindTo?.id ?? item?.$rewindTo;
+    if (rewindId) {
+      let remove = false;
+      for (const id of [...messages.keys()]) {
+        if (id === String(rewindId)) remove = true;
+        if (remove) messages.delete(id);
+      }
+      continue;
+    }
+    if ((item?.type === "user" || item?.type === "gemini") && item.id) messages.set(String(item.id), item);
+  }
+  return [...messages.values()];
+}
+
+function geminiMetadata(fsApi, candidate, cwd) {
+  const records = readGeminiRecords(fsApi, candidate.filePath);
+  const metadata = records.find(item => item?.sessionId || item?.projectHash) || {};
+  const messages = materializeGeminiMessages(records);
+  const firstUser = messages.find(item => item.type === "user");
+  const id = path.basename(candidate.filePath).replace(/\.jsonl?$/i, "");
+  const createdAt = timestampMs(metadata.startTime || messages[0]?.timestamp);
+  const updatedAt = timestampMs(metadata.lastUpdated || messages.at(-1)?.timestamp) || fsApi.statSync(candidate.filePath).mtimeMs;
+  const preview = typeof firstUser?.content === "string" ? firstUser.content.trim() : "";
+  return {
+    ref: `gemini:${candidate.projectHash}:${id}`,
+    provider: "gemini",
+    title: preview || "Gemini conversation",
+    preview,
+    cwd: cwd || "",
+    createdAt,
+    updatedAt,
+    archived: false
+  };
+}
+
+function listLocalGemini({ homeDir, cwd, scope, fsApi }) {
+  return getGeminiChatFiles(fsApi, homeDir, cwd, scope).map(candidate => geminiMetadata(fsApi, candidate, scope === "cwd" ? cwd : ""));
+}
+
+function getLocalGeminiMessages({ homeDir, cwd, id, fsApi }) {
+  const separator = id.indexOf(":");
+  const projectHash = separator >= 0 ? id.slice(0, separator) : geminiProjectHash(cwd);
+  const sessionId = separator >= 0 ? id.slice(separator + 1) : id;
+  const candidate = getGeminiChatFiles(fsApi, homeDir, cwd, "all").find(entry => entry.projectHash === projectHash && path.basename(entry.filePath).replace(/\.jsonl?$/i, "") === sessionId);
+  if (!candidate) throw new Error("Gemini conversation is unavailable.");
+  return materializeGeminiMessages(readGeminiRecords(fsApi, candidate.filePath)).flatMap(item => {
+    const text = typeof item.content === "string" ? item.content.trim() : "";
+    if (!text) return [];
+    return [{ id: String(item.id), provider: "gemini", kind: item.type === "user" ? "user" : "reply", text, timestamp: timestampMs(item.timestamp) }];
+  });
+}
+
+module.exports = {
+  geminiProjectHash,
+  getGeminiChatFiles,
+  readGeminiRecords,
+  materializeGeminiMessages,
+  geminiMetadata,
+  listLocalGemini,
+  getLocalGeminiMessages
+};

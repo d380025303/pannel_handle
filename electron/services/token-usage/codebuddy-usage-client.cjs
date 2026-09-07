@@ -1,5 +1,5 @@
 const { request: defaultHttpsRequest } = require("node:https");
-const { runCodeBuddyUserInfoRequest } = require("../codebuddy-user-info-client.cjs");
+const { runCodeBuddyUserInfoRequest } = require("../workbuddy/index.cjs");
 
 const CODEBUDDY_HOST = "copilot.tencent.com";
 const CODEBUDDY_RESOURCE_PATH = "/billing/meter/get-user-resource";

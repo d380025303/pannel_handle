@@ -1,3 +1,4 @@
+const { normalizeWslPath, validateWslDistro, toWslHostPath, fromWslHostPath, joinWslPath } = require("../../core/wsl-paths.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -196,69 +197,6 @@ function normalizeWindowsPath(value, fallbackPath) {
     return path.resolve(rawPath);
   }
   return path.resolve(fallbackPath || os.homedir(), rawPath);
-}
-
-function normalizeWslPath(value, fallbackPath = "~") {
-  const rawPath = String(value || fallbackPath || "~").trim() || fallbackPath || "~";
-  if (rawPath.includes("\0")) {
-    throw new Error("Invalid WSL path.");
-  }
-  if (rawPath === "~") {
-    return "~";
-  }
-  const normalized = rawPath.replace(/\\/g, "/").replace(/\/+/g, "/");
-  if (!normalized.startsWith("/")) {
-    throw new Error("WSL path must be an absolute Linux path.");
-  }
-  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
-}
-
-function validateWslDistro(wslDistro) {
-  const distro = String(wslDistro || "").trim();
-  if (!/^[\w.-]+$/.test(distro)) {
-    throw new Error("A valid WSL distro is required.");
-  }
-  return distro;
-}
-
-function toWslHostPath(wslDistro, linuxPath) {
-  const distro = validateWslDistro(wslDistro);
-  const normalized = normalizeWslPath(linuxPath);
-  if (normalized === "~") {
-    return path.win32.join(`\\\\wsl.localhost\\${distro}`, "home");
-  }
-  const mntMatch = normalized.match(/^\/mnt\/([a-zA-Z])(\/.*)?$/);
-  if (mntMatch) {
-    const drive = mntMatch[1].toUpperCase();
-    const rest = mntMatch[2] ? mntMatch[2].replace(/\//g, "\\") : "\\";
-    return `${drive}:${rest}`;
-  }
-  return path.win32.join(`\\\\wsl.localhost\\${distro}`, ...normalized.split("/").filter(Boolean));
-}
-
-function fromWslHostPath(hostPath, wslDistro) {
-  const distro = validateWslDistro(wslDistro);
-  const normalizedHostPath = String(hostPath || "").replace(/\//g, "\\");
-  const winDriveMatch = normalizedHostPath.match(/^([a-zA-Z]):(.*)$/);
-  if (winDriveMatch) {
-    const drive = winDriveMatch[1].toLowerCase();
-    const rest = winDriveMatch[2] ? winDriveMatch[2].replace(/\\/g, "/") : "";
-    return normalizeWslPath(`/mnt/${drive}${rest}`);
-  }
-  const prefix = `\\\\wsl.localhost\\${distro}`;
-  if (!normalizedHostPath.toLowerCase().startsWith(prefix.toLowerCase())) {
-    return normalizeWslPath(hostPath);
-  }
-  const rest = normalizedHostPath.slice(prefix.length).replace(/\\/g, "/");
-  return rest ? normalizeWslPath(rest) : "/";
-}
-
-function joinWslPath(basePath, name) {
-  const normalizedBase = normalizeWslPath(basePath);
-  if (normalizedBase === "~") {
-    return normalizeWslPath(`/${name}`);
-  }
-  return path.posix.join(normalizedBase, name);
 }
 
 function createRemoteFileService({ terminalManager, sshFileSystem, fsApi = fs, shellApi, previewCacheRoot = path.join(os.tmpdir(), "pannel-handle-office-preview") }) {

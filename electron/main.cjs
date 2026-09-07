@@ -15,21 +15,19 @@ const { createHookConfigManager } = require("./hooks/hook-config-manager.cjs");
 const { createRemoteHookConfigService } = require("./hooks/remote-hook-config-service.cjs");
 const { createAgentNotificationManager } = require("./notifications/agent-notification-manager.cjs");
 const { createDingTalkNotificationManager } = require("./notifications/ding-talk-notification-manager.cjs");
-const { createClipboardImageService } = require("./services/clipboard-image-service.cjs");
+const { createClipboardImageService } = require("./services/clipboard/index.cjs");
 const { createGitModule } = require("./services/git/git-module.cjs");
-const { createProjectSearchService } = require("./services/project-search-service.cjs");
+const { createProjectSearchService } = require("./services/project-search/index.cjs");
 const { createCodexModelBridgeModule } = require("./services/codex-model-bridge/index.cjs");
-const { createMobileRemoteService } = require("./services/mobile-remote-service.cjs");
-const { createLaunchTemplateService } = require("./services/launch-template-service.cjs");
-const { createTerminalStateHub } = require("./services/terminal-state-hub.cjs");
+const { createMobileRemoteService } = require("./services/mobile-remote/index.cjs");
+const { createLaunchTemplateService } = require("./services/launch-templates/index.cjs");
+const { createTerminalStateHub } = require("./terminal/terminal-state-hub.cjs");
 const { createRemoteFilesModule, registerRemoteFileScheme } = require("./services/remote-files/index.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
-const { createAgentConversationHistoryService } = require("./services/agent-conversation-history-service.cjs");
-const { createWorkBuddyCheckinService } = require("./services/workbuddy-checkin-service.cjs");
-const { createWorkBuddyModelCatalogService } = require("./services/workbuddy-model-catalog-service.cjs");
-const { createWorkBuddyAutoCheckinService } = require("./services/workbuddy-auto-checkin-service.cjs");
+const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
+const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
 const {
@@ -425,6 +423,7 @@ if (!gotSingleInstanceLock) {
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
       terminalManager,
+      mobileRemoteService,
       agentSessionLauncher,
       sessionStore,
       launchTemplateStore,
