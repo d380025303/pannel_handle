@@ -270,8 +270,18 @@ describe("AgentUsageStatus", () => {
     const resetCredits = document.querySelector(".codex-reset-credits");
     expect(resetCredits?.textContent).toContain("2 个可用");
     expect(resetCredits?.textContent).toContain("每周重置奖励");
-    expect(resetCredits?.textContent).toContain("可重置符合条件的 Codex 限额。");
-    expect(resetCredits?.textContent).toContain("可用");
+    expect(resetCredits?.textContent).not.toContain("可重置符合条件的 Codex 限额。");
+    expect(resetCredits?.textContent).toContain("发放时间");
+    expect(resetCredits?.textContent).toContain("过期时间");
+    const times = resetCredits?.querySelectorAll("time");
+    expect(times?.[0].dateTime).toBe("2026-08-20T08:00:00.000Z");
+    expect(times?.[1].dateTime).toBe("2026-09-01T08:00:00.000Z");
+    const dateFormat = new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+    expect(times?.[0].textContent).toBe(dateFormat.format(new Date("2026-08-20T08:00:00Z")));
+    expect(times?.[1].textContent).toBe(dateFormat.format(new Date("2026-09-01T08:00:00Z")));
+    expect(resetCredits?.querySelector(".codex-reset-credit-status.available")).toBeNull();
     const resetButton = screen.getByRole("button", { name: "重置限额" });
     fireEvent.click(resetButton);
     expect(onConsumeResetCredit).not.toHaveBeenCalled();
@@ -282,6 +292,17 @@ describe("AgentUsageStatus", () => {
       "11111111-1111-4111-8111-111111111111"
     ));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Codex 使用限额已重置"));
+
+    const noExpiration = resetCreditSnapshot();
+    noExpiration.resetCredits!.credits![0].expiresAt = undefined;
+    rerender(
+      <AgentUsageStatus
+        state={{ status: "ready", snapshot: noExpiration, refreshing: false }}
+        onRefresh={() => undefined}
+      />
+    );
+    expect(screen.getByText("长期有效")).not.toBeNull();
+    expect(document.querySelectorAll(".codex-reset-credit-meta time")).toHaveLength(1);
 
     rerender(
       <AgentUsageStatus

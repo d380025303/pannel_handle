@@ -294,6 +294,8 @@ export type TranslationKey =
   | "usage.resetCreditsEmpty"
   | "usage.resetCreditFallback"
   | "usage.resetCreditGrantedAt"
+  | "usage.resetCreditGrantedLabel"
+  | "usage.resetCreditExpiresLabel"
   | "usage.resetCreditExpiresAt"
   | "usage.resetCreditNoExpiration"
   | "usage.resetCreditStatus.available"
@@ -1125,6 +1127,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetCreditsEmpty": "当前没有可用重置额度",
     "usage.resetCreditFallback": "重置额度",
     "usage.resetCreditGrantedAt": "授予于 {time}",
+    "usage.resetCreditGrantedLabel": "发放时间",
+    "usage.resetCreditExpiresLabel": "过期时间",
     "usage.resetCreditExpiresAt": "有效期至 {time}",
     "usage.resetCreditNoExpiration": "长期有效",
     "usage.resetCreditStatus.available": "可用",
@@ -1948,6 +1952,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.resetCreditsEmpty": "No reset credits available",
     "usage.resetCreditFallback": "Reset credit",
     "usage.resetCreditGrantedAt": "Granted {time}",
+    "usage.resetCreditGrantedLabel": "Granted",
+    "usage.resetCreditExpiresLabel": "Expires",
     "usage.resetCreditExpiresAt": "Expires {time}",
     "usage.resetCreditNoExpiration": "No expiration",
     "usage.resetCreditStatus.available": "Available",

@@ -2092,19 +2092,61 @@ button.agent-usage-status[aria-expanded="true"] {
 .agent-usage-credit-summary.warning span { color: var(--color-warning-text); }
 .agent-usage-credit-summary.danger span { color: var(--color-danger-text); }
 
+.codex-usage-popover {
+  gap: 12px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.codex-usage-popover .agent-usage-popover-header,
+.codex-usage-popover > small {
+  flex-shrink: 0;
+}
+
+.codex-usage-popover .agent-usage-popover-header > strong {
+  font-size: 14px;
+}
+
+.codex-usage-popover .agent-usage-limit-list {
+  min-height: 0;
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-gutter: stable;
+}
+
+.codex-usage-popover .agent-usage-limit-list > * {
+  flex-shrink: 0;
+}
+
+.codex-usage-popover .agent-usage-limit-heading > span,
+.codex-reset-credit-status {
+  flex-shrink: 0;
+}
+
+.codex-usage-popover .agent-usage-limit-meta {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.codex-usage-popover .agent-usage-limit-heading > span,
+.codex-usage-popover .agent-usage-limit-meta,
+.codex-usage-popover > small,
+.codex-usage-popover .agent-usage-empty {
+  font-size: 11px;
+}
+
 .codex-reset-credits {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-control);
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .codex-reset-credits-heading,
-.codex-reset-credit-heading,
-.codex-reset-credit-meta {
+.codex-reset-credit-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2118,19 +2160,19 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-reset-credits-heading > span,
 .codex-reset-credit-status {
   color: var(--color-ok-text);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .codex-reset-credit {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding-top: 8px;
+  gap: 6px;
+  padding-top: 10px;
   border-top: 1px solid var(--color-border);
 }
 
 .codex-reset-credit-heading {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .codex-reset-credit-heading strong {
@@ -2144,29 +2186,58 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-reset-credit-status.redeemed,
 .codex-reset-credit-status.unknown { color: var(--color-text-muted); }
 
-.codex-reset-credit p {
+.codex-reset-credit-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  line-height: 1.4;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.codex-reset-credit-meta {
-  color: var(--color-text-muted);
-  font-size: 10px;
+.codex-reset-credit-meta > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 4px;
+}
+
+.codex-reset-credit-meta > div:last-child {
+  justify-content: flex-end;
+}
+
+.codex-reset-credit-meta dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.codex-reset-credit-meta .codex-reset-credit-expiration {
+  color: var(--color-text);
+  font-weight: 500;
 }
 
 .codex-reset-credit-action {
   display: flex;
+  flex-shrink: 0;
+  max-width: 60%;
   justify-content: flex-end;
 }
 
 .codex-reset-credit-action button {
-  min-height: 26px;
+  min-height: 28px;
+  max-width: 100%;
   padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  color: var(--color-accent);
+  color: var(--color-info-text);
   background: var(--color-info-bg);
   cursor: pointer;
 }
@@ -2189,8 +2260,9 @@ button.agent-usage-status[aria-expanded="true"] {
 }
 
 .codex-reset-credit-feedback {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .codex-reset-credit-feedback.success { color: var(--color-ok-text); }

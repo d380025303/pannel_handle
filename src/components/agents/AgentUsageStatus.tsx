@@ -260,7 +260,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
       </button>
 
       {open && (
-        <div className="agent-usage-popover" role="dialog" aria-label={dialogTitle}>
+        <div className={`agent-usage-popover${provider === "codex" ? " codex-usage-popover" : ""}`} role="dialog" aria-label={dialogTitle}>
           <div className="agent-usage-popover-header">
             <strong>{dialogTitle}</strong>
             <span>
@@ -298,39 +298,46 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                   <article className="codex-reset-credit" key={credit.id}>
                     <div className="codex-reset-credit-heading">
                       <strong>{credit.title || t("usage.resetCreditFallback")}</strong>
-                      <span className={`codex-reset-credit-status ${credit.status}`}>
-                        {t(`usage.resetCreditStatus.${credit.status}`)}
-                      </span>
+                      {credit.status !== "available" && (
+                        <span className={`codex-reset-credit-status ${credit.status}`}>
+                          {t(`usage.resetCreditStatus.${credit.status}`)}
+                        </span>
+                      )}
+                      {credit.status === "available" && credit.resetType === "codexRateLimits" && (
+                        <div className="codex-reset-credit-action">
+                          <button
+                            type="button"
+                            className={confirmResetCreditId === credit.id ? "confirm" : ""}
+                            disabled={Boolean(resetCreditBusyId) || Boolean(
+                              resetCreditAttemptRef.current
+                              && resetCreditAttemptRef.current.creditId !== credit.id
+                            )}
+                            onBlur={() => setConfirmResetCreditId(current => current === credit.id ? "" : current)}
+                            onClick={() => void consumeResetCredit(credit.id)}
+                          >
+                            {resetCreditBusyId === credit.id
+                              ? t("usage.resetCreditResetting")
+                              : resetCreditAttemptRef.current?.creditId === credit.id
+                                ? t("usage.resetCreditRetry")
+                                : confirmResetCreditId === credit.id
+                                  ? t("usage.resetCreditConfirm")
+                                  : t("usage.resetCreditAction")}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {credit.description && <p>{credit.description}</p>}
-                    <div className="codex-reset-credit-meta">
-                      <span>{t("usage.resetCreditGrantedAt", { time: formatTimestamp(locale, credit.grantedAt) })}</span>
-                      <span>{credit.expiresAt
-                        ? t("usage.resetCreditExpiresAt", { time: formatTimestamp(locale, credit.expiresAt) })
-                        : t("usage.resetCreditNoExpiration")}</span>
-                    </div>
-                    {credit.status === "available" && credit.resetType === "codexRateLimits" && (
-                      <div className="codex-reset-credit-action">
-                        <button
-                          type="button"
-                          className={confirmResetCreditId === credit.id ? "confirm" : ""}
-                          disabled={Boolean(resetCreditBusyId) || Boolean(
-                            resetCreditAttemptRef.current
-                            && resetCreditAttemptRef.current.creditId !== credit.id
-                          )}
-                          onBlur={() => setConfirmResetCreditId(current => current === credit.id ? "" : current)}
-                          onClick={() => void consumeResetCredit(credit.id)}
-                        >
-                          {resetCreditBusyId === credit.id
-                            ? t("usage.resetCreditResetting")
-                            : resetCreditAttemptRef.current?.creditId === credit.id
-                              ? t("usage.resetCreditRetry")
-                              : confirmResetCreditId === credit.id
-                                ? t("usage.resetCreditConfirm")
-                                : t("usage.resetCreditAction")}
-                        </button>
+                    <dl className="codex-reset-credit-meta">
+                      <div>
+                        <dt>{t("usage.resetCreditGrantedLabel")}</dt>
+                        <dd><time dateTime={new Date(credit.grantedAt).toISOString()}>{formatTimestamp(locale, credit.grantedAt)}</time></dd>
                       </div>
-                    )}
+                      <div>
+                        <dt>{t("usage.resetCreditExpiresLabel")}</dt>
+                        <dd className="codex-reset-credit-expiration">{credit.expiresAt
+                          ? <time dateTime={new Date(credit.expiresAt).toISOString()}>{formatTimestamp(locale, credit.expiresAt)}</time>
+                          : t("usage.resetCreditNoExpiration")}</dd>
+                      </div>
+                    </dl>
                   </article>
                 ))}
                 {resetCreditFeedback && (
