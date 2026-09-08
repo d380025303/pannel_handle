@@ -116,17 +116,56 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
-  it("uses PowerShell 7 as the default Windows shell when pwsh is available", () => {
+  it("uses PowerShell 7 when selected and runnable", () => {
     const resolveExecutable = vi.fn(() => "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
 
-    expect(getDefaultShell({ platform: "win32", resolveExecutable }))
+    expect(getDefaultShell({ platform: "win32", preference: "pwsh", resolveExecutable }))
       .toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
     expect(resolveExecutable).toHaveBeenCalledWith("pwsh.exe");
   });
 
-  it("falls back to Windows PowerShell when PowerShell 7 is unavailable", () => {
-    expect(getDefaultShell({ platform: "win32", resolveExecutable: () => null }))
-      .toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  it("defaults to CMD without probing PowerShell", () => {
+    const resolveExecutable = vi.fn();
+    expect(getDefaultShell({ platform: "win32", env: {}, resolveExecutable }))
+      .toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(resolveExecutable).not.toHaveBeenCalled();
+  });
+
+  it("resolves Windows PowerShell and respects system locations", () => {
+    expect(getDefaultShell({ platform: "win32", preference: "powershell", env: { SystemRoot: "D:\\Windows" } }))
+      .toBe("D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(getDefaultShell({ platform: "win32", env: { ComSpec: "D:\\Windows\\System32\\cmd.exe" } }))
+      .toBe("D:\\Windows\\System32\\cmd.exe");
+  });
+
+  it("can resolve saved metadata without requiring PowerShell 7 to be installed", () => {
+    const resolveExecutable = vi.fn(() => null);
+    expect(getDefaultShell({ platform: "win32", preference: "pwsh", requireAvailable: false, resolveExecutable })).toBe("pwsh.exe");
+    expect(resolveExecutable).not.toHaveBeenCalled();
+  });
+
+  it("reports an unavailable selected PowerShell 7 without fallback", () => {
+    expect(() => getDefaultShell({ platform: "win32", preference: "pwsh", resolveExecutable: () => null }))
+      .toThrow("PowerShell 7 不可用");
+  });
+
+  it("reads updated defaults for new sessions and preserves explicit shells", () => {
+    let preference = "cmd";
+    const getConfiguredShell = vi.fn((selected) => getDefaultShell({
+      platform: "win32", env: {}, preference: selected || preference,
+      resolveExecutable: () => "C:\\PowerShell\\pwsh.exe"
+    }));
+    const { manager, sessionStore } = createManager({ getDefaultShell: getConfiguredShell });
+    let nextId = 0;
+    sessionStore.createTemplateId.mockImplementation(() => String(++nextId));
+    const first = manager.createSession();
+    expect(first.shell).toBe("C:\\Windows\\System32\\cmd.exe");
+    preference = "pwsh";
+    expect(manager.createSession().shell).toBe("C:\\PowerShell\\pwsh.exe");
+    expect(first.shell).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(manager.createSession({ windowsShell: "powershell" }).shell).toContain("WindowsPowerShell");
+    expect(manager.createSession({ shell: "custom-shell.exe" }).shell).toBe("custom-shell.exe");
+    expect(sessionStore.addToLibrary).toHaveBeenCalledWith(expect.objectContaining({ shell: "custom-shell.exe" }));
   });
 
   it("skips an unusable pwsh alias and returns the next runnable candidate", () => {
@@ -260,7 +299,7 @@ describe("terminal-manager", () => {
     const { manager, sessionStore } = createManager({ configStore });
 
     const session = manager.createSession({
-      title: "Codex · work",
+      title: "Codex 路 work",
       cwd: "C:\\work",
       agentProvider: "codex",
       persist: false
@@ -268,7 +307,7 @@ describe("terminal-manager", () => {
 
     expect(session).toMatchObject({
       id: "run-1",
-      title: "Codex · work",
+      title: "Codex 路 work",
       cwd: "C:\\work",
       agentProvider: "codex"
     });
@@ -277,12 +316,12 @@ describe("terminal-manager", () => {
     expect(configStore.updateConfig).not.toHaveBeenCalled();
 
     const secondSession = manager.createSession({
-      title: "Codex · work",
+      title: "Codex 路 work",
       cwd: "C:\\work",
       agentProvider: "codex",
       persist: false
     });
-    expect(secondSession.title).toBe("Codex · work #2");
+    expect(secondSession.title).toBe("Codex 路 work #2");
     expect(secondSession.templateId).toBeUndefined();
 
     manager.renameSession(session.id, "Temporary Agent");

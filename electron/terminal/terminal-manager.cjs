@@ -1,4 +1,5 @@
 const os = require("node:os");
+const path = require("node:path");
 const { execFileSync, execSync } = require("node:child_process");
 const nodePty = require("node-pty");
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
@@ -129,18 +130,24 @@ function resolveRunnableExecutable(executable, execFile = execFileSync) {
 function getDefaultShell({
   platform = process.platform,
   env = process.env,
-  resolveExecutable = resolveRunnableExecutable
+  resolveExecutable = resolveRunnableExecutable,
+  preference = "cmd",
+  requireAvailable = true
 } = {}) {
   if (platform !== "win32") {
     return env.SHELL || "bash";
   }
 
-  const pwshPath = resolveExecutable("pwsh.exe");
-  if (pwshPath) {
+  if (preference === "pwsh") {
+    if (!requireAvailable) return "pwsh.exe";
+    const pwshPath = resolveExecutable("pwsh.exe");
+    if (!pwshPath) throw new Error("PowerShell 7 不可用，请安装 PowerShell 7 或修改 Shell 选择。 / PowerShell 7 is unavailable; install it or select another shell.");
     return pwshPath;
   }
-
-  return "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+  if (preference === "powershell") {
+    return path.win32.join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  }
+  return env.ComSpec || path.win32.join(env.SystemRoot || "C:\\Windows", "System32", "cmd.exe");
 }
 
 function getWslShell() {
@@ -260,7 +267,7 @@ function createTerminalManager({
   knownHostStore,
   pty = nodePty,
   ssh2TerminalFactory = createSsh2Terminal,
-  getDefaultShell: resolveDefaultShell = getDefaultShell
+  getDefaultShell: resolveDefaultShell = (preference) => getDefaultShell({ preference: preference || configStore?.getConfig().defaultWindowsShell })
 }) {
   const sessions = new Map();
   const sessionOrder = [];
@@ -667,7 +674,7 @@ function createTerminalManager({
     const persist = options.persist !== false;
     const id = sessionStore.createTemplateId();
     const type = options.type || "windows";
-    const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : resolveDefaultShell());
+    const shell = options.shell || (type === "wsl" ? getWslShell() : type === "ssh" ? getSshShell() : resolveDefaultShell(options.windowsShell));
     const cwd = options.cwd || (type === "wsl" || type === "ssh" ? "~" : os.homedir());
     const sshConfig = options.sshConfig;
     if (type === "ssh") {

@@ -56,6 +56,10 @@ let templateUsageStore = null;
 let launchTemplateStore = null;
 let launchTemplateService = null;
 let configStore = null;
+const resolveConfiguredShell = (preference, requireAvailable = true) => getDefaultShell({
+  requireAvailable,
+  preference: preference || configStore?.getConfig().defaultWindowsShell || "cmd"
+});
 let openRouterConfigStore = null;
 let naraRouterConfigStore = null;
 let miniMaxConfigStore = null;
@@ -121,7 +125,8 @@ if (!gotSingleInstanceLock) {
     launchTemplateStore.load();
     sessionStore = createSessionStore({
       sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
-      getDefaultShell,
+      // Reading saved metadata must work even if the selected shell is not installed.
+      getDefaultShell: () => resolveConfiguredShell(undefined, false),
       getWslShell,
       safeStorage,
       templateUsageStore,
@@ -183,6 +188,7 @@ if (!gotSingleInstanceLock) {
       }
     };
     terminalManager = createTerminalManager({
+      getDefaultShell: resolveConfiguredShell,
       sessionStore,
       configStore,
       broadcast,
@@ -362,7 +368,7 @@ if (!gotSingleInstanceLock) {
       naraRouterService: settingsModule.naraRouterService,
       miniMaxService: settingsModule.miniMaxService,
       codexModelBridgeModule,
-      getDefaultShell,
+      getDefaultShell: resolveConfiguredShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)
     });
     launchTemplateService = createLaunchTemplateService({

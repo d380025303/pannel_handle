@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { LOCALE_OPTIONS, useI18n } from "../../i18n";
 import type { AppTheme } from "../../themes";
-import type { Locale, ThemeId } from "../../vite-env";
+import type { Locale, ThemeId, WindowsShell } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
 import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
 
+import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
+
 type SettingsModalProps = {
+  defaultWindowsShell: WindowsShell;
+  onDefaultWindowsShellChange: (value: WindowsShell) => Promise<void>;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
   debugMode: boolean;
@@ -23,6 +27,8 @@ type SettingsModalProps = {
 };
 
 export function SettingsModal({
+  defaultWindowsShell,
+  onDefaultWindowsShellChange,
   autoRestore,
   autoWorkBuddyCheckin,
   debugMode,
@@ -45,6 +51,8 @@ export function SettingsModal({
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
   const [dingTalkOpen, setDingTalkOpen] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [shellError, setShellError] = useState<string | null>(null);
+  const [shellBusy, setShellBusy] = useState(false);
   const [generalOpen, setGeneralOpen] = useState(true);
   const themeOptions = useMemo(() => themes.map((theme) => ({
     value: theme.id,
@@ -155,6 +163,21 @@ export function SettingsModal({
             </div>
             {generalOpen && (
               <>
+                <label className="settings-field">
+                  <span className="modal-label">{t("settings.defaultWindowsShell")}</span>
+                  <select className="modal-input" value={defaultWindowsShell} disabled={shellBusy} onChange={async (event) => {
+                    const value = event.target.value as WindowsShell;
+                    setShellBusy(true);
+                    setShellError(null);
+                    try { await onDefaultWindowsShellChange(value); }
+                    catch (err) { setShellError(err instanceof Error ? err.message : String(err)); }
+                    finally { setShellBusy(false); }
+                  }}>
+                    {WINDOWS_SHELL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <span className="settings-help">{t("settings.defaultWindowsShellHint")}</span>
+                </label>
+                {shellError && <p className="settings-result error" role="alert">{shellError}</p>}
                 <label className="auto-restore-label">
                   <input
                     type="checkbox"

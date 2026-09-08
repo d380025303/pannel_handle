@@ -16,6 +16,8 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
   return render(
     <I18nProvider locale="zh-CN">
       <SettingsModal
+        defaultWindowsShell="cmd"
+        onDefaultWindowsShellChange={vi.fn().mockResolvedValue(undefined)}
         autoRestore
         autoWorkBuddyCheckin
         debugMode={false}

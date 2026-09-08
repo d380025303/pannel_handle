@@ -205,6 +205,10 @@ export type TranslationKey =
   | "codexBackendSwitch.menu"
   | "codexBackendSwitch.switching"
   | "session.agentCwdRequired"
+  | "settings.defaultWindowsShell"
+  | "settings.defaultWindowsShellHint"
+  | "session.defaultShell"
+  | "session.shellSyntaxHint"
   | "session.preLaunchCommand"
   | "session.codexBackend"
   | "session.codexBackendOpenAI"
@@ -1038,6 +1042,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexBackendSwitch.menu": "选择要切换到的 Codex 模型后端",
     "codexBackendSwitch.switching": "正在切换到 {backend}",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
+    "settings.defaultWindowsShell": "Windows 默认 Shell",
+    "settings.defaultWindowsShellHint": "保存后对新建会话生效，已有会话和模板保留原 Shell。PowerShell 7 需要单独安装。",
+    "session.defaultShell": "默认（{shell}）",
+    "session.shellSyntaxHint": "请使用 {shell} 语法；选择 CLI 后会自动追加启动命令。",
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.codexBackend": "Codex 模型后端",
     "session.codexBackendOpenAI": "OpenAI（Codex 默认）",
@@ -1863,6 +1871,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexBackendSwitch.menu": "Choose a Codex model backend",
     "codexBackendSwitch.switching": "Switching to {backend}",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
+    "settings.defaultWindowsShell": "Default Windows shell",
+    "settings.defaultWindowsShellHint": "Applies to new sessions after saving. Existing sessions and templates keep their shell. PowerShell 7 requires a separate installation.",
+    "session.defaultShell": "Default ({shell})",
+    "session.shellSyntaxHint": "Use {shell} syntax. The selected CLI startup command is appended automatically.",
     "session.preLaunchCommand": "Command before CLI startup",
     "session.codexBackend": "Codex model backend",
     "session.codexBackendOpenAI": "OpenAI (Codex default)",

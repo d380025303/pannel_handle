@@ -28,6 +28,7 @@ describe("config-store", () => {
     store.loadConfig();
 
     expect(store.getConfig()).toEqual({
+      defaultWindowsShell: "cmd",
       autoRestore: true,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
@@ -153,6 +154,7 @@ describe("config-store", () => {
     store.loadConfig();
 
     expect(store.getConfig()).toEqual({
+      defaultWindowsShell: "cmd",
       autoRestore: false,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
@@ -185,5 +187,29 @@ describe("sidebar width persistence", () => {
     const store = createConfigStore({ configFile });
     store.loadConfig();
     expect(store.getConfig().sidebarWidth).toBe(290);
+  });
+});
+
+
+describe("default Windows shell", () => {
+  it.each(["cmd", "powershell", "pwsh"])("persists %s across reloads", (defaultWindowsShell) => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    store.updateConfig({ defaultWindowsShell });
+    store.updateConfig({ debugMode: true });
+    const reopened = createConfigStore({ configFile });
+    reopened.loadConfig();
+    expect(reopened.getConfig()).toMatchObject({ defaultWindowsShell, debugMode: true });
+  });
+
+  it.each([undefined, null, "bash", 12])("defaults invalid or missing shell %s to CMD", (defaultWindowsShell) => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ defaultWindowsShell }));
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig().defaultWindowsShell).toBe("cmd");
+    store.updateConfig({ defaultWindowsShell: "pwsh" });
+    store.updateConfig({ defaultWindowsShell: "invalid" });
+    expect(store.getConfig().defaultWindowsShell).toBe("cmd");
   });
 });

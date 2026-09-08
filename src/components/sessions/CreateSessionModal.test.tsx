@@ -22,7 +22,7 @@ describe("CreateSessionModal local SSH bridge", () => {
 
     render(
       <I18nProvider locale="zh-CN">
-        <CreateSessionModal wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
+        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
       </I18nProvider>
     );
 
@@ -48,7 +48,7 @@ describe("CreateSessionModal local SSH bridge", () => {
   it("hides and omits the local directory when Codex runs remotely", () => {
     render(
       <I18nProvider locale="zh-CN">
-        <CreateSessionModal wslDistros={[]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
+        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
       </I18nProvider>
     );
 
@@ -69,7 +69,7 @@ describe("CreateSessionModal local SSH bridge", () => {
     });
     render(
       <I18nProvider locale="zh-CN">
-        <CreateSessionModal wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
+        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
       </I18nProvider>
     );
 
@@ -95,7 +95,7 @@ describe("CreateSessionModal local SSH bridge", () => {
     const onCreate = vi.fn(async () => undefined);
     render(
       <I18nProvider locale="zh-CN">
-        <CreateSessionModal wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
+        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
       </I18nProvider>
     );
 
@@ -114,4 +114,17 @@ describe("CreateSessionModal local SSH bridge", () => {
     })));
   });
 
+});
+
+
+describe("Windows shell selection", () => {
+  it("shows the configured default and submits an explicit override", async () => {
+    const onCreate = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="pwsh" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    expect(screen.getByRole("button", { name: "默认（PowerShell 7）" }).className).toContain("selected");
+    fireEvent.click(screen.getByRole("button", { name: "CMD" }));
+    expect(screen.getByPlaceholderText(/set "HTTP_PROXY=/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ selectedShellId: "cmd" })));
+  });
 });

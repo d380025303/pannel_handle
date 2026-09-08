@@ -12,8 +12,13 @@ function normalizeLocale(locale) {
   return VALID_LOCALES.has(locale) ? locale : DEFAULT_LOCALE;
 }
 
+function normalizeWindowsShell(value) {
+  return ["cmd", "powershell", "pwsh"].includes(value) ? value : "cmd";
+}
+
 function createConfigStore({ configFile }) {
   let config = {
+    defaultWindowsShell: "cmd",
     autoRestore: true,
     autoWorkBuddyCheckin: true,
     autoCollapseFileChains: true,
@@ -27,6 +32,7 @@ function createConfigStore({ configFile }) {
 
   function serializeConfig() {
     return {
+      defaultWindowsShell: config.defaultWindowsShell,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
@@ -45,6 +51,7 @@ function createConfigStore({ configFile }) {
       const parsed = JSON.parse(data);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         config = {
+          defaultWindowsShell: normalizeWindowsShell(parsed.defaultWindowsShell),
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
@@ -81,6 +88,7 @@ function createConfigStore({ configFile }) {
 
   function getConfig() {
     return {
+      defaultWindowsShell: config.defaultWindowsShell,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
@@ -95,6 +103,9 @@ function createConfigStore({ configFile }) {
 
   function updateConfig(partial) {
     if (partial && typeof partial === "object") {
+      if (Object.hasOwn(partial, "defaultWindowsShell")) {
+        config.defaultWindowsShell = normalizeWindowsShell(partial.defaultWindowsShell);
+      }
       if (typeof partial.autoRestore === "boolean") {
         config.autoRestore = partial.autoRestore;
       }

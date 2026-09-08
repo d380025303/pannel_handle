@@ -126,6 +126,15 @@ describe("settings IPC handlers", () => {
     expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["cmd", "powershell", "pwsh"])("saves the default shell %s through config IPC", (defaultWindowsShell) => {
+    const harness = createHarness();
+    const result = harness.ipcMain.handlers.get("config:set")({}, { defaultWindowsShell });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ defaultWindowsShell });
+    expect(result.defaultWindowsShell).toBe(defaultWindowsShell);
+    harness.ipcMain.handlers.get("config:set")({}, { defaultWindowsShell: "bash" });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
+  });
+
   it("delegates provider, CodeBuddy, DingTalk, and mobile channels", () => {
     const harness = createHarness();
 

@@ -72,6 +72,9 @@ function registerSettingsIpcHandlers({
   ipcMain.handle("config:get", () => configStore.getConfig());
   ipcMain.handle("config:set", (_event, partial) => {
     const updates = {};
+    if (partial && ["cmd", "powershell", "pwsh"].includes(partial.defaultWindowsShell)) {
+      updates.defaultWindowsShell = partial.defaultWindowsShell;
+    }
     if (partial && typeof partial.autoRestore === "boolean") {
       updates.autoRestore = partial.autoRestore;
     }

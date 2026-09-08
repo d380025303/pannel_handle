@@ -11,6 +11,8 @@ import { generateId } from "../../utils/id";
 import { CodexBackendFields } from "./CodexBackendFields";
 import { supportsLocalBridge } from "./agentProviders";
 
+import { windowsCommandExample } from "../../utils/windowsShell";
+
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
@@ -288,11 +290,12 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
                 <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
-                  placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
+                  placeholder={t("session.initialCommandPlaceholder", { example: session.type === "windows" ? windowsCommandExample(session.shell) : "pnpm dev" })}
                   value={editCommand}
                   onChange={(e) => setEditCommand(e.target.value)}
                   rows={3}
                 />
+                {session.type === "windows" && <span className="settings-help">{t("session.shellSyntaxHint", { shell: session.shell.split(/[\\/]/).pop() || session.shell })}</span>}
               </label>
               <label className="modal-field">
                 <span className="modal-label">{t("session.tags")}</span>

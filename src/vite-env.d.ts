@@ -81,7 +81,10 @@ export type LaunchTemplateApi = {
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
 export type Locale = "zh-CN" | "en-US";
 
+export type WindowsShell = "cmd" | "powershell" | "pwsh";
+
 export type AppConfig = {
+  defaultWindowsShell: WindowsShell;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
   autoCollapseFileChains: boolean;
@@ -913,7 +916,7 @@ export type RemoteAgentApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  createSession: (options?: { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
   updateSession: (id: string, updates: { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;

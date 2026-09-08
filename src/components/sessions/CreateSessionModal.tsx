@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig } from "../../vite-env";
+import type { AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig, WindowsShell } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { TagInput } from "../shared/TagInput";
 import { CodexBackendFields } from "./CodexBackendFields";
 import { supportsLocalBridge } from "./agentProviders";
+import { WINDOWS_SHELL_OPTIONS, windowsShellLabel, windowsCommandExample } from "../../utils/windowsShell";
 
 export type CreateSessionRequest = {
   selectedShellId: string;
@@ -25,13 +26,14 @@ export type CreateSessionRequest = {
 };
 
 type CreateSessionModalProps = {
+  defaultWindowsShell: WindowsShell;
   wslDistros: string[];
   tagSuggestions: string[];
   onCreate: (request: CreateSessionRequest) => Promise<void>;
   onCancel: () => void;
 };
 
-export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCancel }: CreateSessionModalProps) {
+export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggestions, onCreate, onCancel }: CreateSessionModalProps) {
   const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [cwd, setCwd] = useState("");
@@ -43,7 +45,7 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
   const [codexModel, setCodexModel] = useState<string>();
   const [codexReady, setCodexReady] = useState(true);
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(false);
-  const [selectedShellId, setSelectedShellId] = useState("powershell");
+  const [selectedShellId, setSelectedShellId] = useState("default");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
   const [sshPort, setSshPort] = useState("22");
@@ -120,14 +122,14 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
         <div className="modal-body">
           {error && <div className="modal-error">{error}</div>}
           <div className="shell-list">
-            <button
-              type="button"
-              className={`shell-item ${selectedShellId === "powershell" ? "selected" : ""}`}
-              onClick={() => setSelectedShellId("powershell")}
-            >
-              <Terminal aria-hidden="true" />
-              PowerShell
-            </button>
+            {[{ value: "default", label: t("session.defaultShell", { shell: windowsShellLabel(defaultWindowsShell) }) }, ...WINDOWS_SHELL_OPTIONS].map(option => (
+              <button key={option.value} type="button"
+                className={`shell-item ${selectedShellId === option.value ? "selected" : ""}`}
+                onClick={() => setSelectedShellId(option.value)}>
+                <Terminal aria-hidden="true" />
+                {option.label}
+              </button>
+            ))}
             {wslDistros.map((distro) => {
               const id = `wsl:${distro}`;
               return (
@@ -285,11 +287,12 @@ export function CreateSessionModal({ wslDistros, tagSuggestions, onCreate, onCan
                 <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
-                  placeholder={t("session.initialCommandPlaceholder", { example: "cd D:\\projects\\myapp" })}
+                  placeholder={t("session.initialCommandPlaceholder", { example: selectedShellId.startsWith("wsl:") ? "pnpm dev" : windowsCommandExample(selectedShellId === "default" ? defaultWindowsShell : selectedShellId) })}
                   value={commandInput}
                   onChange={(e) => setCommandInput(e.target.value)}
                   rows={3}
                 />
+                {!selectedShellId.startsWith("wsl:") && <span className="settings-help">{t("session.shellSyntaxHint", { shell: windowsShellLabel(selectedShellId === "default" ? defaultWindowsShell : selectedShellId as WindowsShell) })}</span>}
               </label>
             </>
           )}

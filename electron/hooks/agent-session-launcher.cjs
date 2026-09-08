@@ -275,7 +275,7 @@ function createAgentSessionLauncher({
   codexModelBridgeModule,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
-  getDefaultShell = () => process.env.ComSpec || "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
   getLocalBridgeShell = () => "powershell.exe",
   getHomeDirectory = () => os.homedir()
 }) {
@@ -287,7 +287,7 @@ function createAgentSessionLauncher({
 
   function resolveLocalShell(session) {
     if (session.type !== "windows" || session.shell) return session;
-    return { ...session, shell: getDefaultShell() };
+    return { ...session, shell: getDefaultShell(session.windowsShell) };
   }
 
   function validateAgentSession(session) {

@@ -325,7 +325,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setQuickAgentError(null);
     try {
       await terminalSessions.createSession({
-        selectedShellId: "powershell",
+        selectedShellId: "default",
         title: getAgentProviderLabel(provider),
         agentProvider: provider,
         persist: false
@@ -833,6 +833,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
       {showCreateModal && (
         <CreateSessionModal
+          defaultWindowsShell={terminalSessions.defaultWindowsShell}
           wslDistros={wslDistros}
           tagSuggestions={terminalSessions.tagSuggestions}
           onCreate={handleCreateSession}
@@ -879,6 +880,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
       {showSettingsModal && (
         <SettingsModal
+          defaultWindowsShell={terminalSessions.defaultWindowsShell}
+          onDefaultWindowsShellChange={terminalSessions.changeDefaultWindowsShell}
           autoRestore={terminalSessions.autoRestore}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           debugMode={debugMode}

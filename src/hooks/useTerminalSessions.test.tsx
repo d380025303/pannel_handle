@@ -21,6 +21,27 @@ function session(id: string, agentProvider: TerminalSession["agentProvider"]): T
 afterEach(cleanup);
 
 describe("useTerminalSessions", () => {
+  it("loads and saves the default shell and forwards only explicit selections", async () => {
+    window.terminalApi = {
+      loadSavedSessions: vi.fn(async () => []),
+      getConfig: vi.fn(async () => ({ autoRestore: false, lastActiveSessionIds: [], defaultWindowsShell: "pwsh" })),
+      setConfig: vi.fn(async () => undefined),
+      onSessionsChanged: vi.fn(() => () => {}),
+      onAgentStatus: vi.fn(() => () => {}),
+      createSession: vi.fn(async () => session("new", undefined))
+    } as unknown as typeof window.terminalApi;
+    window.launchTemplateApi = { list: vi.fn(async () => []) } as unknown as typeof window.launchTemplateApi;
+    const { result } = renderHook(() => useTerminalSessions());
+    await waitFor(() => expect(result.current.defaultWindowsShell).toBe("pwsh"));
+    await act(async () => result.current.changeDefaultWindowsShell("cmd"));
+    expect(window.terminalApi.setConfig).toHaveBeenCalledWith({ defaultWindowsShell: "cmd" });
+    expect(result.current.defaultWindowsShell).toBe("cmd");
+    await act(async () => result.current.createSession({ selectedShellId: "default" }));
+    expect(vi.mocked(window.terminalApi.createSession).mock.calls[0][0]).not.toHaveProperty("windowsShell");
+    await act(async () => result.current.createSession({ selectedShellId: "powershell" }));
+    expect(window.terminalApi.createSession).toHaveBeenLastCalledWith(expect.objectContaining({ type: "windows", windowsShell: "powershell" }));
+  });
+
   it("duplicates a running session in the background and reports launch failures", async () => {
     let onSessionsChanged = (_sessions: TerminalSession[]) => {};
     const duplicateRunningSession = vi.fn()

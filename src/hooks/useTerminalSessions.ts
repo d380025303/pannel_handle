@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, WindowsShell, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { updateAgentStatuses } from "../utils/agentStatus";
 import { generateId } from "../utils/id";
 import { supportsLocalBridge } from "../components/sessions/agentProviders";
@@ -27,6 +27,7 @@ export function useTerminalSessions() {
   const [librarySessions, setLibrarySessions] = useState<TerminalSession[]>([]);
   const [launchTemplates, setLaunchTemplates] = useState<LaunchTemplate[]>([]);
   const [pickerManual, setPickerManual] = useState(false);
+  const [defaultWindowsShell, setDefaultWindowsShell] = useState<WindowsShell>("cmd");
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
   const [dismissedAgentWarningsBySessionId, setDismissedAgentWarningsBySessionId] = useState<Record<string, number>>({});
@@ -69,6 +70,7 @@ export function useTerminalSessions() {
       if (isDisposed) return;
 
       setAutoRestore(config.autoRestore);
+      setDefaultWindowsShell(config.defaultWindowsShell || "cmd");
       setLibrarySessions(saved);
       setLaunchTemplates(savedLaunchTemplates);
 
@@ -133,6 +135,7 @@ export function useTerminalSessions() {
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
       type: isSsh ? "ssh" : isWsl ? "wsl" : "windows",
+      ...(["cmd", "powershell", "pwsh"].includes(selectedShellId) ? { windowsShell: selectedShellId as WindowsShell } : {}),
       ...(isWsl ? { wslDistro: selectedShellId.slice(4) } : {}),
       ...(isSsh ? { sshConfig } : {}),
       ...(title ? { title } : {}),
@@ -339,6 +342,11 @@ export function useTerminalSessions() {
     await window.terminalApi.reorderRunningSessions(orderedIds);
   }, []);
 
+  const changeDefaultWindowsShell = useCallback(async (value: WindowsShell) => {
+    await window.terminalApi.setConfig({ defaultWindowsShell: value });
+    setDefaultWindowsShell(value);
+  }, []);
+
   const toggleAutoRestore = useCallback(async () => {
     const config = await window.terminalApi.getConfig();
     const next = !config.autoRestore;
@@ -382,6 +390,8 @@ export function useTerminalSessions() {
     deleteLaunchTemplate,
     launchLaunchTemplate,
     reorderRunningSessions,
+    defaultWindowsShell,
+    changeDefaultWindowsShell,
     autoRestore,
     toggleAutoRestore,
     addQuickCommandToActiveSession,

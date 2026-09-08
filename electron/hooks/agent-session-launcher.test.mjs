@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
@@ -242,6 +243,31 @@ describe("agent-session-launcher", () => {
     expect(command).toBe("chcp 65001 && set HTTP_PROXY=http://127.0.0.1:7892 && set HTTPS_PROXY=http://127.0.0.1:7892 && codex");
     expect(command).not.toContain("& {");
     expect(command).not.toContain("if ($?)");
+  });
+
+  it("resolves the selected Windows shell before composing the Agent command", async () => {
+    const current = createMocks();
+    current.getDefaultShell.mockReturnValue("pwsh.exe");
+    await current.launcher.createSession({ type: "windows", windowsShell: "pwsh", cwd: "C:\\work", agentProvider: "claude", initialCommand: "$env:TEST = 'ok'" });
+    expect(current.getDefaultShell).toHaveBeenCalledWith("pwsh");
+    expect(current.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      shell: "pwsh.exe",
+      runtimeInitialCommand: expect.stringContaining("& { $env:TEST = 'ok' }; if ($?) { claude }")
+    }));
+  });
+
+  it.skipIf(process.platform !== "win32")("runs CMD proxy setup and inherits it in a child without network access", () => {
+    const command = buildAgentStartCommand({
+      type: "windows", shell: "cmd.exe", agentProvider: "claude",
+      initialCommand: 'chcp 65001 && set "HTTP_PROXY=http://127.0.0.1:7892" && set "HTTPS_PROXY=http://127.0.0.1:7892"'
+    }).replace(/ && claude$/, ' && cmd.exe /d /c set HTTP_PROXY && cmd.exe /d /c set HTTPS_PROXY');
+    const output = execFileSync(process.env.ComSpec || "cmd.exe", ["/d", "/q"], {
+      input: command + "\r\nexit\r\n",
+      encoding: "utf8", windowsHide: true, timeout: 5000,
+      env: { ...process.env, HTTP_PROXY: "before", HTTPS_PROXY: "before" }
+    });
+    expect(output).toMatch(/^HTTP_PROXY=http:\/\/127\.0\.0\.1:7892\r?$/m);
+    expect(output).toMatch(/^HTTPS_PROXY=http:\/\/127\.0\.0\.1:7892\r?$/m);
   });
 
   it("preserves PowerShell syntax for an explicit PowerShell session", () => {
