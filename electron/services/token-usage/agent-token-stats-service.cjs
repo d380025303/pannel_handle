@@ -99,6 +99,7 @@ function createAgentTokenStatsService({
   function conversationSupported(provider, session) {
     return CONVERSATION_PROVIDERS.includes(provider) && (
       session?.type === "windows" || session?.type === "wsl" || isLocalSshBridge(session)
+      || (session?.type === "ssh" && (provider === "codex" || provider === "codebuddy"))
     );
   }
 
@@ -118,6 +119,7 @@ function createAgentTokenStatsService({
   }
 
   function consumeConversationLine(tracker, line) {
+    if (tracker.disposed) return;
     const state = ensureConversation(tracker.panelSessionId, tracker.provider, tracker.session);
     if (!state) return;
     const messages = state.parser.pushLine(line);
@@ -293,7 +295,9 @@ function createAgentTokenStatsService({
       if (CONVERSATION_PROVIDERS.includes(provider) && (eventName === "Stop" || eventName === "AfterAgent")) {
         const finalMessage = getStopFinalMessage(provider, input);
         if (liveResult?.completion) {
-          void liveResult.completion.finally(() => completeConversationTurn(session.id, finalMessage));
+          void liveResult.completion.then(completed => {
+            if (completed && !liveResult.tracker.disposed) completeConversationTurn(session.id, finalMessage);
+          });
         } else completeConversationTurn(session.id, finalMessage);
       }
       if (provider !== "copilot" && provider !== "opencode" && (

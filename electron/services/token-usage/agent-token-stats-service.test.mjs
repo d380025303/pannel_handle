@@ -153,6 +153,11 @@ describe("agent token live statistics", () => {
       expect(Buffer.from(payload.main.data, "base64").toString("utf-8")).toBe(mainLine);
       expect(payload.subagents).toHaveLength(1);
       expect(Buffer.from(payload.subagents[0].data, "base64").toString("utf-8")).toBe(subagentLine);
+      const codexResult = spawnSync(process.platform === "win32" ? "python" : "python3", [
+        "-c", REMOTE_DELTA_SCRIPT, transcriptPath, "{}", String(64 * 1024 * 1024), "codex"
+      ], { encoding: "utf-8" });
+      expect(codexResult.status, codexResult.stderr).toBe(0);
+      expect(JSON.parse(codexResult.stdout).subagents).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -252,7 +257,7 @@ describe("agent token live statistics", () => {
     expect(harness.service.getLive("panel-1")).toBeNull();
   });
 
-  it("keeps pure remote SSH conversations unsupported", () => {
+  it("supports remote SSH CodeBuddy conversations", () => {
     const sink = { startTurn: vi.fn() };
     const harness = createHarness({ conversationSink: sink });
     harness.service.handleHook({
@@ -260,7 +265,7 @@ describe("agent token live statistics", () => {
       input: { ...harness.input, hook_event_name: "UserPromptSubmit" },
       session: { ...harness.session, type: "ssh", agentLocation: "remote", agentProvider: "codebuddy" }
     });
-    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ provider: "codebuddy", supported: false }));
+    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ provider: "codebuddy", supported: true }));
     expect(harness.service.getLive("panel-1")).not.toBeNull();
     harness.service.markEnded("panel-1");
   });
@@ -321,7 +326,7 @@ describe("agent token live statistics", () => {
     await intervals[0]();
     await vi.waitFor(() => expect(service.getLive(session.id)?.tokens).toMatchObject({ inputTokens: 13, outputTokens: 7, totalTokens: 20 }));
 
-    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ supported: false }));
+    expect(sink.startTurn).toHaveBeenCalledWith(expect.objectContaining({ supported: true }));
     expect(connectClient.mock.calls.filter(([, options]) => options.actionName === "Agent live token statistics")).toHaveLength(1);
     expect(broadcasts.some(event => event.payload?.tokens?.totalTokens === 20)).toBe(true);
 
@@ -769,13 +774,15 @@ describe("agent token live statistics", () => {
       JSON.stringify({ type: "response_item", payload: { type: "function_call", call_id: "mcp-a", name: "mcp__remote__inspect", arguments: "{}" } })
     ];
     const sshSessionRuntime = {
-      connectClient: vi.fn(async () => ({
+      connectClient: vi.fn(async (_sessionId, options) => ({
         exec: (_command, callback) => {
           const stream = new EventEmitter();
           stream.stderr = new EventEmitter();
           callback(null, stream);
           queueMicrotask(() => {
-            stream.emit("data", Buffer.from(JSON.stringify(transcript)));
+            stream.emit("data", Buffer.from(options.actionName === "Agent live token statistics"
+              ? remoteDelta("/tmp/session.jsonl", transcript.join("\n") + "\n")
+              : JSON.stringify(transcript)));
             stream.emit("close", 0);
           });
         },

@@ -97,6 +97,7 @@ function createAgentTokenLiveModule({
         turnBaseline: emptyTokens(),
         turnStartedAt: null,
         conversationActive: false,
+        turnVersion: 0,
         state: "waiting",
         models: [],
         updatedAt: now(),
@@ -165,11 +166,12 @@ function createAgentTokenLiveModule({
   }
 
   async function startLiveTurn(tracker) {
+    const version = ++tracker.turnVersion;
     if (tracker.provider === "codebuddy" && !tracker.sessionBaselineInitialized && !tracker.pollPromise) {
       initializeSessionBaseline(tracker);
     }
     await poll(tracker, { emitChanged: false });
-    if (tracker.disposed) return;
+    if (tracker.disposed || tracker.turnVersion !== version) return;
     tracker.conversationActive = true;
     if (!tracker.sessionBaselineInitialized) initializeSessionBaseline(tracker);
     startTurn(tracker, now);
@@ -178,8 +180,13 @@ function createAgentTokenLiveModule({
   }
 
   async function completeLiveTurn(tracker) {
+    const version = ++tracker.turnVersion;
+    stopTimer(tracker);
+    // A read already in flight may predate Stop; follow it with a final delta read.
+    if (tracker.pollPromise) await tracker.pollPromise;
+    if (tracker.disposed || tracker.turnVersion !== version) return false;
     await poll(tracker, { emitChanged: false });
-    if (tracker.disposed) return;
+    if (tracker.disposed || tracker.turnVersion !== version) return false;
     if (source.consumePendingLine(tracker)) {
       const result = tracker.parser.getResult();
       tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
@@ -191,6 +198,7 @@ function createAgentTokenLiveModule({
     stopTimer(tracker);
     source.closeRemoteClient(tracker);
     emit(tracker);
+    return true;
   }
 
   function handleEvent({ provider, eventName, input, session }) {
