@@ -8,7 +8,7 @@ import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryFie
 import { TagInput } from "../shared/TagInput";
 import { CodexBackendFields } from "./CodexBackendFields";
 import { supportsLocalBridge } from "./agentProviders";
-import { WINDOWS_SHELL_OPTIONS, windowsShellLabel, windowsCommandExample } from "../../utils/windowsShell";
+import { windowsShellLabel, windowsCommandExample } from "../../utils/windowsShell";
 
 export type CreateSessionRequest = {
   selectedShellId: string;
@@ -122,14 +122,12 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
         <div className="modal-body">
           {error && <div className="modal-error">{error}</div>}
           <div className="shell-list">
-            {[{ value: "default", label: t("session.defaultShell", { shell: windowsShellLabel(defaultWindowsShell) }) }, ...WINDOWS_SHELL_OPTIONS].map(option => (
-              <button key={option.value} type="button"
-                className={`shell-item ${selectedShellId === option.value ? "selected" : ""}`}
-                onClick={() => setSelectedShellId(option.value)}>
-                <Terminal aria-hidden="true" />
-                {option.label}
-              </button>
-            ))}
+            <button type="button"
+              className={`shell-item ${selectedShellId === "default" ? "selected" : ""}`}
+              onClick={() => setSelectedShellId("default")}>
+              <Terminal aria-hidden="true" />
+              {t("session.defaultShell", { shell: windowsShellLabel(defaultWindowsShell) })}
+            </button>
             {wslDistros.map((distro) => {
               const id = `wsl:${distro}`;
               return (
@@ -287,12 +285,12 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
                 <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
                 <textarea
                   className="modal-input modal-textarea"
-                  placeholder={t("session.initialCommandPlaceholder", { example: selectedShellId.startsWith("wsl:") ? "pnpm dev" : windowsCommandExample(selectedShellId === "default" ? defaultWindowsShell : selectedShellId) })}
+                  placeholder={t("session.initialCommandPlaceholder", { example: selectedShellId.startsWith("wsl:") ? "pnpm dev" : windowsCommandExample(defaultWindowsShell) })}
                   value={commandInput}
                   onChange={(e) => setCommandInput(e.target.value)}
                   rows={3}
                 />
-                {!selectedShellId.startsWith("wsl:") && <span className="settings-help">{t("session.shellSyntaxHint", { shell: windowsShellLabel(selectedShellId === "default" ? defaultWindowsShell : selectedShellId as WindowsShell) })}</span>}
+                {!selectedShellId.startsWith("wsl:") && <span className="settings-help">{t("session.shellSyntaxHint", { shell: windowsShellLabel(defaultWindowsShell) })}</span>}
               </label>
             </>
           )}

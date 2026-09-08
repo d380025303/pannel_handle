@@ -118,13 +118,26 @@ describe("CreateSessionModal local SSH bridge", () => {
 
 
 describe("Windows shell selection", () => {
-  it("shows the configured default and submits an explicit override", async () => {
+  it.each([
+    ["cmd", "CMD", /set "HTTP_PROXY=/],
+    ["powershell", "PowerShell 5.1", /\$env:HTTP_PROXY/],
+    ["pwsh", "PowerShell 7", /\$env:HTTP_PROXY/]
+  ] as const)("only offers the configured Windows default %s", async (shell, label, commandExample) => {
     const onCreate = vi.fn(async () => undefined);
-    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="pwsh" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
-    expect(screen.getByRole("button", { name: "默认（PowerShell 7）" }).className).toContain("selected");
-    fireEvent.click(screen.getByRole("button", { name: "CMD" }));
-    expect(screen.getByPlaceholderText(/set "HTTP_PROXY=/)).toBeTruthy();
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell={shell} wslDistros={["Ubuntu"]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    const defaultButton = screen.getByRole("button", { name: `默认（${label}）` });
+    expect(defaultButton.className).toContain("selected");
+    for (const name of ["CMD", "PowerShell 5.1", "PowerShell 7"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.getByPlaceholderText(commandExample)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "SSH" }));
+    expect(screen.getByLabelText("主机")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ubuntu" }));
+    expect(screen.getByPlaceholderText("/home/user/project")).toBeTruthy();
+    fireEvent.click(defaultButton);
+    expect(screen.getByPlaceholderText(commandExample)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "创建" }));
-    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ selectedShellId: "cmd" })));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ selectedShellId: "default" })));
   });
 });
