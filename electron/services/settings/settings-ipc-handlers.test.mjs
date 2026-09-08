@@ -104,6 +104,7 @@ describe("settings IPC handlers", () => {
       debugMode: true,
       themeId: "light",
       locale: "en-US",
+      sidebarWidth: 500,
       rightToolsWidth: 600,
       ignored: true
     });
@@ -115,12 +116,13 @@ describe("settings IPC handlers", () => {
       debugMode: true,
       themeId: "light",
       locale: "en-US",
+      sidebarWidth: 500,
       rightToolsWidth: 600
     });
     expect(result).toEqual(expect.objectContaining({ autoWorkBuddyCheckin: true, themeId: "light", locale: "en-US" }));
     expect(harness.workBuddyAutoCheckinService.setEnabled).toHaveBeenCalledWith(true);
 
-    harness.ipcMain.handlers.get("config:set")({}, { themeId: "unknown", locale: "fr-FR", rightToolsWidth: 601 });
+    harness.ipcMain.handlers.get("config:set")({}, { themeId: "unknown", locale: "fr-FR", rightToolsWidth: 601, sidebarWidth: 501 });
     expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
   });
 

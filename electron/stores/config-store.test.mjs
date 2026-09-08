@@ -35,6 +35,7 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
+      sidebarWidth: 290,
       rightToolsWidth: 380
     });
   });
@@ -159,7 +160,30 @@ describe("config-store", () => {
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",
+      sidebarWidth: 290,
       rightToolsWidth: 380
     });
+  });
+});
+
+
+describe("sidebar width persistence", () => {
+  it("restores saved width in a new store and preserves the right width", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    store.updateConfig({ sidebarWidth: 430, rightToolsWidth: 520 });
+    const reopened = createConfigStore({ configFile });
+    reopened.loadConfig();
+    expect(reopened.getConfig()).toMatchObject({ sidebarWidth: 430, rightToolsWidth: 520 });
+    reopened.updateConfig({ sidebarWidth: 501 });
+    expect(reopened.getConfig().sidebarWidth).toBe(430);
+  });
+
+  it.each([null, "400", 179, 501])("defaults invalid saved width %s", (sidebarWidth) => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ sidebarWidth }));
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig().sidebarWidth).toBe(290);
   });
 });

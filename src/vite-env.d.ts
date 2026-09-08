@@ -89,6 +89,7 @@ export type AppConfig = {
   lastActiveSessionIds: string[];
   themeId: ThemeId;
   locale: Locale;
+  sidebarWidth: number;
   rightToolsWidth: number;
 };
 

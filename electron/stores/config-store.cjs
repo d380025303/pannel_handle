@@ -21,6 +21,7 @@ function createConfigStore({ configFile }) {
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
+    sidebarWidth: 290,
     rightToolsWidth: 380
   };
 
@@ -33,6 +34,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
       locale: config.locale,
+      sidebarWidth: config.sidebarWidth,
       rightToolsWidth: config.rightToolsWidth
     };
   }
@@ -52,6 +54,9 @@ function createConfigStore({ configFile }) {
             : [],
           themeId: normalizeThemeId(parsed.themeId),
           locale: normalizeLocale(parsed.locale),
+          sidebarWidth: typeof parsed.sidebarWidth === "number"
+            && parsed.sidebarWidth >= 180 && parsed.sidebarWidth <= 500
+            ? parsed.sidebarWidth : 290,
           rightToolsWidth: typeof parsed.rightToolsWidth === "number"
             && parsed.rightToolsWidth >= 280 && parsed.rightToolsWidth <= 600
             ? parsed.rightToolsWidth : 380
@@ -83,6 +88,7 @@ function createConfigStore({ configFile }) {
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
       locale: config.locale,
+      sidebarWidth: config.sidebarWidth,
       rightToolsWidth: config.rightToolsWidth
     };
   }
@@ -109,6 +115,10 @@ function createConfigStore({ configFile }) {
       }
       if (typeof partial.locale === "string") {
         config.locale = normalizeLocale(partial.locale);
+      }
+      if (typeof partial.sidebarWidth === "number"
+        && partial.sidebarWidth >= 180 && partial.sidebarWidth <= 500) {
+        config.sidebarWidth = partial.sidebarWidth;
       }
       if (typeof partial.rightToolsWidth === "number"
         && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {

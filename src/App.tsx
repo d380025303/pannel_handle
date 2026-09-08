@@ -105,6 +105,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [rightTool, setRightTool] = useState<RightTool>("files");
+  const [savedSidebarWidth, setSavedSidebarWidth] = useState(290);
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
@@ -130,7 +131,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
   workspaceTabRef.current = workspaceTab;
   const { isMaximized } = useWindowState();
-  const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize();
+  const { sidebarWidth, handleSplitterMouseDown } = useSidebarResize(
+    savedSidebarWidth,
+    (width) => {
+      setSavedSidebarWidth(width);
+      window.terminalApi.setConfig({ sidebarWidth: width });
+    }
+  );
   const { rightToolsWidth: liveRightToolsWidth, handleSplitterMouseDown: handleRightSplitterMouseDown } = useRightToolsResize(
     rightToolsWidth,
     (w) => {
@@ -211,6 +218,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setAutoCollapseFileChains(config.autoCollapseFileChains);
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
+        setSavedSidebarWidth(config.sidebarWidth);
         setRightToolsWidth(config.rightToolsWidth);
       }
     });

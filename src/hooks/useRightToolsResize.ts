@@ -8,9 +8,17 @@ export function useRightToolsResize(initialWidth: number, onPersist: (width: num
   const widthRef = useRef(rightToolsWidth);
   const stopDraggingRef = useRef<(() => void) | null>(null);
 
+  const userResizedRef = useRef(false);
+  const persistRef = useRef(onPersist);
+  persistRef.current = onPersist;
+
   useEffect(() => {
-    widthRef.current = rightToolsWidth;
-  }, [rightToolsWidth]);
+    if (!userResizedRef.current && Number.isFinite(initialWidth)
+      && initialWidth >= 280 && initialWidth <= 600) {
+      widthRef.current = initialWidth;
+      setRightToolsWidth(initialWidth);
+    }
+  }, [initialWidth]);
 
   const handleSplitterMouseDown = useCallback((e: React.MouseEvent) => {
     stopDraggingRef.current?.();
@@ -20,14 +28,16 @@ export function useRightToolsResize(initialWidth: number, onPersist: (width: num
       onMove: (event) => {
         const delta = startXRef.current - event.clientX;
         const newWidth = Math.min(600, Math.max(280, startWidthRef.current + delta));
+        userResizedRef.current = true;
+        widthRef.current = newWidth;
         setRightToolsWidth(newWidth);
       },
       onEnd: () => {
         stopDraggingRef.current = null;
-        onPersist(widthRef.current);
+        if (userResizedRef.current) persistRef.current(widthRef.current);
       }
     });
-  }, [onPersist]);
+  }, []);
 
   useEffect(() => {
     return () => {

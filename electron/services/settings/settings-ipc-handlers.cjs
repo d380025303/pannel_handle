@@ -90,6 +90,10 @@ function registerSettingsIpcHandlers({
     if (partial && typeof partial.locale === "string" && VALID_LOCALES.has(partial.locale)) {
       updates.locale = partial.locale;
     }
+    if (partial && typeof partial.sidebarWidth === "number"
+      && partial.sidebarWidth >= 180 && partial.sidebarWidth <= 500) {
+      updates.sidebarWidth = partial.sidebarWidth;
+    }
     if (partial && typeof partial.rightToolsWidth === "number"
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
