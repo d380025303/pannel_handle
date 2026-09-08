@@ -94,6 +94,7 @@ function createAgentTokenStatsService({
   const baselinePending = new Map();
   const startedAtBySession = new Map();
   const conversations = new Map();
+  const sessionLifetimes = new Map();
 
   function conversationSupported(provider, session) {
     return CONVERSATION_PROVIDERS.includes(provider) && (
@@ -205,6 +206,7 @@ function createAgentTokenStatsService({
     const transcriptPath = input.transcript_path || input.transcriptPath;
     if (!agentSessionId || !transcriptPath) return;
     const key = `${provider}:${agentSessionId}`;
+    const lifetime = sessionLifetimes.get(session.id);
     const request = Promise.resolve(baselinePending.get(key))
       .catch(() => undefined)
       .then(() => readWithRetry(session, provider, transcriptPath))
@@ -222,7 +224,7 @@ function createAgentTokenStatsService({
           capabilities: result.capabilities,
           startedAt: startedAtBySession.get(key)
         });
-        if (session.type === "ssh" && !isLocalSshBridge(session) && record) {
+        if (session.type === "ssh" && !isLocalSshBridge(session) && record && sessionLifetimes.get(session.id) === lifetime) {
           liveModule.setCompletedSnapshot(session.id, record);
         }
         return record;
@@ -261,6 +263,7 @@ function createAgentTokenStatsService({
 
   return {
     handleHook({ provider, input, session }) {
+      if (session && !sessionLifetimes.has(session.id)) sessionLifetimes.set(session.id, {});
       const eventName = getHookEventName(input);
       const agentSessionId = input?.session_id || input?.sessionId;
       const transcriptPath = input?.transcript_path || input?.transcriptPath;
@@ -301,12 +304,14 @@ function createAgentTokenStatsService({
       return liveModule.getSnapshot(panelSessionId);
     },
     markEnded(panelSessionId) {
+      sessionLifetimes.delete(panelSessionId);
       liveModule.endSession(panelSessionId);
       conversations.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
       conversationSink?.clearSession?.(panelSessionId);
     },
     shutdown() {
+      sessionLifetimes.clear();
       liveModule.shutdown();
       conversations.clear();
     }

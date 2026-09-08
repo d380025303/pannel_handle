@@ -22,7 +22,7 @@ const REMOTE_DELTA_SCRIPT = [
   " return {'path':p,'identity':ident,'start':off,'offset':off+len(data),'data':base64.b64encode(data).decode('ascii')}",
   "result={'main':read_delta(f),'subagents':[]}",
   "d=os.path.join(os.path.dirname(f),os.path.splitext(os.path.basename(f))[0],'subagents')",
-  "for p in sorted(glob.glob(os.path.join(d,'*.jsonl'))):",
+  "for p in (sorted(glob.glob(os.path.join(d,'*.jsonl'))) if len(sys.argv)<5 or sys.argv[4]=='codebuddy' else []):",
   " try: result['subagents'].append(read_delta(p))",
   " except Exception: pass",
   "print(json.dumps(result,separators=(',',':')))"
@@ -32,8 +32,8 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function remoteDeltaCommand(transcriptPath, readerState) {
-  return `python3 -c ${shellQuote(REMOTE_DELTA_SCRIPT)} ${shellQuote(transcriptPath)} ${shellQuote(JSON.stringify(readerState))} ${MAX_TRANSCRIPT_BYTES}`;
+function remoteDeltaCommand(transcriptPath, readerState, provider = "codebuddy") {
+  return `python3 -c ${shellQuote(REMOTE_DELTA_SCRIPT)} ${shellQuote(transcriptPath)} ${shellQuote(JSON.stringify(readerState))} ${MAX_TRANSCRIPT_BYTES} ${shellQuote(provider)}`;
 }
 
 function createTranscriptSource({
@@ -47,8 +47,8 @@ function createTranscriptSource({
     return session?.type === "ssh" && session.agentLocation === "local";
   }
 
-  function isRemoteCodeBuddy(session, provider) {
-    return provider === "codebuddy" && session?.type === "ssh" && !isLocalSshBridge(session);
+  function isRemoteTranscript(session, provider) {
+    return (provider === "codebuddy" || provider === "codex") && session?.type === "ssh" && !isLocalSshBridge(session);
   }
 
   function hasHostReadableTranscript(session) {
@@ -62,7 +62,7 @@ function createTranscriptSource({
   }
 
   function resolveTrackerSource(provider, input, session) {
-    const remote = isRemoteCodeBuddy(session, provider);
+    const remote = isRemoteTranscript(session, provider);
     if (!hasHostReadableTranscript(session) && !remote) return null;
     const transcriptPath = provider === "copilot"
       ? getCopilotOtelPath(session)
@@ -162,11 +162,12 @@ function createTranscriptSource({
     const client = ensureRemoteClient(tracker);
     let output;
     try {
-      output = await client.exec(remoteDeltaCommand(tracker.hostPath, getRemoteReaderState(tracker)));
+      output = await client.exec(remoteDeltaCommand(tracker.hostPath, getRemoteReaderState(tracker), tracker.provider));
     } catch (error) {
       if (tracker.remoteClient === client) closeRemoteClient(tracker);
       throw error;
     }
+    if (tracker.disposed) return false;
     const result = JSON.parse(output);
     const main = result?.main;
     if (!main || main.path !== tracker.hostPath || !Number.isInteger(main.offset) || !Number.isInteger(main.start)) {
@@ -178,7 +179,7 @@ function createTranscriptSource({
     tracker.offset = main.offset;
     let parsedUsage = consumeMainBytes(tracker, Buffer.from(String(main.data || ""), "base64"));
 
-    for (const item of Array.isArray(result.subagents) ? result.subagents : []) {
+    for (const item of tracker.provider === "codebuddy" && Array.isArray(result.subagents) ? result.subagents : []) {
       if (!item?.path || !Number.isInteger(item.offset) || !Number.isInteger(item.start)) continue;
       let reader = tracker.subagentReaders.get(item.path);
       if (!reader) {

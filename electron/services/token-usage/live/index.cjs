@@ -51,7 +51,7 @@ function createAgentTokenLiveModule({
 
   function emit(tracker) {
     const snapshot = buildLiveSnapshot(tracker);
-    emitSnapshot(snapshot);
+    if (!tracker.disposed) emitSnapshot(snapshot);
     return snapshot;
   }
 
@@ -63,6 +63,7 @@ function createAgentTokenLiveModule({
 
   function startTimer(tracker) {
     stopTimer(tracker);
+    if (tracker.disposed) return;
     tracker.timer = setIntervalFn(() => { void poll(tracker); }, pollIntervalMs);
   }
 
@@ -75,6 +76,7 @@ function createAgentTokenLiveModule({
     if (!resolved?.hostPath) return null;
     let tracker = trackers.get(session.id);
     if (!tracker || tracker.provider !== provider || tracker.agentSessionId !== agentSessionId || tracker.hostPath !== resolved.hostPath) {
+      if (tracker) tracker.disposed = true;
       stopTimer(tracker);
       source.closeRemoteClient(tracker);
       tracker = {
@@ -130,9 +132,11 @@ function createAgentTokenLiveModule({
   }
 
   async function poll(tracker, { emitChanged = true } = {}) {
+    if (tracker.disposed) return null;
     if (tracker.pollPromise) return tracker.pollPromise;
     const request = source.readAppendedBytes(tracker)
       .then(() => {
+        if (tracker.disposed) return null;
         const result = tracker.parser.getResult();
         if (result) {
           if (tracker.state === "unavailable") {
@@ -165,6 +169,7 @@ function createAgentTokenLiveModule({
       initializeSessionBaseline(tracker);
     }
     await poll(tracker, { emitChanged: false });
+    if (tracker.disposed) return;
     tracker.conversationActive = true;
     if (!tracker.sessionBaselineInitialized) initializeSessionBaseline(tracker);
     startTurn(tracker, now);
@@ -174,6 +179,7 @@ function createAgentTokenLiveModule({
 
   async function completeLiveTurn(tracker) {
     await poll(tracker, { emitChanged: false });
+    if (tracker.disposed) return;
     if (source.consumePendingLine(tracker)) {
       const result = tracker.parser.getResult();
       tracker.rawTokens = cloneTokens(result?.tokens || tracker.rawTokens);
@@ -192,6 +198,10 @@ function createAgentTokenLiveModule({
       openCode.handleEvent(input, session);
       return null;
     }
+    // A stop-only remote session has no live baseline; keep full collection fallback.
+    if (session?.type === "ssh" && session.agentLocation !== "local"
+      && (eventName === "Stop" || eventName === "AfterAgent" || eventName === "SessionEnd")
+      && !trackers.has(session.id)) return null;
     const tracker = ensureTracker({ provider, input, session });
     if (tracker && eventName === "SessionStart") {
       const deferCodeBuddyClearRead = initializeCodeBuddySessionStartBaseline(tracker, input);
@@ -207,6 +217,8 @@ function createAgentTokenLiveModule({
   }
 
   function setCompletedSnapshot(panelSessionId, record) {
+    const tracker = trackers.get(panelSessionId);
+    if (tracker) return buildLiveSnapshot(tracker);
     const snapshot = {
       panelSessionId,
       provider: record.provider,
@@ -233,6 +245,7 @@ function createAgentTokenLiveModule({
 
   function endSession(panelSessionId) {
     const tracker = trackers.get(panelSessionId);
+    if (tracker) tracker.disposed = true;
     stopTimer(tracker);
     source.closeRemoteClient(tracker);
     trackers.delete(panelSessionId);
@@ -242,6 +255,7 @@ function createAgentTokenLiveModule({
 
   function shutdown() {
     for (const tracker of trackers.values()) {
+      tracker.disposed = true;
       stopTimer(tracker);
       source.closeRemoteClient(tracker);
     }
