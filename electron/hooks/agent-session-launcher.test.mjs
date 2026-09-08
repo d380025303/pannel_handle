@@ -571,6 +571,32 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && PANNEL_HANDLE_HOOK_URL="));
   });
 
+  it("injects separate Codex hook environments when creating and restoring SSH sessions", async () => {
+    const mocks = createMocks();
+    mocks.sshHookTunnelService.ensureTunnel.mockImplementation(async id => ({
+      hookUrl: `http://127.0.0.1:${id === "run-1" ? 9101 : 9102}/claude-hook`
+    }));
+    const template = { id: "template-1", type: "ssh", cwd: "/srv/app", agentProvider: "codex", initialCommand: "echo ready", sshConfig: { host: "example.com" } };
+    await mocks.launcher.createSession(template);
+    await mocks.launcher.launchSession(template);
+    expect(mocks.remoteHookConfigService.install).not.toHaveBeenCalled();
+    for (const [id, port] of [["run-1", 9101], ["run-2", 9102]]) {
+      expect(mocks.sshHookTunnelService.ensureTunnel).toHaveBeenCalledWith(id);
+      expect(mocks.terminalManager.write).toHaveBeenCalledWith(id, expect.stringContaining(
+        `cd '/srv/app' && echo ready && PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:${port}/claude-hook' PANNEL_HANDLE_SESSION_ID='${id}' codex;`
+      ));
+    }
+  });
+
+  it("continues launching Codex when the runtime tunnel lookup fails", async () => {
+    const mocks = createMocks();
+    mocks.sshHookTunnelService.ensureTunnel.mockRejectedValue(new Error("tunnel unavailable"));
+    await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex", sshConfig: { host: "example.com" } });
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("tunnel unavailable"));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex;"));
+  });
+
   it("continues launching Codex over SSH when optional remote hook setup fails", async () => {
     const mocks = createMocks();
     mocks.remoteHookConfigService.inspect.mockResolvedValue({
@@ -619,7 +645,7 @@ describe("agent-session-launcher", () => {
       "run-1",
       expect.stringContaining("Remote codex command check failed:")
     );
-    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("cd '/srv/app' && codex;"));
+    expect(mocks.terminalManager.write).toHaveBeenCalledWith("run-1", expect.stringContaining("PANNEL_HANDLE_SESSION_ID='run-1' codex;"));
   });
 
   it("runs Codex locally and binds it to an SSH workspace without checking a remote CLI", async () => {

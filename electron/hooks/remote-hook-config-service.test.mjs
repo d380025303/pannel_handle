@@ -130,6 +130,33 @@ describe("remote-hook-config-service", () => {
     expect(codexConfig.hooks.SessionStart[0].hooks[0].command).toContain(".codex/pannel-handle-hook.sh");
   });
 
+  it("migrates Codex hooks once and keeps them installed across runtime changes", async () => {
+    const customHook = { matcher: "*", hooks: [{ type: "command", command: "echo custom" }] };
+    const oldConfig = JSON.stringify({ description: "user config", hooks: { Stop: [
+      customHook,
+      { matcher: "", hooks: [{ type: "command", command: "PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:1234/claude-hook' PANNEL_HANDLE_SESSION_ID='old-run' bash .codex/pannel-handle-hook.sh" }] }
+    ] } });
+    const sftp = createMemorySftp({ "/srv/app/.codex/hooks.json": oldConfig });
+    const tunnel = { hookUrl: "http://127.0.0.1:31847/claude-hook" };
+    const service = createService(sftp, tunnel);
+    const target = { type: "ssh", sessionId: "run-1", path: "/srv/app" };
+
+    expect((await service.inspect(target, ["codex"])).providers.codex.status).toBe("needs_repair");
+    expect((await service.install(target, ["codex"])).providers.codex.status).toBe("installed");
+    const content = sftp.read("/srv/app/.codex/hooks.json");
+    const config = JSON.parse(content);
+    expect(config.description).toBe("user config");
+    expect(config.hooks.Stop[0]).toEqual(customHook);
+    expect(config.hooks.Stop[1].hooks[0].command).toBe("bash .codex/pannel-handle-hook.sh");
+    expect(content).not.toContain("PANNEL_HANDLE_");
+    expect(sftp.read("/srv/app/.codex/hooks.json.pannel-handle.bak")).toBe(oldConfig);
+    sftp.put.mockClear();
+    tunnel.hookUrl = "http://127.0.0.1:40000/claude-hook";
+    expect((await service.inspect({ ...target, sessionId: "run-2" }, ["codex"])).providers.codex.status).toBe("installed");
+    expect(sftp.put).not.toHaveBeenCalled();
+    expect(sftp.read("/srv/app/.codex/hooks.json")).toBe(content);
+  });
+
   it("installs Qoder hooks into a remote Linux project", async () => {
     const sftp = createMemorySftp({
       "/srv/app/.qoder/settings.json": JSON.stringify({

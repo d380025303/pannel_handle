@@ -126,6 +126,10 @@ function buildAgentStartCommand(session, runtime = {}) {
     agentCommand = `PANNEL_HANDLE_HOOK_URL=${shellQuote(runtime.hookUrl)} PANNEL_HANDLE_SESSION_ID=${shellQuote(runtime.sessionId)} ${command}`;
   }
 
+  if (session.type === "ssh" && session.agentProvider === "codex" && runtime.hookUrl && runtime.sessionId) {
+    agentCommand = `PANNEL_HANDLE_HOOK_URL=${shellQuote(runtime.hookUrl)} PANNEL_HANDLE_SESSION_ID=${shellQuote(runtime.sessionId)} ${agentCommand}`;
+  }
+
   if (!preCommand) return agentCommand;
   if (session.type === "windows" && isPowerShell(session.shell)) {
     return `& { ${preCommand} }; if ($?) { ${agentCommand} }`;
@@ -383,7 +387,7 @@ function createAgentSessionLauncher({
         throw new Error(`安装远程通知 Hook 失败：${installed.error || "安装后校验未通过"}`);
       }
     }
-    return session.agentProvider === "opencode"
+    return session.agentProvider === "opencode" || session.agentProvider === "codex"
       ? sshHookTunnelService.ensureTunnel(sessionId)
       : undefined;
   }

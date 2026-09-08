@@ -30,6 +30,8 @@ function shellQuote(value) {
 
 function buildRemoteHookCommand(provider, hookUrl, sessionId) {
   const definition = PROVIDER_CONFIG[provider];
+  // Codex trusts the hook definition hash; runtime values must not change it.
+  if (provider === "codex") return definition.wslCommand;
   return [
     `PANNEL_HANDLE_HOOK_URL=${shellQuote(hookUrl)}`,
     `PANNEL_HANDLE_SESSION_ID=${shellQuote(sessionId)}`,
