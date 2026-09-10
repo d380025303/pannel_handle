@@ -2,7 +2,12 @@ const { EventEmitter } = require("node:events");
 const { Client } = require("ssh2");
 const { answerKeyboardInteractive } = require("./ssh-session-runtime.cjs");
 
-function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFactory = () => new Client() }) {
+function buildEnvironmentCommand(environment) {
+  const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
+  return `exec /usr/bin/env ${Object.entries(environment).map(([name, value]) => quote(`${name}=${value}`)).join(" ")} /bin/bash -il`;
+}
+
+function createSsh2Terminal({ environment = {}, connectionConfig, cols = 100, rows = 30, clientFactory = () => new Client() }) {
   const emitter = new EventEmitter();
   const client = clientFactory();
   let stream = null;
@@ -21,11 +26,7 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
   }
 
   function openShell() {
-    client.shell({
-      term: "xterm-256color",
-      cols,
-      rows
-    }, (err, nextStream) => {
+    const onShell = (err, nextStream) => {
       if (err) {
         exitCode = 1;
         emitData(`\r\nSSH shell error: ${err.message}\r\n`);
@@ -62,7 +63,10 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
       for (const data of pendingWrites.splice(0)) {
         stream.write(data);
       }
-    });
+    };
+    const window = { term: "xterm-256color", cols, rows };
+    if (Object.keys(environment).length) client.exec(buildEnvironmentCommand(environment), { pty: window }, onShell);
+    else client.shell(window, onShell);
   }
 
   client.on("keyboard-interactive", (_name, _instructions, _instructionsLang, prompts, finish) => {
@@ -123,5 +127,6 @@ function createSsh2Terminal({ connectionConfig, cols = 100, rows = 30, clientFac
 }
 
 module.exports = {
-  createSsh2Terminal
+  createSsh2Terminal,
+  buildEnvironmentCommand
 };

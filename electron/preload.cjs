@@ -12,6 +12,13 @@ function getDroppedFilePaths(files) {
     .filter(Boolean);
 }
 
+contextBridge.exposeInMainWorld("environmentApi", {
+  list: () => ipcRenderer.invoke("environment:list"),
+  save: (input) => ipcRenderer.invoke("environment:save", input),
+  delete: (id) => ipcRenderer.invoke("environment:delete", id),
+  preview: (input) => ipcRenderer.invoke("environment:preview", input)
+});
+
 contextBridge.exposeInMainWorld("terminalApi", {
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   createSession: (options) => ipcRenderer.invoke("sessions:create", options),

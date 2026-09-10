@@ -623,6 +623,8 @@ function createAgentSessionLauncher({
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,
       quickCommands: session.quickCommands || [],
+      environmentProfileId: session.environmentProfileId,
+      environmentOverrides: session.environmentOverrides,
       tags: session.tags || []
     };
   }

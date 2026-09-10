@@ -852,3 +852,13 @@
   border: 0;
   cursor: pointer;
 }
+
+.environment-settings { margin: 12px 0; min-width: 0; }
+.environment-settings summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.environment-settings p { font-size: 12px; opacity: .8; overflow-wrap: anywhere; }
+.environment-settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.environment-editor { display: grid; gap: 8px; }
+.environment-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 8px; align-items: center; }
+.environment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.environment-preview { width: 100%; table-layout: fixed; font-size: 12px; border-collapse: collapse; }
+.environment-preview th, .environment-preview td { text-align: left; padding: 6px; overflow-wrap: anywhere; }

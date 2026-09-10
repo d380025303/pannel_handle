@@ -1,3 +1,4 @@
+import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -398,8 +399,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [agentConversation, remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment);
     setEditDialogSession(null);
   }, [terminalSessions]);
 

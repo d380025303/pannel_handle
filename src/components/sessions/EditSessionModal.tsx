@@ -1,7 +1,8 @@
+import { SessionEnvironmentFields } from "../environment/SessionEnvironmentFields";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
+import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
@@ -16,12 +17,13 @@ import { windowsCommandExample } from "../../utils/windowsShell";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection) => Promise<void>;
   onCancel: () => void;
 };
 
 export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: EditSessionModalProps) {
   const { t } = useI18n();
+  const [environment, setEnvironment] = useState<EnvironmentSelection>({ environmentProfileId: session.environmentProfileId, environmentOverrides: session.environmentOverrides });
   const [editTitle, setEditTitle] = useState(session.title);
   const [editCwd, setEditCwd] = useState(session.cwd);
   const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
@@ -57,6 +59,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     setSubmitting(true);
     setError(null);
     try {
+      await window.environmentApi?.preview({ ...environment, type: session.type, agentProvider, agentLocation });
       await onSave(
       session.id,
       editTitle,
@@ -79,7 +82,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         remotePlatform
       } : undefined,
       tags,
-      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined
+      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined,
+      environment
       );
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));
@@ -130,6 +134,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
               onChange={(e) => setEditTitle(e.target.value)}
             />
           </label>
+          <SessionEnvironmentFields value={environment} onChange={setEnvironment} type={session.type} agentProvider={agentProvider} agentLocation={agentLocation} />
           <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => {
             setAgentProvider(provider);
             if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");

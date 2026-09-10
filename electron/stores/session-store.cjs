@@ -1,3 +1,4 @@
+const { normalizeEntries } = require("../services/environment/index.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 
@@ -35,7 +36,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore }) {
+function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -132,6 +133,8 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
       ? true
       : undefined;
     return {
+      ...(template.environmentProfileId ? { environmentProfileId: String(template.environmentProfileId) } : {}),
+      ...(template.environmentOverrides ? { environmentOverrides: normalizeEntries(template.environmentOverrides, template.type === "windows" || (template.type === "ssh" && template.agentProvider && template.agentLocation === "local")) } : {}),
       id: template.id,
       title: template.title,
       shell: template.shell,
@@ -285,7 +288,7 @@ function createSessionStore({ sessionsFile, getDefaultShell, getWslShell, safeSt
   function exportLibrary(options = {}) {
     const includeEncryptedSecrets = options.includeEncryptedSecrets === true;
     return librarySessions.map((session) => (
-      includeEncryptedSecrets ? serializeTemplate(session) : sanitizeTemplate(session)
+      environmentService ? environmentService.snapshot(includeEncryptedSecrets ? serializeTemplate(session) : sanitizeTemplate(session)) : (includeEncryptedSecrets ? serializeTemplate(session) : sanitizeTemplate(session))
     ));
   }
 

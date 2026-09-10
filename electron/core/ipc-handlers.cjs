@@ -17,12 +17,18 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
-  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
+function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
 
+  if (environmentService) {
+    ipcMain.handle("environment:list", () => environmentService.list());
+    ipcMain.handle("environment:save", (_event, input) => environmentService.save(input));
+    ipcMain.handle("environment:delete", (_event, id) => environmentService.remove(id));
+    ipcMain.handle("environment:preview", (_event, input) => environmentService.preview(input));
+  }
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());

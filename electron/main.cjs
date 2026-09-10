@@ -1,3 +1,4 @@
+const { createEnvironmentService } = require("./services/environment/index.cjs");
 const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
 
@@ -52,6 +53,7 @@ const { createTerminalManager, getDefaultShell, getWslShell } = require("./termi
 
 let windowManager = null;
 let sessionStore = null;
+let environmentService = null;
 let templateUsageStore = null;
 let launchTemplateStore = null;
 let launchTemplateService = null;
@@ -123,7 +125,12 @@ if (!gotSingleInstanceLock) {
       templatesFile: path.join(app.getPath("userData"), "launch-templates.json")
     });
     launchTemplateStore.load();
+    environmentService = createEnvironmentService({
+      configFile: path.join(app.getPath("userData"), "environment-profiles.json"),
+      getReferences: () => [...(sessionStore?.getLibrary() || []), ...(terminalManager?.listSessions() || [])]
+    });
     sessionStore = createSessionStore({
+      environmentService,
       sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
       // Reading saved metadata must work even if the selected shell is not installed.
       getDefaultShell: () => resolveConfiguredShell(undefined, false),
@@ -188,6 +195,7 @@ if (!gotSingleInstanceLock) {
       }
     };
     terminalManager = createTerminalManager({
+      environmentService,
       getDefaultShell: resolveConfiguredShell,
       sessionStore,
       configStore,
@@ -428,6 +436,7 @@ if (!gotSingleInstanceLock) {
     await ideaModule.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
     registerIpcHandlers({
+      environmentService,
       terminalManager,
       mobileRemoteService,
       agentSessionLauncher,

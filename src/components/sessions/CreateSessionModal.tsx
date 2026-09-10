@@ -1,7 +1,8 @@
+import { SessionEnvironmentFields } from "../environment/SessionEnvironmentFields";
 import { useEffect, useMemo, useState } from "react";
 import { Box, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig, WindowsShell } from "../../vite-env";
+import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig, WindowsShell } from "../../vite-env";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
@@ -10,7 +11,7 @@ import { CodexBackendFields } from "./CodexBackendFields";
 import { supportsLocalBridge } from "./agentProviders";
 import { windowsShellLabel, windowsCommandExample } from "../../utils/windowsShell";
 
-export type CreateSessionRequest = {
+export type CreateSessionRequest = EnvironmentSelection & {
   selectedShellId: string;
   title?: string;
   cwd?: string;
@@ -35,6 +36,7 @@ type CreateSessionModalProps = {
 
 export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggestions, onCreate, onCancel }: CreateSessionModalProps) {
   const { t } = useI18n();
+  const [environment, setEnvironment] = useState<EnvironmentSelection>({});
   const [title, setTitle] = useState("");
   const [cwd, setCwd] = useState("");
   const [commandInput, setCommandInput] = useState("");
@@ -75,7 +77,9 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
     setError(null);
     setSubmitting(true);
     try {
+      await window.environmentApi?.preview({ ...environment, type: isSsh ? "ssh" : selectedShellId.startsWith("wsl:") ? "wsl" : "windows", agentProvider, agentLocation });
       await onCreate({
+        ...environment,
         selectedShellId,
         title: title.trim() || undefined,
         cwd: cwd.trim() || undefined,
@@ -151,6 +155,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
               SSH
             </button>
           </div>
+          <SessionEnvironmentFields value={environment} onChange={setEnvironment} type={isSsh ? "ssh" : selectedShellId.startsWith("wsl:") ? "wsl" : "windows"} agentProvider={agentProvider} agentLocation={agentLocation} />
           <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => {
             setAgentProvider(provider);
             if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");

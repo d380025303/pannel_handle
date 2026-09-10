@@ -1,3 +1,4 @@
+import { EnvironmentSettings } from "../environment/EnvironmentSettings";
 import { useEffect, useMemo, useState } from "react";
 import { LOCALE_OPTIONS, useI18n } from "../../i18n";
 import type { AppTheme } from "../../themes";
@@ -231,6 +232,7 @@ export function SettingsModal({
               </>
             )}
           </section>
+          <EnvironmentSettings />
           <OpenRouterSettings />
           <OpenRouterSettings provider="nararouter" />
           <OpenRouterSettings provider="minimax" />

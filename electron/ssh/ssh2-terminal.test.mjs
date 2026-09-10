@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createSsh2Terminal } = require("./ssh2-terminal.cjs");
+const { createSsh2Terminal, buildEnvironmentCommand } = require("./ssh2-terminal.cjs");
 
 function createFakeStream() {
   const stream = new EventEmitter();
@@ -97,5 +97,26 @@ describe("ssh2 terminal", () => {
 
     expect(exits).toEqual([{ exitCode: 7 }]);
     expect(client.end).toHaveBeenCalled();
+  });
+});
+
+
+describe("SSH environment injection", () => {
+  it("uses exec with PTY and never types configuration into the shell", () => {
+    const { client, stream } = createFakeClient();
+    client.exec = vi.fn((_command, _options, callback) => callback(undefined, stream));
+    const term = createSsh2Terminal({ environment: { FOO: "a b", EMPTY: "" }, connectionConfig: { host: "example.com" }, clientFactory: () => client });
+    term.write("user input");
+    client.emit("ready");
+    expect(client.shell).not.toHaveBeenCalled();
+    expect(client.exec).toHaveBeenCalledWith("exec /usr/bin/env 'FOO=a b' 'EMPTY=' /bin/bash -il", { pty: { term: "xterm-256color", cols: 100, rows: 30 } }, expect.any(Function));
+    expect(stream.writes).toEqual(["user input"]);
+    term.resize(120, 40);
+    expect(stream.windows).toEqual([[40, 120, 0, 0]]);
+  });
+  it("quotes shell metacharacters as literal values", () => {
+    const command = buildEnvironmentCommand({ FOO: "$(whoami); `id`\n'a'" });
+    expect(command).toContain("'FOO=$(whoami); `id`\n");
+    expect(command).toContain("'\\''a'\\''");
   });
 });

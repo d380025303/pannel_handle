@@ -1,3 +1,4 @@
+const { mergeEnvironment } = require("../services/environment/index.cjs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, execSync } = require("node:child_process");
@@ -258,6 +259,7 @@ function getInitialCommand(session, options = {}) {
 }
 
 function createTerminalManager({
+  environmentService,
   sessionStore,
   configStore,
   broadcast,
@@ -313,6 +315,8 @@ function createTerminalManager({
 
   function serializeSession(session) {
     return {
+      environmentProfileId: session.environmentProfileId,
+      environmentOverrides: session.environmentOverrides,
       id: session.id,
       templateId: session.templateId,
       title: session.title,
@@ -534,7 +538,12 @@ function createTerminalManager({
   function spawnSsh2(session, options = {}) {
     session.terminalTransport = "ssh";
     validateSsh2Config(session.sshConfig);
+    const environment = environmentService?.resolve(session) || {};
+    if (Object.keys(environment).length && session.sshConfig?.remotePlatform === "windows") {
+      throw new Error("SSH 环境变量注入仅支持 Linux / Bash。");
+    }
     const term = ssh2TerminalFactory({
+      environment,
       connectionConfig: buildSsh2ConnectionConfig({
         sshConfig: session.sshConfig,
         secret: getSshSecret(session),
@@ -571,12 +580,12 @@ function createTerminalManager({
         ? ["-d", session.wslDistro, ...(session.cwd && session.cwd !== "~" ? ["--cd", session.cwd] : [])]
         : [];
     const hookUrl = getHookUrl();
-    const env = {
-      ...process.env,
+    const configuredEnv = environmentService?.resolve(session) || {};
+    let env = mergeEnvironment([process.env, configuredEnv, {
       PANNEL_HANDLE_SESSION_ID: session.id,
       ...(hookUrl ? { PANNEL_HANDLE_HOOK_URL: hookUrl } : {}),
       ...(options.runtimeEnv || {})
-    };
+    }], session.type !== "wsl");
 
     if (session.agentProvider === "copilot") {
       const inheritedAttributes = String(process.env.OTEL_RESOURCE_ATTRIBUTES || "").trim();
@@ -589,8 +598,11 @@ function createTerminalManager({
       });
     }
 
+    env = mergeEnvironment([env], session.type !== "wsl");
+
     if (session.type === "wsl") {
-      env.WSLENV = appendWslEnv(env.WSLENV, [
+      env.WSLENV = appendWslEnv(String(env.WSLENV || "").split(":").filter(entry => !Object.hasOwn(configuredEnv, entry.split("/")[0])).join(":"), [
+        ...Object.keys(configuredEnv),
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
         ...(Array.isArray(options.runtimeWslEnvKeys) ? options.runtimeWslEnvKeys : []),
@@ -621,6 +633,7 @@ function createTerminalManager({
       ? sessionStore.getTemplate(templateData.id)
       : undefined;
     const template = sessionStore.normalizeTemplate(storedTemplate || templateData);
+    environmentService?.resolve(template);
     if (template.type === "ssh") {
       validateSsh2Config(template.sshConfig);
     }
@@ -704,6 +717,8 @@ function createTerminalManager({
       codexModel: options.codexModel,
       codexExperimentalAcknowledged: options.codexExperimentalAcknowledged,
       quickCommands: options.quickCommands || [],
+      environmentProfileId: options.environmentProfileId,
+      environmentOverrides: options.environmentOverrides,
       tags: options.tags || []
     };
 
@@ -759,10 +774,16 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags }) {
+  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
     const session = sessions.get(id);
     if (!session) {
-      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags });
+      environmentService?.resolve({ ...sessionStore.getTemplate(id),
+        ...(agentProvider !== undefined ? { agentProvider } : {}),
+        ...(agentLocation !== undefined ? { agentLocation } : {}),
+        ...(environmentProfileId !== undefined ? { environmentProfileId } : {}),
+        ...(environmentOverrides !== undefined ? { environmentOverrides } : {})
+      });
+      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -780,6 +801,21 @@ function createTerminalManager({
     const previousCodexBackend = session.codexBackend;
     const previousCodexModel = session.codexModel;
     const libraryUpdates = {};
+    if (environmentProfileId !== undefined || environmentOverrides !== undefined || agentProvider !== undefined || agentLocation !== undefined) {
+      const next = sessionStore.normalizeTemplate({ ...session,
+        ...(agentProvider !== undefined ? { agentProvider } : {}),
+        ...(agentLocation !== undefined ? { agentLocation } : {}),
+        ...(environmentProfileId !== undefined ? { environmentProfileId } : {}),
+        ...(environmentOverrides !== undefined ? { environmentOverrides } : {})
+      });
+      environmentService?.resolve(next);
+      if (environmentProfileId !== undefined || environmentOverrides !== undefined) {
+        session.environmentProfileId = next.environmentProfileId;
+        session.environmentOverrides = next.environmentOverrides;
+        libraryUpdates.environmentProfileId = next.environmentProfileId || null;
+        libraryUpdates.environmentOverrides = next.environmentOverrides || [];
+      }
+    }
     if (typeof title === "string") {
       session.title = title.trim() || session.title;
       if (session.title !== previousTitle || previousTitle === template?.title) {

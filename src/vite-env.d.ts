@@ -1,5 +1,16 @@
 /// <reference types="vite/client" />
 
+export type EnvironmentEntry = { name: string; value: string };
+export type EnvironmentSelection = { environmentProfileId?: string | null; environmentOverrides?: EnvironmentEntry[] };
+export type EnvironmentProfile = { id: string; name: string; entries: EnvironmentEntry[]; references: string[] };
+export type EnvironmentPreview = EnvironmentEntry & { source: string };
+export type EnvironmentApi = {
+  list: () => Promise<EnvironmentProfile[]>;
+  save: (input: { id?: string; name: string; entries: EnvironmentEntry[] }) => Promise<EnvironmentProfile[]>;
+  delete: (id: string) => Promise<EnvironmentProfile[]>;
+  preview: (input: EnvironmentSelection & { type?: string; agentProvider?: string; agentLocation?: string }) => Promise<EnvironmentPreview[]>;
+};
+
 export type QuickCommand = {
   id: string;
   command: string;
@@ -23,7 +34,7 @@ export type SshConfig = {
   remotePlatform?: RemotePlatform;
 };
 
-export type TerminalSession = {
+export type TerminalSession = EnvironmentSelection & {
   id: string;
   templateId?: string;
   title: string;
@@ -916,8 +927,8 @@ export type RemoteAgentApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
@@ -1207,6 +1218,7 @@ export type IdeaBridgeApi = {
 
 declare global {
   interface Window {
+    environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     agentConversationApi: AgentConversationApi;
     launchTemplateApi: LaunchTemplateApi;
