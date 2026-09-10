@@ -36,6 +36,7 @@ describe("AgentTokenStatsDashboard", () => {
   it("loads the dashboard and requires a second click before clearing", async () => {
     render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
     expect(await screen.findByText("还没有 Token 统计")).toBeTruthy();
+    expect(document.querySelectorAll(".token-stats-metric")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
     expect(clear).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "再次点击确认清空" }));
@@ -81,6 +82,8 @@ describe("AgentTokenStatsDashboard", () => {
     render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
 
     const point = await screen.findByRole("button", { name: "2026-08-17: Total tokens 100" });
+    expect(document.querySelector(".token-stats-trend-area")).not.toBeNull();
+    expect(document.querySelectorAll(".token-stats-trend line")).toHaveLength(4);
     expect(document.querySelector(".token-stats-trend-labels")?.textContent).toBe("2026-08-172026-08-18");
     expect(screen.queryByRole("tooltip")).toBeNull();
 

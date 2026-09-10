@@ -1,5 +1,5 @@
-import { ArrowLeft, BarChart3, ChevronDown, ChevronUp, RefreshCw, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Activity, ArrowLeft, ArrowLeftRight, BarChart3, ChevronDown, ChevronUp, Gauge, MessageSquare, RefreshCw, Trash2, Wrench } from "lucide-react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useAgentTokenStats, type TokenStatsProvider, type TokenStatsRange } from "../../hooks/useAgentTokenStats";
 import type { AgentCapabilityUsage, AgentTokenTotals } from "../../vite-env";
@@ -33,6 +33,16 @@ function TokenBreakdown({ tokens, locale }: { tokens: AgentTokenTotals; locale: 
   );
 }
 
+function MetricCard({ icon, label, value, hint, tone }: { icon: ReactNode; label: string; value: string; hint: string; tone: string }) {
+  return (
+    <article className={`token-stats-metric token-stats-metric-${tone}`}>
+      <div className="token-stats-metric-heading"><span>{label}</span><i aria-hidden="true">{icon}</i></div>
+      <strong>{value}</strong>
+      <small>{hint}</small>
+    </article>
+  );
+}
+
 function TrendChart({ values, locale }: { values: Array<{ date: string; tokens: AgentTokenTotals }>; locale: string }) {
   const { t } = useI18n();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -43,6 +53,8 @@ function TrendChart({ values, locale }: { values: Array<{ date: string; tokens: 
     return { ...item, x, y };
   });
   if (values.length === 0) return <div className="token-stats-chart-empty">{t("tokenStats.noTrend")}</div>;
+  const pointList = points.map(point => `${point.x},${point.y}`).join(" ");
+  const areaPath = `M 0 92 L ${pointList.split(" ").join(" L ")} L 100 92 Z`;
   const activePoint = activeIndex === null ? null : points[activeIndex];
   const tooltipTransform = activePoint
     ? `translate(${activePoint.x <= 10 ? "0" : activePoint.x >= 90 ? "-100%" : "-50%"}, ${activePoint.y <= 30 ? "12px" : "calc(-100% - 12px)"})`
@@ -51,8 +63,10 @@ function TrendChart({ values, locale }: { values: Array<{ date: string; tokens: 
     <div className="token-stats-trend">
       <div className="token-stats-trend-plot">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={t("tokenStats.dailyTrend")}>
-          <line x1="0" y1="92" x2="100" y2="92" />
-          <polyline points={points.map(point => `${point.x},${point.y}`).join(" ")} />
+          <defs><linearGradient id="token-trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.28" /><stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" /></linearGradient></defs>
+          {[14, 40, 66, 92].map(y => <line key={y} x1="0" y1={y} x2="100" y2={y} />)}
+          <path className="token-stats-trend-area" d={areaPath} />
+          <polyline points={pointList} />
         </svg>
         {points.map((point, index) => (
           <button
@@ -138,7 +152,7 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
   return (
     <main className="token-stats-page">
       <header className="token-stats-header">
-        <div><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><BarChart3 aria-hidden="true" /><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
+        <div className="token-stats-heading"><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><span className="token-stats-title-icon"><BarChart3 aria-hidden="true" /></span><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
           <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>
           <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="opencode">OpenCode</option><option value="qoder">Qoder</option><option value="copilot">GitHub Copilot</option><option value="gemini">Gemini CLI</option><option value="grok">Grok CLI</option></select>
@@ -150,17 +164,17 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
       {error ? <div className="token-stats-error" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>{t("common.retry")}</button></div> : dashboard && (
         <div className="token-stats-content">
           <section className="token-stats-cards">
-            <article><span>{t("tokenStats.total")}</span><strong>{formatTokens(dashboard.summary.tokens.totalTokens, locale)}</strong><small>{dashboard.summary.tokens.totalTokens.toLocaleString(locale)}</small></article>
-            <article><span>{t("tokenStats.sessions")}</span><strong>{dashboard.summary.sessionCount.toLocaleString(locale)}</strong><small>{t("tokenStats.trackedSessions")}</small></article>
-            <article><span>{t("tokenStats.average")}</span><strong>{formatTokens(dashboard.summary.averageTokens, locale)}</strong><small>{t("tokenStats.perSession")}</small></article>
-            <article><span>{t("tokenStats.inputOutput")}</span><strong>{formatTokens(dashboard.summary.tokens.inputTokens, locale)} / {formatTokens(dashboard.summary.tokens.outputTokens, locale)}</strong><small>{t("tokenStats.inputOutputHint")}</small></article>
-            <article><span>{t("tokenStats.skillCalls")}</span><strong>{dashboard.summary.skillCalls.toLocaleString(locale)}</strong><small>{t("tokenStats.transcriptDetected")}</small></article>
-            <article><span>{t("tokenStats.mcpCalls")}</span><strong>{dashboard.summary.mcpCalls.toLocaleString(locale)}</strong><small>{t("tokenStats.transcriptDetected")}</small></article>
+            <MetricCard icon={<Activity />} label={t("tokenStats.total")} value={formatTokens(dashboard.summary.tokens.totalTokens, locale)} hint={dashboard.summary.tokens.totalTokens.toLocaleString(locale)} tone="accent" />
+            <MetricCard icon={<MessageSquare />} label={t("tokenStats.sessions")} value={dashboard.summary.sessionCount.toLocaleString(locale)} hint={t("tokenStats.trackedSessions")} tone="blue" />
+            <MetricCard icon={<Gauge />} label={t("tokenStats.average")} value={formatTokens(dashboard.summary.averageTokens, locale)} hint={t("tokenStats.perSession")} tone="violet" />
+            <MetricCard icon={<ArrowLeftRight />} label={t("tokenStats.inputOutput")} value={`${formatTokens(dashboard.summary.tokens.inputTokens, locale)} / ${formatTokens(dashboard.summary.tokens.outputTokens, locale)}`} hint={t("tokenStats.inputOutputHint")} tone="cyan" />
+            <MetricCard icon={<Wrench />} label={t("tokenStats.skillCalls")} value={dashboard.summary.skillCalls.toLocaleString(locale)} hint={t("tokenStats.transcriptDetected")} tone="green" />
+            <MetricCard icon={<BarChart3 />} label={t("tokenStats.mcpCalls")} value={dashboard.summary.mcpCalls.toLocaleString(locale)} hint={t("tokenStats.transcriptDetected")} tone="orange" />
           </section>
 
           <section className="token-stats-visuals">
             <article className="token-stats-panel"><h2>{t("tokenStats.dailyTrend")}</h2><TrendChart values={dashboard.dailyTrend} locale={locale} /></article>
-            <article className="token-stats-panel"><h2>{t("tokenStats.providerCompare")}</h2><div className="token-stats-provider-bars">{dashboard.providerBreakdown.map(item => <div key={item.provider}><div><strong>{providerName(item.provider)}</strong><span>{formatTokens(item.tokens.totalTokens, locale)} · {item.sessionCount} {t("tokenStats.sessionsUnit")}</span></div><div className={`token-provider-bar ${item.provider}`}><span style={{ width: `${item.tokens.totalTokens / maxProviderTokens * 100}%` }} /></div></div>)}</div></article>
+            <article className="token-stats-panel"><h2>{t("tokenStats.providerCompare")}</h2><div className="token-stats-provider-bars">{dashboard.providerBreakdown.map(item => <div key={item.provider}><div><strong>{providerName(item.provider)}</strong><span>{formatTokens(item.tokens.totalTokens, locale)} · {item.sessionCount} {t("tokenStats.sessionsUnit")}</span></div><div className={`token-provider-bar ${item.provider}`}><span style={{ width: `${item.tokens.totalTokens / maxProviderTokens * 100}%`, minWidth: item.tokens.totalTokens > 0 ? "2px" : 0 }} /></div></div>)}</div></article>
           </section>
 
           <section className="token-stats-visuals token-capability-visuals">
