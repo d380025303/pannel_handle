@@ -6,6 +6,7 @@ import type { RemoteSystemMetrics } from "../../vite-env";
 import { I18nProvider } from "../../i18n";
 import { RemoteSystemStatus } from "./RemoteSystemStatus";
 import { RemoteSystemPanel } from "./RemoteSystemPanel";
+import { RemoteMetricChart } from "./RemoteMetricChart";
 
 const metrics: RemoteSystemMetrics = {
   sampledAt: 1,
@@ -39,13 +40,17 @@ const metrics: RemoteSystemMetrics = {
     }
   ]
 };
+const history = [
+  { sampledAt: 1000, cpuUsedPercent: 35, memoryUsedPercent: 45 },
+  { sampledAt: 4000, cpuUsedPercent: 42.4, memoryUsedPercent: 50 }
+];
 
 afterEach(cleanup);
 
 describe("RemoteSystemStatus", () => {
   it("keeps only an accessible monitor entry and opens on click", () => {
     const onOpen = vi.fn();
-    const { rerender } = render(<RemoteSystemStatus state={{ status: "ready", metrics }} active={false} onOpen={onOpen} />);
+    const { rerender } = render(<RemoteSystemStatus state={{ status: "ready", metrics, history }} active={false} onOpen={onOpen} />);
     const button = screen.getByRole("button", { name: "SSH 服务器指标" });
     expect(button.textContent).toBe("");
     expect(button.getAttribute("aria-pressed")).toBe("false");
@@ -63,10 +68,11 @@ describe("RemoteSystemStatus", () => {
 describe("RemoteSystemPanel", () => {
   it("shows all metrics and selects a different mount point", () => {
     const onSelectDisk = vi.fn();
-    const props = { state: { status: "ready" as const, metrics }, sessionTitle: "SSH demo", onSelectDisk };
+    const props = { state: { status: "ready" as const, metrics, history }, sessionTitle: "SSH demo", onSelectDisk };
     const { rerender } = render(<RemoteSystemPanel {...props} />);
     expect(screen.getByText("SSH demo")).not.toBeNull();
-    expect(screen.getByRole("progressbar", { name: "CPU" }).getAttribute("value")).toBe("42.4");
+    expect(screen.getByRole("img", { name: "CPU 最近 5 分钟利用率，当前 42%" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "内存 最近 5 分钟利用率，当前 50%" })).not.toBeNull();
     expect(screen.getByText("↓ 1.00 KB/s")).not.toBeNull();
     expect(screen.getByText("↑ 2.00 KB/s")).not.toBeNull();
     expect(screen.getByText("3.00 MB/s")).not.toBeNull();
@@ -81,14 +87,14 @@ describe("RemoteSystemPanel", () => {
 
   it("falls back to the first disk without overwriting a missing preference", () => {
     const onSelectDisk = vi.fn();
-    render(<RemoteSystemPanel state={{ status: "ready", metrics }} sessionTitle="SSH" preferredDiskMountPoint="/offline" onSelectDisk={onSelectDisk} />);
+    render(<RemoteSystemPanel state={{ status: "ready", metrics, history }} sessionTitle="SSH" preferredDiskMountPoint="/offline" onSelectDisk={onSelectDisk} />);
     expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("/data");
     expect(onSelectDisk).not.toHaveBeenCalled();
   });
 
   it("handles missing metrics without displaying fabricated zero usage", () => {
     const unknown = { ...metrics, disks: [], cpu: { usedPercent: null }, memory: { usedBytes: 0, totalBytes: 0 }, network: { receivedBytesPerSecond: null, transmittedBytesPerSecond: null } };
-    render(<RemoteSystemPanel state={{ status: "ready", metrics: unknown }} sessionTitle="SSH" onSelectDisk={vi.fn()} />);
+    render(<RemoteSystemPanel state={{ status: "ready", metrics: unknown, history: [] }} sessionTitle="SSH" onSelectDisk={vi.fn()} />);
     expect((screen.getByRole("combobox", { name: "未找到磁盘指标" }) as HTMLSelectElement).disabled).toBe(true);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.getByText("↓ --")).not.toBeNull();
@@ -97,7 +103,7 @@ describe("RemoteSystemPanel", () => {
 
   it("clears old values in loading and error states and supports English", () => {
     const props = { sessionTitle: "SSH", onSelectDisk: vi.fn() };
-    const { rerender } = render(<RemoteSystemPanel {...props} state={{ status: "ready", metrics }} />);
+    const { rerender } = render(<RemoteSystemPanel {...props} state={{ status: "ready", metrics, history }} />);
     rerender(<RemoteSystemPanel {...props} state={{ status: "loading" }} />);
     expect(screen.getByRole("status").textContent).toBe("正在读取服务器状态...");
     expect(screen.queryByRole("progressbar")).toBeNull();
@@ -105,5 +111,22 @@ describe("RemoteSystemPanel", () => {
     expect(screen.getByRole("status").textContent).toBe("Server monitoring is unavailable");
     rerender(<RemoteSystemPanel {...props} state={{ status: "hidden" }} />);
     expect(screen.queryByRole("region")).toBeNull();
+  });
+
+  it("breaks chart lines across missing sampling intervals", () => {
+    const chartHistory = [
+      { sampledAt: 1000, cpuUsedPercent: 10, memoryUsedPercent: 20 },
+      { sampledAt: 4000, cpuUsedPercent: 20, memoryUsedPercent: 30 },
+      { sampledAt: 16000, cpuUsedPercent: 30, memoryUsedPercent: 40 },
+      { sampledAt: 19000, cpuUsedPercent: 40, memoryUsedPercent: 50 }
+    ];
+    const { container } = render(<RemoteMetricChart
+      points={chartHistory}
+      metric="CPU"
+      currentValue={40}
+      getValue={(point) => point.cpuUsedPercent}
+      tone="cpu"
+    />);
+    expect(container.querySelectorAll("polyline")).toHaveLength(2);
   });
 });

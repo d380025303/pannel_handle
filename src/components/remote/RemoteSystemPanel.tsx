@@ -1,6 +1,7 @@
 import { Cpu, HardDrive, MemoryStick, Network } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { RemoteSystemMetricsState } from "../../hooks/useRemoteSystemMetrics";
+import { RemoteMetricChart } from "./RemoteMetricChart";
 
 function formatBytes(value: number) {
   if (!Number.isFinite(value) || value < 0) return "--";
@@ -40,6 +41,7 @@ export function RemoteSystemPanel({ state, sessionTitle, preferredDiskMountPoint
   const { locale, t } = useI18n();
   if (state.status === "hidden") return null;
   const metrics = state.status === "ready" ? state.metrics : undefined;
+  const history = state.status === "ready" ? state.history : [];
   const disk = metrics?.disks.find((item) => item.mountPoint === preferredDiskMountPoint) ?? metrics?.disks[0];
   const memoryPercent = metrics && Number.isFinite(metrics.memory.usedBytes) && metrics.memory.usedBytes >= 0
     && Number.isFinite(metrics.memory.totalBytes) && metrics.memory.totalBytes > 0
@@ -57,11 +59,23 @@ export function RemoteSystemPanel({ state, sessionTitle, preferredDiskMountPoint
       </p> : <>
         <section className="remote-system-card" aria-label="CPU">
           <h3><Cpu aria-hidden="true" />CPU<strong>{formatPercent(metrics.cpu.usedPercent)}</strong></h3>
-          <UsageBar label="CPU" value={metrics.cpu.usedPercent} />
+          <RemoteMetricChart
+            points={history}
+            metric="CPU"
+            currentValue={metrics.cpu.usedPercent}
+            getValue={(point) => point.cpuUsedPercent}
+            tone="cpu"
+          />
         </section>
         <section className="remote-system-card" aria-label={t("system.memory")}>
           <h3><MemoryStick aria-hidden="true" />{t("system.memory")}<strong>{formatPercent(memoryPercent)}</strong></h3>
-          <UsageBar label={t("system.memory")} value={memoryPercent} />
+          <RemoteMetricChart
+            points={history}
+            metric={t("system.memory")}
+            currentValue={memoryPercent}
+            getValue={(point) => point.memoryUsedPercent}
+            tone="memory"
+          />
           <p>{formatBytes(metrics.memory.usedBytes)} / {formatBytes(metrics.memory.totalBytes)}</p>
         </section>
         <section className="remote-system-card" aria-label={t("system.network")}>

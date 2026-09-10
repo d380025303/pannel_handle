@@ -660,6 +660,8 @@ export type TranslationKey =
   | "system.diskUsage"
   | "system.diskIo"
   | "system.memoryTitle"
+  | "system.historyChart"
+  | "system.collectingHistory"
   | "picker.libraryTitle"
   | "picker.restoreTitle"
   | "picker.importCanceled"
@@ -1507,6 +1509,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskUsage": "已用 {used} / {total}，剩余 {available}",
     "system.diskIo": "I/O 忙碌 {busy}，读 {read}，写 {write}",
     "system.memoryTitle": "内存：已用 {used} / {total}，{percent}",
+    "system.historyChart": "{metric} 最近 5 分钟利用率，当前 {percent}",
+    "system.collectingHistory": "正在积累历史数据...",
     "picker.libraryTitle": "会话库",
     "picker.restoreTitle": "恢复会话",
     "picker.importCanceled": "已取消导入",
@@ -2346,6 +2350,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskUsage": "Used {used} / {total}, {available} available",
     "system.diskIo": "I/O busy {busy}, read {read}, write {write}",
     "system.memoryTitle": "Memory: used {used} / {total}, {percent}",
+    "system.historyChart": "{metric} utilization over the last 5 minutes, currently {percent}",
+    "system.collectingHistory": "Collecting history...",
     "picker.libraryTitle": "Session Library",
     "picker.restoreTitle": "Restore Sessions",
     "picker.importCanceled": "Import canceled",

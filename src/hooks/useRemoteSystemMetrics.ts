@@ -1,16 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RemoteSystemMetrics, TerminalSession } from "../vite-env";
+
+export type RemoteSystemMetricPoint = {
+  sampledAt: number;
+  cpuUsedPercent: number | null;
+  memoryUsedPercent: number | null;
+};
 
 export type RemoteSystemMetricsState =
   | { status: "hidden" }
   | { status: "loading" }
-  | { status: "ready"; metrics: RemoteSystemMetrics }
+  | { status: "ready"; metrics: RemoteSystemMetrics; history: RemoteSystemMetricPoint[] }
   | { status: "error" };
 
 const REFRESH_INTERVAL_MS = 3000;
+const HISTORY_WINDOW_MS = 5 * 60 * 1000;
+const MAX_HISTORY_POINTS = Math.ceil(HISTORY_WINDOW_MS / REFRESH_INTERVAL_MS) + 1;
 
-export function useRemoteSystemMetrics(session?: TerminalSession): RemoteSystemMetricsState {
+function percent(value: number | null) {
+  return value !== null && Number.isFinite(value) && value >= 0 ? Math.min(100, value) : null;
+}
+
+function toHistoryPoint(metrics: RemoteSystemMetrics): RemoteSystemMetricPoint {
+  const { usedBytes, totalBytes } = metrics.memory;
+  return {
+    sampledAt: metrics.sampledAt,
+    cpuUsedPercent: percent(metrics.cpu.usedPercent),
+    memoryUsedPercent: Number.isFinite(usedBytes) && usedBytes >= 0
+      && Number.isFinite(totalBytes) && totalBytes > 0
+      ? percent(usedBytes / totalBytes * 100)
+      : null
+  };
+}
+
+function appendHistory(history: RemoteSystemMetricPoint[], metrics: RemoteSystemMetrics) {
+  const next = [...history.filter((point) => point.sampledAt !== metrics.sampledAt), toHistoryPoint(metrics)]
+    .sort((left, right) => left.sampledAt - right.sampledAt);
+  const latestSampledAt = next[next.length - 1].sampledAt;
+  return next
+    .filter((point) => point.sampledAt >= latestSampledAt - HISTORY_WINDOW_MS)
+    .slice(-MAX_HISTORY_POINTS);
+}
+
+export function useRemoteSystemMetrics(
+  session?: TerminalSession,
+  runningSessionIds: readonly string[] = session ? [session.id] : []
+): RemoteSystemMetricsState {
   const [result, setResult] = useState<{ sessionId?: string; state: RemoteSystemMetricsState }>({ state: { status: "hidden" } });
+  const historyBySessionRef = useRef(new Map<string, RemoteSystemMetricPoint[]>());
+  const runningSessionIdsKey = runningSessionIds.join("\0");
+
+  useEffect(() => {
+    const runningIds = new Set(runningSessionIdsKey ? runningSessionIdsKey.split("\0") : []);
+    for (const sessionId of historyBySessionRef.current.keys()) {
+      if (!runningIds.has(sessionId)) historyBySessionRef.current.delete(sessionId);
+    }
+  }, [runningSessionIdsKey]);
 
   useEffect(() => {
     if (!session || session.type !== "ssh") {
@@ -26,7 +71,11 @@ export function useRemoteSystemMetrics(session?: TerminalSession): RemoteSystemM
     const poll = async () => {
       try {
         const metrics = await window.remoteSystemApi.getMetrics(session.id);
-        if (!disposed) setState({ status: "ready", metrics });
+        if (!disposed) {
+          const history = appendHistory(historyBySessionRef.current.get(session.id) ?? [], metrics);
+          historyBySessionRef.current.set(session.id, history);
+          setState({ status: "ready", metrics, history });
+        }
       } catch {
         if (!disposed) setState({ status: "error" });
       }

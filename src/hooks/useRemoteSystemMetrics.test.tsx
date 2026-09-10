@@ -9,6 +9,7 @@ const metrics: RemoteSystemMetrics = {
   sampledAt: 1, cpu: { usedPercent: 42 }, memory: { usedBytes: 1, totalBytes: 2 },
   network: { receivedBytesPerSecond: null, transmittedBytesPerSecond: null }, disks: []
 };
+const historyPoint = { sampledAt: 1, cpuUsedPercent: 42, memoryUsedPercent: 50 };
 const session = (id: string, type: TerminalSession["type"] = "ssh"): TerminalSession => ({
   id, type, title: id, cwd: "/", shell: "bash", createdAt: 1
 });
@@ -29,9 +30,9 @@ describe("useRemoteSystemMetrics", () => {
     }, { initialProps: { current: session("old") } });
     rerender({ current: session("new") });
     await act(async () => {});
-    expect(result.current).toEqual({ status: "ready", metrics });
+    expect(result.current).toEqual({ status: "ready", metrics, history: [historyPoint] });
     await act(async () => resolveOld({ ...metrics, sampledAt: 999 }));
-    expect(result.current).toEqual({ status: "ready", metrics });
+    expect(result.current).toEqual({ status: "ready", metrics, history: [historyPoint] });
     seen.length = 0;
     rerender({ current: session("third") });
     expect(seen.every((value) => value === "third:loading")).toBe(true);
@@ -54,5 +55,49 @@ describe("useRemoteSystemMetrics", () => {
     unmount();
     await vi.advanceTimersByTimeAsync(6000);
     expect(getMetrics).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps five minutes of history per running SSH session", async () => {
+    vi.useFakeTimers();
+    let sample = 0;
+    const getMetrics = vi.fn().mockImplementation(async () => ({
+      ...metrics,
+      sampledAt: sample++ * 3000,
+      cpu: { usedPercent: sample }
+    }));
+    window.remoteSystemApi = { getMetrics };
+    const { result, rerender } = renderHook(({ current, runningIds }) => (
+      useRemoteSystemMetrics(current, runningIds)
+    ), { initialProps: { current: session("one"), runningIds: ["one", "two"] } });
+
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000 * 101); });
+    expect(result.current.status).toBe("ready");
+    if (result.current.status !== "ready") throw new Error("Expected ready metrics");
+    expect(result.current.history).toHaveLength(101);
+    expect(result.current.history[0].sampledAt).toBe(3000);
+    expect(result.current.history.at(-1)?.sampledAt).toBe(303000);
+
+    rerender({ current: session("two"), runningIds: ["one", "two"] });
+    await act(async () => {});
+    expect(result.current.status).toBe("ready");
+    if (result.current.status !== "ready") throw new Error("Expected ready metrics");
+    expect(result.current.history).toHaveLength(1);
+
+    rerender({ current: session("one"), runningIds: ["one", "two"] });
+    await act(async () => {});
+    expect(result.current.status).toBe("ready");
+    if (result.current.status !== "ready") throw new Error("Expected ready metrics");
+    expect(result.current.history).toHaveLength(100);
+    expect(result.current.history[0].sampledAt).toBe(9000);
+    expect(result.current.history.at(-1)?.sampledAt).toBe(309000);
+
+    rerender({ current: session("one"), runningIds: ["one"] });
+    rerender({ current: session("two"), runningIds: ["one", "two"] });
+    await act(async () => {});
+    expect(result.current.status).toBe("ready");
+    if (result.current.status !== "ready") throw new Error("Expected ready metrics");
+    expect(result.current.history).toHaveLength(1);
+    expect(result.current.history[0].sampledAt).toBe(312000);
   });
 });

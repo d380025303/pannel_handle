@@ -151,7 +151,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
   const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession);
-  const remoteSystemMetrics = useRemoteSystemMetrics(terminalSessions.activeSession);
+  const remoteSystemMetrics = useRemoteSystemMetrics(
+    terminalSessions.activeSession,
+    terminalSessions.sessions.map((session) => session.id)
+  );
   const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId,
