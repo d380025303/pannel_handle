@@ -11,7 +11,7 @@ export function MobileAccessSettings() {
   const [audit, setAudit] = useState<MobileAccessAuditEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   const applyState = (next: MobileAccessState) => {
     setState(next);

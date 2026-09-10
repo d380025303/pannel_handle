@@ -12,11 +12,10 @@ describe("environment configuration UI", () => {
     const save = vi.fn(async (input) => [{ ...input, id: "group", references: [] }]);
     window.environmentApi = { list: vi.fn(async () => []), save, delete: vi.fn(), preview: vi.fn() };
     render(<EnvironmentSettings />);
-    fireEvent.click(screen.getByText("环境变量配置组"));
     fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发代理" } });
     fireEvent.click(screen.getByText("批量粘贴 KEY=VALUE"));
     fireEvent.change(screen.getByLabelText("批量环境变量"), { target: { value: "HTTP_PROXY=http://localhost:7892" } });
-    fireEvent.click(screen.getByText("追加到表格"));
+    fireEvent.click(screen.getByText("追加到变量表"));
     fireEvent.click(screen.getByText("保存配置组"));
     await screen.findByText("已保存，下次启动会话生效。");
     expect(save).toHaveBeenCalledWith({ id: undefined, name: "开发代理", entries: [{ name: "HTTP_PROXY", value: "http://localhost:7892" }] });
@@ -24,12 +23,22 @@ describe("environment configuration UI", () => {
   it("disables deletion of referenced groups and copies them as new drafts", async () => {
     window.environmentApi = { list: vi.fn(async () => [{ id: "dev", name: "开发", entries: [], references: ["终端一"] }]), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
     render(<EnvironmentSettings />);
-    await screen.findByText("开发");
-    fireEvent.change(screen.getByLabelText("配置组"), { target: { value: "dev" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
     expect((screen.getByText("删除配置组") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("引用会话：终端一")).toBeTruthy();
+    expect(screen.getByText("终端一")).toBeTruthy();
     fireEvent.click(screen.getByText("复制为新组"));
     expect((screen.getByLabelText("配置组名称") as HTMLInputElement).value).toBe("开发 - 副本");
+  });
+  it("requires a second click before deleting an unused group", async () => {
+    const remove = vi.fn(async () => []);
+    window.environmentApi = { list: vi.fn(async () => [{ id: "dev", name: "开发", entries: [], references: [] }]), save: vi.fn(), delete: remove, preview: vi.fn() };
+    render(<EnvironmentSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
+    fireEvent.click(screen.getByText("删除配置组"));
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("确认删除"));
+    await screen.findByText("配置组已删除。");
+    expect(remove).toHaveBeenCalledWith("dev");
   });
   it("previews the selected group and clears the selection explicitly", async () => {
     const preview = vi.fn(async () => [{ name: "FOO", value: "bar", source: "开发" }]);

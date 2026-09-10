@@ -36,7 +36,7 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
   );
 }
 
-describe("SettingsModal collapsible sections", () => {
+describe("SettingsModal navigation", () => {
   beforeEach(() => {
     Object.defineProperty(window, "dingTalkApi", {
       configurable: true,
@@ -54,7 +54,7 @@ describe("SettingsModal collapsible sections", () => {
   it("opens general settings by default", () => {
     renderSettingsModal();
 
-    expect(screen.getByRole("button", { name: "常用配置" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("tab", { name: "常用配置" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("启动时自动恢复")).toBeTruthy();
   });
 
@@ -68,24 +68,89 @@ describe("SettingsModal collapsible sections", () => {
     expect(onToggleAutoWorkBuddyCheckin).toHaveBeenCalledTimes(1);
   });
 
-  it("supports click and Enter while keeping aria-expanded in sync", () => {
+  it("switches categories and keeps aria-selected in sync", () => {
     renderSettingsModal();
-    const generalHeader = screen.getByRole("button", { name: "常用配置" });
-
-    fireEvent.click(generalHeader);
-    expect(generalHeader.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.keyDown(generalHeader, { key: "Enter" });
-    expect(generalHeader.getAttribute("aria-expanded")).toBe("true");
-
+    const generalTab = screen.getByRole("tab", { name: "常用配置" });
+    const modelsTab = screen.getByRole("tab", { name: "模型服务" });
+    fireEvent.click(modelsTab);
+    expect(generalTab.getAttribute("aria-selected")).toBe("false");
+    expect(modelsTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel", { name: "模型服务" })).toBeTruthy();
   });
 
-  it("restores the default expansion state after the modal is remounted", () => {
+  it("supports arrow-key category navigation", () => {
+    renderSettingsModal();
+    const generalTab = screen.getByRole("tab", { name: "常用配置" });
+    fireEvent.keyDown(generalTab, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "环境变量" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("restores the default category after the modal is remounted", () => {
     const firstView = renderSettingsModal();
-    fireEvent.click(screen.getByRole("button", { name: "常用配置" }));
+    fireEvent.click(screen.getByRole("tab", { name: "模型服务" }));
     firstView.unmount();
 
     renderSettingsModal();
-    expect(screen.getByRole("button", { name: "常用配置" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("tab", { name: "常用配置" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("protects an unsaved environment draft when changing categories", async () => {
+    window.environmentApi = { list: vi.fn(async () => []), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal();
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发代理" } });
+    fireEvent.click(screen.getByRole("tab", { name: "模型服务" }));
+    expect(await screen.findByRole("alertdialog", { name: "保存环境变量更改？" })).toBeTruthy();
+    fireEvent.click(screen.getByText("继续编辑"));
+    expect(screen.getByRole("tab", { name: "环境变量" }).getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "模型服务" }));
+    fireEvent.click(screen.getByText("放弃更改"));
+    expect(screen.getByRole("tab", { name: "模型服务" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("protects an unsaved draft when selecting another profile", async () => {
+    window.environmentApi = {
+      list: vi.fn(async () => [
+        { id: "dev", name: "开发", entries: [], references: [] },
+        { id: "prod", name: "生产", entries: [], references: [] }
+      ]),
+      save: vi.fn(), delete: vi.fn(), preview: vi.fn()
+    };
+    renderSettingsModal();
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
+    fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发修改" } });
+    fireEvent.click(screen.getByRole("button", { name: /^生产/ }));
+    expect(await screen.findByRole("alertdialog", { name: "保存环境变量更改？" })).toBeTruthy();
+    fireEvent.click(screen.getByText("放弃更改"));
+    expect((screen.getByLabelText("配置组名称") as HTMLInputElement).value).toBe("生产");
+  });
+
+  it("saves an environment draft before closing", async () => {
+    const onCancel = vi.fn();
+    const save = vi.fn(async input => [{ ...input, id: "dev", references: [] }]);
+    window.environmentApi = { list: vi.fn(async () => []), save, delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal({ onCancel });
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("保存并继续"));
+    await screen.findByText("已保存，下次启动会话生效。");
+    expect(save).toHaveBeenCalledWith({ id: undefined, name: "开发", entries: [] });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the draft open when save-before-close fails", async () => {
+    const onCancel = vi.fn();
+    window.environmentApi = { list: vi.fn(async () => []), save: vi.fn(async () => { throw new Error("保存失败"); }), delete: vi.fn(), preview: vi.fn() };
+    renderSettingsModal({ onCancel });
+    fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
+    fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(await screen.findByText("保存并继续"));
+    expect(await screen.findByText("保存失败")).toBeTruthy();
+    expect(screen.queryByRole("alertdialog", { name: "保存环境变量更改？" })).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });

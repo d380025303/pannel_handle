@@ -8,6 +8,53 @@ export type TranslationKey =
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
   | "settings.title"
+  | "settings.subtitle"
+  | "settings.categories"
+  | "settings.generalDescription"
+  | "settings.environmentTitle"
+  | "settings.environmentNavDescription"
+  | "settings.modelsTitle"
+  | "settings.modelsDescription"
+  | "settings.mobileNavDescription"
+  | "settings.notificationsTitle"
+  | "settings.notificationsDescription"
+  | "settings.environmentProfiles"
+  | "settings.environmentProfileCount"
+  | "settings.environmentNewProfile"
+  | "settings.environmentNewProfileHint"
+  | "settings.environmentVariableCount"
+  | "settings.environmentReferenceCount"
+  | "settings.environmentDescription"
+  | "settings.environmentUnsaved"
+  | "settings.environmentProfileName"
+  | "settings.environmentProfileNamePlaceholder"
+  | "settings.environmentVariables"
+  | "settings.environmentAddVariable"
+  | "settings.environmentVariableName"
+  | "settings.environmentVariableValue"
+  | "settings.environmentRemoveVariable"
+  | "settings.environmentEmpty"
+  | "settings.environmentAddFirstVariable"
+  | "settings.environmentPasteTitle"
+  | "settings.environmentPasteHint"
+  | "settings.environmentPasteAria"
+  | "settings.environmentAppend"
+  | "settings.environmentPasteError"
+  | "settings.environmentReferencedBy"
+  | "settings.environmentReferenceSeparator"
+  | "settings.environmentDeleteReferencedHint"
+  | "settings.environmentSave"
+  | "settings.environmentCopy"
+  | "settings.environmentDelete"
+  | "settings.environmentConfirmDelete"
+  | "settings.environmentSaved"
+  | "settings.environmentDeleted"
+  | "settings.environmentCopySuffix"
+  | "settings.environmentUnsavedTitle"
+  | "settings.environmentUnsavedDescription"
+  | "settings.environmentSaveAndContinue"
+  | "settings.environmentDiscardAndContinue"
+  | "settings.environmentKeepEditing"
   | "settings.mobileTitle"
   | "settings.mobileRunning"
   | "settings.mobileStopped"
@@ -863,6 +910,53 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
     "settings.title": "设置",
+    "settings.subtitle": "管理应用行为、模型服务与本地连接",
+    "settings.categories": "设置分类",
+    "settings.generalDescription": "调整终端启动、界面和调试选项。",
+    "settings.environmentTitle": "环境变量",
+    "settings.environmentNavDescription": "集中管理可供会话复用的普通环境变量配置。",
+    "settings.modelsTitle": "模型服务",
+    "settings.modelsDescription": "配置模型服务凭据、在线模型和默认选择。",
+    "settings.mobileNavDescription": "配置局域网访问、设备配对与连接安全。",
+    "settings.notificationsTitle": "通知",
+    "settings.notificationsDescription": "配置会话状态的外部通知渠道。",
+    "settings.environmentProfiles": "配置组",
+    "settings.environmentProfileCount": "共 {count} 组",
+    "settings.environmentNewProfile": "新建配置组",
+    "settings.environmentNewProfileHint": "创建一组可复用变量",
+    "settings.environmentVariableCount": "{count} 个变量",
+    "settings.environmentReferenceCount": "{count} 个引用",
+    "settings.environmentDescription": "普通配置以明文保存在本机，请勿填写密钥；修改在下次启动会话时生效。",
+    "settings.environmentUnsaved": "未保存",
+    "settings.environmentProfileName": "配置组名称",
+    "settings.environmentProfileNamePlaceholder": "例如：本地开发代理",
+    "settings.environmentVariables": "环境变量",
+    "settings.environmentAddVariable": "添加变量",
+    "settings.environmentVariableName": "变量名",
+    "settings.environmentVariableValue": "值",
+    "settings.environmentRemoveVariable": "删除变量",
+    "settings.environmentEmpty": "此配置组还没有环境变量。",
+    "settings.environmentAddFirstVariable": "添加第一个变量",
+    "settings.environmentPasteTitle": "批量粘贴 KEY=VALUE",
+    "settings.environmentPasteHint": "每行填写一个变量；空行和以 # 开头的注释会被忽略。",
+    "settings.environmentPasteAria": "批量环境变量",
+    "settings.environmentAppend": "追加到变量表",
+    "settings.environmentPasteError": "每行应为 KEY=VALUE。",
+    "settings.environmentReferencedBy": "引用会话",
+    "settings.environmentReferenceSeparator": "、",
+    "settings.environmentDeleteReferencedHint": "该配置组正在使用中，解除所有会话引用后才能删除。",
+    "settings.environmentSave": "保存配置组",
+    "settings.environmentCopy": "复制为新组",
+    "settings.environmentDelete": "删除配置组",
+    "settings.environmentConfirmDelete": "确认删除",
+    "settings.environmentSaved": "已保存，下次启动会话生效。",
+    "settings.environmentDeleted": "配置组已删除。",
+    "settings.environmentCopySuffix": " - 副本",
+    "settings.environmentUnsavedTitle": "保存环境变量更改？",
+    "settings.environmentUnsavedDescription": "当前配置组有未保存的修改。保存后继续，或放弃修改并执行刚才的操作。",
+    "settings.environmentSaveAndContinue": "保存并继续",
+    "settings.environmentDiscardAndContinue": "放弃更改",
+    "settings.environmentKeepEditing": "继续编辑",
     "settings.mobileTitle": "局域网移动终端",
     "settings.mobileRunning": "运行中",
     "settings.mobileStopped": "已停止",
@@ -1710,6 +1804,53 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
     "settings.title": "Settings",
+    "settings.subtitle": "Manage app behavior, model services, and local connections",
+    "settings.categories": "Settings categories",
+    "settings.generalDescription": "Configure terminal startup, appearance, and diagnostics.",
+    "settings.environmentTitle": "Environment variables",
+    "settings.environmentNavDescription": "Manage reusable non-secret environment variables for sessions.",
+    "settings.modelsTitle": "Model services",
+    "settings.modelsDescription": "Configure provider credentials, online models, and defaults.",
+    "settings.mobileNavDescription": "Configure LAN access, device pairing, and connection security.",
+    "settings.notificationsTitle": "Notifications",
+    "settings.notificationsDescription": "Configure external notifications for session states.",
+    "settings.environmentProfiles": "Profiles",
+    "settings.environmentProfileCount": "{count} profiles",
+    "settings.environmentNewProfile": "New profile",
+    "settings.environmentNewProfileHint": "Create a reusable variable set",
+    "settings.environmentVariableCount": "{count} variables",
+    "settings.environmentReferenceCount": "{count} references",
+    "settings.environmentDescription": "Non-secret values are stored locally as plain text. Changes apply when a session is next launched.",
+    "settings.environmentUnsaved": "Unsaved",
+    "settings.environmentProfileName": "Profile name",
+    "settings.environmentProfileNamePlaceholder": "For example: Local development proxy",
+    "settings.environmentVariables": "Environment variables",
+    "settings.environmentAddVariable": "Add variable",
+    "settings.environmentVariableName": "Variable name",
+    "settings.environmentVariableValue": "Value",
+    "settings.environmentRemoveVariable": "Remove variable",
+    "settings.environmentEmpty": "This profile has no environment variables yet.",
+    "settings.environmentAddFirstVariable": "Add the first variable",
+    "settings.environmentPasteTitle": "Paste KEY=VALUE in bulk",
+    "settings.environmentPasteHint": "Enter one variable per line. Blank lines and comments beginning with # are ignored.",
+    "settings.environmentPasteAria": "Bulk environment variables",
+    "settings.environmentAppend": "Append to variables",
+    "settings.environmentPasteError": "Each line must use KEY=VALUE.",
+    "settings.environmentReferencedBy": "Referenced by sessions",
+    "settings.environmentReferenceSeparator": ", ",
+    "settings.environmentDeleteReferencedHint": "Remove every session reference before deleting this profile.",
+    "settings.environmentSave": "Save profile",
+    "settings.environmentCopy": "Duplicate profile",
+    "settings.environmentDelete": "Delete profile",
+    "settings.environmentConfirmDelete": "Confirm deletion",
+    "settings.environmentSaved": "Saved. Changes apply when a session is next launched.",
+    "settings.environmentDeleted": "Profile deleted.",
+    "settings.environmentCopySuffix": " - Copy",
+    "settings.environmentUnsavedTitle": "Save environment changes?",
+    "settings.environmentUnsavedDescription": "The current profile has unsaved changes. Save them before continuing, or discard them and continue with the previous action.",
+    "settings.environmentSaveAndContinue": "Save and continue",
+    "settings.environmentDiscardAndContinue": "Discard changes",
+    "settings.environmentKeepEditing": "Keep editing",
     "settings.mobileTitle": "LAN Mobile Terminal",
     "settings.mobileRunning": "Running",
     "settings.mobileStopped": "Stopped",
