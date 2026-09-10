@@ -69,6 +69,7 @@ function createRemoteFilesModule({
     nativeImage,
     ipcMain,
     dialog,
+    terminalManager,
     windowManager,
     remoteFileService: fileService,
     fileTransferManager,

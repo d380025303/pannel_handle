@@ -1005,6 +1005,7 @@ export type RemoteFileApi = {
   writeText: (sessionId: string, remotePath: string, content: string, expectedVersion: string, options?: { force?: boolean; format?: { bom?: boolean; eol?: "lf" | "crlf" | "cr" } }) => Promise<RemoteTextWriteResult>;
   createEntry: (sessionId: string, parentPath: string, name: string, kind: "file" | "directory", conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
   moveEntry: (sessionId: string, sourcePath: string, targetDirectory: string, name?: string, conflictPolicy?: FileConflictPolicy) => Promise<RemoteFileMutationResult>;
+  chooseRoot: (sessionId: string, currentRoot: string) => Promise<{ canceled: true } | { canceled: false; path: string }>;
   uploadFile: (sessionId: string, remoteDir: string) => Promise<RemoteFileDialogResult>;
   uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[] | string[]) => Promise<RemoteFileBatchUploadResult>;
   downloadFile: (transferId: string, sessionId: string, remotePath: string, fileName?: string) => Promise<RemoteFileDialogResult>;

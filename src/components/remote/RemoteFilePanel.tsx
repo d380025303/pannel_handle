@@ -296,6 +296,7 @@ export function RemoteFilePanel({
   const [moveDialog, setMoveDialog] = useState<MoveDialogState>(null);
   const [mutationConflict, setMutationConflict] = useState<MutationConflictState>(null);
   const [conflictRemoteContent, setConflictRemoteContent] = useState<string | null>(null);
+  const [rootDialogPath, setRootDialogPath] = useState<string | null>(null);
   const [saveAsName, setSaveAsName] = useState<string | null>(null);
   const requestRef = useRef(0);
   const previewRequestRef = useRef(0);
@@ -1051,6 +1052,69 @@ export function RemoteFilePanel({
     void loadDirectory(target, true);
   }, [loadDirectory, pathHistory, pathHistoryIndex]);
 
+  const applyRootPath = useCallback(async (rootPath: string) => {
+    const normalizedRoot = rootPath.trim();
+    if (!sessionId || !normalizedRoot) return;
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
+    setLoading(true);
+    setError(null);
+    try {
+      const entries = await window.remoteFileApi.list(sessionId, normalizedRoot);
+      if (requestRef.current !== requestId) return;
+      const root: RemoteFileEntry = {
+        name: baseName(normalizedRoot) || normalizedRoot,
+        path: normalizedRoot,
+        type: "directory",
+        size: 0,
+        modifiedAt: 0
+      };
+      directoryRequestSequenceRef.current += 1;
+      directoryRequestRef.current.clear();
+      treeRowRefs.current.clear();
+      navigationRootRef.current = normalizedRoot;
+      treeRootRef.current = root;
+      directoriesRef.current = { [normalizedRoot]: { status: "ready", entries } };
+      expandedPathsRef.current = new Set([normalizedRoot]);
+      selectedPathRef.current = normalizedRoot;
+      currentPathRef.current = normalizedRoot;
+      pathInputRef.current = normalizedRoot;
+      searchQueryRef.current = "";
+      pathHistoryIndexRef.current = 0;
+      setNavigationRoot(normalizedRoot);
+      setTreeRoot(root);
+      setDirectories({ [normalizedRoot]: { status: "ready", entries } });
+      setExpandedPaths(new Set([normalizedRoot]));
+      setSelectedPath(normalizedRoot);
+      setCurrentPath(normalizedRoot);
+      setPathInput(normalizedRoot);
+      setSearchQuery("");
+      setPathHistory([normalizedRoot]);
+      setPathHistoryIndex(0);
+      setRootDialogPath(null);
+      onCurrentPathChange?.(normalizedRoot);
+    } catch (err) {
+      if (requestRef.current === requestId) setError(getErrorMessage(err));
+    } finally {
+      if (requestRef.current === requestId) setLoading(false);
+    }
+  }, [onCurrentPathChange, sessionId]);
+
+  const handleChooseRoot = useCallback(async () => {
+    if (!sessionId || !session) return;
+    const currentRoot = navigationRoot || currentPath;
+    if (session.type !== "windows") {
+      setRootDialogPath(currentRoot);
+      return;
+    }
+    try {
+      const result = await window.remoteFileApi.chooseRoot(sessionId, currentRoot);
+      if (!result.canceled) await applyRootPath(result.path);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }, [applyRootPath, currentPath, navigationRoot, session, sessionId]);
+
   const handleSortChange = useCallback((value: string) => {
     if (!sessionId) return;
     const [key, direction] = value.split(":") as ["name" | "modifiedAt" | "size", "asc" | "desc"];
@@ -1664,6 +1728,9 @@ export function RemoteFilePanel({
               <FolderOpen aria-hidden="true" />
             </button>
           )}
+          <button className="icon-button" type="button" title={t("files.changeRoot")} aria-label={t("files.changeRoot")} onClick={() => void handleChooseRoot()}>
+            <Folder aria-hidden="true" />
+          </button>
           <button className="icon-button" type="button" title={t("common.refresh")} aria-label={t("common.refresh")} onClick={handleRefresh}>
             <RefreshCw aria-hidden="true" />
           </button>
@@ -2147,6 +2214,40 @@ export function RemoteFilePanel({
           <div className="file-operation-actions">
             <button type="button" onClick={() => setRenameDialog(null)}>{t("common.cancel")}</button>
             <button type="button" disabled={!renameDialog.value.trim()} onClick={() => void submitRename()}>{t("files.rename")}</button>
+          </div>
+        </div>
+      </div>
+    )}
+    {rootDialogPath !== null && (
+      <div
+        className="modal-overlay"
+        onClick={() => setRootDialogPath(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setRootDialogPath(null);
+        }}
+      >
+        <div
+          className="file-operation-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("files.changeRoot")}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h2>{t("files.changeRoot")}</h2>
+          <label>
+            <span>{t("files.directoryPath")}</span>
+            <input
+              autoFocus
+              value={rootDialogPath}
+              onChange={(event) => setRootDialogPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && rootDialogPath.trim()) void applyRootPath(rootDialogPath);
+              }}
+            />
+          </label>
+          <div className="file-operation-actions">
+            <button type="button" onClick={() => setRootDialogPath(null)}>{t("common.cancel")}</button>
+            <button type="button" disabled={!rootDialogPath.trim()} onClick={() => void applyRootPath(rootDialogPath)}>{t("common.confirm")}</button>
           </div>
         </div>
       </div>

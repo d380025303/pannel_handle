@@ -33,6 +33,7 @@ function registerRemoteFileIpcHandlers({
   nativeImage,
   ipcMain,
   dialog,
+  terminalManager,
   windowManager,
   remoteFileService,
   fileTransferManager,
@@ -118,6 +119,19 @@ function registerRemoteFileIpcHandlers({
   ipcMain.handle("remote-files:move", (_event, { sessionId, sourcePath, targetDirectory, name, conflictPolicy }) => (
     remoteFileService.moveEntry(sessionId, sourcePath, targetDirectory, name, conflictPolicy)
   ));
+
+  ipcMain.handle("remote-files:choose-root", async (event, { sessionId, currentRoot }) => {
+    const session = terminalManager.getSession(sessionId);
+    if (!session || session.type !== "windows") return { canceled: true };
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      defaultPath: currentRoot,
+      properties: ["openDirectory"]
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? { canceled: true }
+      : { canceled: false, path: result.filePaths[0] };
+  });
 
   ipcMain.handle("remote-files:upload-file", async (event, { sessionId, remoteDir }) => {
     const ownerWindow = windowManager.getWindowFromEvent(event);

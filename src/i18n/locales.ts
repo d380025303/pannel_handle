@@ -561,6 +561,7 @@ export type TranslationKey =
   | "files.parentDirectory"
   | "files.openInExplorer"
   | "files.directoryPath"
+  | "files.changeRoot"
   | "files.searchPlaceholder"
   | "files.clearSearch"
   | "files.onlyLocalFiles"
@@ -1414,6 +1415,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.parentDirectory": "上级目录",
     "files.openInExplorer": "在资源管理器中打开",
     "files.directoryPath": "目录路径",
+    "files.changeRoot": "更换文件根目录",
     "files.searchPlaceholder": "搜索当前目录...",
     "files.clearSearch": "清除搜索",
     "files.onlyLocalFiles": "只能上传本地文件。",
@@ -2259,6 +2261,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.parentDirectory": "Parent directory",
     "files.openInExplorer": "Open in Explorer",
     "files.directoryPath": "Directory path",
+    "files.changeRoot": "Change file root",
     "files.searchPlaceholder": "Search current directory...",
     "files.clearSearch": "Clear search",
     "files.onlyLocalFiles": "Only local files can be uploaded.",

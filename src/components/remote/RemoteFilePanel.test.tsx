@@ -35,8 +35,9 @@ describe("RemoteFilePanel directory navigation", () => {
     vi.restoreAllMocks();
   });
 
-  it("ignores legacy file roots and does not expose a root change action", async () => {
+  it("ignores legacy file roots and exposes a temporary root change action", async () => {
     const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.chooseRoot = vi.fn(async () => ({ canceled: true as const }));
     window.remoteFileApi = remoteFileApi;
     const legacyRoot = "C:\\legacy-root";
     const session = {
@@ -53,7 +54,80 @@ describe("RemoteFilePanel directory navigation", () => {
 
     await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, rootPath));
     expect(remoteFileApi.list).not.toHaveBeenCalledWith(session.id, legacyRoot);
-    expect(screen.queryByRole("button", { name: "更换文件根目录" })).toBeNull();
+    expect(screen.getByRole("button", { name: "更换文件根目录" })).toBeTruthy();
+  });
+
+  it("changes a Windows root through the native directory picker without persisting it", async () => {
+    const nextRoot = "D:\\shared";
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.chooseRoot = vi.fn(async () => ({ canceled: false, path: nextRoot }));
+    window.remoteFileApi = remoteFileApi;
+    const updateSession = vi.fn();
+    window.terminalApi = { updateSession } as unknown as typeof window.terminalApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    const { container } = render(<RemoteFilePanel session={session} />);
+    await screen.findByTitle(childPath);
+    fireEvent.click(screen.getByRole("button", { name: "更换文件根目录" }));
+
+    await waitFor(() => expect(remoteFileApi.chooseRoot).toHaveBeenCalledWith(session.id, rootPath));
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, nextRoot));
+    expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe(nextRoot);
+    expect((screen.getByRole("button", { name: "上级目录" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(updateSession).not.toHaveBeenCalled();
+  });
+
+  it("validates a WSL root path, keeps the old tree on failure, and caches a successful choice across session switches", async () => {
+    const nextRoot = "/srv/app";
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.getHome = vi.fn(async (sessionId: string) => sessionId === "session-1" ? "/workspace" : "/other");
+    remoteFileApi.chooseRoot = vi.fn(async () => ({ canceled: true as const }));
+    remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
+      if (path === "/missing") throw new Error("Directory not found");
+      if (path === "/workspace") return [directory("src", "/workspace/src")];
+      if (path === nextRoot) return [directory("packages", `${nextRoot}/packages`)];
+      return [];
+    });
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "WSL",
+      shell: "bash",
+      cwd: "/workspace",
+      createdAt: 1,
+      type: "wsl"
+    };
+    const otherSession: TerminalSession = { ...session, id: "session-2", title: "Other", cwd: "/other" };
+
+    const { container, rerender } = render(<RemoteFilePanel session={session} />);
+    await screen.findByTitle("/workspace/src");
+    fireEvent.click(screen.getByRole("button", { name: "更换文件根目录" }));
+    const dialog = screen.getByRole("dialog", { name: "更换文件根目录" });
+    const input = within(dialog).getByDisplayValue("/workspace");
+    fireEvent.change(input, { target: { value: "/missing" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认" }));
+
+    await screen.findByText("Directory not found");
+    expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe("/workspace");
+    expect(screen.getByRole("dialog", { name: "更换文件根目录" })).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: nextRoot } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await screen.findByTitle(`${nextRoot}/packages`);
+    expect(screen.queryByRole("dialog", { name: "更换文件根目录" })).toBeNull();
+    expect(remoteFileApi.chooseRoot).not.toHaveBeenCalled();
+
+    rerender(<RemoteFilePanel session={otherSession} />);
+    await waitFor(() => expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe("/other"));
+    rerender(<RemoteFilePanel session={session} />);
+    await waitFor(() => expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe(nextRoot));
   });
 
   it("navigates above the session working directory and accepts another absolute path", async () => {
@@ -340,7 +414,7 @@ describe("RemoteFilePanel directory navigation", () => {
     const { container } = render(<RemoteFilePanel session={session} onSearchRequest={vi.fn()} />);
 
     await screen.findByTitle(childPath);
-    expect(within(container.querySelector(".remote-file-actions")!).getAllByRole("button")).toHaveLength(6);
+    expect(within(container.querySelector(".remote-file-actions")!).getAllByRole("button")).toHaveLength(7);
 
     const pathInput = container.querySelector<HTMLInputElement>(".remote-file-path input")!;
     fireEvent.change(pathInput, { target: { value: childPath } });

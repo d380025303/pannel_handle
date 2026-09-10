@@ -61,12 +61,37 @@ describe("remote-files module", () => {
     expect(harness.handlers.get("remote-files:start-download-drag")).toEqual(expect.any(Function));
     expect(harness.handlers.get("file-transfers:choose-upload")).toEqual(expect.any(Function));
     expect(harness.handlers.get("file-transfers:clear")).toEqual(expect.any(Function));
-    expect(harness.handlers.has("remote-files:choose-root")).toBe(false);
+    await expect(harness.handlers.get("remote-files:choose-root")({}, {
+      sessionId: "run-1",
+      currentRoot: "C:\\workspace"
+    })).resolves.toEqual({ canceled: true });
     await expect(harness.handlers.get("file-transfers:choose-download")({}, {
       sessionId: "run-1",
       remotePath: "C:\\workspace\\note.txt",
       fileName: "note.txt"
     })).resolves.toEqual({ canceled: true });
+  });
+
+  it("selects roots only for Windows sessions", async () => {
+    const harness = createHarness();
+    harness.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ["D:\\shared"] });
+
+    await expect(harness.handlers.get("remote-files:choose-root")({}, {
+      sessionId: "run-1",
+      currentRoot: "C:\\workspace"
+    })).resolves.toEqual({ canceled: false, path: "D:\\shared" });
+    expect(harness.dialog.showOpenDialog).toHaveBeenCalledWith(null, {
+      defaultPath: "C:\\workspace",
+      properties: ["openDirectory"]
+    });
+
+    harness.dialog.showOpenDialog.mockClear();
+    harness.terminalManager.getSession.mockReturnValue({ id: "run-2", type: "wsl", cwd: "/workspace" });
+    await expect(harness.handlers.get("remote-files:choose-root")({}, {
+      sessionId: "run-2",
+      currentRoot: "/workspace"
+    })).resolves.toEqual({ canceled: true });
+    expect(harness.dialog.showOpenDialog).not.toHaveBeenCalled();
   });
 
   it("rejects empty dropped paths at the module IPC seam", () => {
