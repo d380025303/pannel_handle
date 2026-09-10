@@ -1,18 +1,18 @@
-import { SessionEnvironmentFields } from "../environment/SessionEnvironmentFields";
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
-import { useI18n } from "../../i18n";
-import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
-import { AgentProviderSelect } from "./AgentProviderSelect";
-import { AgentLocationSelect } from "./AgentLocationSelect";
-import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
-import { TagInput } from "../shared/TagInput";
+import { Plus, X } from "lucide-react";
+import { SessionEnvironmentFields } from "../environment/SessionEnvironmentFields";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { TagInput } from "../shared/TagInput";
+import { useI18n } from "../../i18n";
 import { generateId } from "../../utils/id";
-import { CodexBackendFields } from "./CodexBackendFields";
-import { supportsLocalBridge } from "./agentProviders";
-
 import { windowsCommandExample } from "../../utils/windowsShell";
+import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
+import { AgentLocationSelect } from "./AgentLocationSelect";
+import { AgentProviderSelect } from "./AgentProviderSelect";
+import { CodexBackendFields } from "./CodexBackendFields";
+import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
+import { supportsLocalBridge } from "./agentProviders";
+import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
 
 type EditSessionModalProps = {
   session: TerminalSession;
@@ -36,21 +36,21 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(session.codexExperimentalAcknowledged === true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(
-    () => (session.quickCommands ?? []).map((qc) => ({ ...qc, mode: qc.mode || "write" as const }))
-  );
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(() => (session.quickCommands ?? []).map((command) => ({ ...command, mode: command.mode || "write" as const })));
   const [sshHost, setSshHost] = useState(session.sshConfig?.host || "");
   const [sshUsername, setSshUsername] = useState(session.sshConfig?.username || "");
   const [sshPort, setSshPort] = useState(String(session.sshConfig?.port || 22));
   const [sshIdentityFile, setSshIdentityFile] = useState(session.sshConfig?.identityFile || "");
-  const [sshExtraArgs, setSshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
+  const [sshExtraArgs] = useState((session.sshConfig?.extraArgs || []).join(" "));
   const [sshSecret, setSshSecret] = useState("");
   const [clearSshSecret, setClearSshSecret] = useState(false);
   const [sshRemark, setSshRemark] = useState(session.sshConfig?.remark || "");
   const [remotePlatform, setRemotePlatform] = useState<RemotePlatform>(session.sshConfig?.remotePlatform || "auto");
-  const [showAdvancedSsh, setShowAdvancedSsh] = useState(false);
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
+  const environmentConfigured = Boolean(environment.environmentProfileId || environment.environmentOverrides?.length);
+  const advancedSshConfigured = Boolean(sshIdentityFile.trim() || sshRemark.trim() || sshExtraArgs.trim() || remotePlatform !== "auto");
+
   const handleSave = async () => {
     if (agentProvider && !editCwd.trim()) {
       setError(t("session.agentCwdRequired"));
@@ -61,29 +61,20 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     try {
       await window.environmentApi?.preview({ ...environment, type: session.type, agentProvider, agentLocation });
       await onSave(
-      session.id,
-      editTitle,
-      editCwd,
-      editCommand,
-      agentProvider,
-      isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
-      isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
-      !isSsh && agentProvider === "codex" ? codexBackend : undefined,
-      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") ? codexModel : undefined,
-      quickCommands.filter((qc) => qc.command.trim().length > 0),
-      isSsh ? {
-        host: sshHost.trim(),
-        username: sshUsername.trim() || undefined,
-        port: Number(sshPort) || 22,
-        identityFile: sshIdentityFile.trim() || undefined,
-        secret: clearSshSecret ? undefined : sshSecret || undefined,
-        clearSecret: clearSshSecret,
-        remark: sshRemark.trim() || undefined,
-        remotePlatform
-      } : undefined,
-      tags,
-      !isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : undefined,
-      environment
+        session.id,
+        editTitle,
+        editCwd,
+        editCommand,
+        agentProvider,
+        isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
+        isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
+        !isSsh && agentProvider === "codex" ? codexBackend : undefined,
+        !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) ? codexModel : undefined,
+        quickCommands.filter((command) => command.command.trim().length > 0),
+        isSsh ? { host: sshHost.trim(), username: sshUsername.trim() || undefined, port: Number(sshPort) || 22, identityFile: sshIdentityFile.trim() || undefined, secret: clearSshSecret ? undefined : sshSecret || undefined, clearSecret: clearSshSecret, remark: sshRemark.trim() || undefined, remotePlatform } : undefined,
+        tags,
+        !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
+        environment
       );
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));
@@ -92,277 +83,72 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   };
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
+    const handler = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onCancel]);
 
-  const handleAddCommand = () => {
-    setQuickCommands((prev) => [
-      ...prev,
-      { id: generateId(), command: "", mode: "auto-enter" }
-    ]);
-  };
+  const handleAddCommand = () => setQuickCommands((previous) => [...previous, { id: generateId(), command: "", mode: "auto-enter" }]);
+  const handleRemoveCommand = (id: string) => setQuickCommands((previous) => previous.filter((command) => command.id !== id));
+  const handleCommandChange = (id: string, field: "command" | "mode", value: string) => setQuickCommands((previous) => previous.map((command) => command.id === id ? { ...command, [field]: value } : command));
+  const commandExample = session.type === "windows" ? windowsCommandExample(session.shell) : "pnpm dev";
 
-  const handleRemoveCommand = (id: string) => {
-    setQuickCommands((prev) => prev.filter((qc) => qc.id !== id));
-  };
+  return <SessionModalLayout title={t("session.editTitle")} subtitle={t("session.editSubtitle")} onCancel={onCancel} footer={<>
+    <button className="modal-button" type="button" onClick={onCancel}>{t("common.cancel")}</button>
+    <button className="modal-button primary" type="button" onClick={handleSave} disabled={submitting || (isSsh && sshHost.trim().length === 0) || Boolean(agentProvider && !editCwd.trim()) || Boolean(agentProvider === "codex" && !isSsh && !codexReady)}>{submitting ? t("session.saving") : t("common.save")}</button>
+  </>}>
+    {error && <div className="modal-error" role="alert">{error}</div>}
 
-  const handleCommandChange = (id: string, field: "command" | "mode", value: string) => {
-    setQuickCommands((prev) =>
-      prev.map((qc) => (qc.id === id ? { ...qc, [field]: value } : qc))
-    );
-  };
+    <SessionFormSection title={t("session.basicSection")}>
+      <label className="modal-field"><span className="modal-label">{t("session.name")}</span><input autoFocus className="modal-input" placeholder={t("session.namePlaceholder")} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} /></label>
+      <label className="modal-field"><span className="modal-label">{isSsh && agentProvider && agentLocation === "local" ? t("session.remoteCwd") : t("session.cwd")}</span><input className="modal-input" placeholder={isSsh ? (remotePlatform === "windows" ? "C:\\projects\\myapp" : "/srv/app") : session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"} value={editCwd} onChange={(event) => setEditCwd(event.target.value)} /></label>
+      <label className="modal-field"><span className="modal-label">{t("session.tags")}</span><TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} /></label>
+    </SessionFormSection>
 
-  return (
-    <div className="modal-overlay">
-      <div className="modal-dialog">
-        <div className="modal-header">
-          <h3>{t("session.editTitle")}</h3>
-        </div>
-        <div className="modal-body">
-          {error && <div className="modal-error">{error}</div>}
-          <label className="modal-field">
-            <span className="modal-label">{t("session.name")}</span>
-            <input
-              autoFocus
-              className="modal-input"
-              placeholder={t("session.namePlaceholder")}
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-            />
-          </label>
-          <SessionEnvironmentFields value={environment} onChange={setEnvironment} type={session.type} agentProvider={agentProvider} agentLocation={agentLocation} />
-          <AgentProviderSelect value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => {
-            setAgentProvider(provider);
-            if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote");
-          }} />
-          {agentProvider === "codex" && !isSsh && (
-            <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />
-          )}
-          {isSsh && agentProvider && (
-            <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />
-          )}
-          {isSsh ? (
-            <div className="ssh-form">
-              <div className="modal-grid two">
-                <label className="modal-field">
-                  <span className="modal-label">{t("session.host")}</span>
-                  <input
-                    className="modal-input"
-                    placeholder={t("session.hostPlaceholder")}
-                    value={sshHost}
-                    onChange={(e) => setSshHost(e.target.value)}
-                  />
-                </label>
-                <label className="modal-field">
-                  <span className="modal-label">{t("session.port")}</span>
-                  <input
-                    className="modal-input"
-                    placeholder="22"
-                    value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="modal-grid two">
-                <label className="modal-field">
-                  <span className="modal-label">{t("session.username")}</span>
-                  <input
-                    className="modal-input"
-                    placeholder="root"
-                    value={sshUsername}
-                    onChange={(e) => setSshUsername(e.target.value)}
-                  />
-                </label>
-                <label className="modal-field">
-                  <span className="modal-label">{t("session.passwordOrKeyPassphrase")}</span>
-                  <input
-                    className="modal-input"
-                    type="password"
-                    placeholder={session.sshConfig?.hasSecret ? t("session.passwordEditPlaceholder") : t("session.passwordCreatePlaceholder")}
-                    value={sshSecret}
-                    disabled={clearSshSecret}
-                    onChange={(e) => setSshSecret(e.target.value)}
-                  />
-                </label>
-              </div>
-              {session.sshConfig?.hasSecret && (
-                <label className="modal-checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={clearSshSecret}
-                    onChange={(e) => {
-                      setClearSshSecret(e.target.checked);
-                      if (e.target.checked) {
-                        setSshSecret("");
-                      }
-                    }}
-                  />
-                  <span>{t("session.clearSavedPassword")}</span>
-                </label>
-              )}
-              <button
-                type="button"
-                className="ssh-advanced-toggle"
-                onClick={() => setShowAdvancedSsh((v) => !v)}
-              >
-                {showAdvancedSsh ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span>{t("session.advancedSsh")}</span>
-              </button>
-              {showAdvancedSsh && (
-                <>
-                  <label className="modal-field">
-                    <span className="modal-label">{t("session.identityFile")}</span>
-                    <input
-                      className="modal-input"
-                      placeholder="C:\\Users\\me\\.ssh\\id_rsa"
-                      value={sshIdentityFile}
-                      onChange={(e) => setSshIdentityFile(e.target.value)}
-                    />
-                  </label>
-                  <label className="modal-field">
-                    <span className="modal-label">{t("session.sshArgs")}</span>
-                    <input
-                      className="modal-input"
-                      placeholder="-o ServerAliveInterval=30"
-                      value={sshExtraArgs}
-                      disabled
-                      onChange={(e) => setSshExtraArgs(e.target.value)}
-                    />
-                  </label>
-                  <label className="modal-field">
-                    <span className="modal-label">{t("session.remark")}</span>
-                    <textarea
-                      className="modal-input modal-textarea"
-                      placeholder={t("session.remarkPlaceholder")}
-                      value={sshRemark}
-                      onChange={(e) => setSshRemark(e.target.value)}
-                      rows={2}
-                    />
-                  </label>
-                  <label className="modal-field">
-                    <span className="modal-label">{t("session.remotePlatform")}</span>
-                    <select className="modal-input" value={remotePlatform} onChange={(event) => setRemotePlatform(event.target.value as RemotePlatform)}>
-                      <option value="auto">{t("session.remotePlatformAuto")}</option>
-                      <option value="linux">Linux</option>
-                      <option value="windows">Windows</option>
-                    </select>
-                  </label>
-                </>
-              )}
-              <label className="modal-field">
-                <span className="modal-label">{agentProvider && agentLocation === "local" ? t("session.remoteCwd") : t("session.cwd")}</span>
-                <input
-                  className="modal-input"
-                  placeholder={remotePlatform === "windows" ? "C:\\projects\\myapp" : "/srv/app"}
-                  value={editCwd}
-                  onChange={(e) => setEditCwd(e.target.value)}
-                />
-              </label>
-              {supportsLocalBridge(agentProvider) && agentLocation === "local" && (
-                <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />
-              )}
-              <label className="modal-field">
-                  <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
-                <textarea
-                  className="modal-input modal-textarea"
-                  placeholder={t("session.initialCommandPlaceholder", { example: "pnpm dev" })}
-                  value={editCommand}
-                  onChange={(e) => setEditCommand(e.target.value)}
-                  rows={3}
-                />
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.tags")}</span>
-                <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
-              </label>
-            </div>
-          ) : (
-            <>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.cwd")}</span>
-                <input
-                  className="modal-input"
-                  placeholder={session.type === "wsl" ? "/home/user/project" : "C:\\projects\\myapp"}
-                  value={editCwd}
-                  onChange={(e) => setEditCwd(e.target.value)}
-                />
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span>
-                <textarea
-                  className="modal-input modal-textarea"
-                  placeholder={t("session.initialCommandPlaceholder", { example: session.type === "windows" ? windowsCommandExample(session.shell) : "pnpm dev" })}
-                  value={editCommand}
-                  onChange={(e) => setEditCommand(e.target.value)}
-                  rows={3}
-                />
-                {session.type === "windows" && <span className="settings-help">{t("session.shellSyntaxHint", { shell: session.shell.split(/[\\/]/).pop() || session.shell })}</span>}
-              </label>
-              <label className="modal-field">
-                <span className="modal-label">{t("session.tags")}</span>
-                <TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} />
-              </label>
-            </>
-          )}
-        </div>
-        <div className="quick-command-section">
-          <label className="quick-command-heading">
-            {t("quickCommand.heading")}
-          </label>
-          <div className="quick-command-edit-list">
-            {quickCommands.map((qc) => (
-              <div key={qc.id} className="quick-command-edit-row">
-                <input
-                  className="modal-input quick-cmd-input"
-                  placeholder={t("quickCommand.commandPlaceholder")}
-                  value={qc.command}
-                  onChange={(e) => handleCommandChange(qc.id, "command", e.target.value)}
-                />
-                <SearchableSelect
-                  className="quick-cmd-mode-select"
-                  value={qc.mode || "write"}
-                  options={[
-                    { value: "write", label: t("quickCommand.write") },
-                    { value: "auto-enter", label: t("quickCommand.autoEnter") },
-                    { value: "one-time", label: t("quickCommand.oneTime") }
-                  ]}
-                  ariaLabel={t("quickCommand.heading")}
-                  menuMinWidth={180}
-                  onChange={(mode) => handleCommandChange(qc.id, "mode", mode)}
-                />
-                <button
-                  type="button"
-                  className="mini-action danger"
-                  onClick={() => handleRemoveCommand(qc.id)}
-                  title={t("common.delete")}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="quick-command-add-btn"
-              onClick={handleAddCommand}
-            >
-              <Plus size={14} />
-              <span>{t("quickCommand.add")}</span>
-            </button>
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="modal-button" type="button" onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-          <button className="modal-button primary" type="button" onClick={handleSave} disabled={submitting || (isSsh && sshHost.trim().length === 0) || Boolean(agentProvider && !editCwd.trim()) || Boolean(agentProvider === "codex" && !isSsh && !codexReady)}>
-            {submitting ? t("session.saving") : t("common.save")}
-          </button>
-        </div>
+    <SessionFormSection title={t("session.agentCli")}>
+      <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); }} />
+      {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
+      {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
+      {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
+      {agentProvider && !editCwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}
+    </SessionFormSection>
+
+    {isSsh && <SessionFormSection title={t("session.connectionSection")}>
+      <div className="modal-grid two">
+        <label className="modal-field"><span className="modal-label">{t("session.host")}</span><input className="modal-input" placeholder={t("session.hostPlaceholder")} value={sshHost} onChange={(event) => setSshHost(event.target.value)} /></label>
+        <label className="modal-field"><span className="modal-label">{t("session.port")}</span><input className="modal-input" placeholder="22" value={sshPort} onChange={(event) => setSshPort(event.target.value)} /></label>
       </div>
-    </div>
-  );
+      <div className="modal-grid two">
+        <label className="modal-field"><span className="modal-label">{t("session.username")}</span><input className="modal-input" placeholder="root" value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} /></label>
+        <label className="modal-field"><span className="modal-label">{t("session.passwordOrKeyPassphrase")}</span><input className="modal-input" type="password" placeholder={session.sshConfig?.hasSecret ? t("session.passwordEditPlaceholder") : t("session.passwordCreatePlaceholder")} value={sshSecret} disabled={clearSshSecret} onChange={(event) => setSshSecret(event.target.value)} /></label>
+      </div>
+      {session.sshConfig?.hasSecret && <label className="modal-checkbox-field"><input type="checkbox" checked={clearSshSecret} onChange={(event) => { setClearSshSecret(event.target.checked); if (event.target.checked) setSshSecret(""); }} /><span>{t("session.clearSavedPassword")}</span></label>}
+    </SessionFormSection>}
+
+    {isSsh && <SessionFormSection collapsible title={t("session.advancedSsh")} summary={advancedSshConfigured ? t("session.configured") : t("session.notConfigured")}>
+      <label className="modal-field"><span className="modal-label">{t("session.identityFile")}</span><input className="modal-input" placeholder="C:\\Users\\me\\.ssh\\id_rsa" value={sshIdentityFile} onChange={(event) => setSshIdentityFile(event.target.value)} /></label>
+      <label className="modal-field"><span className="modal-label">{t("session.sshArgs")}</span><input className="modal-input" placeholder="-o ServerAliveInterval=30" value={sshExtraArgs} disabled /></label>
+      <label className="modal-field"><span className="modal-label">{t("session.remark")}</span><textarea className="modal-input modal-textarea" placeholder={t("session.remarkPlaceholder")} value={sshRemark} onChange={(event) => setSshRemark(event.target.value)} rows={2} /></label>
+      <label className="modal-field"><span className="modal-label">{t("session.remotePlatform")}</span><select className="modal-input" value={remotePlatform} onChange={(event) => setRemotePlatform(event.target.value as RemotePlatform)}><option value="auto">{t("session.remotePlatformAuto")}</option><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
+    </SessionFormSection>}
+
+    <SessionFormSection collapsible title={t("session.startupSection")} summary={editCommand.trim() ? t("session.configured") : t("session.notConfigured")}>
+      <label className="modal-field"><span className="modal-label">{agentProvider ? t("session.preLaunchCommand") : t("session.initialCommand")}</span><textarea className="modal-input modal-textarea" placeholder={t("session.initialCommandPlaceholder", { example: commandExample })} value={editCommand} onChange={(event) => setEditCommand(event.target.value)} rows={3} />{session.type === "windows" && <span className="settings-help">{t("session.shellSyntaxHint", { shell: session.shell.split(/[\\/]/).pop() || session.shell })}</span>}</label>
+    </SessionFormSection>
+
+    <SessionFormSection collapsible title={t("session.environment")} summary={environmentConfigured ? t("session.configured") : t("session.notConfigured")}>
+      <SessionEnvironmentFields embedded value={environment} onChange={setEnvironment} type={session.type} agentProvider={agentProvider} agentLocation={agentLocation} />
+    </SessionFormSection>
+
+    <SessionFormSection collapsible title={t("quickCommand.heading")} summary={quickCommands.length ? t("session.itemsConfigured", { count: quickCommands.length }) : t("session.notConfigured")}>
+      <div className="quick-command-edit-list">
+        {quickCommands.map((command) => <div key={command.id} className="quick-command-edit-row">
+          <input className="modal-input quick-cmd-input" placeholder={t("quickCommand.commandPlaceholder")} value={command.command} onChange={(event) => handleCommandChange(command.id, "command", event.target.value)} />
+          <SearchableSelect className="quick-cmd-mode-select" value={command.mode || "write"} options={[{ value: "write", label: t("quickCommand.write") }, { value: "auto-enter", label: t("quickCommand.autoEnter") }, { value: "one-time", label: t("quickCommand.oneTime") }]} ariaLabel={t("quickCommand.heading")} menuMinWidth={180} onChange={(mode) => handleCommandChange(command.id, "mode", mode)} />
+          <button type="button" className="mini-action danger" onClick={() => handleRemoveCommand(command.id)} title={t("common.delete")}><X size={13} /></button>
+        </div>)}
+        <button type="button" className="quick-command-add-btn" onClick={handleAddCommand}><Plus size={14} /><span>{t("quickCommand.add")}</span></button>
+      </div>
+    </SessionFormSection>
+  </SessionModalLayout>;
 }

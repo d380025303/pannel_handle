@@ -490,6 +490,160 @@
   box-shadow: var(--shadow-dialog);
 }
 
+.session-form-dialog {
+  width: min(720px, calc(100vw - 24px));
+  max-width: none;
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+}
+
+.session-form-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 15px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-form-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.session-form-header p {
+  margin: 5px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.session-form-close {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin: -4px -5px 0 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.session-form-close:hover,
+.session-form-close:focus-visible {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+  background: var(--color-bg-control-hover);
+  outline: none;
+}
+
+.session-form-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.session-form-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.session-form-body > .modal-error {
+  margin: 0;
+}
+
+.session-form-section {
+  flex: 0 0 auto;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-bg-app) 62%, var(--color-bg-panel));
+}
+
+.session-form-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 14px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.session-form-section.collapsible > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.session-form-section.collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.session-form-section.collapsible > summary:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg-control-hover) 58%, transparent);
+}
+
+.session-form-section.collapsible[open] > summary {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-form-section-summary {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.session-form-section-chevron {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+  transition: transform 0.15s ease;
+}
+
+.session-form-section.collapsible[open] .session-form-section-chevron {
+  transform: rotate(180deg);
+}
+
+.session-form-section-content {
+  display: grid;
+  gap: 12px;
+  padding: 2px 14px 14px;
+}
+
+.session-form-section.collapsible > .session-form-section-content {
+  padding-top: 14px;
+}
+
+.session-form-section-content > .agent-provider-field,
+.session-form-section-content > .ssh-form {
+  margin: 0;
+}
+
+.session-form-section-content .agent-provider-list,
+.session-shell-list {
+  margin: 0;
+}
+
+.session-form-footer {
+  flex: 0 0 auto;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-panel) 94%, var(--color-bg-app));
+}
+
 .modal-header {
   padding: 20px 20px 0;
 }
@@ -1182,6 +1336,13 @@
 .environment-preview th, .environment-preview td { text-align: left; padding: 6px; overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
+  .session-form-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .session-form-header { padding: 14px 14px 12px; }
+  .session-form-body { padding: 12px 14px; }
+  .session-form-footer { padding: 12px 14px; }
+  .session-form-section-content { padding-inline: 12px; }
+  .session-form-section.collapsible > .session-form-section-content { padding-top: 12px; }
+  .session-form-dialog .modal-grid.two { grid-template-columns: minmax(0, 1fr); }
   .modal-dialog.settings-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); }
   .settings-dialog-header { min-height: 60px; padding: 10px 12px 10px 16px; }
   .settings-dialog-header > div > span { display: none; }

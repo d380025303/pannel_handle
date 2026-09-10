@@ -10,6 +10,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("CreateSessionModal structure", () => {
+  it("uses an accessible dialog and keeps optional groups collapsed", () => {
+    render(
+      <I18nProvider locale="zh-CN">
+        <CreateSessionModal defaultWindowsShell="pwsh" wslDistros={[]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("dialog", { name: "新建会话" })).toBeTruthy();
+    expect(screen.getByText("配置终端、工作目录与 Agent")).toBeTruthy();
+    expect(screen.getByLabelText("会话名称")).toBeTruthy();
+    expect(screen.getByText("启动命令").closest("details")?.open).toBe(false);
+    expect(screen.getByText("环境变量", { selector: "summary span" }).closest("details")?.open).toBe(false);
+  });
+});
+
 describe("CreateSessionModal local SSH bridge", () => {
   it("selects and submits an optional local Agent working directory", async () => {
     const onCreate = vi.fn(async () => undefined);

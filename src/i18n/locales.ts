@@ -233,6 +233,26 @@ export type TranslationKey =
   | "sidebar.sshReconnectNow"
   | "session.newTitle"
   | "session.editTitle"
+  | "session.newSubtitle"
+  | "session.editSubtitle"
+  | "session.basicSection"
+  | "session.connectionSection"
+  | "session.startupSection"
+  | "session.environment"
+  | "session.environmentHint"
+  | "session.environmentProfile"
+  | "session.environmentProfileNone"
+  | "session.environmentPreview"
+  | "session.environmentVariable"
+  | "session.environmentValue"
+  | "session.environmentSource"
+  | "session.environmentEmptyValue"
+  | "session.environmentPrecedenceHint"
+  | "session.environmentLocalSshHint"
+  | "session.environmentRemoteSshHint"
+  | "session.configured"
+  | "session.notConfigured"
+  | "session.itemsConfigured"
   | "session.name"
   | "session.namePlaceholder"
   | "session.tags"
@@ -1146,6 +1166,26 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.sshReconnectNow": "立即重连 SSH",
     "session.newTitle": "新建会话",
     "session.editTitle": "编辑会话",
+    "session.newSubtitle": "配置终端、工作目录与 Agent",
+    "session.editSubtitle": "调整会话信息与启动配置",
+    "session.basicSection": "会话信息",
+    "session.connectionSection": "SSH 连接",
+    "session.startupSection": "启动命令",
+    "session.environment": "环境变量",
+    "session.environmentHint": "在设置中维护配置组；会话变量覆盖组内同名变量。下次启动生效。",
+    "session.environmentProfile": "配置组",
+    "session.environmentProfileNone": "不使用配置组",
+    "session.environmentPreview": "待注入配置（不含系统继承值）",
+    "session.environmentVariable": "变量",
+    "session.environmentValue": "值",
+    "session.environmentSource": "来源",
+    "session.environmentEmptyValue": "（空字符串）",
+    "session.environmentPrecedenceHint": "应用运行变量及模型服务注入的同名变量优先；Shell 启动脚本可继续修改环境。仅保存普通配置，不支持密钥。",
+    "session.environmentLocalSshHint": "变量将注入本地 Agent 进程。",
+    "session.environmentRemoteSshHint": "远端注入仅支持 Linux / Bash，不影响 SFTP 和独立后台命令。",
+    "session.configured": "已配置",
+    "session.notConfigured": "未配置",
+    "session.itemsConfigured": "已配置 {count} 项",
     "session.name": "会话名称",
     "session.namePlaceholder": "输入会话名称",
     "session.tags": "标签",
@@ -2051,6 +2091,26 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.sshReconnectNow": "Reconnect SSH now",
     "session.newTitle": "New Session",
     "session.editTitle": "Edit Session",
+    "session.newSubtitle": "Configure the terminal, working directory, and Agent",
+    "session.editSubtitle": "Update session details and launch settings",
+    "session.basicSection": "Session details",
+    "session.connectionSection": "SSH connection",
+    "session.startupSection": "Startup command",
+    "session.environment": "Environment variables",
+    "session.environmentHint": "Manage profiles in Settings. Session variables override values with the same name and apply on the next launch.",
+    "session.environmentProfile": "Profile",
+    "session.environmentProfileNone": "Do not use a profile",
+    "session.environmentPreview": "Variables to inject (excluding inherited system values)",
+    "session.environmentVariable": "Variable",
+    "session.environmentValue": "Value",
+    "session.environmentSource": "Source",
+    "session.environmentEmptyValue": "(empty string)",
+    "session.environmentPrecedenceHint": "App runtime and model service variables take precedence. Shell startup scripts can still modify the environment. Only plain configuration is stored; secrets are not supported.",
+    "session.environmentLocalSshHint": "Variables are injected into the local Agent process.",
+    "session.environmentRemoteSshHint": "Remote injection supports Linux and Bash only and does not affect SFTP or standalone background commands.",
+    "session.configured": "Configured",
+    "session.notConfigured": "Not configured",
+    "session.itemsConfigured": "{count} configured",
     "session.name": "Session name",
     "session.namePlaceholder": "Enter session name",
     "session.tags": "Tags",

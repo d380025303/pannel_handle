@@ -5,10 +5,11 @@ import { AGENT_PROVIDER_OPTIONS } from "./agentProviders";
 type AgentProviderSelectProps = {
   value?: AgentProvider;
   exclude?: AgentProvider[];
+  hideLabel?: boolean;
   onChange: (provider?: AgentProvider) => void;
 };
 
-export function AgentProviderSelect({ value, exclude = [], onChange }: AgentProviderSelectProps) {
+export function AgentProviderSelect({ value, exclude = [], hideLabel = false, onChange }: AgentProviderSelectProps) {
   const { t } = useI18n();
   const providers: Array<{ value?: AgentProvider; label: string }> = [
     { label: t("session.normalTerminal") },
@@ -16,7 +17,7 @@ export function AgentProviderSelect({ value, exclude = [], onChange }: AgentProv
   ];
   return (
     <fieldset className="modal-field agent-provider-field">
-      <legend className="modal-label">{t("session.agentCli")}</legend>
+      {!hideLabel && <legend className="modal-label">{t("session.agentCli")}</legend>}
       <div className="shell-list agent-provider-list">
         {providers.map((provider) => (
           <button
