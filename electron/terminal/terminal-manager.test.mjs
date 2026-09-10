@@ -13,6 +13,7 @@ const {
 function createMockTerm() {
   const dataHandlers = [];
   const exitHandlers = [];
+  const statusHandlers = [];
 
   return {
     writes: [],
@@ -39,8 +40,15 @@ function createMockTerm() {
     emitData(data) {
       for (const callback of [...dataHandlers]) callback(data);
     },
-    emitExit(exitCode) {
-      for (const callback of [...exitHandlers]) callback({ exitCode });
+    emitExit(exitCode, details = {}) {
+      for (const callback of [...exitHandlers]) callback({ exitCode, ...details });
+    },
+    onStatus(callback) {
+      statusHandlers.push(callback);
+      return { dispose() {} };
+    },
+    emitStatus(status) {
+      for (const callback of [...statusHandlers]) callback({ status });
     },
     write(data) {
       this.writes.push(data);
@@ -674,6 +682,101 @@ describe("terminal-manager", () => {
       message: "Exit code 7"
     }));
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("keeps an SSH instance in place and schedules reconnect after a transport failure", () => {
+    const scheduled = [];
+    const onSessionClosed = vi.fn();
+    const { manager, term, ssh2TerminalFactory } = createManager({
+      onSessionClosed,
+      sshReconnectDelaysMs: [2000, 5000],
+      setTimeoutFn: (callback, delay) => {
+        const timer = { callback, delay };
+        scheduled.push(timer);
+        return timer;
+      },
+      clearTimeoutFn: vi.fn()
+    });
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" } });
+
+    term.emitStatus("connected");
+    term.emitExit(1, { reason: "connection-error", retryable: true, message: "socket closed" });
+
+    expect(manager.listSessions()).toEqual([expect.objectContaining({
+      id: session.id,
+      sshConnectionState: "reconnecting",
+      sshReconnectAttempt: 1
+    })]);
+    expect(scheduled).toEqual([expect.objectContaining({ delay: 2000 })]);
+    expect(onSessionClosed).not.toHaveBeenCalled();
+
+    scheduled[0].callback();
+    expect(ssh2TerminalFactory).toHaveBeenCalledTimes(2);
+    expect(manager.listSessions()[0].id).toBe(session.id);
+    term.emitStatus("connected");
+    expect(manager.listSessions()[0]).toMatchObject({
+      id: session.id,
+      sshConnectionState: "connected",
+      sshReconnectAttempt: 0
+    });
+    expect(manager.getHistory(session.id)).toContain("SSH reconnected");
+  });
+
+  it("manually reconnects a retained SSH instance without changing its runtime id", () => {
+    const { manager, term, ssh2TerminalFactory } = createManager({
+      setTimeoutFn: () => ({ id: "timer" }),
+      clearTimeoutFn: vi.fn()
+    });
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" } });
+    term.emitExit(1, { reason: "connection-error", retryable: true });
+
+    const reconnected = manager.reconnectSession(session.id);
+
+    expect(reconnected).toMatchObject({ id: session.id, sshConnectionState: "reconnecting" });
+    expect(ssh2TerminalFactory).toHaveBeenCalledTimes(2);
+  });
+
+  it("still removes an SSH instance after a normal remote exit", () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" } });
+    term.emitStatus("connected");
+
+    term.emitExit(0, { reason: "remote-exit", retryable: false });
+
+    expect(manager.listSessions()).toEqual([]);
+    expect(manager.getSession(session.id)).toBeUndefined();
+  });
+
+  it("retains a previously connected SSH instance after a non-retryable connection failure", () => {
+    const { manager, term } = createManager();
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" } });
+    term.emitStatus("connected");
+
+    term.emitExit(1, { reason: "connection-error", retryable: false, message: "authentication failed" });
+
+    expect(manager.listSessions()).toEqual([expect.objectContaining({
+      id: session.id,
+      sshConnectionState: "disconnected"
+    })]);
+  });
+
+  it("cancels pending SSH reconnect when the retained instance is closed", () => {
+    const clearTimeoutFn = vi.fn();
+    const timer = { id: "retry" };
+    const onSessionClosed = vi.fn();
+    const { manager, term } = createManager({
+      onSessionClosed,
+      setTimeoutFn: () => timer,
+      clearTimeoutFn
+    });
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" } });
+    term.emitExit(1, { reason: "connection-error", retryable: true });
+
+    manager.closeSession(session.id);
+
+    expect(clearTimeoutFn).toHaveBeenCalledWith(timer);
+    expect(manager.listSessions()).toEqual([]);
+    expect(onSessionClosed).toHaveBeenCalledTimes(1);
   });
 
   it("detects Codex terminal permission prompts when no hook event is emitted", () => {

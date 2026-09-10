@@ -161,6 +161,15 @@ export function useTerminalSessions() {
     await window.terminalApi.closeSession(id);
   }, []);
 
+  const reconnectSession = useCallback(async (id: string) => {
+    setStartupError(null);
+    try {
+      await window.terminalApi.reconnectSession(id);
+    } catch (err: any) {
+      setStartupError(err?.message || String(err));
+    }
+  }, []);
+
   const dismissActiveAgentWarning = useCallback(() => {
     if (!activeAgentWarning) return;
     setDismissedAgentWarningsBySessionId((current) => ({
@@ -376,6 +385,7 @@ export function useTerminalSessions() {
     setPickerManual,
     createSession,
     closeSession,
+    reconnectSession,
     updateSession,
     switchAgent,
     switchCodexBackend,

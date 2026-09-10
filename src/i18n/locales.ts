@@ -169,6 +169,10 @@ export type TranslationKey =
   | "sidebar.editSession"
   | "sidebar.closeSession"
   | "sidebar.confirmClose"
+  | "sidebar.sshConnecting"
+  | "sidebar.sshReconnecting"
+  | "sidebar.sshDisconnected"
+  | "sidebar.sshReconnectNow"
   | "session.newTitle"
   | "session.editTitle"
   | "session.name"
@@ -1018,6 +1022,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.editSession": "编辑会话",
     "sidebar.closeSession": "关闭",
     "sidebar.confirmClose": "再次点击确认关闭",
+    "sidebar.sshConnecting": "SSH 连接中",
+    "sidebar.sshReconnecting": "SSH 重连中（第 {attempt} 次）",
+    "sidebar.sshDisconnected": "SSH 已断开",
+    "sidebar.sshReconnectNow": "立即重连 SSH",
     "session.newTitle": "新建会话",
     "session.editTitle": "编辑会话",
     "session.name": "会话名称",
@@ -1859,6 +1867,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "sidebar.editSession": "Edit session",
     "sidebar.closeSession": "Close",
     "sidebar.confirmClose": "Click again to confirm close",
+    "sidebar.sshConnecting": "Connecting to SSH",
+    "sidebar.sshReconnecting": "Reconnecting to SSH (attempt {attempt})",
+    "sidebar.sshDisconnected": "SSH disconnected",
+    "sidebar.sshReconnectNow": "Reconnect SSH now",
     "session.newTitle": "New Session",
     "session.editTitle": "Edit Session",
     "session.name": "Session name",

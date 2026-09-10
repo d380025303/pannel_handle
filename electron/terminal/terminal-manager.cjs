@@ -269,6 +269,9 @@ function createTerminalManager({
   knownHostStore,
   pty = nodePty,
   ssh2TerminalFactory = createSsh2Terminal,
+  sshReconnectDelaysMs = [2000, 5000, 10000, 30000],
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
   getDefaultShell: resolveDefaultShell = (preference) => getDefaultShell({ preference: preference || configStore?.getConfig().defaultWindowsShell })
 }) {
   const sessions = new Map();
@@ -335,6 +338,10 @@ function createTerminalManager({
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
+      ...(session.type === "ssh" ? {
+        sshConnectionState: session.sshConnectionState || "connecting",
+        sshReconnectAttempt: session.sshReconnectAttempt || 0
+      } : {}),
       quickCommands: session.quickCommands || [],
       tags: session.tags || []
     };
@@ -425,6 +432,57 @@ function createTerminalManager({
     });
   }
 
+  function appendTerminalData(session, data) {
+    session.buffer.push(data);
+    if (session.buffer.length > 1000) {
+      session.buffer.splice(0, session.buffer.length - 1000);
+    }
+    broadcast("terminal:data", { id: session.id, data });
+  }
+
+  function clearSshReconnectTimer(session) {
+    if (session.sshReconnectTimer) {
+      clearTimeoutFn(session.sshReconnectTimer);
+      session.sshReconnectTimer = undefined;
+    }
+  }
+
+  function setSshConnectionState(session, state, attempt = session.sshReconnectAttempt || 0) {
+    session.sshConnectionState = state;
+    session.sshReconnectAttempt = attempt;
+    broadcast("sessions:changed", listSessions());
+  }
+
+  function removeRuntimeSession(session) {
+    clearSshReconnectTimer(session);
+    sessions.delete(session.id);
+    const orderIndex = sessionOrder.indexOf(session.id);
+    if (orderIndex >= 0) sessionOrder.splice(orderIndex, 1);
+    if (typeof onSessionClosed === "function") onSessionClosed(session.id);
+    broadcast("sessions:changed", listSessions());
+    syncLastActiveIds();
+  }
+
+  function scheduleSshReconnect(session) {
+    if (!sessions.has(session.id) || session.closing) return;
+    clearSshReconnectTimer(session);
+    const attempt = (session.sshReconnectAttempt || 0) + 1;
+    const delayIndex = Math.min(attempt - 1, sshReconnectDelaysMs.length - 1);
+    const delay = Math.max(0, Number(sshReconnectDelaysMs[delayIndex] ?? 30000));
+    setSshConnectionState(session, "reconnecting", attempt);
+    appendTerminalData(session, `\r\n[SSH disconnected. Reconnecting in ${Math.ceil(delay / 1000)}s (attempt ${attempt})...]\r\n`);
+    session.sshReconnectTimer = setTimeoutFn(() => {
+      session.sshReconnectTimer = undefined;
+      if (!sessions.has(session.id) || session.closing) return;
+      try {
+        spawnSsh2(session, { cols: session.cols, rows: session.rows, reconnecting: true });
+      } catch (err) {
+        setSshConnectionState(session, "disconnected", attempt);
+        appendTerminalData(session, `\r\n[SSH reconnect failed: ${err instanceof Error ? err.message : String(err)}]\r\n`);
+      }
+    }, delay);
+  }
+
   function consumeAgentExitMarker(session, data) {
     let text = "";
     let candidate = session.agentMarkerRemainder || "";
@@ -483,7 +541,7 @@ function createTerminalManager({
     }
 
     session.term = term;
-    session.buffer = [];
+    if (!Array.isArray(session.buffer)) session.buffer = [];
     session.cols = Math.max(2, Math.floor(Number(options.cols || term.cols || 100)));
     session.rows = Math.max(1, Math.floor(Number(options.rows || term.rows || 30)));
     session.sshSecret = session.terminalTransport === "ssh" ? getSshSecret(session) : undefined;
@@ -493,20 +551,48 @@ function createTerminalManager({
     session.agentMarkerAtLineStart = true;
     broadcast("terminal:started", { id: session.id, cols: session.cols, rows: session.rows });
 
+    if (!Number.isInteger(session.terminalGeneration)) session.terminalGeneration = 0;
+    const terminalGeneration = session.terminalGeneration;
     term.onData((data) => {
+      if (!sessions.has(session.id) || session.terminalGeneration !== terminalGeneration) return;
       const visibleData = consumeAgentExitMarker(session, data);
       if (!visibleData) return;
-      session.buffer.push(visibleData);
-      if (session.buffer.length > 1000) {
-        session.buffer.splice(0, session.buffer.length - 1000);
-      }
+      appendTerminalData(session, visibleData);
       maybeAutofillTerminalSecretPrompt(session);
       maybeDetectCodexPermissionPrompt(session);
-      broadcast("terminal:data", { id: session.id, data: visibleData });
     });
 
-    term.onExit(({ exitCode }) => {
-      if (!sessions.has(session.id)) return;
+    if (typeof term.onStatus === "function") {
+      term.onStatus(({ status }) => {
+        if (!sessions.has(session.id) || session.terminalGeneration !== terminalGeneration || session.closing) return;
+        if (status === "connected") {
+          const wasReconnecting = session.sshConnectionState === "reconnecting" || session.sshReconnectAttempt > 0;
+          session.sshEverConnected = true;
+          clearSshReconnectTimer(session);
+          setSshConnectionState(session, "connected", 0);
+          if (wasReconnecting) appendTerminalData(session, "\r\n[SSH reconnected.]\r\n");
+        }
+      });
+    }
+
+    term.onExit(({ exitCode, reason, retryable, message }) => {
+      if (!sessions.has(session.id) || session.terminalGeneration !== terminalGeneration || session.closing) return;
+      session.term = undefined;
+      if (session.type === "ssh" && retryable === true) {
+        broadcastAgentStatus({
+          id: session.id,
+          status: "exited",
+          eventName: "SshExit",
+          message: message || `Exit code ${exitCode}`
+        });
+        scheduleSshReconnect(session);
+        return;
+      }
+      if (session.type === "ssh" && session.sshEverConnected && reason !== "remote-exit" && reason !== "killed") {
+        setSshConnectionState(session, "disconnected");
+        appendTerminalData(session, `\r\n[SSH disconnected${message ? `: ${message}` : "."}]\r\n`);
+        return;
+      }
       broadcast("terminal:exit", { id: session.id, exitCode });
       broadcastAgentStatus({
         id: session.id,
@@ -514,12 +600,7 @@ function createTerminalManager({
         eventName: session.terminalTransport === "ssh" ? "SshExit" : "PtyExit",
         message: `Exit code ${exitCode}`
       });
-      sessions.delete(session.id);
-      sessionOrder.splice(sessionOrder.indexOf(session.id), 1);
-      if (typeof onSessionClosed === "function") {
-        onSessionClosed(session.id);
-      }
-      broadcast("sessions:changed", listSessions());
+      removeRuntimeSession(session);
     });
 
     const initialCommand = getInitialCommand(session, options);
@@ -529,7 +610,7 @@ function createTerminalManager({
         const disposable = term.onData(() => {
           disposable.dispose();
           const activeSession = sessions.get(session.id);
-          if (activeSession) activeSession.term.write(cmd + "\r");
+          if (activeSession && activeSession.terminalGeneration === terminalGeneration) activeSession.term?.write(cmd + "\r");
         });
       }
     }
@@ -537,6 +618,9 @@ function createTerminalManager({
 
   function spawnSsh2(session, options = {}) {
     session.terminalTransport = "ssh";
+    clearSshReconnectTimer(session);
+    session.terminalGeneration = (session.terminalGeneration || 0) + 1;
+    session.sshConnectionState = options.reconnecting ? "reconnecting" : "connecting";
     validateSsh2Config(session.sshConfig);
     const environment = environmentService?.resolve(session) || {};
     if (Object.keys(environment).length && session.sshConfig?.remotePlatform === "windows") {
@@ -647,6 +731,7 @@ function createTerminalManager({
       templateId,
       title: getRuntimeTitle(template, Boolean(templateId)),
       agentRuntimeProvider: template.agentProvider,
+      ...(template.type === "ssh" ? { sshConnectionState: "connecting", sshReconnectAttempt: 0 } : {}),
       createdAt: Date.now()
     };
 
@@ -925,21 +1010,34 @@ function createTerminalManager({
   function closeSession(id) {
     const session = sessions.get(id);
     if (session) {
+      session.closing = true;
+      clearSshReconnectTimer(session);
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
-      sessions.delete(id);
-      const orderIndex = sessionOrder.indexOf(id);
-      if (orderIndex >= 0) {
-        sessionOrder.splice(orderIndex, 1);
-      }
-      if (typeof onSessionClosed === "function") {
-        onSessionClosed(id);
-      }
-      broadcast("sessions:changed", listSessions());
-      syncLastActiveIds();
+      removeRuntimeSession(session);
     }
     return listSessions();
+  }
+
+  function reconnectSession(id) {
+    const session = sessions.get(id);
+    if (!session || session.type !== "ssh") throw new Error("SSH session is not running.");
+    clearSshReconnectTimer(session);
+    session.terminalGeneration = (session.terminalGeneration || 0) + 1;
+    if (typeof session.term?.kill === "function") session.term.kill();
+    session.term = undefined;
+    session.closing = false;
+    session.sshReconnectAttempt = 0;
+    appendTerminalData(session, "\r\n[Retrying SSH connection now...]\r\n");
+    try {
+      spawnSsh2(session, { cols: session.cols, rows: session.rows, reconnecting: true });
+    } catch (err) {
+      setSshConnectionState(session, "disconnected", 0);
+      throw err;
+    }
+    broadcast("sessions:changed", listSessions());
+    return serializeSession(session);
   }
 
   function getHistory(id) {
@@ -972,6 +1070,9 @@ function createTerminalManager({
 
   function write(id, data) {
     const session = sessions.get(id);
+    if (session?.type === "ssh" && (session.sshConnectionState === "reconnecting" || session.sshConnectionState === "disconnected")) {
+      return;
+    }
     if (typeof session?.term?.write === "function") {
       trackCodexTerminalCommand(session, data);
       session.term.write(data);
@@ -1016,6 +1117,8 @@ function createTerminalManager({
 
   function shutdown() {
     for (const session of sessions.values()) {
+      session.closing = true;
+      clearSshReconnectTimer(session);
       if (typeof session.term?.kill === "function") {
         session.term.kill();
       }
@@ -1035,6 +1138,7 @@ function createTerminalManager({
     renameSession,
     updateSession,
     closeSession,
+    reconnectSession,
     listSessions,
     getHistory,
     write,

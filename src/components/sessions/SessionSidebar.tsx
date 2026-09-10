@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, GripVertical, Pencil, Search, Webhook, X } from "lucide-react";
+import { Copy, GripVertical, Pencil, RefreshCw, Search, Webhook, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
@@ -14,6 +14,7 @@ type SessionSidebarProps = {
   onEditSession: (session: TerminalSession) => void;
   onDuplicateSession: (id: string) => Promise<void>;
   onInstallHooks: (session: TerminalSession) => void;
+  onReconnectSession: (id: string) => Promise<void>;
   onCloseSession: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
 };
@@ -33,6 +34,7 @@ export function SessionSidebar({
   onEditSession,
   onDuplicateSession,
   onInstallHooks,
+  onReconnectSession,
   onCloseSession,
   onReorder
 }: SessionSidebarProps) {
@@ -41,7 +43,9 @@ export function SessionSidebar({
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [duplicatingIds, setDuplicatingIds] = useState<Set<string>>(() => new Set());
+  const [reconnectingIds, setReconnectingIds] = useState<Set<string>>(() => new Set());
   const duplicatingIdsRef = useRef(new Set<string>());
+  const reconnectingIdsRef = useRef(new Set<string>());
 
   const isFiltering = searchQuery.trim().length > 0;
 
@@ -133,6 +137,22 @@ export function SessionSidebar({
     }
   };
 
+  const handleReconnectSession = async (sessionId: string) => {
+    if (reconnectingIdsRef.current.has(sessionId)) return;
+    reconnectingIdsRef.current.add(sessionId);
+    setReconnectingIds((current) => new Set(current).add(sessionId));
+    try {
+      await onReconnectSession(sessionId);
+    } finally {
+      reconnectingIdsRef.current.delete(sessionId);
+      setReconnectingIds((current) => {
+        const next = new Set(current);
+        next.delete(sessionId);
+        return next;
+      });
+    }
+  };
+
   return (
     <aside className="session-sidebar">
       <div className="sidebar-search">
@@ -159,6 +179,15 @@ export function SessionSidebar({
             const agentStatus = agentStatusesBySessionId[session.id];
             const agentStatusLabel = getAgentStatusLabel(agentStatus, t);
             const agentSummary = agentStatus?.activitySummary?.trim();
+            const sshStatusLabel = session.sshConnectionState === "connecting"
+              ? t("sidebar.sshConnecting")
+              : session.sshConnectionState === "reconnecting"
+                ? t("sidebar.sshReconnecting", { attempt: session.sshReconnectAttempt || 1 })
+                : session.sshConnectionState === "disconnected"
+                  ? t("sidebar.sshDisconnected")
+                  : null;
+            const canReconnect = session.type === "ssh"
+              && (session.sshConnectionState === "reconnecting" || session.sshConnectionState === "disconnected");
             return (
               <button
                 className={`session-item ${session.id === activeId ? "active" : ""} ${dragOverId === session.id ? "drag-over" : ""}`}
@@ -190,6 +219,11 @@ export function SessionSidebar({
                       ID {session.id}{session.templateId ? ` / Template ${session.templateId}` : ""}
                     </span>
                   )}
+                  {sshStatusLabel && (
+                    <span className={`ssh-connection-badge ${session.sshConnectionState}`}>
+                      {sshStatusLabel}
+                    </span>
+                  )}
                   {agentStatusLabel && (
                     <span className={`agent-status-badge ${getAgentStatusClass(agentStatus)}`}>
                       {agentStatusLabel}
@@ -202,6 +236,19 @@ export function SessionSidebar({
                   )}
                 </span>
                 <span className="session-actions">
+                  {canReconnect && (
+                    <span
+                      className={`mini-action${reconnectingIds.has(session.id) ? " loading" : ""}`}
+                      title={reconnectingIds.has(session.id) ? t("sidebar.sshConnecting") : t("sidebar.sshReconnectNow")}
+                      aria-disabled={reconnectingIds.has(session.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleReconnectSession(session.id);
+                      }}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                    </span>
+                  )}
                   <span
                     className={`mini-action${duplicatingIds.has(session.id) ? " loading" : ""}`}
                     title={duplicatingIds.has(session.id) ? t("sidebar.duplicatingSession") : t("sidebar.duplicateSession")}

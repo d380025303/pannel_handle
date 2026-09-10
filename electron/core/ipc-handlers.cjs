@@ -163,6 +163,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     return sessions;
   });
 
+  ipcMain.handle("sessions:reconnect", (_event, id) => {
+    return terminalManager.reconnectSession(String(id || ""));
+  });
+
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
 
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));

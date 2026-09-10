@@ -43,7 +43,9 @@ describe("ssh2 terminal", () => {
       clientFactory: () => client
     });
     const data = [];
+    const statuses = [];
     term.onData((chunk) => data.push(chunk));
+    term.onStatus(({ status }) => statuses.push(status));
     term.write("queued");
 
     client.emit("ready");
@@ -58,6 +60,7 @@ describe("ssh2 terminal", () => {
       rows: 40
     }, expect.any(Function));
     expect(data).toEqual(["ready"]);
+    expect(statuses).toEqual(["connected"]);
     expect(stream.writes).toEqual(["queued", "typed"]);
     expect(stream.windows).toEqual([[30, 100, 0, 0]]);
   });
@@ -95,8 +98,28 @@ describe("ssh2 terminal", () => {
     stream.emit("close");
     client.emit("close");
 
-    expect(exits).toEqual([{ exitCode: 7 }]);
+    expect(exits).toEqual([{ exitCode: 7, reason: "remote-exit", retryable: false }]);
     expect(client.end).toHaveBeenCalled();
+  });
+
+  it("marks socket failures as retryable transport exits", () => {
+    const { client } = createFakeClient();
+    const term = createSsh2Terminal({
+      connectionConfig: { host: "example.com" },
+      clientFactory: () => client
+    });
+    const exits = [];
+    term.onExit((event) => exits.push(event));
+    const error = Object.assign(new Error("read ECONNRESET"), { level: "client-socket" });
+
+    client.emit("error", error);
+
+    expect(exits).toEqual([{
+      exitCode: 1,
+      reason: "connection-error",
+      retryable: true,
+      message: "read ECONNRESET"
+    }]);
   });
 });
 

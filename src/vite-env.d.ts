@@ -53,6 +53,8 @@ export type TerminalSession = EnvironmentSelection & {
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
+  sshConnectionState?: "connecting" | "connected" | "reconnecting" | "disconnected";
+  sshReconnectAttempt?: number;
   quickCommands?: QuickCommand[];
   tags?: string[];
   readonly recentLaunchCount?: number;
@@ -932,6 +934,7 @@ export type TerminalApi = {
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
+  reconnectSession: (id: string) => Promise<TerminalSession>;
   getHistory: (id: string) => Promise<string>;
   write: (id: string, data: string) => void;
   resize: (id: string, cols: number, rows: number) => void;

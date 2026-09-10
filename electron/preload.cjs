@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   switchAgent: (id, provider) => ipcRenderer.invoke("sessions:switch-agent", { id, provider }),
   switchCodexBackend: (id, backend) => ipcRenderer.invoke("sessions:switch-codex-backend", { id, backend }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
+  reconnectSession: (id) => ipcRenderer.invoke("sessions:reconnect", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
   write: (id, data) => ipcRenderer.send("terminal:write", { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send("terminal:resize", { id, cols, rows }),

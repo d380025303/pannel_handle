@@ -596,6 +596,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onEditSession={setEditDialogSession}
             onDuplicateSession={terminalSessions.duplicateRunningSession}
             onInstallHooks={setHookInstallSession}
+            onReconnectSession={terminalSessions.reconnectSession}
             onCloseSession={handleCloseSession}
             onReorder={terminalSessions.reorderRunningSessions}
           />

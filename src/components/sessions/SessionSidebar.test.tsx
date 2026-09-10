@@ -31,6 +31,7 @@ function renderSidebar(agentStatus?: AgentStatusPayload) {
         onEditSession={noop}
         onDuplicateSession={async () => undefined}
         onInstallHooks={noop}
+        onReconnectSession={async () => undefined}
         onCloseSession={noop}
         onReorder={noop}
       />
@@ -103,6 +104,7 @@ describe("SessionSidebar Agent summary", () => {
           onEditSession={noop}
           onDuplicateSession={onDuplicateSession}
           onInstallHooks={noop}
+          onReconnectSession={async () => undefined}
           onCloseSession={noop}
           onReorder={noop}
         />
@@ -118,5 +120,37 @@ describe("SessionSidebar Agent summary", () => {
     expect(onSelectSession).not.toHaveBeenCalled();
     finishDuplicate();
     await waitFor(() => expect(screen.getByTitle("复制并在后台启动新会话")).toBeTruthy());
+  });
+
+  it("shows SSH reconnect state and retries immediately", async () => {
+    const onReconnectSession = vi.fn(async () => undefined);
+    const noop = () => undefined;
+    render(
+      <I18nProvider locale="zh-CN">
+        <SessionSidebar
+          sessions={[{
+            ...session,
+            type: "ssh",
+            shell: "ssh2",
+            sshConfig: { host: "example.com" },
+            sshConnectionState: "reconnecting",
+            sshReconnectAttempt: 2
+          }]}
+          activeId={session.id}
+          agentStatusesBySessionId={{}}
+          onSelectSession={noop}
+          onEditSession={noop}
+          onDuplicateSession={async () => undefined}
+          onInstallHooks={noop}
+          onReconnectSession={onReconnectSession}
+          onCloseSession={noop}
+          onReorder={noop}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByText("SSH 重连中（第 2 次）")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("立即重连 SSH"));
+    await waitFor(() => expect(onReconnectSession).toHaveBeenCalledWith(session.id));
   });
 });
