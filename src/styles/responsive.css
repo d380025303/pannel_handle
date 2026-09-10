@@ -46,16 +46,4 @@
   .terminal-composer-entry-path {
     display: none;
   }
-
-  .remote-system-status {
-    gap: 8px;
-  }
-
-  .remote-system-detail {
-    display: none;
-  }
-
-  .remote-system-metric + .remote-system-metric {
-    padding-left: 8px;
-  }
 }

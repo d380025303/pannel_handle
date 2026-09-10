@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteSystemMetrics } from "../../vite-env";
+import { I18nProvider } from "../../i18n";
 import { RemoteSystemStatus } from "./RemoteSystemStatus";
+import { RemoteSystemPanel } from "./RemoteSystemPanel";
 
 const metrics: RemoteSystemMetrics = {
   sampledAt: 1,
@@ -41,67 +43,67 @@ const metrics: RemoteSystemMetrics = {
 afterEach(cleanup);
 
 describe("RemoteSystemStatus", () => {
-  it("opens all disks and selects a different mount point", async () => {
+  it("keeps only an accessible monitor entry and opens on click", () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(<RemoteSystemStatus state={{ status: "ready", metrics }} active={false} onOpen={onOpen} />);
+    const button = screen.getByRole("button", { name: "SSH 服务器指标" });
+    expect(button.textContent).toBe("");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledOnce();
+    rerender(<RemoteSystemStatus state={{ status: "error" }} active onOpen={onOpen} />);
+    expect(screen.getByRole("button", { name: "服务器监控不可用" }).getAttribute("aria-pressed")).toBe("true");
+    rerender(<RemoteSystemStatus state={{ status: "loading" }} active={false} onOpen={onOpen} />);
+    expect(screen.getByRole("button", { name: "正在读取服务器状态..." })).not.toBeNull();
+    rerender(<RemoteSystemStatus state={{ status: "hidden" }} active={false} onOpen={onOpen} />);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+describe("RemoteSystemPanel", () => {
+  it("shows all metrics and selects a different mount point", () => {
     const onSelectDisk = vi.fn();
-    const { rerender } = render(
-      <RemoteSystemStatus
-        state={{ status: "ready", metrics }}
-        onSelectDisk={onSelectDisk}
-      />
-    );
-
-    const trigger = screen.getByRole("button", { name: /当前为 \/data/ });
-    expect(screen.getByTitle("CPU：当前利用率 42%").textContent).toContain("CPU 42%");
-    expect(trigger.textContent).toContain("/data 80% · I/O 12%");
-    expect(trigger.title).toContain("读 3.00 MB/s，写 512 KB/s");
-    fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: "全部磁盘目录" })).not.toBeNull();
+    const props = { state: { status: "ready" as const, metrics }, sessionTitle: "SSH demo", onSelectDisk };
+    const { rerender } = render(<RemoteSystemPanel {...props} />);
+    expect(screen.getByText("SSH demo")).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "CPU" }).getAttribute("value")).toBe("42.4");
+    expect(screen.getByText("↓ 1.00 KB/s")).not.toBeNull();
+    expect(screen.getByText("↑ 2.00 KB/s")).not.toBeNull();
+    expect(screen.getByText("3.00 MB/s")).not.toBeNull();
+    const select = screen.getByRole("combobox", { name: /当前为 \/data/ });
     expect(screen.getAllByRole("option")).toHaveLength(2);
-    expect(screen.getByRole("option", { name: /\/dev\/sdb1/ }).textContent).toContain("I/O 忙碌 12%");
-
-    fireEvent.click(screen.getByRole("option", { name: /\/dev\/sda1/ }));
+    fireEvent.change(select, { target: { value: "/" } });
     expect(onSelectDisk).toHaveBeenCalledWith("/");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-
-    rerender(
-      <RemoteSystemStatus
-        state={{ status: "ready", metrics }}
-        preferredDiskMountPoint="/"
-        onSelectDisk={onSelectDisk}
-      />
-    );
-    expect(screen.getByRole("button", { name: /当前为 \/$/ }).textContent).toContain("/ 70% · I/O --");
+    rerender(<RemoteSystemPanel {...props} preferredDiskMountPoint="/" />);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("/");
+    expect(within(screen.getByRole("region", { name: "磁盘" })).getAllByText("--")).toHaveLength(3);
   });
 
-  it("falls back to the highest-use disk while retaining an unavailable preference", () => {
-    render(
-      <RemoteSystemStatus
-        state={{ status: "ready", metrics }}
-        preferredDiskMountPoint="/offline"
-        onSelectDisk={() => undefined}
-      />
-    );
-    expect(screen.getByRole("button", { name: /当前为 \/data/ }).textContent).toContain("/data 80%");
+  it("falls back to the first disk without overwriting a missing preference", () => {
+    const onSelectDisk = vi.fn();
+    render(<RemoteSystemPanel state={{ status: "ready", metrics }} sessionTitle="SSH" preferredDiskMountPoint="/offline" onSelectDisk={onSelectDisk} />);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("/data");
+    expect(onSelectDisk).not.toHaveBeenCalled();
   });
 
-  it("closes the disk list on Escape and hides it when metrics become empty", async () => {
-    const { rerender } = render(
-      <RemoteSystemStatus state={{ status: "ready", metrics }} onSelectDisk={() => undefined} />
-    );
-    const trigger = screen.getByRole("button", { name: /当前为 \/data/ });
-    fireEvent.click(trigger);
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(trigger);
+  it("handles missing metrics without displaying fabricated zero usage", () => {
+    const unknown = { ...metrics, disks: [], cpu: { usedPercent: null }, memory: { usedBytes: 0, totalBytes: 0 }, network: { receivedBytesPerSecond: null, transmittedBytesPerSecond: null } };
+    render(<RemoteSystemPanel state={{ status: "ready", metrics: unknown }} sessionTitle="SSH" onSelectDisk={vi.fn()} />);
+    expect((screen.getByRole("combobox", { name: "未找到磁盘指标" }) as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getByText("↓ --")).not.toBeNull();
+    expect(screen.getByText("↑ --")).not.toBeNull();
+  });
 
-    fireEvent.click(trigger);
-    rerender(
-      <RemoteSystemStatus
-        state={{ status: "ready", metrics: { ...metrics, disks: [] } }}
-        onSelectDisk={() => undefined}
-      />
-    );
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect((screen.getByRole("button", { name: "未找到磁盘指标" }) as HTMLButtonElement).disabled).toBe(true);
+  it("clears old values in loading and error states and supports English", () => {
+    const props = { sessionTitle: "SSH", onSelectDisk: vi.fn() };
+    const { rerender } = render(<RemoteSystemPanel {...props} state={{ status: "ready", metrics }} />);
+    rerender(<RemoteSystemPanel {...props} state={{ status: "loading" }} />);
+    expect(screen.getByRole("status").textContent).toBe("正在读取服务器状态...");
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    rerender(<I18nProvider locale="en-US"><RemoteSystemPanel {...props} state={{ status: "error" }} /></I18nProvider>);
+    expect(screen.getByRole("status").textContent).toBe("Server monitoring is unavailable");
+    rerender(<RemoteSystemPanel {...props} state={{ status: "hidden" }} />);
+    expect(screen.queryByRole("region")).toBeNull();
   });
 });

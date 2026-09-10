@@ -24,6 +24,7 @@ import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
 import { FileTransferPanel } from "./components/remote/FileTransferPanel";
 import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
+import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
 import { SkillsManager } from "./components/skills/SkillsManager";
 import { McpManager } from "./components/mcp/McpManager";
@@ -43,7 +44,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "conversation" | "idea" | "debug";
+type RightTool = "files" | "git" | "monitor" | "conversation" | "idea" | "debug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -486,9 +487,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   useEffect(() => {
     if (!terminalSessions.activeSession) {
-      if (rightTool === "files" || rightTool === "git") {
+      if (rightTool === "files" || rightTool === "git" || rightTool === "monitor") {
         setRightTool(debugMode ? "debug" : "idea");
       }
+      return;
+    }
+    if (rightTool === "monitor" && terminalSessions.activeSession.type !== "ssh") {
+      setRightTool("files");
       return;
     }
     if (!debugMode && rightTool === "debug") {
@@ -498,14 +503,22 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [debugMode, rightTool, terminalSessions.activeSession]);
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
+  const showMonitorPanel = terminalSessions.activeSession?.type === "ssh";
   const showRightTools = true;
   const activeRightTool: RightTool = rightTool === "idea" || rightTool === "conversation"
     ? rightTool
+    : rightTool === "monitor"
+    ? showMonitorPanel ? "monitor" : showFilesPanel ? "files" : debugMode ? "debug" : "idea"
     : showFilesPanel && (rightTool === "files" || rightTool === "git")
     ? rightTool
     : debugMode
       ? "debug"
       : "idea";
+
+  useEffect(() => {
+    const tab = document.querySelector<HTMLElement>(".right-tool-tabs [aria-selected='true']");
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeRightTool, showMonitorPanel, debugMode, liveRightToolsWidth, locale]);
   const appShellColumns = debugMode
     ? `${sidebarWidth}px 1px minmax(0, 1fr) 1px ${liveRightToolsWidth}px`
     : showRightTools
@@ -689,8 +702,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       />
                       <RemoteSystemStatus
                         state={remoteSystemMetrics}
-                        preferredDiskMountPoint={terminalSessions.activeSession?.preferredDiskMountPoint}
-                        onSelectDisk={(mountPoint) => { void terminalSessions.setActivePreferredDiskMountPoint(mountPoint); }}
+                        active={activeRightTool === "monitor"}
+                        onOpen={() => handleRightToolChange("monitor")}
                       />
                     </div>
                   </footer>
@@ -754,6 +767,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       </button>
                     </>
                   )}
+                  {showMonitorPanel && (
+                    <button
+                      className={activeRightTool === "monitor" ? "active" : ""}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeRightTool === "monitor"}
+                      onClick={() => handleRightToolChange("monitor")}
+                    >
+                      {t("tabs.monitor")}
+                    </button>
+                  )}
                   <button
                     className={activeRightTool === "conversation" ? "active" : ""}
                     type="button"
@@ -811,6 +835,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 <GitStatusPanel
                   session={terminalSessions.activeSession}
                   onSummaryChange={handleGitSummaryChange}
+                />
+              ) : activeRightTool === "monitor" && showMonitorPanel ? (
+                <RemoteSystemPanel
+                  state={remoteSystemMetrics}
+                  sessionTitle={terminalSessions.activeSession!.title}
+                  preferredDiskMountPoint={terminalSessions.activeSession?.preferredDiskMountPoint}
+                  onSelectDisk={(mountPoint) => { void terminalSessions.setActivePreferredDiskMountPoint(mountPoint); }}
                 />
               ) : activeRightTool === "conversation" ? (
                 <AgentConversationPanel snapshot={agentConversation.snapshot} session={terminalSessions.activeSession} />

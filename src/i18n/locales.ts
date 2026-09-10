@@ -636,6 +636,16 @@ export type TranslationKey =
   | "files.discardAndExit"
   | "files.saveAllAndExit"
   | "files.closeSshTransfers"
+  | "tabs.monitor"
+  | "system.sampledAt"
+  | "system.memory"
+  | "system.network"
+  | "system.disk"
+  | "system.download"
+  | "system.upload"
+  | "system.ioBusy"
+  | "system.read"
+  | "system.write"
   | "system.loading"
   | "system.unavailable"
   | "system.metrics"
@@ -1473,6 +1483,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.discardAndExit": "放弃并退出",
     "files.saveAllAndExit": "全部保存并退出",
     "files.closeSshTransfers": "该 SSH 会话仍有文件传输。确定取消这些任务并关闭会话吗？",
+    "tabs.monitor": "监控",
+    "system.sampledAt": "采样时间：{time}",
+    "system.memory": "内存",
+    "system.network": "网络",
+    "system.disk": "磁盘",
+    "system.download": "下载",
+    "system.upload": "上传",
+    "system.ioBusy": "I/O 忙碌",
+    "system.read": "读取",
+    "system.write": "写入",
     "system.loading": "正在读取服务器状态...",
     "system.unavailable": "服务器监控不可用",
     "system.metrics": "SSH 服务器指标",
@@ -2302,6 +2322,16 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.discardAndExit": "Discard and exit",
     "files.saveAllAndExit": "Save all and exit",
     "files.closeSshTransfers": "This SSH session still has file transfers. Cancel them and close the session?",
+    "tabs.monitor": "Monitor",
+    "system.sampledAt": "Sampled at {time}",
+    "system.memory": "Memory",
+    "system.network": "Network",
+    "system.disk": "Disk",
+    "system.download": "Download",
+    "system.upload": "Upload",
+    "system.ioBusy": "I/O busy",
+    "system.read": "Read",
+    "system.write": "Write",
     "system.loading": "Reading server status...",
     "system.unavailable": "Server monitoring is unavailable",
     "system.metrics": "SSH server metrics",
