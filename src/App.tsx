@@ -37,6 +37,7 @@ import { useRightToolsResize } from "./hooks/useRightToolsResize";
 import { useSidebarResize } from "./hooks/useSidebarResize";
 import { useTerminalInstances } from "./hooks/useTerminalInstances";
 import { useTerminalSessions } from "./hooks/useTerminalSessions";
+import { resolveRightTool, useSessionRightTool, type RightTool } from "./hooks/useSessionRightTool";
 import { useWindowState } from "./hooks/useWindowState";
 import { useInputRecovery } from "./hooks/inputRecovery";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
@@ -45,7 +46,6 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type RightTool = "files" | "git" | "monitor" | "conversation" | "idea" | "debug";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -106,7 +106,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
   const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
-  const [rightTool, setRightTool] = useState<RightTool>("files");
   const [savedSidebarWidth, setSavedSidebarWidth] = useState(290);
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
@@ -148,6 +147,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     }
   );
   const terminalSessions = useTerminalSessions();
+  const { rightTool, setRightTool } = useSessionRightTool(
+    terminalSessions.activeId,
+    terminalSessions.sessions.map((session) => session.id)
+  );
   const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
   const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession);
@@ -509,15 +512,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showMonitorPanel = terminalSessions.activeSession?.type === "ssh";
   const showRightTools = true;
-  const activeRightTool: RightTool = rightTool === "idea" || rightTool === "conversation"
-    ? rightTool
-    : rightTool === "monitor"
-    ? showMonitorPanel ? "monitor" : showFilesPanel ? "files" : debugMode ? "debug" : "idea"
-    : showFilesPanel && (rightTool === "files" || rightTool === "git")
-    ? rightTool
-    : debugMode
-      ? "debug"
-      : "idea";
+  const activeRightTool: RightTool = resolveRightTool(rightTool, {
+    hasSession: showFilesPanel,
+    showMonitor: showMonitorPanel,
+    debugMode
+  });
 
   useEffect(() => {
     const tab = document.querySelector<HTMLElement>(".right-tool-tabs [aria-selected='true']");
