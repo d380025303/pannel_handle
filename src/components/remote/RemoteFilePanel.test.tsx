@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteFilePanel } from "./RemoteFilePanel";
 import type { ClipboardApi, RemoteFileApi, RemoteFileEntry, TerminalSession } from "../../vite-env";
@@ -412,6 +412,86 @@ describe("RemoteFilePanel directory navigation", () => {
     await screen.findByTitle(`${childPath}\\01_SCHEMA`);
 
     expect(remoteFileApi.list).not.toHaveBeenCalledWith(session.id, `${childPath}\\01_SCHEMA`);
+  });
+
+  it.each(["file", "directory"] as const)("removes a deleted %s while refresh is pending and keeps it removed if refresh fails", async (type) => {
+    const api = createRemoteFileApi();
+    const target = { ...directory("patches", childPath), type };
+    let rejectRefresh!: (error: Error) => void;
+    api.list = vi.fn().mockResolvedValueOnce([target]).mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectRefresh = reject;
+    }));
+    api.deleteEntry = vi.fn().mockResolvedValue({ mode: "trash" });
+    window.remoteFileApi = api;
+    render(<RemoteFilePanel session={{ id: "delete-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" }} />);
+    fireEvent.contextMenu((await screen.findByTitle(childPath)).closest("button")!);
+    fireEvent.click(screen.getByRole("menu").querySelector(".lucide-trash-2")!.closest("button")!);
+    fireEvent.click(screen.getByRole("dialog", { name: "删除" }).querySelector<HTMLButtonElement>("button.danger")!);
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTitle(childPath)).toBeNull();
+    await act(async () => rejectRefresh(new Error("refresh failed")));
+    expect(screen.queryByTitle(childPath)).toBeNull();
+    expect(screen.getAllByText("refresh failed").length).toBeGreaterThan(0);
+  });
+
+  it("keeps an entry when deletion fails", async () => {
+    const api = createRemoteFileApi();
+    api.deleteEntry = vi.fn().mockRejectedValue(new Error("delete failed"));
+    window.remoteFileApi = api;
+    render(<RemoteFilePanel session={{ id: "delete-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" }} />);
+    fireEvent.contextMenu((await screen.findByTitle(childPath)).closest("button")!);
+    fireEvent.click(screen.getByRole("menu").querySelector(".lucide-trash-2")!.closest("button")!);
+    fireEvent.click(screen.getByRole("dialog", { name: "删除" }).querySelector<HTMLButtonElement>("button.danger")!);
+    await screen.findByText("delete failed");
+    expect(screen.getByTitle(childPath)).toBeTruthy();
+    expect(api.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a deleted tree root with its parent", async () => {
+    const api = createRemoteFileApi();
+    let finishDelete!: (result: { mode: "trash" }) => void;
+    api.deleteEntry = vi.fn(() => new Promise<{ mode: "trash" }>((resolve) => { finishDelete = resolve; }));
+    window.remoteFileApi = api;
+    const { container } = render(<RemoteFilePanel session={{ id: "delete-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" }} />);
+    fireEvent.contextMenu((await screen.findByTitle(childPath)).closest("button")!);
+    fireEvent.click(screen.getByRole("menu").querySelector(".lucide-trash-2")!.closest("button")!);
+    fireEvent.click(screen.getByRole("dialog", { name: "删除" }).querySelector<HTMLButtonElement>("button.danger")!);
+    const input = container.querySelector<HTMLInputElement>(".remote-file-path input")!;
+    for (const path of ["D:/other", childPath]) {
+      fireEvent.change(input, { target: { value: path } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(api.list).toHaveBeenCalledWith("delete-session", path));
+      await waitFor(() => expect(container.querySelector(".remote-file-loading")).toBeNull());
+    }
+    api.list = vi.fn().mockResolvedValue([]);
+    await act(async () => finishDelete({ mode: "trash" }));
+    await waitFor(() => expect(api.list).toHaveBeenCalledWith("delete-session", "C:/workspace"));
+    expect(input.value).toBe("C:/workspace");
+    expect(screen.queryByTitle(childPath)).toBeNull();
+  });
+
+  it("does not restore a deleted expanded directory from a late listing response", async () => {
+    const api = createRemoteFileApi();
+    const nestedPath = `${childPath}\\nested.txt`;
+    let finishListing!: (entries: RemoteFileEntry[]) => void;
+    let deleted = false;
+    api.list = vi.fn(async (_sessionId, path) => {
+      if (path === rootPath) return deleted ? [] : [directory("patches", childPath)];
+      return new Promise<RemoteFileEntry[]>((resolve) => { finishListing = resolve; });
+    });
+    api.deleteEntry = vi.fn(async () => { deleted = true; return { mode: "trash" as const }; });
+    window.remoteFileApi = api;
+    render(<RemoteFilePanel autoCollapseFileChains={false} session={{ id: "delete-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" }} />);
+    const row = (await screen.findByTitle(childPath)).closest("button")!;
+    fireEvent.click(row);
+    await waitFor(() => expect(api.list).toHaveBeenCalledWith("delete-session", childPath));
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("menu").querySelector(".lucide-trash-2")!.closest("button")!);
+    fireEvent.click(screen.getByRole("dialog", { name: "删除" }).querySelector<HTMLButtonElement>("button.danger")!);
+    await waitFor(() => expect(screen.queryByTitle(childPath)).toBeNull());
+    await act(async () => finishListing([{ ...directory("nested.txt", nestedPath), type: "file" }]));
+    expect(screen.queryByTitle(childPath)).toBeNull();
+    expect(screen.queryByTitle(nestedPath)).toBeNull();
   });
 
   it("uses an in-app confirmation dialog for deletion instead of blocking the Electron window", async () => {

@@ -1007,7 +1007,7 @@ export function RemoteFilePanel({
 
   const findCachedParentPath = useCallback((entryPath: string) => (
     Object.entries(directoriesRef.current).find(([, directory]) => (
-      directory.entries.some((entry) => entry.path === entryPath)
+      directory.entries.some((entry) => sameTreePath(entry.path, entryPath))
     ))?.[0] ?? parentTreePath(entryPath)
   ), []);
 
@@ -1248,24 +1248,38 @@ export function RemoteFilePanel({
           onActivePreviewTabChange?.(nextTabs.at(-1)?.id ?? null);
         }
       }
-      if (entry.path === selectedPathRef.current) {
+      if (selectedPathRef.current && isPathInside(selectedPathRef.current, entry.path)) {
         setSelectedPath(null);
         selectedPathRef.current = null;
       }
-      if (sameTreePath(currentPath, entry.path) || isPathInside(currentPath, entry.path)) {
+      if (isPathInside(currentPathRef.current, entry.path)) {
         setCurrentPath(parentDirectory);
         setPathInput(parentDirectory);
         onCurrentPathChange?.(parentDirectory);
         setSelectedPath(parentDirectory);
         selectedPathRef.current = parentDirectory;
       }
-      updateDirectories((current) => removeTreeBranch(current, entry.path));
+      for (const path of directoryRequestRef.current.keys()) {
+        if (isPathInside(path, entry.path) || sameTreePath(path, parentDirectory)) {
+          directoryRequestRef.current.delete(path);
+        }
+      }
+      updateDirectories((current) => Object.fromEntries(
+        Object.entries(removeTreeBranch(current, entry.path)).map(([path, directory]) => [path, {
+          ...directory,
+          entries: directory.entries.filter((candidate) => !isPathInside(candidate.path, entry.path))
+        }])
+      ));
       setExpandedPaths((current) => new Set([...current].filter((candidate) => !isPathInside(candidate, entry.path))));
-      await refreshDirectory(parentDirectory);
+      if (treeRootRef.current && isPathInside(treeRootRef.current.path, entry.path)) {
+        await loadDirectory(parentDirectory, true, true);
+      } else {
+        await refreshDirectory(parentDirectory);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     }
-  }, [currentPath, findCachedParentPath, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, sessionId, updateDirectories]);
+  }, [findCachedParentPath, loadDirectory, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, sessionId, updateDirectories]);
 
   const requestDeleteEntry = useCallback((entry: RemoteFileEntry) => {
     closeFileContextMenu();
