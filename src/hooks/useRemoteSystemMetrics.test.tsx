@@ -7,9 +7,15 @@ import { useRemoteSystemMetrics } from "./useRemoteSystemMetrics";
 
 const metrics: RemoteSystemMetrics = {
   sampledAt: 1, cpu: { usedPercent: 42 }, memory: { usedBytes: 1, totalBytes: 2 },
-  network: { receivedBytesPerSecond: null, transmittedBytesPerSecond: null }, disks: []
+  network: { receivedBytesPerSecond: 1024, transmittedBytesPerSecond: 2048 }, disks: []
 };
-const historyPoint = { sampledAt: 1, cpuUsedPercent: 42, memoryUsedPercent: 50 };
+const historyPoint = {
+  sampledAt: 1,
+  cpuUsedPercent: 42,
+  memoryUsedPercent: 50,
+  receivedBytesPerSecond: 1024,
+  transmittedBytesPerSecond: 2048
+};
 const session = (id: string, type: TerminalSession["type"] = "ssh"): TerminalSession => ({
   id, type, title: id, cwd: "/", shell: "bash", createdAt: 1
 });

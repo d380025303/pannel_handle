@@ -2784,9 +2784,80 @@ button.agent-usage-status[aria-expanded="true"] {
 
 .remote-metric-chart.memory .remote-metric-line { stroke: var(--color-success); }
 
+.remote-metric-chart.network .remote-metric-line.download { stroke: var(--color-accent); }
+.remote-metric-chart.network .remote-metric-line.upload { stroke: var(--color-warning-text); }
+
 .remote-metric-chart circle.remote-metric-line { fill: currentColor; }
 .remote-metric-chart.cpu circle.remote-metric-line { color: var(--color-accent); }
 .remote-metric-chart.memory circle.remote-metric-line { color: var(--color-success); }
+.remote-metric-chart.network circle.remote-metric-line.download { color: var(--color-accent); }
+.remote-metric-chart.network circle.remote-metric-line.upload { color: var(--color-warning-text); }
+
+.remote-metric-cursor {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.remote-metric-marker {
+  fill: var(--color-bg-panel);
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.remote-metric-chart.memory .remote-metric-marker { stroke: var(--color-success); }
+.remote-metric-chart.network .remote-metric-marker.download { stroke: var(--color-accent); }
+.remote-metric-chart.network .remote-metric-marker.upload { stroke: var(--color-warning-text); }
+
+.remote-network-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: -4px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.remote-network-legend span::before {
+  display: inline-block;
+  width: 7px;
+  height: 2px;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  vertical-align: middle;
+}
+
+.remote-network-legend .download,
+.remote-metric-tooltip .download { color: var(--color-accent); }
+.remote-network-legend .upload,
+.remote-metric-tooltip .upload { color: var(--color-warning-text); }
+
+.remote-metric-tooltip {
+  position: absolute;
+  top: 4px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: max-content;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.remote-metric-chart.network .remote-metric-tooltip { top: 18px; }
+.remote-metric-tooltip.center { transform: translateX(-50%); }
+.remote-metric-tooltip.end { transform: translateX(-100%); }
+.remote-metric-tooltip time { color: var(--color-text-muted); }
+.remote-metric-tooltip strong { font-weight: 600; }
 
 .remote-metric-chart figcaption {
   display: flex;
@@ -2804,6 +2875,7 @@ button.agent-usage-status[aria-expanded="true"] {
   align-items: center;
   justify-content: center;
   color: var(--color-text-muted);
+  pointer-events: none;
 }
 
 .quick-command-section {

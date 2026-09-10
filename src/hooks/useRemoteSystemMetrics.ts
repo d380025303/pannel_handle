@@ -5,6 +5,8 @@ export type RemoteSystemMetricPoint = {
   sampledAt: number;
   cpuUsedPercent: number | null;
   memoryUsedPercent: number | null;
+  receivedBytesPerSecond: number | null;
+  transmittedBytesPerSecond: number | null;
 };
 
 export type RemoteSystemMetricsState =
@@ -29,6 +31,14 @@ function toHistoryPoint(metrics: RemoteSystemMetrics): RemoteSystemMetricPoint {
     memoryUsedPercent: Number.isFinite(usedBytes) && usedBytes >= 0
       && Number.isFinite(totalBytes) && totalBytes > 0
       ? percent(usedBytes / totalBytes * 100)
+      : null,
+    receivedBytesPerSecond: Number.isFinite(metrics.network.receivedBytesPerSecond)
+      && metrics.network.receivedBytesPerSecond !== null && metrics.network.receivedBytesPerSecond >= 0
+      ? metrics.network.receivedBytesPerSecond
+      : null,
+    transmittedBytesPerSecond: Number.isFinite(metrics.network.transmittedBytesPerSecond)
+      && metrics.network.transmittedBytesPerSecond !== null && metrics.network.transmittedBytesPerSecond >= 0
+      ? metrics.network.transmittedBytesPerSecond
       : null
   };
 }

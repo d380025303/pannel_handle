@@ -41,8 +41,8 @@ const metrics: RemoteSystemMetrics = {
   ]
 };
 const history = [
-  { sampledAt: 1000, cpuUsedPercent: 35, memoryUsedPercent: 45 },
-  { sampledAt: 4000, cpuUsedPercent: 42.4, memoryUsedPercent: 50 }
+  { sampledAt: 1000, cpuUsedPercent: 35, memoryUsedPercent: 45, receivedBytesPerSecond: 512, transmittedBytesPerSecond: 256 },
+  { sampledAt: 4000, cpuUsedPercent: 42.4, memoryUsedPercent: 50, receivedBytesPerSecond: 1024, transmittedBytesPerSecond: 2048 }
 ];
 
 afterEach(cleanup);
@@ -71,8 +71,9 @@ describe("RemoteSystemPanel", () => {
     const props = { state: { status: "ready" as const, metrics, history }, sessionTitle: "SSH demo", onSelectDisk };
     const { rerender } = render(<RemoteSystemPanel {...props} />);
     expect(screen.getByText("SSH demo")).not.toBeNull();
-    expect(screen.getByRole("img", { name: "CPU 最近 5 分钟利用率，当前 42%" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "CPU 最近 5 分钟利用率，当前 42.4%" })).not.toBeNull();
     expect(screen.getByRole("img", { name: "内存 最近 5 分钟利用率，当前 50%" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "网络最近 5 分钟速率，当前下载 1 KB/s，上传 2 KB/s" })).not.toBeNull();
     expect(screen.getByText("↓ 1.00 KB/s")).not.toBeNull();
     expect(screen.getByText("↑ 2.00 KB/s")).not.toBeNull();
     expect(screen.getByText("3.00 MB/s")).not.toBeNull();
@@ -115,10 +116,10 @@ describe("RemoteSystemPanel", () => {
 
   it("breaks chart lines across missing sampling intervals", () => {
     const chartHistory = [
-      { sampledAt: 1000, cpuUsedPercent: 10, memoryUsedPercent: 20 },
-      { sampledAt: 4000, cpuUsedPercent: 20, memoryUsedPercent: 30 },
-      { sampledAt: 16000, cpuUsedPercent: 30, memoryUsedPercent: 40 },
-      { sampledAt: 19000, cpuUsedPercent: 40, memoryUsedPercent: 50 }
+      { sampledAt: 1000, cpuUsedPercent: 10, memoryUsedPercent: 20, receivedBytesPerSecond: 100, transmittedBytesPerSecond: 50 },
+      { sampledAt: 4000, cpuUsedPercent: 20, memoryUsedPercent: 30, receivedBytesPerSecond: 200, transmittedBytesPerSecond: 100 },
+      { sampledAt: 16000, cpuUsedPercent: 30, memoryUsedPercent: 40, receivedBytesPerSecond: 300, transmittedBytesPerSecond: 150 },
+      { sampledAt: 19000, cpuUsedPercent: 40, memoryUsedPercent: 50, receivedBytesPerSecond: 400, transmittedBytesPerSecond: 200 }
     ];
     const { container } = render(<RemoteMetricChart
       points={chartHistory}
@@ -128,5 +129,26 @@ describe("RemoteSystemPanel", () => {
       tone="cpu"
     />);
     expect(container.querySelectorAll("polyline")).toHaveLength(2);
+  });
+
+  it("shows exact sampled values while hovering metric and network charts", () => {
+    render(<RemoteSystemPanel state={{ status: "ready", metrics, history }} sessionTitle="SSH" onSelectDisk={vi.fn()} />);
+    const cpuChart = screen.getByRole("img", { name: /CPU 最近 5 分钟利用率/ });
+    vi.spyOn(cpuChart, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 320, bottom: 104, width: 320, height: 104, toJSON: () => ({})
+    });
+    fireEvent.mouseMove(cpuChart, { clientX: 320 });
+    expect(screen.getByRole("status").textContent).toContain("CPU 42.4%");
+    fireEvent.mouseLeave(cpuChart.closest("figure")!);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    const networkChart = screen.getByRole("img", { name: /网络最近 5 分钟速率/ });
+    vi.spyOn(networkChart, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 320, bottom: 104, width: 320, height: 104, toJSON: () => ({})
+    });
+    fireEvent.mouseMove(networkChart, { clientX: 320 });
+    const tooltip = screen.getByRole("status");
+    expect(tooltip.textContent).toContain("↓ 1 KB/s");
+    expect(tooltip.textContent).toContain("↑ 2 KB/s");
   });
 });

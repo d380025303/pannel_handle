@@ -1,7 +1,7 @@
 import { Cpu, HardDrive, MemoryStick, Network } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { RemoteSystemMetricsState } from "../../hooks/useRemoteSystemMetrics";
-import { RemoteMetricChart } from "./RemoteMetricChart";
+import { RemoteMetricChart, RemoteNetworkChart } from "./RemoteMetricChart";
 
 function formatBytes(value: number) {
   if (!Number.isFinite(value) || value < 0) return "--";
@@ -80,6 +80,11 @@ export function RemoteSystemPanel({ state, sessionTitle, preferredDiskMountPoint
         </section>
         <section className="remote-system-card" aria-label={t("system.network")}>
           <h3><Network aria-hidden="true" />{t("system.network")}</h3>
+          <RemoteNetworkChart
+            points={history}
+            received={metrics.network.receivedBytesPerSecond}
+            transmitted={metrics.network.transmittedBytesPerSecond}
+          />
           <dl>
             <dt>{t("system.download")}</dt><dd>↓ {formatRate(metrics.network.receivedBytesPerSecond)}</dd>
             <dt>{t("system.upload")}</dt><dd>↑ {formatRate(metrics.network.transmittedBytesPerSecond)}</dd>

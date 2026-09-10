@@ -666,6 +666,7 @@ export type TranslationKey =
   | "system.diskIo"
   | "system.memoryTitle"
   | "system.historyChart"
+  | "system.networkHistoryChart"
   | "system.collectingHistory"
   | "picker.libraryTitle"
   | "picker.restoreTitle"
@@ -1520,6 +1521,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskIo": "I/O 忙碌 {busy}，读 {read}，写 {write}",
     "system.memoryTitle": "内存：已用 {used} / {total}，{percent}",
     "system.historyChart": "{metric} 最近 5 分钟利用率，当前 {percent}",
+    "system.networkHistoryChart": "网络最近 5 分钟速率，当前下载 {download}，上传 {upload}",
     "system.collectingHistory": "正在积累历史数据...",
     "picker.libraryTitle": "会话库",
     "picker.restoreTitle": "恢复会话",
@@ -2366,6 +2368,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "system.diskIo": "I/O busy {busy}, read {read}, write {write}",
     "system.memoryTitle": "Memory: used {used} / {total}, {percent}",
     "system.historyChart": "{metric} utilization over the last 5 minutes, currently {percent}",
+    "system.networkHistoryChart": "Network rates over the last 5 minutes, currently down {download}, up {upload}",
     "system.collectingHistory": "Collecting history...",
     "picker.libraryTitle": "Session Library",
     "picker.restoreTitle": "Restore Sessions",
