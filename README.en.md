@@ -92,7 +92,12 @@ pnpm start        # Launch in development mode
 # Or start separately
 pnpm dev          # Vite dev server at 127.0.0.1:6173
 pnpm electron     # Launch Electron
+
+# Standalone browser UI preview
+pnpm dev:browser  # Open http://127.0.0.1:6174 in a browser
 ```
+
+Browser preview mode uses complete in-memory showcase data for checking layout, responsive sizes, themes, dialogs, and ordinary UI interactions. Data resets on refresh. It does not start real terminals or access SSH, Git, the filesystem, network, clipboard, or Electron IPC, so it does not replace desktop functionality acceptance.
 
 ### Build
 

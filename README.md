@@ -41,8 +41,11 @@ git clone <repo-url>
 cd pannel_handle
 pnpm install
 pnpm start        # Dev mode / 开发模式
+pnpm dev:browser  # Browser-only UI preview at 127.0.0.1:6174 / 浏览器 UI 预览
 pnpm dist:portable # Build portable package / 打包 portable 安装包
 ```
+
+`pnpm dev:browser` uses in-memory showcase data for layout and interaction checks. It does not run real terminals, SSH, Git, filesystem, IPC, or other Electron capabilities. / `pnpm dev:browser` 使用内存示例数据检查布局与交互，不运行真实终端、SSH、Git、文件系统、IPC 或其他 Electron 能力。
 
 ---
 
