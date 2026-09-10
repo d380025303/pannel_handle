@@ -54,9 +54,10 @@ describe("useSessionRightTool", () => {
   });
 
   it("falls back when a remembered tool is unavailable for the active session", () => {
-    expect(resolveRightTool("monitor", { hasSession: true, showMonitor: false, debugMode: false })).toBe("files");
-    expect(resolveRightTool("debug", { hasSession: true, showMonitor: false, debugMode: false })).toBe("files");
-    expect(resolveRightTool("files", { hasSession: false, showMonitor: false, debugMode: true })).toBe("debug");
-    expect(resolveRightTool("git", { hasSession: false, showMonitor: false, debugMode: false })).toBe("idea");
+    expect(resolveRightTool("monitor", { hasSession: true, showMonitor: false, showIdea: true, debugMode: false })).toBe("files");
+    expect(resolveRightTool("idea", { hasSession: true, showMonitor: true, showIdea: false, debugMode: false })).toBe("files");
+    expect(resolveRightTool("debug", { hasSession: true, showMonitor: false, showIdea: true, debugMode: false })).toBe("files");
+    expect(resolveRightTool("files", { hasSession: false, showMonitor: false, showIdea: true, debugMode: true })).toBe("debug");
+    expect(resolveRightTool("git", { hasSession: false, showMonitor: false, showIdea: true, debugMode: false })).toBe("idea");
   });
 });

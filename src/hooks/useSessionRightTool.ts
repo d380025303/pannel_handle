@@ -4,18 +4,21 @@ export type RightTool = "files" | "git" | "monitor" | "conversation" | "idea" | 
 
 export function resolveRightTool(
   rightTool: RightTool,
-  options: { hasSession: boolean; showMonitor: boolean; debugMode: boolean }
+  options: { hasSession: boolean; showMonitor: boolean; showIdea: boolean; debugMode: boolean }
 ): RightTool {
-  if (rightTool === "idea" || rightTool === "conversation") {
+  if (rightTool === "conversation") {
     return rightTool;
   }
+  if (rightTool === "idea") {
+    return options.showIdea ? "idea" : options.hasSession ? "files" : options.debugMode ? "debug" : "conversation";
+  }
   if (rightTool === "monitor") {
-    return options.showMonitor ? "monitor" : options.hasSession ? "files" : options.debugMode ? "debug" : "idea";
+    return options.showMonitor ? "monitor" : options.hasSession ? "files" : options.debugMode ? "debug" : options.showIdea ? "idea" : "conversation";
   }
   if (options.hasSession && (rightTool === "files" || rightTool === "git")) {
     return rightTool;
   }
-  return options.debugMode ? "debug" : options.hasSession ? "files" : "idea";
+  return options.debugMode ? "debug" : options.hasSession ? "files" : options.showIdea ? "idea" : "conversation";
 }
 
 export function useSessionRightTool(activeSessionId: string | undefined, runningSessionIds: string[]) {

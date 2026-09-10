@@ -511,10 +511,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showMonitorPanel = terminalSessions.activeSession?.type === "ssh";
+  const showIdeaPanel = terminalSessions.activeSession?.type !== "ssh";
   const showRightTools = true;
   const activeRightTool: RightTool = resolveRightTool(rightTool, {
     hasSession: showFilesPanel,
     showMonitor: showMonitorPanel,
+    showIdea: showIdeaPanel,
     debugMode
   });
 
@@ -792,15 +794,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <span>{t("tabs.conversation")}</span>
                     {agentConversation.unread && <span className="right-tool-unread" aria-label={t("conversation.unread")} />}
                   </button>
-                  <button
-                    className={activeRightTool === "idea" ? "active" : ""}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeRightTool === "idea"}
-                    onClick={() => handleRightToolChange("idea")}
-                  >
-                    {t("tabs.idea")}
-                  </button>
+                  {showIdeaPanel && (
+                    <button
+                      className={activeRightTool === "idea" ? "active" : ""}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeRightTool === "idea"}
+                      onClick={() => handleRightToolChange("idea")}
+                    >
+                      {t("tabs.idea")}
+                    </button>
+                  )}
                   {debugMode && (
                     <button
                       className={activeRightTool === "debug" ? "active" : ""}
