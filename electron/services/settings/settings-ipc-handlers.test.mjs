@@ -102,6 +102,8 @@ describe("settings IPC handlers", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: true,
+      screenshotEnabled: false,
+      screenshotShortcut: "shift+alt+7",
       themeId: "light",
       locale: "en-US",
       sidebarWidth: 500,
@@ -114,6 +116,8 @@ describe("settings IPC handlers", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: true,
+      screenshotEnabled: false,
+      screenshotShortcut: "Alt+Shift+7",
       themeId: "light",
       locale: "en-US",
       sidebarWidth: 500,
@@ -123,6 +127,9 @@ describe("settings IPC handlers", () => {
     expect(harness.workBuddyAutoCheckinService.setEnabled).toHaveBeenCalledWith(true);
 
     harness.ipcMain.handlers.get("config:set")({}, { themeId: "unknown", locale: "fr-FR", rightToolsWidth: 601, sidebarWidth: 501 });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
+
+    harness.ipcMain.handlers.get("config:set")({}, { screenshotShortcut: "Ctrl+Shift+F" });
     expect(harness.configStore.updateConfig).toHaveBeenCalledTimes(1);
   });
 

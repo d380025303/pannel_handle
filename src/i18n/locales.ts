@@ -79,6 +79,15 @@ export type TranslationKey =
   | "settings.autoRestore"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
+  | "settings.screenshotTitle"
+  | "settings.screenshotDescription"
+  | "settings.screenshotEnabled"
+  | "settings.screenshotShortcut"
+  | "settings.screenshotShortcutRecording"
+  | "settings.screenshotShortcutHint"
+  | "settings.screenshotShortcutReserved"
+  | "settings.screenshotShortcutModifierRequired"
+  | "settings.screenshotShortcutUnsupported"
   | "settings.theme"
   | "settings.language"
   | "settings.close"
@@ -202,6 +211,8 @@ export type TranslationKey =
   | "window.maximize"
   | "window.restore"
   | "window.close"
+  | "screenshot.capture"
+  | "screenshot.captureFailed"
   | "sidebar.title"
   | "sidebar.count"
   | "sidebar.countFiltered"
@@ -981,6 +992,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "启动时自动恢复",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
+    "settings.screenshotTitle": "截图",
+    "settings.screenshotDescription": "调用 Windows 原生区域截图，完成后图片会复制到系统剪贴板。",
+    "settings.screenshotEnabled": "启用截图功能",
+    "settings.screenshotShortcut": "截图快捷键",
+    "settings.screenshotShortcutRecording": "请按新的组合键…",
+    "settings.screenshotShortcutHint": "支持 Ctrl、Alt、Shift 加字母、数字或 F1-F12；按 Esc 取消录制。",
+    "settings.screenshotShortcutReserved": "该组合键已被应用占用，请使用其他快捷键。",
+    "settings.screenshotShortcutModifierRequired": "快捷键至少需要一个 Ctrl、Alt 或 Shift 修饰键。",
+    "settings.screenshotShortcutUnsupported": "不支持该按键，请使用修饰键加字母、数字或 F1-F12。",
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
@@ -1104,6 +1124,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "window.maximize": "最大化",
     "window.restore": "还原",
     "window.close": "关闭",
+    "screenshot.capture": "区域截图",
+    "screenshot.captureFailed": "无法启动区域截图：{message}",
     "sidebar.title": "命令会话",
     "sidebar.count": "{count} 个窗口",
     "sidebar.countFiltered": "{count} 个窗口 / 显示 {filtered} 个",
@@ -1875,6 +1897,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "Auto restore on startup",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
+    "settings.screenshotTitle": "Screenshot",
+    "settings.screenshotDescription": "Open the Windows region snipping UI and copy the result to the system clipboard.",
+    "settings.screenshotEnabled": "Enable screenshots",
+    "settings.screenshotShortcut": "Screenshot shortcut",
+    "settings.screenshotShortcutRecording": "Press a new shortcut…",
+    "settings.screenshotShortcutHint": "Use Ctrl, Alt, or Shift with a letter, number, or F1-F12. Press Esc to cancel.",
+    "settings.screenshotShortcutReserved": "That shortcut is already used by the app. Choose another one.",
+    "settings.screenshotShortcutModifierRequired": "The shortcut must include Ctrl, Alt, or Shift.",
+    "settings.screenshotShortcutUnsupported": "Use a modifier with a letter, number, or F1-F12.",
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",
@@ -1998,6 +2029,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "window.maximize": "Maximize",
     "window.restore": "Restore",
     "window.close": "Close",
+    "screenshot.capture": "Region screenshot",
+    "screenshot.captureFailed": "Could not start region screenshot: {message}",
     "sidebar.title": "Command Sessions",
     "sidebar.count": "{count} windows",
     "sidebar.countFiltered": "{count} windows / showing {filtered}",

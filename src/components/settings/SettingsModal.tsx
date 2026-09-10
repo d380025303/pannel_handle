@@ -10,6 +10,7 @@ import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
 import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
+import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
 
 type SettingsModalProps = {
   defaultWindowsShell: WindowsShell;
@@ -17,12 +18,16 @@ type SettingsModalProps = {
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
   debugMode: boolean;
+  screenshotEnabled: boolean;
+  screenshotShortcut: string;
   themeId: ThemeId;
   locale: Locale;
   themes: AppTheme[];
   onToggleAutoRestore: () => void;
   onToggleAutoWorkBuddyCheckin: () => void;
   onToggleDebugMode: () => void;
+  onScreenshotEnabledChange: (enabled: boolean) => Promise<void>;
+  onScreenshotShortcutChange: (shortcut: string) => Promise<void>;
   onThemeChange: (themeId: ThemeId) => void;
   onLocaleChange: (locale: Locale) => void;
   onCancel: () => void;
@@ -36,12 +41,16 @@ export function SettingsModal({
   autoRestore,
   autoWorkBuddyCheckin,
   debugMode,
+  screenshotEnabled,
+  screenshotShortcut,
   themeId,
   locale,
   themes,
   onToggleAutoRestore,
   onToggleAutoWorkBuddyCheckin,
   onToggleDebugMode,
+  onScreenshotEnabledChange,
+  onScreenshotShortcutChange,
   onThemeChange,
   onLocaleChange,
   onCancel
@@ -61,6 +70,9 @@ export function SettingsModal({
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
   const [shellBusy, setShellBusy] = useState(false);
+  const [recordingScreenshotShortcut, setRecordingScreenshotShortcut] = useState(false);
+  const [screenshotSettingsBusy, setScreenshotSettingsBusy] = useState(false);
+  const [screenshotSettingsError, setScreenshotSettingsError] = useState<string | null>(null);
 
   const themeOptions = useMemo(() => themes.map(theme => ({
     value: theme.id,
@@ -197,6 +209,47 @@ export function SettingsModal({
     }
   };
 
+  const handleScreenshotEnabledChange = async (enabled: boolean) => {
+    setScreenshotSettingsBusy(true);
+    setScreenshotSettingsError(null);
+    try {
+      await onScreenshotEnabledChange(enabled);
+    } catch (error) {
+      setScreenshotSettingsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScreenshotSettingsBusy(false);
+    }
+  };
+
+  const handleScreenshotShortcutKeyDown = async (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      setRecordingScreenshotShortcut(false);
+      setScreenshotSettingsError(null);
+      return;
+    }
+    const candidate = screenshotShortcutFromKeyboardEvent(event.nativeEvent);
+    if (!candidate) return;
+    if (!candidate.ok) {
+      setScreenshotSettingsError(t(candidate.reason === "reserved"
+        ? "settings.screenshotShortcutReserved"
+        : candidate.reason === "modifier_required"
+          ? "settings.screenshotShortcutModifierRequired"
+          : "settings.screenshotShortcutUnsupported"));
+      return;
+    }
+    setScreenshotSettingsBusy(true);
+    setScreenshotSettingsError(null);
+    try {
+      await onScreenshotShortcutChange(candidate.shortcut);
+      setRecordingScreenshotShortcut(false);
+    } catch (error) {
+      setScreenshotSettingsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScreenshotSettingsBusy(false);
+    }
+  };
 
   return (
     <div className="modal-overlay">
@@ -293,6 +346,46 @@ export function SettingsModal({
                     <SearchableSelect className="settings-theme-select" value={locale} options={localeOptions} ariaLabel={t("settings.language")} onChange={nextLocale => onLocaleChange(nextLocale as Locale)} />
                   </div>
                 </div>
+              </div>
+              <div className="settings-section screenshot-settings">
+                <div className="settings-card-header">
+                  <div>
+                    <h4>{t("settings.screenshotTitle")}</h4>
+                    <p className="settings-help">{t("settings.screenshotDescription")}</p>
+                  </div>
+                  <label className="auto-restore-label">
+                    <input
+                      type="checkbox"
+                      className="auto-restore-checkbox"
+                      checked={screenshotEnabled}
+                      disabled={screenshotSettingsBusy}
+                      onChange={event => void handleScreenshotEnabledChange(event.target.checked)}
+                    />
+                    <span className="auto-restore-track" />
+                    <span className="auto-restore-text">{t("settings.screenshotEnabled")}</span>
+                  </label>
+                </div>
+                <div className="settings-field">
+                  <span className="modal-label">{t("settings.screenshotShortcut")}</span>
+                  <button
+                    className={`shortcut-recorder${recordingScreenshotShortcut ? " recording" : ""}`}
+                    type="button"
+                    disabled={!screenshotEnabled || screenshotSettingsBusy}
+                    aria-label={t("settings.screenshotShortcut")}
+                    onClick={() => {
+                      setRecordingScreenshotShortcut(true);
+                      setScreenshotSettingsError(null);
+                    }}
+                    onBlur={() => setRecordingScreenshotShortcut(false)}
+                    onKeyDown={event => {
+                      if (recordingScreenshotShortcut) void handleScreenshotShortcutKeyDown(event);
+                    }}
+                  >
+                    {recordingScreenshotShortcut ? t("settings.screenshotShortcutRecording") : screenshotShortcut}
+                  </button>
+                  <span className="settings-help">{t("settings.screenshotShortcutHint")}</span>
+                </div>
+                {screenshotSettingsError && <p className="settings-result error" role="alert">{screenshotSettingsError}</p>}
               </div>
             </section>
 

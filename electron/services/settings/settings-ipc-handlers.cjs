@@ -1,4 +1,5 @@
 const { VALID_LOCALES, VALID_THEME_IDS } = require("../../stores/config-store.cjs");
+const { normalizeScreenshotShortcut } = require("../screenshot/screenshot-shortcut.cjs");
 
 const SETTINGS_IPC_CHANNELS = [
   "config:get",
@@ -86,6 +87,13 @@ function registerSettingsIpcHandlers({
     }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
+    }
+    if (partial && typeof partial.screenshotEnabled === "boolean") {
+      updates.screenshotEnabled = partial.screenshotEnabled;
+    }
+    if (partial && typeof partial.screenshotShortcut === "string") {
+      const screenshotShortcut = normalizeScreenshotShortcut(partial.screenshotShortcut);
+      if (screenshotShortcut) updates.screenshotShortcut = screenshotShortcut;
     }
     if (partial && typeof partial.themeId === "string" && VALID_THEME_IDS.has(partial.themeId)) {
       updates.themeId = partial.themeId;

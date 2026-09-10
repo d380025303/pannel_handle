@@ -42,6 +42,7 @@ import { useWindowState } from "./hooks/useWindowState";
 import { useInputRecovery } from "./hooks/inputRecovery";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
+import { DEFAULT_SCREENSHOT_SHORTCUT, matchesScreenshotShortcut } from "./utils/screenshotShortcut";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
@@ -103,6 +104,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showMcp, setShowMcp] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [screenshotEnabled, setScreenshotEnabled] = useState(true);
+  const [screenshotShortcut, setScreenshotShortcut] = useState(DEFAULT_SCREENSHOT_SHORTCUT);
+  const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
   const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
@@ -172,6 +176,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;
 
+  const handleCaptureScreenshot = useCallback(async () => {
+    if (!screenshotEnabled) return;
+    setScreenshotError(null);
+    try {
+      await window.screenshotApi.captureRegion();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScreenshotError(t("screenshot.captureFailed", { message }));
+    }
+  }, [screenshotEnabled, t]);
+
   useEffect(() => {
     let disposed = false;
     void window.mobileAccessApi.getState().then((state) => { if (!disposed) setMobileAccessState(state); });
@@ -222,6 +237,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     window.terminalApi.getConfig().then((config) => {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
+        setScreenshotEnabled(config.screenshotEnabled);
+        setScreenshotShortcut(config.screenshotShortcut);
         setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
         setAutoCollapseFileChains(config.autoCollapseFileChains);
         setThemeId(config.themeId);
@@ -245,10 +262,20 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const blockingOverlay = hasBlockingOverlay();
+      if (screenshotEnabled
+        && !event.repeat
+        && !blockingOverlay
+        && !isEditableShortcutTarget(event.target)
+        && matchesScreenshotShortcut(event, screenshotShortcut)) {
+        event.preventDefault();
+        event.stopPropagation();
+        void handleCaptureScreenshot();
+        return;
+      }
       if (!terminalSessions.activeSession) {
         return;
       }
-      const blockingOverlay = hasBlockingOverlay();
       if (projectSearchMode || blockingOverlay) {
         if ((debugMode || import.meta.env.DEV) && blockingOverlay) {
           const diagnostics = getBlockingOverlayDiagnostics();
@@ -287,7 +314,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [debugMode, openProjectSearch, projectSearchMode, remoteFilesDirty, rightTool, t, terminalSessions.activeSession]);
+  }, [debugMode, handleCaptureScreenshot, openProjectSearch, projectSearchMode, remoteFilesDirty, rightTool, screenshotEnabled, screenshotShortcut, t, terminalSessions.activeSession]);
 
   useEffect(() => {
     if (gitSummary?.sessionId !== terminalSessions.activeSession?.id) {
@@ -477,6 +504,16 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
   }, [autoWorkBuddyCheckin]);
 
+  const handleScreenshotEnabledChange = useCallback(async (enabled: boolean) => {
+    const config = await window.terminalApi.setConfig({ screenshotEnabled: enabled });
+    setScreenshotEnabled(config.screenshotEnabled);
+  }, []);
+
+  const handleScreenshotShortcutChange = useCallback(async (shortcut: string) => {
+    const config = await window.terminalApi.setConfig({ screenshotShortcut: shortcut });
+    setScreenshotShortcut(config.screenshotShortcut);
+  }, []);
+
   const handleToggleAutoCollapseFileChains = useCallback(async () => {
     const config = await window.terminalApi.setConfig({ autoCollapseFileChains: !autoCollapseFileChains });
     setAutoCollapseFileChains(config.autoCollapseFileChains);
@@ -537,6 +574,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
+          screenshotEnabled={screenshotEnabled}
+          onCaptureScreenshot={() => void handleCaptureScreenshot()}
           onOpenSettings={() => setShowSettingsModal(true)}
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
@@ -569,6 +608,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           <div className="startup-error-banner" role="alert">
             <span>{quickAgentError}</span>
             <button type="button" onClick={() => setQuickAgentError(null)} aria-label={t("common.close")}>×</button>
+          </div>
+        )}
+        {screenshotError && (
+          <div className="startup-error-banner" role="alert">
+            <span>{screenshotError}</span>
+            <button type="button" onClick={() => setScreenshotError(null)} aria-label={t("common.close")}>×</button>
           </div>
         )}
         {terminalSessions.activeAgentWarning && (
@@ -924,12 +969,16 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           autoRestore={terminalSessions.autoRestore}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           debugMode={debugMode}
+          screenshotEnabled={screenshotEnabled}
+          screenshotShortcut={screenshotShortcut}
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleAutoWorkBuddyCheckin={handleToggleAutoWorkBuddyCheckin}
           onToggleDebugMode={handleToggleDebugMode}
+          onScreenshotEnabledChange={handleScreenshotEnabledChange}
+          onScreenshotShortcutChange={handleScreenshotShortcutChange}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
           onCancel={() => setShowSettingsModal(false)}

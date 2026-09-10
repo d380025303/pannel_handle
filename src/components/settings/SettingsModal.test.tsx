@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
@@ -21,12 +21,16 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         autoRestore
         autoWorkBuddyCheckin
         debugMode={false}
+        screenshotEnabled
+        screenshotShortcut="Ctrl+Shift+S"
         themeId="dark-slate"
         locale="zh-CN"
         themes={APP_THEMES}
         onToggleAutoRestore={vi.fn()}
         onToggleAutoWorkBuddyCheckin={onToggleAutoWorkBuddyCheckin}
         onToggleDebugMode={vi.fn()}
+        onScreenshotEnabledChange={vi.fn().mockResolvedValue(undefined)}
+        onScreenshotShortcutChange={vi.fn().mockResolvedValue(undefined)}
         onThemeChange={vi.fn()}
         onLocaleChange={vi.fn()}
         onCancel={vi.fn()}
@@ -76,6 +80,31 @@ describe("SettingsModal navigation", () => {
     expect(generalTab.getAttribute("aria-selected")).toBe("false");
     expect(modelsTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tabpanel", { name: "模型服务" })).toBeTruthy();
+  });
+
+  it("toggles screenshots and records a valid shortcut", async () => {
+    const onScreenshotEnabledChange = vi.fn().mockResolvedValue(undefined);
+    const onScreenshotShortcutChange = vi.fn().mockResolvedValue(undefined);
+    renderSettingsModal({ onScreenshotEnabledChange, onScreenshotShortcutChange });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "启用截图功能" }));
+    await waitFor(() => expect(onScreenshotEnabledChange).toHaveBeenCalledWith(false));
+
+    const recorder = screen.getByRole("button", { name: "截图快捷键" });
+    fireEvent.click(recorder);
+    fireEvent.keyDown(recorder, { key: "7", altKey: true, shiftKey: true });
+    await waitFor(() => expect(onScreenshotShortcutChange).toHaveBeenCalledWith("Alt+Shift+7"));
+  });
+
+  it("keeps recording after a reserved shortcut and cancels with Escape", () => {
+    renderSettingsModal();
+    const recorder = screen.getByRole("button", { name: "截图快捷键" });
+    fireEvent.click(recorder);
+    fireEvent.keyDown(recorder, { key: "f", ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole("alert").textContent).toContain("已被应用占用");
+    expect(recorder.textContent).toContain("请按新的组合键");
+    fireEvent.keyDown(recorder, { key: "Escape" });
+    expect(recorder.textContent).toBe("Ctrl+Shift+S");
   });
 
   it("supports arrow-key category navigation", () => {

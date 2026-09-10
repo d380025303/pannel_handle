@@ -79,6 +79,10 @@ contextBridge.exposeInMainWorld("terminalApi", {
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
 });
 
+contextBridge.exposeInMainWorld("screenshotApi", {
+  captureRegion: () => ipcRenderer.invoke("screenshot:capture-region")
+});
+
 contextBridge.exposeInMainWorld("openRouterApi", {
   getConfig: () => ipcRenderer.invoke("openrouter:get-config"),
   listModels: () => ipcRenderer.invoke("openrouter:list-models"),

@@ -84,4 +84,36 @@ describe("TitleBar session actions", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
   });
+
+  it("shows the screenshot action only while the feature is enabled", () => {
+    const onCaptureScreenshot = vi.fn();
+    const { rerender } = render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        screenshotEnabled
+        onCaptureScreenshot={onCaptureScreenshot}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "区域截图" }));
+    expect(onCaptureScreenshot).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        screenshotEnabled={false}
+        onCaptureScreenshot={onCaptureScreenshot}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "区域截图" })).toBeNull();
+  });
 });

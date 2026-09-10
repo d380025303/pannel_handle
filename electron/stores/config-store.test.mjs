@@ -33,12 +33,35 @@ describe("config-store", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: false,
+      screenshotEnabled: true,
+      screenshotShortcut: "Ctrl+Shift+X",
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
       sidebarWidth: 290,
       rightToolsWidth: 380
     });
+  });
+
+  it("loads, normalizes, and persists screenshot preferences", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ screenshotEnabled: false, screenshotShortcut: "shift+alt+7" }), "utf-8");
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig()).toMatchObject({ screenshotEnabled: false, screenshotShortcut: "Alt+Shift+7" });
+
+    store.updateConfig({ screenshotEnabled: true, screenshotShortcut: "ctrl+f12" });
+    expect(store.getConfig()).toMatchObject({ screenshotEnabled: true, screenshotShortcut: "Ctrl+F12" });
+    store.updateConfig({ screenshotShortcut: "Ctrl+Shift+F" });
+    expect(store.getConfig().screenshotShortcut).toBe("Ctrl+F12");
+  });
+
+  it("uses the screenshot defaults when saved values are invalid or missing", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ screenshotShortcut: "X" }), "utf-8");
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig()).toMatchObject({ screenshotEnabled: true, screenshotShortcut: "Ctrl+Shift+X" });
   });
 
   it("loads and persists automatic check-in, file chain collapsing, debugMode, themeId, and locale", () => {
@@ -140,6 +163,8 @@ describe("config-store", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       autoRestore: false,
       debugMode: true,
+      screenshotEnabled: true,
+      screenshotShortcut: "Ctrl+Shift+X",
       themeId: "light",
       listenerAgentHistoryMaxEntries: 250,
       listenerAgentOutputMaxBytes: 4 * 1024 * 1024,
@@ -159,6 +184,8 @@ describe("config-store", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: true,
+      screenshotEnabled: true,
+      screenshotShortcut: "Ctrl+Shift+X",
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",

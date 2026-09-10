@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { DEFAULT_SCREENSHOT_SHORTCUT, normalizeScreenshotShortcut } = require("../services/screenshot/screenshot-shortcut.cjs");
 
 const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
@@ -23,6 +24,8 @@ function createConfigStore({ configFile }) {
     autoWorkBuddyCheckin: true,
     autoCollapseFileChains: true,
     debugMode: false,
+    screenshotEnabled: true,
+    screenshotShortcut: DEFAULT_SCREENSHOT_SHORTCUT,
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
@@ -37,6 +40,8 @@ function createConfigStore({ configFile }) {
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
+      screenshotEnabled: config.screenshotEnabled,
+      screenshotShortcut: config.screenshotShortcut,
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
       locale: config.locale,
@@ -56,6 +61,8 @@ function createConfigStore({ configFile }) {
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
+          screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
+          screenshotShortcut: normalizeScreenshotShortcut(parsed.screenshotShortcut) || DEFAULT_SCREENSHOT_SHORTCUT,
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
             : [],
@@ -93,6 +100,8 @@ function createConfigStore({ configFile }) {
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
+      screenshotEnabled: config.screenshotEnabled,
+      screenshotShortcut: config.screenshotShortcut,
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
       locale: config.locale,
@@ -117,6 +126,13 @@ function createConfigStore({ configFile }) {
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;
+      }
+      if (typeof partial.screenshotEnabled === "boolean") {
+        config.screenshotEnabled = partial.screenshotEnabled;
+      }
+      if (typeof partial.screenshotShortcut === "string") {
+        const screenshotShortcut = normalizeScreenshotShortcut(partial.screenshotShortcut);
+        if (screenshotShortcut) config.screenshotShortcut = screenshotShortcut;
       }
       if (Array.isArray(partial.lastActiveSessionIds)) {
         config.lastActiveSessionIds = partial.lastActiveSessionIds.filter(id => typeof id === "string");

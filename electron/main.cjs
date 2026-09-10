@@ -31,6 +31,7 @@ const { createAgentConversationHistoryService } = require("./services/conversati
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
+const { createScreenshotModule } = require("./services/screenshot/index.cjs");
 const {
   createRemoteAgentBridgeService,
   createRemoteSystemService,
@@ -67,6 +68,7 @@ let naraRouterConfigStore = null;
 let miniMaxConfigStore = null;
 let codeBuddyCodexConfigStore = null;
 let settingsModule = null;
+let screenshotModule = null;
 let codexModelBridgeModule = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
@@ -336,6 +338,7 @@ if (!gotSingleInstanceLock) {
       naraRouterCatalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
       miniMaxCatalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json")
     });
+    screenshotModule = createScreenshotModule({ ipcMain, shellApi: shell });
     clipboardImageService = createClipboardImageService({
       clipboard,
       terminalManager,
@@ -491,6 +494,7 @@ app.on("window-all-closed", () => {
     void remoteAgentBridgeService.shutdown();
   }
   settingsModule?.shutdown();
+  screenshotModule?.shutdown();
   if (codexModelBridgeModule) {
     void codexModelBridgeModule.shutdown();
   }

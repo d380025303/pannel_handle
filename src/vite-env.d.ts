@@ -102,6 +102,8 @@ export type AppConfig = {
   autoWorkBuddyCheckin: boolean;
   autoCollapseFileChains: boolean;
   debugMode: boolean;
+  screenshotEnabled: boolean;
+  screenshotShortcut: string;
   lastActiveSessionIds: string[];
   themeId: ThemeId;
   locale: Locale;
@@ -969,6 +971,10 @@ export type WindowApi = {
   onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
 };
 
+export type ScreenshotApi = {
+  captureRegion: () => Promise<{ status: "launched" }>;
+};
+
 export type MobileAccessApi = {
   getState: () => Promise<MobileAccessState>;
   updateConfig: (partial: Partial<MobileAccessState["config"]>) => Promise<MobileAccessState>;
@@ -1224,6 +1230,7 @@ declare global {
   interface Window {
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
+    screenshotApi: ScreenshotApi;
     agentConversationApi: AgentConversationApi;
     launchTemplateApi: LaunchTemplateApi;
     mobileAccessApi: MobileAccessApi;

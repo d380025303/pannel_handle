@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, Library, Minus, PanelsTopLeft, Plus, Settings, Square, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, Library, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -15,9 +15,11 @@ type TitleBarProps = {
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
   mobileAccessState: MobileAccessState | null;
+  screenshotEnabled?: boolean;
+  onCaptureScreenshot?: () => void;
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSkills, onOpenMcp }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSkills, onOpenMcp }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -59,6 +61,11 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, onOpenSe
           <button className="titlebar-settings-btn" type="button" title={t("tokenStats.title")} aria-label={t("tokenStats.open")} onClick={() => onOpenStats?.()}><BarChart3 aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("skills.title")} aria-label={t("skills.open")} onClick={() => onOpenSkills?.()}><BookOpen aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("mcp.title")} aria-label={t("mcp.open")} onClick={() => onOpenMcp?.()}><Cable aria-hidden="true" /></button>
+          {screenshotEnabled && (
+            <button className="titlebar-settings-btn" type="button" title={t("screenshot.capture")} aria-label={t("screenshot.capture")} onClick={onCaptureScreenshot}>
+              <ScanLine aria-hidden="true" />
+            </button>
+          )}
           <button
             className="titlebar-settings-btn"
             type="button"
