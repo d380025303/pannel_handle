@@ -13,6 +13,8 @@ import type { FileTransferTask, RemoteFileDownloadProgress, RemoteFileEntry, Rem
 
 type RemoteFilePanelProps = {
   session?: TerminalSession;
+  rememberedNavigationState?: RemoteFilePanelNavigationState;
+  onNavigationStateChange?: (sessionId: string, state: RemoteFilePanelNavigationState) => void;
   openRequest?: { sessionId: string; path: string; requestId: number } | null;
   closePreviewRequest?: { tabId: string; requestId: number } | null;
   previewHost?: HTMLElement | null;
@@ -40,6 +42,12 @@ export type RemotePreviewTabSummary = {
   fileName: string;
   dirty: boolean;
   status: "loading" | "ready" | "error";
+};
+
+export type RemoteFilePanelNavigationState = {
+  navigationRoot: string;
+  currentPath: string;
+  expandedPaths: string[];
 };
 
 type PreviewState =
@@ -242,6 +250,8 @@ function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: numbe
 
 export function RemoteFilePanel({
   session,
+  rememberedNavigationState,
+  onNavigationStateChange,
   openRequest,
   closePreviewRequest,
   previewHost,
@@ -682,6 +692,7 @@ export function RemoteFilePanel({
     directoryRequestRef.current.clear();
     treeRootRef.current = root;
     directoriesRef.current = {};
+    expandedPathsRef.current = new Set([path]);
     setTreeRoot(root);
     setDirectories({});
     setExpandedPaths(new Set([path]));
@@ -748,6 +759,63 @@ export function RemoteFilePanel({
     return undefined;
   }, [closeFileContextMenu, loadTreeDirectory, onCurrentPathChange, sessionId, setRootDirectory]);
 
+  const restoreRememberedNavigation = useCallback(async (
+    state: RemoteFilePanelNavigationState,
+    defaultRoot: string
+  ) => {
+    const requestedRoot = state.navigationRoot || defaultRoot;
+    let restoredRoot = requestedRoot;
+
+    navigationRootRef.current = requestedRoot;
+    setNavigationRoot(requestedRoot);
+    let rootEntries = await loadDirectory(requestedRoot, false, true);
+    if (rootEntries === undefined && !sameTreePath(requestedRoot, defaultRoot)) {
+      restoredRoot = defaultRoot;
+      navigationRootRef.current = defaultRoot;
+      setNavigationRoot(defaultRoot);
+      setError(null);
+      rootEntries = await loadDirectory(defaultRoot, false, true);
+    }
+    if (rootEntries === undefined) return;
+
+    const restoredExpandedPaths = new Set<string>([restoredRoot]);
+    const candidates = state.expandedPaths
+      .filter((path) => !sameTreePath(path, restoredRoot) && isPathInside(path, restoredRoot))
+      .sort((left, right) => left.replace(/\\/g, "/").split("/").length - right.replace(/\\/g, "/").split("/").length);
+
+    for (const path of candidates) {
+      const exists = Object.values(directoriesRef.current).some((directory) => (
+        directory.status === "ready"
+        && directory.entries.some((entry) => entry.type === "directory" && sameTreePath(entry.path, path))
+      ));
+      if (!exists) continue;
+      try {
+        const entries = await loadTreeDirectory(path);
+        if (entries) restoredExpandedPaths.add(path);
+      } catch {
+        // A remembered directory may have been removed or become inaccessible while the panel was closed.
+      }
+    }
+
+    expandedPathsRef.current = restoredExpandedPaths;
+    setExpandedPaths(new Set(restoredExpandedPaths));
+
+    const restoredCurrentPath = sameTreePath(state.currentPath, restoredRoot)
+      || Object.values(directoriesRef.current).some((directory) => (
+        directory.status === "ready"
+        && directory.entries.some((entry) => entry.type === "directory" && sameTreePath(entry.path, state.currentPath))
+      ))
+      ? state.currentPath
+      : restoredRoot;
+    currentPathRef.current = restoredCurrentPath;
+    pathInputRef.current = restoredCurrentPath;
+    setCurrentPath(restoredCurrentPath);
+    setPathInput(restoredCurrentPath);
+    setPathHistory([restoredCurrentPath]);
+    setPathHistoryIndex(0);
+    onCurrentPathChange?.(restoredCurrentPath);
+  }, [loadDirectory, loadTreeDirectory, onCurrentPathChange]);
+
   useEffect(() => {
     if (!sessionId) {
       resetPanelState(".");
@@ -762,6 +830,14 @@ export function RemoteFilePanel({
       restorePanelState(cachedPanelState);
       return () => {
         panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
+        const rememberedRoot = navigationRootRef.current;
+        if (rememberedRoot) {
+          onNavigationStateChange?.(sessionId, {
+            navigationRoot: rememberedRoot,
+            currentPath: currentPathRef.current,
+            expandedPaths: [...expandedPathsRef.current]
+          });
+        }
         requestRef.current += 1;
         previewRequestRef.current += 1;
         directoryRequestSequenceRef.current += 1;
@@ -782,14 +858,18 @@ export function RemoteFilePanel({
       .then(async (home) => {
         if (!disposed && requestRef.current === initialRequestId) {
           const rootPath = home || ".";
-          navigationRootRef.current = rootPath;
-          setNavigationRoot(rootPath);
-          setCurrentPath(rootPath);
-          setPathInput(rootPath);
-          setPathHistory([rootPath]);
-          setPathHistoryIndex(0);
-          onCurrentPathChange?.(rootPath);
-          void loadDirectory(rootPath, false, true);
+          if (rememberedNavigationState) {
+            await restoreRememberedNavigation(rememberedNavigationState, rootPath);
+          } else {
+            navigationRootRef.current = rootPath;
+            setNavigationRoot(rootPath);
+            setCurrentPath(rootPath);
+            setPathInput(rootPath);
+            setPathHistory([rootPath]);
+            setPathHistoryIndex(0);
+            onCurrentPathChange?.(rootPath);
+            void loadDirectory(rootPath, false, true);
+          }
         }
       })
       .catch((err) => {
@@ -802,6 +882,11 @@ export function RemoteFilePanel({
     return () => {
       if (navigationRootRef.current) {
         panelStateBySessionRef.current.set(sessionId, createPanelStateSnapshot());
+        onNavigationStateChange?.(sessionId, {
+          navigationRoot: navigationRootRef.current,
+          currentPath: currentPathRef.current,
+          expandedPaths: [...expandedPathsRef.current]
+        });
       }
       disposed = true;
       requestRef.current += 1;
@@ -809,7 +894,7 @@ export function RemoteFilePanel({
       directoryRequestSequenceRef.current += 1;
       directoryRequestRef.current.clear();
     };
-  }, [createPanelStateSnapshot, loadDirectory, onActivePreviewTabChange, resetPanelState, restorePanelState, sessionId]);
+  }, [createPanelStateSnapshot, loadDirectory, onActivePreviewTabChange, onCurrentPathChange, onNavigationStateChange, rememberedNavigationState, resetPanelState, restorePanelState, restoreRememberedNavigation, sessionId]);
 
   const handleOpenEntry = useCallback(async (entry: RemoteFileEntry, force = false) => {
     if (!force && entry.type !== "directory" && entry.path === selectedPathRef.current) {

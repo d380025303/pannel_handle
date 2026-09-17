@@ -23,7 +23,7 @@ import { TerminalComposer } from "./components/terminal/TerminalComposer";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
 import { FileTransferPanel } from "./components/remote/FileTransferPanel";
-import { RemoteFilePanel, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
+import { RemoteFilePanel, type RemoteFilePanelNavigationState, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
@@ -133,6 +133,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const saveMcpRef = useRef<(() => Promise<boolean>) | null>(null);
   const lastBlockingOverlaySignatureRef = useRef("");
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
+  const filePanelNavigationBySessionRef = useRef(new Map<string, RemoteFilePanelNavigationState>());
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
   workspaceTabRef.current = workspaceTab;
   const { isMaximized } = useWindowState();
@@ -231,6 +232,17 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const handleFilePanelPathChange = useCallback((path: string) => {
     if (activeSessionId) setFilePanelPath({ sessionId: activeSessionId, path });
   }, [activeSessionId]);
+
+  const handleFilePanelNavigationChange = useCallback((sessionId: string, state: RemoteFilePanelNavigationState) => {
+    filePanelNavigationBySessionRef.current.set(sessionId, state);
+  }, []);
+
+  useEffect(() => {
+    const runningSessionIds = new Set(terminalSessions.sessions.map((session) => session.id));
+    for (const sessionId of filePanelNavigationBySessionRef.current.keys()) {
+      if (!runningSessionIds.has(sessionId)) filePanelNavigationBySessionRef.current.delete(sessionId);
+    }
+  }, [terminalSessions.sessions]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -866,6 +878,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
               {activeRightTool === "files" && showFilesPanel ? (
                 <RemoteFilePanel
                   session={terminalSessions.activeSession}
+                  rememberedNavigationState={terminalSessions.activeId ? filePanelNavigationBySessionRef.current.get(terminalSessions.activeId) : undefined}
+                  onNavigationStateChange={handleFilePanelNavigationChange}
                   openRequest={fileOpenRequest}
                   closePreviewRequest={closePreviewRequest}
                   previewHost={previewHost}

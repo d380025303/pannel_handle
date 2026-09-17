@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RemoteFilePanel } from "./RemoteFilePanel";
+import { RemoteFilePanel, type RemoteFilePanelNavigationState } from "./RemoteFilePanel";
 import type { ClipboardApi, RemoteFileApi, RemoteFileEntry, TerminalSession } from "../../vite-env";
 
 const rootPath = "C:\\workspace";
@@ -128,6 +128,89 @@ describe("RemoteFilePanel directory navigation", () => {
     await waitFor(() => expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe("/other"));
     rerender(<RemoteFilePanel session={session} />);
     await waitFor(() => expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe(nextRoot));
+  });
+
+  it("restores the current directory and expanded tree after the panel is remounted", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+    let rememberedState: RemoteFilePanelNavigationState | undefined;
+    const onNavigationStateChange = vi.fn((_sessionId: string, state: RemoteFilePanelNavigationState) => {
+      rememberedState = state;
+    });
+
+    const first = render(
+      <RemoteFilePanel
+        session={session}
+        autoCollapseFileChains={false}
+        onNavigationStateChange={onNavigationStateChange}
+      />
+    );
+    const childRow = (await screen.findByTitle(childPath)).closest("button")!;
+    fireEvent.click(childRow);
+    await screen.findByTitle(`${childPath}\\01_SCHEMA`);
+    first.unmount();
+
+    expect(onNavigationStateChange).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      navigationRoot: rootPath,
+      currentPath: childPath,
+      expandedPaths: expect.arrayContaining([rootPath, childPath])
+    }));
+
+    const second = render(
+      <RemoteFilePanel
+        session={session}
+        autoCollapseFileChains={false}
+        rememberedNavigationState={rememberedState}
+        onNavigationStateChange={onNavigationStateChange}
+      />
+    );
+    await screen.findByTitle(`${childPath}\\01_SCHEMA`);
+    expect(second.container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe(childPath);
+    expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, childPath);
+  });
+
+  it("falls back to the session home when a remembered root is no longer available", async () => {
+    const missingRoot = "D:\\missing";
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
+      if (path === missingRoot) throw new Error("Directory not found");
+      if (path === rootPath) return [directory("patches", childPath)];
+      return [];
+    });
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = {
+      id: "session-1",
+      title: "Windows",
+      shell: "powershell.exe",
+      cwd: rootPath,
+      createdAt: 1,
+      type: "windows"
+    };
+
+    const { container } = render(
+      <RemoteFilePanel
+        session={session}
+        rememberedNavigationState={{
+          navigationRoot: missingRoot,
+          currentPath: `${missingRoot}\\child`,
+          expandedPaths: [missingRoot, `${missingRoot}\\child`]
+        }}
+      />
+    );
+
+    await screen.findByTitle(childPath);
+    expect(container.querySelector<HTMLInputElement>(".remote-file-path input")!.value).toBe(rootPath);
+    expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, missingRoot);
+    expect(remoteFileApi.list).toHaveBeenCalledWith(session.id, rootPath);
+    expect(screen.queryByText("Directory not found")).toBeNull();
   });
 
   it("navigates above the session working directory and accepts another absolute path", async () => {
