@@ -338,7 +338,11 @@ if (!gotSingleInstanceLock) {
       naraRouterCatalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
       miniMaxCatalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json")
     });
-    screenshotModule = createScreenshotModule({ ipcMain, shellApi: shell });
+    screenshotModule = createScreenshotModule({
+      ipcMain,
+      shellApi: shell,
+      getWindowFromEvent: windowManager.getWindowFromEvent
+    });
     clipboardImageService = createClipboardImageService({
       clipboard,
       terminalManager,

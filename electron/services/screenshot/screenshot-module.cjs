@@ -1,9 +1,9 @@
 const { createScreenshotService } = require("./screenshot-service.cjs");
 const { registerScreenshotIpcHandlers } = require("./screenshot-ipc-handlers.cjs");
 
-function createScreenshotModule({ ipcMain, shellApi, platform = process.platform, createService = createScreenshotService }) {
+function createScreenshotModule({ ipcMain, shellApi, getWindowFromEvent, platform = process.platform, createService = createScreenshotService }) {
   const screenshotService = createService({ shellApi, platform });
-  const unregister = registerScreenshotIpcHandlers({ ipcMain, screenshotService });
+  const unregister = registerScreenshotIpcHandlers({ ipcMain, screenshotService, getWindowFromEvent });
   let stopped = false;
   return {
     screenshotService,
