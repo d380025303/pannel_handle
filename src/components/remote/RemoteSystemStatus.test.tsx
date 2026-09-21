@@ -6,7 +6,7 @@ import type { RemoteSystemMetrics } from "../../vite-env";
 import { I18nProvider } from "../../i18n";
 import { RemoteSystemStatus } from "./RemoteSystemStatus";
 import { RemoteSystemPanel } from "./RemoteSystemPanel";
-import { RemoteMetricChart } from "./RemoteMetricChart";
+import { RemoteMetricChart, RemoteNetworkChart } from "./RemoteMetricChart";
 
 const metrics: RemoteSystemMetrics = {
   sampledAt: 1,
@@ -129,6 +129,39 @@ describe("RemoteSystemPanel", () => {
       tone="cpu"
     />);
     expect(container.querySelectorAll("polyline")).toHaveLength(2);
+  });
+
+  it("connects regular slow SSH samples in metric and network charts", () => {
+    const slowHistory = [0, 20000, 40000, 60000].map((sampledAt, index) => ({
+      sampledAt,
+      cpuUsedPercent: 10 + index * 5,
+      memoryUsedPercent: 20 + index,
+      receivedBytesPerSecond: 100 + index * 10,
+      transmittedBytesPerSecond: 50 + index * 10
+    }));
+    const { container } = render(<>
+      <RemoteMetricChart points={slowHistory} metric="CPU" currentValue={25} getValue={(point) => point.cpuUsedPercent} tone="cpu" />
+      <RemoteNetworkChart points={slowHistory} received={130} transmitted={80} />
+    </>);
+    expect(container.querySelectorAll("polyline")).toHaveLength(3);
+    expect(container.querySelectorAll("circle.remote-metric-line")).toHaveLength(0);
+  });
+
+  it("keeps genuine gaps and missing values disconnected at a slow cadence", () => {
+    const slowHistory = [
+      { sampledAt: 0, cpuUsedPercent: 10 },
+      { sampledAt: 20000, cpuUsedPercent: 15 },
+      { sampledAt: 40000, cpuUsedPercent: 20 },
+      { sampledAt: 130000, cpuUsedPercent: 25 },
+      { sampledAt: 150000, cpuUsedPercent: 30 },
+      { sampledAt: 170000, cpuUsedPercent: null },
+      { sampledAt: 190000, cpuUsedPercent: 35 }
+    ].map((point) => ({ ...point, memoryUsedPercent: null, receivedBytesPerSecond: null, transmittedBytesPerSecond: null }));
+    const { container } = render(<RemoteMetricChart
+      points={slowHistory} metric="CPU" currentValue={35} getValue={(point) => point.cpuUsedPercent} tone="cpu"
+    />);
+    expect(container.querySelectorAll("polyline")).toHaveLength(2);
+    expect(container.querySelectorAll("circle.remote-metric-line")).toHaveLength(1);
   });
 
   it("shows exact sampled values while hovering metric and network charts", () => {

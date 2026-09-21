@@ -8,7 +8,7 @@ const PLOT_TOP = 8;
 const PLOT_BOTTOM = 82;
 const PLOT_LEFT = 8;
 const PLOT_RIGHT = 312;
-const MAX_CONTIGUOUS_INTERVAL_MS = 7500;
+const MIN_CONTIGUOUS_INTERVAL_MS = 7500;
 
 type PlotRange = { start: number; end: number; duration: number };
 type PlotPoint = { x: number; y: number };
@@ -50,6 +50,15 @@ function getX(sampledAt: number, range: PlotRange) {
   return PLOT_LEFT + (sampledAt - range.start) / range.duration * (PLOT_RIGHT - PLOT_LEFT);
 }
 
+function getMaxContiguousInterval(points: RemoteSystemMetricPoint[]) {
+  const intervals = points.slice(1)
+    .map((point, index) => point.sampledAt - points[index].sampledAt)
+    .filter((interval) => Number.isFinite(interval) && interval > 0)
+    .sort((left, right) => left - right);
+  const typicalInterval = intervals[Math.floor((intervals.length - 1) / 2)] ?? 0;
+  return Math.max(MIN_CONTIGUOUS_INTERVAL_MS, typicalInterval * 2.5);
+}
+
 function createSegments(
   points: RemoteSystemMetricPoint[],
   getValue: (point: RemoteSystemMetricPoint) => number | null,
@@ -60,10 +69,11 @@ function createSegments(
   const segments: PlotPoint[][] = [];
   let segment: PlotPoint[] = [];
   let previousTime: number | undefined;
+  const maxContiguousInterval = getMaxContiguousInterval(points);
 
   points.forEach((point) => {
     const value = getValue(point);
-    if (!validMetric(value) || (previousTime !== undefined && point.sampledAt - previousTime > MAX_CONTIGUOUS_INTERVAL_MS)) {
+    if (!validMetric(value) || (previousTime !== undefined && point.sampledAt - previousTime > maxContiguousInterval)) {
       if (segment.length > 0) segments.push(segment);
       segment = [];
     }
