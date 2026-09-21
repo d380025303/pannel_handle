@@ -2,6 +2,9 @@ const { Client } = require("ssh2");
 const { createSshSessionRuntime } = require("./ssh-session-runtime.cjs");
 
 const SECTION_MARKER = "__PANNEL_HANDLE_SECTION__";
+const CORE_COMMAND_TIMEOUT_MS = 15000;
+const DISK_COMMAND_TIMEOUT_MS = 3000;
+const DISK_RETRY_INTERVAL_MS = 30000;
 const VIRTUAL_FILESYSTEMS = new Set([
   "devtmpfs",
   "tmpfs",
@@ -32,12 +35,16 @@ const LINUX_METRICS_COMMAND = [
   "cat /proc/meminfo",
   `printf '${SECTION_MARKER} cpu\\n'`,
   "cat /proc/stat 2>/dev/null || :",
-  `printf '${SECTION_MARKER} disk\\n'`,
-  "df -PTk 2>/dev/null || :",
   `printf '${SECTION_MARKER} mountinfo\\n'`,
   "cat /proc/self/mountinfo 2>/dev/null || :",
   `printf '${SECTION_MARKER} diskio\\n'`,
   "cat /proc/diskstats 2>/dev/null || :"
+].join("; ");
+
+const LINUX_DISK_COMMAND = [
+  "export LC_ALL=C",
+  `printf '${SECTION_MARKER} disk\\n'`,
+  "df -PTk 2>/dev/null || :"
 ].join("; ");
 
 function splitSections(output) {
@@ -209,6 +216,7 @@ function createRemoteSystemService({
 }) {
   const clients = new Map();
   const metricSamples = new Map();
+  const diskRetryAt = new Map();
   const sshRuntime = sshSessionRuntime || createSshSessionRuntime({
     terminalManager,
     sessionStore,
@@ -233,7 +241,7 @@ function createRemoteSystemService({
     entry.promise = new Promise((resolve, reject) => {
       let settled = false;
       const fail = (err) => {
-        clients.delete(sessionId);
+        if (clients.get(sessionId) === entry) clients.delete(sessionId);
         if (!settled) {
           settled = true;
           reject(err);
@@ -243,8 +251,10 @@ function createRemoteSystemService({
         .then((client) => {
           entry.client = client;
           client.on("close", () => {
-            clients.delete(sessionId);
-            metricSamples.delete(sessionId);
+            if (clients.get(sessionId) === entry) {
+              clients.delete(sessionId);
+              metricSamples.delete(sessionId);
+            }
           });
           settled = true;
           resolve(client);
@@ -255,38 +265,80 @@ function createRemoteSystemService({
     return entry.promise;
   }
 
-  async function exec(sessionId, command) {
+  async function exec(sessionId, command, timeoutMs) {
     const client = await connect(sessionId);
     return new Promise((resolve, reject) => {
-      client.exec(command, (err, stream) => {
-        if (err) {
+      let settled = false;
+      let stream;
+      let stdout = "";
+      let stderr = "";
+      const finish = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve(stdout);
+      };
+      const timer = setTimeout(() => {
+        finish(new Error("Remote metrics command timed out."));
+        if (stream) {
+          try { stream.close(); } catch { void disconnect(sessionId); }
+        } else {
           void disconnect(sessionId);
-          reject(err);
-          return;
         }
-        let stdout = "";
-        let stderr = "";
-        stream.on("data", (data) => {
-          stdout += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-        });
-        stream.stderr?.on("data", (data) => {
-          stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
-        });
-        stream.on("close", (code) => {
-          if (Number.isInteger(code) && code !== 0) {
-            reject(new Error(stderr.trim() || `Remote metrics command failed with exit code ${code}.`));
-          } else {
-            resolve(stdout);
+      }, timeoutMs);
+      try {
+        client.exec(command, (err, remoteStream) => {
+          if (settled) {
+            try { remoteStream?.close?.(); } catch { /* Ignore late channel cleanup failures. */ }
+            return;
           }
+          if (err) {
+            void disconnect(sessionId);
+            finish(err);
+            return;
+          }
+          stream = remoteStream;
+          stream.on("data", (data) => {
+            stdout += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          });
+          stream.stderr?.on("data", (data) => {
+            stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          });
+          stream.on("error", (error) => {
+            if (settled) return;
+            void disconnect(sessionId);
+            finish(error);
+          });
+          stream.on("close", (code) => {
+            if (Number.isInteger(code) && code !== 0) {
+              finish(new Error(stderr.trim() || `Remote metrics command failed with exit code ${code}.`));
+            } else {
+              finish();
+            }
+          });
         });
-      });
+      } catch (error) {
+        void disconnect(sessionId);
+        finish(error);
+      }
     });
   }
 
   async function getMetrics(sessionId) {
     getSession(sessionId);
-    const parsed = parseLinuxMetrics(await exec(sessionId, LINUX_METRICS_COMMAND));
+    const coreOutput = await exec(sessionId, LINUX_METRICS_COMMAND, CORE_COMMAND_TIMEOUT_MS);
     const sampledAt = now();
+    let diskOutput = "";
+    if (sampledAt >= (diskRetryAt.get(sessionId) || 0)) {
+      try {
+        diskOutput = await exec(sessionId, LINUX_DISK_COMMAND, DISK_COMMAND_TIMEOUT_MS);
+        diskRetryAt.delete(sessionId);
+      } catch {
+        diskRetryAt.set(sessionId, sampledAt + DISK_RETRY_INTERVAL_MS);
+      }
+    }
+    const parsed = parseLinuxMetrics(`${coreOutput}\n${diskOutput}`);
     const previous = metricSamples.get(sessionId);
     const elapsedSeconds = previous ? (sampledAt - previous.sampledAt) / 1000 : 0;
     const receivedBytesPerSecond = calculateRate(
@@ -329,6 +381,7 @@ function createRemoteSystemService({
     const entry = clients.get(sessionId);
     clients.delete(sessionId);
     metricSamples.delete(sessionId);
+    diskRetryAt.delete(sessionId);
     if (entry) {
       try {
         if (entry.client) {
