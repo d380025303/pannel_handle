@@ -274,6 +274,25 @@ contextBridge.exposeInMainWorld("agentTokenStatsApi", {
   }
 });
 
+contextBridge.exposeInMainWorld("postgresBackupApi", {
+  getConfig: () => ipcRenderer.invoke("postgres-backup:get-config"),
+  saveConfig: input => ipcRenderer.invoke("postgres-backup:save-config", input),
+  testConnection: input => ipcRenderer.invoke("postgres-backup:test", input),
+  run: () => ipcRenderer.invoke("postgres-backup:run"),
+  listDevices: () => ipcRenderer.invoke("postgres-backup:devices"),
+  getDashboard: input => ipcRenderer.invoke("postgres-backup:dashboard", input),
+  listSnapshots: deviceId => ipcRenderer.invoke("postgres-backup:snapshots", deviceId),
+  restore: (id, passphrase) => ipcRenderer.invoke("postgres-backup:restore", id, passphrase),
+  listConversations: (deviceId, offset) => ipcRenderer.invoke("postgres-backup:conversations", deviceId, offset),
+  getMessages: (deviceId, sourceKey, ref, offset) => ipcRenderer.invoke("postgres-backup:messages", deviceId, sourceKey, ref, offset),
+  deleteDevice: deviceId => ipcRenderer.invoke("postgres-backup:delete-device", deviceId),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("postgres-backup:changed", listener);
+    return () => ipcRenderer.removeListener("postgres-backup:changed", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("remoteAgentApi", {
   listAudit: (sessionId) => ipcRenderer.invoke("remote-agent:audit-list", { sessionId }),
   listPendingApprovals: () => ipcRenderer.invoke("remote-agent:approval-list"),

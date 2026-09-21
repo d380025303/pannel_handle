@@ -27,6 +27,7 @@ const { createRemoteFilesModule, registerRemoteFileScheme } = require("./service
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
+const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
@@ -80,6 +81,7 @@ let skillsService = null;
 let mcpConfigService = null;
 let remoteAgentBridgeService = null;
 let tokenUsageModule = null;
+let postgresBackupService = null;
 let workBuddyCheckinService = null;
 let workBuddyAutoCheckinService = null;
 let sshHookTunnelService = null;
@@ -138,6 +140,7 @@ if (!gotSingleInstanceLock) {
       getDefaultShell: () => resolveConfiguredShell(undefined, false),
       getWslShell,
       safeStorage,
+      onChanged: () => postgresBackupService?.schedule(),
       templateUsageStore,
       launchTemplateStore
     });
@@ -192,6 +195,7 @@ if (!gotSingleInstanceLock) {
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
     const broadcast = (channel, payload) => {
       windowManager.broadcast(channel, payload);
+      if (channel === "sessions:changed") postgresBackupService?.trackSessions(payload);
       if (mobileRemoteService) {
         mobileRemoteService.handleTerminalEvent(channel, payload);
       }
@@ -287,7 +291,9 @@ if (!gotSingleInstanceLock) {
       databaseFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
       legacyStatsFile: path.join(app.getPath("userData"), "agent-token-stats.json"),
       broadcast: windowManager.broadcast,
-      conversationSink: agentConversationManager
+      conversationSink: agentConversationManager,
+      onStatsChanged: () => postgresBackupService?.schedule(),
+      onStatsCleared: () => postgresBackupService?.newStatsEpoch()
     });
     remoteFilesModule = createRemoteFilesModule({
       app,
@@ -438,6 +444,15 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast
     });
     sessionStore.loadLibrary();
+    postgresBackupService = createPostgresBackupService({
+      userData: app.getPath("userData"), safeStorage, sessionStore,
+      statsFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
+      terminalManager, historyService: agentConversationHistoryService,
+      onChanged: value => windowManager.broadcast("postgres-backup:changed", value)
+    });
+    postgresBackupService.load();
+    postgresBackupService.trackSessions(sessionStore.getLibrary().filter(session => session.recentLaunchCount > 0));
+    postgresBackupService.start();
     await agentHookServer.start();
     await remoteAgentBridgeService.start();
     await ideaModule.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
@@ -465,7 +480,8 @@ if (!gotSingleInstanceLock) {
       hookConfigManager,
       remoteHookConfigService,
       projectSearchService,
-      remoteAgentBridgeService
+      remoteAgentBridgeService,
+      postgresBackupService
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
@@ -506,6 +522,7 @@ app.on("window-all-closed", () => {
     void ideaModule.shutdown();
   }
   tokenUsageModule?.shutdown();
+  if (postgresBackupService) void postgresBackupService.shutdown();
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();
   }

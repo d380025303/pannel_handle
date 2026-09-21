@@ -24,6 +24,7 @@ const clear = vi.fn(async () => true);
 describe("AgentTokenStatsDashboard", () => {
   afterEach(cleanup);
   beforeEach(() => {
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: undefined });
     getDashboard.mockReset();
     getDashboard.mockResolvedValue(defaultDashboard);
     clear.mockClear();
@@ -41,6 +42,16 @@ describe("AgentTokenStatsDashboard", () => {
     expect(clear).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "再次点击确认清空" }));
     await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+  });
+
+  it("switches from local statistics to another computer's backup", async () => {
+    const remoteDashboard = vi.fn(async () => ({ ...defaultDashboard, summary: { ...defaultDashboard.summary, sessionCount: 2 } }));
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
+      listDevices: async () => [{ id: "remote-device", name: "Remote device" }], getDashboard: remoteDashboard
+    } });
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    fireEvent.change(await screen.findByRole("combobox", { name: "来源电脑" }), { target: { value: "remote-device" } });
+    await waitFor(() => expect(remoteDashboard).toHaveBeenCalledWith(expect.objectContaining({ deviceId: "remote-device" })));
   });
 
   it("switches the date range and reloads", async () => {

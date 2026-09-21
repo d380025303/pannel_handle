@@ -67,7 +67,9 @@ export function AgentConversationPanel({
   const [scope, setScope] = useState<"cwd" | "all">("cwd");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
-  const [historyItems, setHistoryItems] = useState<AgentConversationHistoryItem[]>([]);
+  const [historyItems, setHistoryItems] = useState<Array<AgentConversationHistoryItem & { backupSourceKey?: string; backupRef?: string }>>([]);
+  const [backupDevices, setBackupDevices] = useState<Array<{ id: string; name: string }>>([]);
+  const [historyDeviceId, setHistoryDeviceId] = useState("local");
   const [historyErrors, setHistoryErrors] = useState<AgentConversationHistoryError[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -95,11 +97,16 @@ export function AgentConversationPanel({
   );
   const normalizedSearchQuery = searchQuery.trim();
   const historyProviderFilters = useMemo(
-    () => session?.type === "ssh"
+    () => historyDeviceId === "local" && session?.type === "ssh"
       ? (["all", "codex", "codebuddy"] as const)
       : (["all", "codex", "codebuddy", "gemini", "grok"] as const),
-    [session?.type]
+    [historyDeviceId, session?.type]
   );
+
+  useEffect(() => {
+    if (window.postgresBackupApi) void window.postgresBackupApi.listDevices().then(setBackupDevices).catch(() => {});
+  }, []);
+  useEffect(() => { setSelectedRef(""); setHistoryItems([]); setScope(historyDeviceId === "local" ? "cwd" : "all"); }, [historyDeviceId]);
 
   useEffect(() => {
     setSelectedRef(hasLive ? "live" : "");
@@ -117,7 +124,7 @@ export function AgentConversationPanel({
     const requestId = ++listRequestRef.current;
     setHistoryLoading(true);
     try {
-      const result = await window.agentConversationApi.listHistory({
+      const result = historyDeviceId === "local" ? await window.agentConversationApi.listHistory({
         panelSessionId: session.id,
         providers: providerFilter === "all"
           ? (session.type === "ssh" ? ["codex", "codebuddy"] : ["codex", "codebuddy", "gemini", "grok"])
@@ -127,15 +134,26 @@ export function AgentConversationPanel({
         query: historyQuery.trim(),
         cursor,
         limit: 50
-      });
+      }) : await (async () => {
+        const offset = Number(cursor || 0);
+        const page = await window.postgresBackupApi.listConversations(historyDeviceId, offset);
+        const items = page.map(entry => ({ ...entry.metadata,
+          ref: `backup:${JSON.stringify([entry.source_key, entry.conversation_ref])}`,
+          backupSourceKey: entry.source_key, backupRef: entry.conversation_ref }))
+          .filter(item => (providerFilter === "all" || item.provider === providerFilter)
+            && (scope === "all" || item.cwd === session.cwd)
+            && (includeArchived || !item.archived)
+            && [item.title, item.preview, item.cwd].some(value => String(value || "").toLowerCase().includes(historyQuery.trim().toLowerCase())));
+        return { items, nextCursor: page.length === 100 ? String(offset + page.length) : null, errors: [] };
+      })();
       if (requestId !== listRequestRef.current) return;
       setHistoryItems(current => append ? [...current, ...result.items] : result.items);
       setHistoryErrors(result.errors);
       setHistoryCursor(result.nextCursor);
       if (!append) {
         setSelectedRef(current => {
-          if (current === "live" && hasLive) return current;
-          return result.items.some(item => item.ref === current) ? current : (hasLive ? "live" : result.items[0]?.ref || "");
+          if (current === "live" && hasLive && historyDeviceId === "local") return current;
+          return result.items.some(item => item.ref === current) ? current : (hasLive && historyDeviceId === "local" ? "live" : result.items[0]?.ref || "");
         });
       }
     } catch (error) {
@@ -146,7 +164,7 @@ export function AgentConversationPanel({
     } finally {
       if (requestId === listRequestRef.current) setHistoryLoading(false);
     }
-  }, [hasLive, historyProviderFilters, historyQuery, includeArchived, providerFilter, scope, session]);
+  }, [hasLive, historyDeviceId, historyProviderFilters, historyQuery, includeArchived, providerFilter, scope, session]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadHistory(); }, 180);
@@ -159,12 +177,19 @@ export function AgentConversationPanel({
     setDetailLoading(true);
     setDetailError("");
     try {
-      const result = await window.agentConversationApi.getHistoryMessages({
+      const result = historyDeviceId === "local" ? await window.agentConversationApi.getHistoryMessages({
         panelSessionId: session.id,
         conversationRef: selectedRef,
         cursor,
         limit: 100
-      });
+      }) : await (async () => {
+        if (!selectedHistory?.backupSourceKey || !selectedHistory.backupRef) throw new Error("Backup conversation was not found.");
+        const offset = Number(cursor || 0);
+        const page = await window.postgresBackupApi.getMessages(historyDeviceId,
+          selectedHistory.backupSourceKey, selectedHistory.backupRef, offset);
+        return { conversationRef: selectedRef, messages: page,
+          nextCursor: page.length === 100 ? String(offset + page.length) : null };
+      })();
       if (requestId !== detailRequestRef.current || result.conversationRef !== selectedRef) return;
       setHistoryMessages(current => append ? [...current, ...result.messages] : result.messages);
       setMessageCursor(result.nextCursor);
@@ -176,7 +201,7 @@ export function AgentConversationPanel({
     } finally {
       if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
-  }, [selectedRef, session]);
+  }, [historyDeviceId, selectedHistory, selectedRef, session]);
 
   useEffect(() => {
     setHistoryMessages([]);
@@ -329,6 +354,7 @@ export function AgentConversationPanel({
     <section className={`agent-conversation-panel${historyOpen ? " history-open" : ""}${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
       <aside id="agent-conversation-history" className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"} hidden={!historyOpen}>
         <div className="agent-conversation-history-filters">
+          {backupDevices.length > 0 && <select value={historyDeviceId} onChange={event => setHistoryDeviceId(event.target.value)} aria-label={isEnglish ? "Conversation source" : "对话来源"}><option value="local">{isEnglish ? "Local history" : "本机历史"}</option>{backupDevices.map(device => <option key={device.id} value={device.id}>{device.name}</option>)}</select>}
           <div className="agent-conversation-history-provider" role="group" aria-label={isEnglish ? "Provider" : "Agent 类型"}>
             {historyProviderFilters.map(provider => (
               <button className={providerFilter === provider ? "active" : ""} key={provider} type="button" onClick={() => setProviderFilter(provider)}>
@@ -348,7 +374,7 @@ export function AgentConversationPanel({
           </label>
         </div>
         <div className="agent-conversation-history-list">
-          {turn && (
+          {turn && historyDeviceId === "local" && (
             <button className={`agent-conversation-history-item live${selectedRef === "live" ? " active" : ""}`} type="button" onClick={() => selectConversation("live")}>
               <span><strong>{isEnglish ? "Current conversation" : "当前对话"}</strong><small className={`agent-conversation-provider ${turn.provider}`}>{providerName(turn.provider)}</small></span>
             </button>

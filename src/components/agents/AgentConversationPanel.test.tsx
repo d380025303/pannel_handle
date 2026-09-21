@@ -26,6 +26,7 @@ describe("AgentConversationPanel", () => {
   const getHistoryMessages = vi.fn();
 
   beforeEach(() => {
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: undefined });
     Object.defineProperty(window, "agentConversationApi", {
       configurable: true,
       value: {
@@ -74,6 +75,25 @@ describe("AgentConversationPanel", () => {
     expect(screen.getByText("Historical question")).toBeTruthy();
     expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "gemini", "grok"], scope: "cwd" }));
     expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
+  });
+
+  it("opens a backed-up conversation from another computer", async () => {
+    const listConversations = vi.fn(async () => [{ source_key: "windows:C:\\work",
+      conversation_ref: "codex:remote-one", metadata: { ref: "codex:remote-one", provider: "codex",
+        title: "Remote backup", preview: "Question", cwd: "C:\\work", createdAt: 1, updatedAt: 2, archived: false } }]);
+    const getMessages = vi.fn(async () => [{ id: "reply", provider: "codex", kind: "final", text: "Backed up answer", timestamp: 2 }]);
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
+      listDevices: async () => [{ id: "other-computer", name: "Other computer" }], listConversations, getMessages
+    } });
+    listHistory.mockResolvedValue({ items: [], nextCursor: null, errors: [] });
+    render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }}
+      session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "对话来源" }), { target: { value: "other-computer" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Remote backup/ }));
+    expect(await screen.findByText("Backed up answer")).toBeTruthy();
+    expect(listConversations).toHaveBeenCalledWith("other-computer", 0);
+    expect(getMessages).toHaveBeenCalledWith("other-computer", "windows:C:\\work", "codex:remote-one", 0);
   });
 
   afterEach(() => {

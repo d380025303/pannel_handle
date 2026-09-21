@@ -467,6 +467,20 @@ export function installBrowserPreview() {
       onChanged: () => () => undefined,
       onLiveChanged: () => () => undefined
     } satisfies Window["agentTokenStatsApi"],
+    postgresBackupApi: {
+      getConfig: async () => ({ deviceId: "preview-device", deviceName: "预览电脑", enabled: false, host: "", port: 5432, database: "", user: "", ssl: true, hasPassword: false, hasPassphrase: false, lastSuccessAt: null, lastError: "", running: false }),
+      saveConfig: async (input) => ({ deviceId: "preview-device", deviceName: input.deviceName || "预览电脑", enabled: input.enabled === true, host: input.host || "", port: input.port || 5432, database: input.database || "", user: input.user || "", ssl: input.ssl !== false, hasPassword: Boolean(input.password), hasPassphrase: Boolean(input.passphrase), lastSuccessAt: null, lastError: "", running: false }),
+      testConnection: async () => ({ ok: false, error: "浏览器预览无法连接 PostgreSQL" }),
+      run: async () => { throw new Error("浏览器预览无法执行备份"); },
+      listDevices: async () => [],
+      getDashboard: async () => { throw new Error("浏览器预览没有远端统计"); },
+      listSnapshots: async () => [],
+      restore: async () => { throw new Error("浏览器预览无法恢复会话"); },
+      listConversations: async () => [],
+      getMessages: async () => [],
+      deleteDevice: async () => false,
+      onChanged: () => () => undefined
+    } satisfies Window["postgresBackupApi"],
     remoteAgentApi: {
       listAudit: async (sessionId) => [{ sessionId, timestamp: now, operationId: "preview-op", kind: "operation", tool: "read_file", status: "completed", summary: "读取示例文件" }],
       listPendingApprovals: async () => [],
@@ -515,7 +529,7 @@ export function installBrowserPreview() {
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
     "codeBuddyCodexApi" | "agentConversationApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
-    "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "remoteAgentApi" |
+    "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"
   >;
 

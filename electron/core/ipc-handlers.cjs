@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -32,6 +32,19 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
+  if (postgresBackupService) {
+    ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());
+    ipcMain.handle("postgres-backup:save-config", (_event, input) => postgresBackupService.saveConfig(input));
+    ipcMain.handle("postgres-backup:test", (_event, input) => postgresBackupService.testConnection(input));
+    ipcMain.handle("postgres-backup:run", () => postgresBackupService.backupNow());
+    ipcMain.handle("postgres-backup:devices", () => postgresBackupService.listDevices());
+    ipcMain.handle("postgres-backup:dashboard", (_event, input) => postgresBackupService.getDashboard(input));
+    ipcMain.handle("postgres-backup:snapshots", (_event, deviceId) => postgresBackupService.listSnapshots(deviceId));
+    ipcMain.handle("postgres-backup:restore", (_event, id, passphrase) => postgresBackupService.restoreSnapshot(id, passphrase));
+    ipcMain.handle("postgres-backup:conversations", (_event, deviceId, offset) => postgresBackupService.listConversations(deviceId, offset));
+    ipcMain.handle("postgres-backup:messages", (_event, deviceId, sourceKey, ref, offset) => postgresBackupService.getMessages(deviceId, sourceKey, ref, offset));
+    ipcMain.handle("postgres-backup:delete-device", (_event, deviceId) => postgresBackupService.deleteDevice(deviceId));
+  }
 
   ipcMain.handle("sessions:export-library", async (event) => {
     const ownerWindow = windowManager.getWindowFromEvent(event);

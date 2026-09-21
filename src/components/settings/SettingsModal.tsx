@@ -1,4 +1,4 @@
-import { Bell, Bot, Braces, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
+import { Bell, Bot, Braces, Database, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { EnvironmentSettings, type EnvironmentSettingsHandle } from "../environment/EnvironmentSettings";
@@ -9,6 +9,7 @@ import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
 import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
+import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
 
@@ -33,7 +34,7 @@ type SettingsModalProps = {
   onCancel: () => void;
 };
 
-type SettingsCategory = "general" | "environment" | "models" | "mobile" | "notifications";
+type SettingsCategory = "general" | "environment" | "models" | "mobile" | "notifications" | "backup";
 
 export function SettingsModal({
   defaultWindowsShell,
@@ -87,8 +88,9 @@ export function SettingsModal({
     { id: "environment" as const, label: t("settings.environmentTitle"), description: t("settings.environmentNavDescription"), icon: Braces },
     { id: "models" as const, label: t("settings.modelsTitle"), description: t("settings.modelsDescription"), icon: Bot },
     { id: "mobile" as const, label: t("settings.mobileTitle"), description: t("settings.mobileNavDescription"), icon: Smartphone },
-    { id: "notifications" as const, label: t("settings.notificationsTitle"), description: t("settings.notificationsDescription"), icon: Bell }
-  ], [t]);
+    { id: "notifications" as const, label: t("settings.notificationsTitle"), description: t("settings.notificationsDescription"), icon: Bell },
+    { id: "backup" as const, label: locale === "en-US" ? "Database backup" : "数据库备份", description: locale === "en-US" ? "Back up and browse sessions, statistics and Agent conversations by computer" : "按电脑备份并查看会话、统计和 Agent 对话", icon: Database }
+  ], [locale, t]);
   const activeMetadata = categories.find(category => category.id === activeCategory) || categories[0];
 
   const requestLeave = useCallback((action: () => void) => {
@@ -402,6 +404,10 @@ export function SettingsModal({
 
             <section id="settings-panel-mobile" role="tabpanel" aria-labelledby="settings-tab-mobile" hidden={activeCategory !== "mobile"} className="settings-page settings-page-stack">
               <MobileAccessSettings />
+            </section>
+
+            <section id="settings-panel-backup" role="tabpanel" aria-labelledby="settings-tab-backup" hidden={activeCategory !== "backup"} className="settings-page settings-page-stack">
+              {activeCategory === "backup" && <PostgresBackupSettings />}
             </section>
 
             <section id="settings-panel-notifications" role="tabpanel" aria-labelledby="settings-tab-notifications" hidden={activeCategory !== "notifications"} className="settings-page settings-page-stack">

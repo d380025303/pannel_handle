@@ -139,7 +139,11 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
-  const { dashboard, loading, error, refresh } = useAgentTokenStats(range, provider, offset);
+  const [deviceId, setDeviceId] = useState("local");
+  const [devices, setDevices] = useState<Array<{ id: string; name: string }>>([]);
+  const { dashboard, loading, error, refresh } = useAgentTokenStats(range, provider, offset, deviceId);
+  useEffect(() => { if (window.postgresBackupApi) void window.postgresBackupApi.listDevices().then(setDevices).catch(() => {}); }, []);
+  useEffect(() => { setOffset(0); setExpandedSessionId(null); }, [deviceId]);
   useEffect(() => { setOffset(0); setExpandedSessionId(null); }, [provider, range]);
   const maxProviderTokens = useMemo(() => Math.max(1, ...(dashboard?.providerBreakdown.map(item => item.tokens.totalTokens) || [])), [dashboard]);
 
@@ -154,10 +158,11 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
       <header className="token-stats-header">
         <div className="token-stats-heading"><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><span className="token-stats-title-icon"><BarChart3 aria-hidden="true" /></span><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
+          {devices.length > 0 && <select value={deviceId} onChange={event => setDeviceId(event.target.value)} aria-label={locale === "en-US" ? "Source computer" : "来源电脑"}><option value="local">{locale === "en-US" ? "Local" : "本机"}</option><option value="all">{locale === "en-US" ? "All computers" : "全部电脑"}</option>{devices.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select>}
           <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>
           <select value={provider} onChange={(event) => setProvider(event.target.value as TokenStatsProvider)} aria-label={t("tokenStats.provider")}><option value="all">{t("tokenStats.allProviders")}</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="codebuddy">CodeBuddy</option><option value="opencode">OpenCode</option><option value="qoder">Qoder</option><option value="copilot">GitHub Copilot</option><option value="gemini">Gemini CLI</option><option value="grok">Grok CLI</option></select>
           <button className="icon-button" type="button" onClick={() => void refresh()} title={t("common.refresh")} disabled={loading}><RefreshCw className={loading ? "spin" : ""} aria-hidden="true" /></button>
-          <button className={`token-stats-clear${confirmClear ? " confirm" : ""}`} type="button" onClick={() => void clearAll()} onBlur={() => setConfirmClear(false)} disabled={clearing}><Trash2 aria-hidden="true" />{confirmClear ? t("tokenStats.confirmClear") : t("tokenStats.clear")}</button>
+          {deviceId === "local" && <button className={`token-stats-clear${confirmClear ? " confirm" : ""}`} type="button" onClick={() => void clearAll()} onBlur={() => setConfirmClear(false)} disabled={clearing}><Trash2 aria-hidden="true" />{confirmClear ? t("tokenStats.confirmClear") : t("tokenStats.clear")}</button>}
         </div>
       </header>
 

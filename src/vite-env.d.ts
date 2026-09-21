@@ -973,6 +973,26 @@ export type WindowApi = {
   onMaximizedChanged: (callback: (isMaximized: boolean) => void) => () => void;
 };
 
+export type PostgresBackupConfig = {
+  deviceId: string; deviceName: string; enabled: boolean; host: string; port: number;
+  database: string; user: string; ssl: boolean; hasPassword: boolean; hasPassphrase: boolean;
+  lastSuccessAt: number | null; lastError: string; running: boolean;
+};
+export type PostgresBackupApi = {
+  getConfig: () => Promise<PostgresBackupConfig>;
+  saveConfig: (input: Partial<PostgresBackupConfig> & { password?: string; passphrase?: string }) => Promise<PostgresBackupConfig>;
+  testConnection: (input?: Partial<PostgresBackupConfig> & { password?: string }) => Promise<{ ok: boolean; error?: string }>;
+  run: () => Promise<PostgresBackupConfig>;
+  listDevices: () => Promise<Array<{ id: string; name: string; last_seen_at: string }>>;
+  getDashboard: (options?: { deviceId?: string; range?: "7d" | "30d" | "all"; provider?: string; offset?: number; limit?: number }) => Promise<AgentTokenDashboard>;
+  listSnapshots: (deviceId: string) => Promise<Array<{ id: string; device_id: string; created_at: string; session_count: number }>>;
+  restore: (id: string, passphrase?: string) => Promise<{ importedCount: number; sessions: TerminalSession[] }>;
+  listConversations: (deviceId: string, offset?: number) => Promise<Array<{ source_key: string; conversation_ref: string; metadata: AgentConversationHistoryItem }>>;
+  getMessages: (deviceId: string, sourceKey: string, ref: string, offset?: number) => Promise<AgentConversationMessage[]>;
+  deleteDevice: (deviceId: string) => Promise<boolean>;
+  onChanged: (callback: (value: PostgresBackupConfig) => void) => () => void;
+};
+
 export type ScreenshotApi = {
   captureRegion: () => Promise<{ status: "launched" }>;
 };
@@ -1245,6 +1265,7 @@ declare global {
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;
+    postgresBackupApi: PostgresBackupApi;
     remoteAgentApi: RemoteAgentApi;
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;

@@ -11,7 +11,8 @@ function registerTokenUsageIpcHandlers({
   ipcMain,
   agentUsageService,
   agentTokenStatsStore,
-  agentTokenStatsService
+  agentTokenStatsService,
+  onStatsCleared = () => {}
 }) {
   ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
     return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
@@ -38,6 +39,7 @@ function registerTokenUsageIpcHandlers({
   ipcMain.handle("agent-token-live:get", (_event, { sessionId }) => agentTokenStatsService.getLive(sessionId));
   ipcMain.handle("agent-token-stats:clear", () => {
     agentTokenStatsStore.clear();
+    onStatsCleared();
     return true;
   });
 

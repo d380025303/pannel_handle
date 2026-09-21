@@ -36,7 +36,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore }) {
+function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore, onChanged = () => {} }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -222,6 +222,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       const tmpPath = sessionsFile + ".tmp";
       fs.writeFileSync(tmpPath, data, "utf-8");
       fs.renameSync(tmpPath, sessionsFile);
+      onChanged();
     } catch (err) {
       console.error("Failed to save library:", err);
     }

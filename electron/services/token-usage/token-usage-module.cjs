@@ -12,6 +12,8 @@ function createTokenUsageModule({
   legacyStatsFile,
   broadcast,
   conversationSink,
+  onStatsChanged = () => {},
+  onStatsCleared = () => {},
   createUsageService = createAgentUsageService,
   createStatsService = createAgentTokenStatsService,
   createStatsStore = createAgentTokenStatsStore,
@@ -20,7 +22,7 @@ function createTokenUsageModule({
   const statsStore = createStatsStore({
     databaseFile,
     legacyStatsFile,
-    onChanged: () => broadcast("agent-token-stats:changed", { timestamp: Date.now() })
+    onChanged: () => { broadcast("agent-token-stats:changed", { timestamp: Date.now() }); onStatsChanged(); }
   });
   statsStore.load();
 
@@ -40,7 +42,8 @@ function createTokenUsageModule({
     ipcMain,
     agentUsageService: usageService,
     agentTokenStatsStore: statsStore,
-    agentTokenStatsService: statsService
+    agentTokenStatsService: statsService,
+    onStatsCleared
   });
   let stopped = false;
 

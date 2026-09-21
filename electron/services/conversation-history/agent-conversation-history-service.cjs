@@ -30,7 +30,10 @@ function createAgentConversationHistoryService({
   const runRemote = createRemoteHistoryReader({ fsApi, remoteScriptFile, spawn, sshAgentTransport });
 
   async function listHistory(input = {}) {
-    const activeSession = getSession(input.panelSessionId);
+    return listHistoryForSession(getSession(input.panelSessionId), input);
+  }
+
+  async function listHistoryForSession(activeSession, input = {}) {
     const session = activeSession.type === "ssh" && activeSession.agentLocation === "local"
       ? { ...activeSession, type: "windows", cwd: activeSession.runtimeCwd || activeSession.cwd }
       : activeSession;
@@ -77,7 +80,10 @@ function createAgentConversationHistoryService({
   }
 
   async function getHistoryMessages(input = {}) {
-    const activeSession = getSession(input.panelSessionId);
+    return getHistoryMessagesForSession(getSession(input.panelSessionId), input);
+  }
+
+  async function getHistoryMessagesForSession(activeSession, input = {}) {
     const session = activeSession.type === "ssh" && activeSession.agentLocation === "local"
       ? { ...activeSession, type: "windows", cwd: activeSession.runtimeCwd || activeSession.cwd }
       : activeSession;
@@ -106,7 +112,7 @@ function createAgentConversationHistoryService({
     };
   }
 
-  return { listHistory, getHistoryMessages };
+  return { listHistory, getHistoryMessages, listHistoryForSession, getHistoryMessagesForSession };
 }
 
 module.exports = {
