@@ -3,6 +3,7 @@ import { CheckCircle2, Gauge, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentUsageLimit, AgentUsageResetResult, WorkBuddyCheckinStatus } from "../../vite-env";
 import type { AgentUsageViewState } from "../../hooks/useAgentUsage";
+import { CodeBuddyQuotaDetails } from "./CodeBuddyQuotaDetails";
 
 type AgentUsageStatusProps = {
   state: AgentUsageViewState;
@@ -273,7 +274,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
             </span>
           </div>
           <div className="agent-usage-limit-list">
-            {isCreditProvider && creditSummary && (
+            {isQoder && creditSummary && (
               <div className={`agent-usage-credit-summary ${primaryClass}`}>
                 <strong>{t(isQoder ? "usage.qoderTotal" : "usage.codebuddyTotal")}</strong>
                 <span>{t("usage.creditRemaining", {
@@ -281,6 +282,9 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                   total: formatAmount(locale, creditSummary.total)
                 })}</span>
               </div>
+            )}
+            {isCodeBuddy && state.status === "ready" && (
+              <CodeBuddyQuotaDetails snapshot={state.snapshot} />
             )}
             {resetCredits && (
               <section className="codex-reset-credits" aria-label={t("usage.resetCreditsTitle")}>
@@ -410,10 +414,10 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                 )}
               </section>
             )}
-            {isCreditProvider && groupedLimits.length === 0 && (
+            {isQoder && groupedLimits.length === 0 && (
               <div className="agent-usage-empty">{t("usage.noCreditResources")}</div>
             )}
-            {isCreditProvider ? groupedLimits.map(group => (
+            {!isCodeBuddy && (isQoder ? groupedLimits.map(group => (
               <section className="agent-usage-limit-group" key={group.category}>
                 <h4>{t(`usage.category.${group.category}`)}</h4>
                 {group.limits.map(limit => (
@@ -477,7 +481,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                     : t("usage.resetUnavailable")}</span>
                 </div>
               </div>
-            ))}
+            )))}
             {isQoder && (
               <section className="agent-usage-limit-group qoder-activity-quota" aria-label={t("usage.qoderActivities")}>
                 <h4>{t("usage.qoderActivities")}</h4>

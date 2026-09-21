@@ -444,6 +444,66 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("reads settings CodeBuddy quota without a terminal session and shares the Windows account cache", async () => {
+    const session = { id: "run-1", type: "windows", agentProvider: "codebuddy" };
+    const transports = [];
+    const transportFactory = vi.fn(runtimeSession => {
+      const events = new EventEmitter();
+      const transport = {
+        close: vi.fn(),
+        on: (eventName, listener) => events.on(eventName, listener),
+        write: vi.fn(line => {
+          const message = JSON.parse(line);
+          const result = message.method === "initialize"
+            ? { protocolVersion: 1 }
+            : { userInfo: { token: "secret", userId: "user-1" } };
+          queueMicrotask(() => events.emit("stdout", `${JSON.stringify({ id: message.id, result })}\n`));
+        })
+      };
+      transports.push({ runtimeSession, transport });
+      return transport;
+    });
+    const httpsRequest = vi.fn((_options, callback) => {
+      const request = new EventEmitter();
+      request.destroy = vi.fn();
+      request.end = vi.fn(() => {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        callback(response);
+        queueMicrotask(() => {
+          response.emit("data", JSON.stringify({
+            code: 0,
+            data: { Response: { Data: { Accounts: [{
+              ResourceId: "base",
+              PackageCode: "TCACA_code_008_cfWoLwvjU4",
+              PackageName: "Base",
+              CycleCapacitySizePrecise: "1000",
+              CycleCapacityRemainPrecise: "750"
+            }] } } }
+          }));
+          response.emit("end");
+        });
+      });
+      return request;
+    });
+    const service = createAgentUsageService({
+      terminalManager: { getSession: id => id === session.id ? session : undefined },
+      transportFactory,
+      httpsRequest,
+      now: () => 1000
+    });
+
+    await expect(service.getCodeBuddyUsage()).resolves.toMatchObject({
+      provider: "codebuddy",
+      summary: { total: 1000, remaining: 750 }
+    });
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({ provider: "codebuddy" });
+
+    expect(transportFactory).toHaveBeenCalledTimes(1);
+    expect(transports[0].runtimeSession).toMatchObject({ type: "windows", agentProvider: "codebuddy" });
+    expect(httpsRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts a local-bridge SSH CodeBuddy session as a Windows runtime", async () => {
     const session = { id: "bridge-1", type: "ssh", agentLocation: "local", agentProvider: "codebuddy" };
     const events = new EventEmitter();

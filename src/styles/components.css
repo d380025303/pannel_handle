@@ -1359,3 +1359,61 @@
   .settings-confirm-actions { flex-direction: column; }
   .settings-confirm-actions .modal-button { width: 100%; }
 }
+
+.codebuddy-quota-settings {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+}
+
+.codebuddy-quota-settings-header,
+.codebuddy-quota-state,
+.codebuddy-quota-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.codebuddy-quota-settings-header {
+  justify-content: space-between;
+}
+
+.codebuddy-quota-settings-header h5 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.codebuddy-quota-settings-header .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.codebuddy-quota-state,
+.codebuddy-quota-error {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.codebuddy-quota-error {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.codebuddy-quota-error > small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codebuddy-quota-settings .agent-usage-limit-list {
+  max-height: none;
+}
+
+.codebuddy-quota-updated-at {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}

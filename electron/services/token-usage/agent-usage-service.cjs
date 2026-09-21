@@ -14,6 +14,7 @@ const STDERR_LIMIT_BYTES = 64 * 1024;
 const INITIALIZE_REQUEST_ID = "pannel-handle-initialize";
 const RATE_LIMITS_REQUEST_ID = "pannel-handle-rate-limits";
 const RESET_CREDIT_REQUEST_ID = "pannel-handle-reset-credit";
+const SETTINGS_CODEBUDDY_SESSION_ID = "settings:codebuddy-usage";
 const RESET_CREDIT_OUTCOMES = new Set(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]);
 
 function clampPercent(value) {
@@ -488,9 +489,7 @@ function createAgentUsageService({
     }
   }
 
-  function getUsage(sessionId, options = {}) {
-    const session = terminalManager.getSession(sessionId);
-    if (!session) return Promise.reject(new Error("Session is not running."));
+  function getUsageForSession(session, options = {}) {
     if (session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter")) {
       return Promise.reject(new Error(`${session.codexBackend === "nararouter" ? "NaraRouter" : "OpenRouter"} sessions do not use ChatGPT Codex rate limits.`));
     }
@@ -537,6 +536,24 @@ function createAgentUsageService({
       });
     pending.set(key, promise);
     return promise;
+  }
+
+  function getUsage(sessionId, options = {}) {
+    const session = terminalManager.getSession(sessionId);
+    if (!session) return Promise.reject(new Error("Session is not running."));
+    return getUsageForSession(session, options);
+  }
+
+  function getCodeBuddyUsage(options = {}) {
+    return getUsageForSession({
+      id: SETTINGS_CODEBUDDY_SESSION_ID,
+      type: "windows",
+      agentProvider: "codebuddy"
+    }, options);
+  }
+
+  function cancelCodeBuddyUsage() {
+    disconnect(SETTINGS_CODEBUDDY_SESSION_ID);
   }
 
   function consumeResetCredit(sessionId, options = {}) {
@@ -627,7 +644,7 @@ function createAgentUsageService({
     cacheKeysBySessionId.clear();
   }
 
-  return { consumeResetCredit, disconnect, getUsage, shutdown };
+  return { cancelCodeBuddyUsage, consumeResetCredit, disconnect, getCodeBuddyUsage, getUsage, shutdown };
 }
 
 module.exports = {
@@ -635,6 +652,7 @@ module.exports = {
   CODEBUDDY_CACHE_TTL_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  SETTINGS_CODEBUDDY_SESSION_ID,
   createAgentUsageService,
   createCodeBuddyProcessTransport,
   createProcessTransport,

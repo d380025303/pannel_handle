@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { CodeBuddyCodexConfig, CodeBuddyCodexModel } from "../../vite-env";
+import { CodeBuddyQuotaSettings } from "./CodeBuddyQuotaSettings";
 
 const EMPTY_CONFIG: CodeBuddyCodexConfig = { favoriteModelIds: [], experimentalAcknowledged: false };
 
@@ -76,6 +77,7 @@ export function CodeBuddyCodexSettings() {
       </div>
       {open && <>
         <p className="settings-help">{t("settings.codeBuddyCodexDescription")}</p>
+        <CodeBuddyQuotaSettings />
         <div className="settings-actions">
           <button className="modal-button" type="button" disabled={busy || Boolean(verifyingModelId)} onClick={() => void run(async () => { await window.codeBuddyCodexApi.refreshModels(); }, t("settings.codeBuddyCodexModelsRefreshed"))}>{t("settings.codeBuddyCodexRefreshModels")}</button>
         </div>

@@ -791,8 +791,10 @@ export type AgentUsageResetResult = {
 
 export type AgentUsageApi = {
   getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
+  getCodeBuddyUsage: (options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
   consumeResetCredit: (sessionId: string, creditId: string, idempotencyKey: string) => Promise<AgentUsageResetResult>;
   cancel: (sessionId: string) => void;
+  cancelCodeBuddyUsage: () => void;
 };
 
 export type WorkBuddyCheckinStatus = {

@@ -241,12 +241,16 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
     sessionId,
     force: Boolean(options?.force)
   }),
+  getCodeBuddyUsage: (options) => ipcRenderer.invoke("agent-usage:get-codebuddy", {
+    force: Boolean(options?.force)
+  }),
   consumeResetCredit: (sessionId, creditId, idempotencyKey) => ipcRenderer.invoke("agent-usage:consume-reset-credit", {
     sessionId,
     creditId,
     idempotencyKey
   }),
-  cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId })
+  cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId }),
+  cancelCodeBuddyUsage: () => ipcRenderer.send("agent-usage:cancel-codebuddy")
 });
 
 contextBridge.exposeInMainWorld("workBuddyCheckinApi", {

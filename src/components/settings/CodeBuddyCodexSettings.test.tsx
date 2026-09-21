@@ -30,6 +30,22 @@ describe("CodeBuddyCodexSettings", () => {
         })
       }
     });
+    Object.defineProperty(window, "agentUsageApi", {
+      configurable: true,
+      value: {
+        getUsage: vi.fn(),
+        getCodeBuddyUsage: vi.fn(async () => ({
+          provider: "codebuddy",
+          fetchedAt: 1,
+          primaryLimitId: "codebuddy-total",
+          summary: { kind: "credits", total: 100, used: 25, remaining: 75, usedPercent: 25, remainingPercent: 75, unit: "Credits" },
+          limits: []
+        })),
+        consumeResetCredit: vi.fn(),
+        cancel: vi.fn(),
+        cancelCodeBuddyUsage: vi.fn()
+      }
+    });
   });
 
   afterEach(cleanup);

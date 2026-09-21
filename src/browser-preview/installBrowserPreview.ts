@@ -451,8 +451,10 @@ export function installBrowserPreview() {
     } satisfies Window["mcpApi"],
     agentUsageApi: {
       getUsage: async () => ({ provider: "codex", fetchedAt: Date.now(), primaryLimitId: "five-hour", limits: [{ id: "five-hour", name: "5 小时用量", usedPercent: 32, remainingPercent: 68, windowDurationMins: 300, resetsAt: now + 10_800_000 }] }),
+      getCodeBuddyUsage: async () => ({ provider: "codebuddy", fetchedAt: Date.now(), primaryLimitId: "base", summary: { kind: "credits", total: 1000, used: 320, remaining: 680, usedPercent: 32, remainingPercent: 68, unit: "Credits" }, limits: [{ id: "base", name: "基础额度", category: "base", totalAmount: 1000, usedAmount: 320, remainingAmount: 680, usedPercent: 32, remainingPercent: 68, unit: "Credits", expiresAt: now + 10_800_000 }] }),
       consumeResetCredit: async () => ({ outcome: "nothingToReset" }),
-      cancel: () => undefined
+      cancel: () => undefined,
+      cancelCodeBuddyUsage: () => undefined
     } satisfies Window["agentUsageApi"],
     workBuddyCheckinApi: {
       getStatus: async () => ({ active: true, todayCheckedIn: true, streakDays: 6, dailyCredit: 10, todayCredit: 10, totalCredits: 280, weekProgress: [true, true, true, true, true, true, false] }),
