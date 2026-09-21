@@ -731,16 +731,24 @@ function createGitService({
     activeOperations.set(operationId, operation);
     activeRepositoryOperations.set(repositoryKey, operationId);
     try {
-      const result = await runGitForSession(session, args, {
-        actionName,
-        cwd,
-        timeoutMs: options.timeoutMs || WRITE_TIMEOUT_MS,
-        allowExitCodes: options.allowExitCodes,
-        onCancelReady(cancel) {
-          operation.cancel = cancel;
-          if (operation.cancelRequested) cancel();
+      const runCommand = (commandArgs, commandOptions = {}) => {
+        if (operation.cancelRequested) {
+          const error = new Error(`${actionName} canceled.`);
+          error.canceled = true;
+          throw error;
         }
-      });
+        return runGitForSession(session, commandArgs, {
+          actionName,
+          cwd,
+          timeoutMs: options.timeoutMs || WRITE_TIMEOUT_MS,
+          allowExitCodes: commandOptions.allowExitCodes || options.allowExitCodes,
+          onCancelReady(cancel) {
+            operation.cancel = cancel;
+            if (operation.cancelRequested) cancel();
+          }
+        });
+      };
+      const result = typeof args === "function" ? await args(runCommand) : await runCommand(args);
       return {
         ok: true,
         operationId,
@@ -852,15 +860,30 @@ function createGitService({
     return runOperation(target, operationId, "Git fetch", ["fetch", "--prune", remote], { timeoutMs: NETWORK_TIMEOUT_MS });
   }
 
-  async function pullBranch(target, operationId) {
+  async function pullBranch(target, remoteValue, operationId) {
     const snapshot = await getSnapshot(target);
-    if (snapshot.status.branch.detached || !snapshot.status.branch.upstream) {
-      return { ok: false, operationId, cwd: snapshot.cwd, message: "The current branch has no upstream to pull from." };
+    const branch = snapshot.status.branch;
+    if (branch.detached || branch.unborn || !branch.name) {
+      return { ok: false, operationId, cwd: snapshot.cwd, message: "Create or select a branch before pulling." };
     }
     if (snapshot.operationState) {
       return { ok: false, operationId, cwd: snapshot.cwd, message: `Finish or abort the current ${snapshot.operationState} operation first.` };
     }
-    return runOperation(target, operationId, "Git pull", ["pull", "--ff-only"], { timeoutMs: NETWORK_TIMEOUT_MS });
+    if (branch.upstream) return runOperation(target, operationId, "Git pull", ["pull", "--ff-only"], { timeoutMs: NETWORK_TIMEOUT_MS });
+    const remote = validateRemoteName(remoteValue, snapshot.remotes.remotes);
+    const remoteRef = `refs/remotes/${remote}/${branch.name}`;
+    return runOperation(target, operationId, "Git pull", async (runCommand) => {
+      await runCommand(["fetch", "--prune", remote]);
+      try {
+        await runCommand(["show-ref", "--verify", "--quiet", remoteRef]);
+      } catch (error) {
+        if (error.code === 1) throw new Error(`The remote branch ${remote}/${branch.name} does not exist.`);
+        throw error;
+      }
+      const result = await runCommand(["merge", "--ff-only", remoteRef]);
+      await runCommand(["branch", `--set-upstream-to=${remote}/${branch.name}`]);
+      return result;
+    }, { timeoutMs: NETWORK_TIMEOUT_MS });
   }
 
   async function pushBranch(target, remoteValue, operationId) {

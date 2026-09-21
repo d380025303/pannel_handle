@@ -246,4 +246,25 @@ describe("GitStatusPanel", () => {
       { scope: "commit", revision: "abcdef123456" }
     ));
   });
+
+  it("enables one-click pull for a branch without upstream when a remote is selected", async () => {
+    const session = createSession("first-pull-panel");
+    const snapshot = createSnapshot(session.cwd, "working");
+    snapshot.status.branch.upstream = undefined;
+    const api = createGitApi({ [session.id]: snapshot });
+    window.gitApi = api;
+    const user = userEvent.setup();
+
+    renderPanel(session);
+    await screen.findByText("working.ts");
+    const pullButton = screen.getByRole("button", { name: "拉取" });
+    await waitFor(() => expect(pullButton.hasAttribute("disabled")).toBe(false));
+    await user.click(pullButton);
+
+    await waitFor(() => expect(api.pull).toHaveBeenCalledWith(
+      { sessionId: session.id, cwd: snapshot.cwd },
+      "origin",
+      expect.any(String)
+    ));
+  });
 });

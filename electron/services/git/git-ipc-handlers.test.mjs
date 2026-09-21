@@ -47,7 +47,7 @@ const routes = [
   ["git:discard-working-tree", "discardWorkingTree", { target, file, operationId }, [target, file, operationId]],
   ["git:commit", "commit", { target, message, operationId }, [target, message, operationId]],
   ["git:fetch", "fetchRemote", { target, remote: "origin", operationId }, [target, "origin", operationId]],
-  ["git:pull", "pullBranch", { target, operationId }, [target, operationId]],
+  ["git:pull", "pullBranch", { target, remote: "origin", operationId }, [target, "origin", operationId]],
   ["git:push", "pushBranch", { target, remote: "origin", operationId }, [target, "origin", operationId]],
   ["git:stash-changes", "stashChanges", { target, message: "WIP", operationId }, [target, "WIP", operationId]],
   ["git:apply-stash", "applyStash", { target, ref: "stash@{0}", operationId }, [target, "stash@{0}", operationId]],

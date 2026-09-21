@@ -329,7 +329,7 @@ contextBridge.exposeInMainWorld("gitApi", {
   discardWorkingTree: (target, file, operationId) => ipcRenderer.invoke("git:discard-working-tree", { target, file, operationId }),
   commit: (target, message, operationId) => ipcRenderer.invoke("git:commit", { target, message, operationId }),
   fetch: (target, remote, operationId) => ipcRenderer.invoke("git:fetch", { target, remote, operationId }),
-  pull: (target, operationId) => ipcRenderer.invoke("git:pull", { target, operationId }),
+  pull: (target, remote, operationId) => ipcRenderer.invoke("git:pull", { target, remote, operationId }),
   push: (target, remote, operationId) => ipcRenderer.invoke("git:push", { target, remote, operationId }),
   stashChanges: (target, message, operationId) => ipcRenderer.invoke("git:stash-changes", { target, message, operationId }),
   applyStash: (target, ref, operationId) => ipcRenderer.invoke("git:apply-stash", { target, ref, operationId }),

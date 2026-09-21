@@ -44,7 +44,7 @@ function registerGitIpcHandlers({ ipcMain, gitService }) {
   ipcMain.handle("git:discard-working-tree", (_event, { target, file, operationId }) => gitService.discardWorkingTree(target, file, operationId));
   ipcMain.handle("git:commit", (_event, { target, message, operationId }) => gitService.commit(target, message, operationId));
   ipcMain.handle("git:fetch", (_event, { target, remote, operationId }) => gitService.fetchRemote(target, remote, operationId));
-  ipcMain.handle("git:pull", (_event, { target, operationId }) => gitService.pullBranch(target, operationId));
+  ipcMain.handle("git:pull", (_event, { target, remote, operationId }) => gitService.pullBranch(target, remote, operationId));
   ipcMain.handle("git:push", (_event, { target, remote, operationId }) => gitService.pushBranch(target, remote, operationId));
   ipcMain.handle("git:stash-changes", (_event, { target, message, operationId }) => gitService.stashChanges(target, message, operationId));
   ipcMain.handle("git:apply-stash", (_event, { target, ref, operationId }) => gitService.applyStash(target, ref, operationId));

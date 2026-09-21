@@ -630,7 +630,7 @@ function RepositoryCard({
                     {remotes.length === 0 ? <option value="">{t("git.noRemotes")}</option> : remotes.map((remote) => <option value={remote} key={remote}>{remote}</option>)}
                   </select>
                   <button type="button" disabled={busy || operationBlocked || !remoteSelection} onClick={() => void runOperation(t("git.fetch"), (id) => window.gitApi.fetch(target, remoteSelection, id))}>{t("git.fetch")}</button>
-                  <button type="button" disabled={busy || operationBlocked || branch?.detached || !branch?.upstream} onClick={() => void runOperation(t("git.pull"), (id) => window.gitApi.pull(target, id))}>{t("git.pull")}</button>
+                  <button type="button" disabled={busy || operationBlocked || branch?.detached || branch?.unborn || (!branch?.upstream && !remoteSelection)} onClick={() => void runOperation(t("git.pull"), (id) => window.gitApi.pull(target, branch?.upstream ? undefined : remoteSelection, id))}>{t("git.pull")}</button>
                   <button type="button" disabled={busy || operationBlocked || branch?.detached || branch?.unborn || (!branch?.upstream && !remoteSelection)} onClick={() => void runOperation(t("git.push"), (id) => window.gitApi.push(target, branch?.upstream ? undefined : remoteSelection, id))}><Send aria-hidden="true" />{t("git.push")}</button>
                 </div>
               </GitDisclosureSection>
