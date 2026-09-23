@@ -27,6 +27,7 @@ function createHarness(sessionOverrides = {}) {
   };
   const sftp = {
     realPath: vi.fn(async (value) => value),
+    exists: vi.fn(async () => "-"),
     stat: vi.fn(async () => ({ isDirectory: true })),
     end: vi.fn(async () => {})
   };
@@ -170,7 +171,8 @@ describe("remote-agent-bridge-service", () => {
   ])("creates a missing text file through the $platform bridge", async ({ platform, root, file }) => {
     const harness = createHarness({ cwd: root, sshConfig: { host: "example.com", remotePlatform: platform } });
     const existingPaths = new Set([root]);
-    harness.sftp.realPath.mockImplementation(async (value) => existingPaths.has(value) ? value : "");
+    harness.sftp.exists.mockImplementation(async (value) => existingPaths.has(value) ? "-" : false);
+    harness.sftp.realPath.mockImplementation(async (value) => platform === "windows" || existingPaths.has(value) ? value : "");
     const binding = await harness.service.createBinding("run-1");
     const create = () => post(binding, {
       id: 1,
@@ -183,6 +185,7 @@ describe("remote-agent-bridge-service", () => {
     expect(harness.service.resolveApproval(harness.service.listPendingApprovals()[0].id, "session")).toBe(true);
     const payload = await (await responsePromise).json();
     expect(payload.result.isError).not.toBe(true);
+    expect(harness.sftp.realPath).not.toHaveBeenCalledWith(file);
     expect(harness.remoteFileService.writeText).toHaveBeenCalledWith(
       "run-1", file, "# Repository Guidelines\n", "",
       { force: true, format: { bom: false, eol: "lf" } }
@@ -204,7 +207,7 @@ describe("remote-agent-bridge-service", () => {
       method: "tools/call",
       params: { name: "remote_apply_patch", arguments: { changes: [{ path: "docs/AGENTS.md", content: "guide" }] } }
     });
-    harness.sftp.realPath.mockImplementation(async (value) => value === "/srv/app" ? value : "");
+    harness.sftp.exists.mockImplementation(async (value) => value === "/srv/app" ? "d" : false);
     const responsePromise = create();
     await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
     expect(harness.service.resolveApproval(harness.service.listPendingApprovals()[0].id, "session")).toBe(true);
@@ -213,7 +216,8 @@ describe("remote-agent-bridge-service", () => {
     expect(missingParent.result.isError).toBe(true);
     expect(missingParent.result.content[0].text).toContain("远程父目录不存在");
 
-    harness.sftp.realPath.mockImplementation(async (value) => value === "/srv/app/docs" ? "/tmp/outside" : "");
+    harness.sftp.exists.mockImplementation(async (value) => value === "/srv/app/docs" ? "d" : false);
+    harness.sftp.realPath.mockImplementation(async (value) => value === "/srv/app/docs" ? "/tmp/outside" : value);
     const outsideParent = await (await create()).json();
     expect(outsideParent.result.isError).toBe(true);
     expect(outsideParent.result.content[0].text).toContain("符号链接越出了工作目录");

@@ -256,15 +256,18 @@ function createRemoteAgentBridgeService({
     const client = await sshSessionRuntime.createSftpClient(binding.sessionId, { actionName: "验证远程路径" });
     try {
       let resolved;
-      const realPath = await client.realPath(candidate);
-      if (realPath) {
+      const exists = await client.exists(candidate);
+      if (exists) {
         if (options.requireMissing) {
           throw new Error("新建文件已经存在，请先读取并携带版本号后再修改。");
         }
+        const realPath = await client.realPath(candidate);
+        if (!realPath) throw new Error(`远程路径不存在：${requestedPath}`);
         resolved = normalizeResolvedPath(realPath, binding.platform);
       } else {
         if (!options.allowMissing) throw new Error(`远程路径不存在：${requestedPath}`);
         const parent = dirnameRemote(candidate, binding.platform);
+        if (!await client.exists(parent)) throw new Error(`远程父目录不存在：${parent}`);
         const parentPath = await client.realPath(parent);
         if (!parentPath) throw new Error(`远程父目录不存在：${parent}`);
         const realParent = normalizeResolvedPath(parentPath, binding.platform);
