@@ -976,7 +976,7 @@ export type WindowApi = {
 export type PostgresBackupConfig = {
   deviceId: string; deviceName: string; enabled: boolean; host: string; port: number;
   database: string; user: string; ssl: boolean; hasPassword: boolean; hasPassphrase: boolean;
-  lastSuccessAt: number | null; lastError: string; running: boolean;
+  lastSuccessAt: number | null; lastError: string; pendingSources: string[]; running: boolean;
 };
 export type PostgresBackupApi = {
   getConfig: () => Promise<PostgresBackupConfig>;

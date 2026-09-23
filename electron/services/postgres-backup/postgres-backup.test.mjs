@@ -88,4 +88,64 @@ describe("PostgreSQL backup service", () => {
       }
     }
   });
+
+  it("migrates existing messages and retries a conversation with a long message ID", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pg-backup-long-id-"));
+    const longId = `user:${"long message ".repeat(400)}`;
+    const queries = [];
+    const inserted = [];
+    let oldPrimaryKey = true;
+    let existingHash = null;
+    let failNextMessage = true;
+    const client = { release() {}, async query(sql, parameters = []) {
+      queries.push(sql);
+      if (sql.includes("pg_get_constraintdef")) return { rows: [{ definition: oldPrimaryKey
+        ? "PRIMARY KEY (device_id, source_key, conversation_ref, message_id)"
+        : "PRIMARY KEY (device_id, source_key, conversation_ref, message_hash)" }] };
+      if (sql.includes("SELECT ctid::text")) return { rows: existingHash ? [] : [{ row_tid: "(0,1)", message_id: longId }] };
+      if (sql.includes("UPDATE ph_messages SET message_hash")) existingHash = parameters[0];
+      if (sql.includes("ADD CONSTRAINT ph_messages_pkey")) oldPrimaryKey = false;
+      if (sql.includes("INSERT INTO ph_messages")) {
+        if (failNextMessage) { failNextMessage = false; throw new Error("temporary write failure"); }
+        inserted.push(parameters);
+      }
+      return { rows: [] };
+    } };
+    class FakePool { async connect() { return client; } async end() {} }
+    const session = { id: "local", type: "windows", cwd: "C:\\work" };
+    const service = createPostgresBackupService({ userData: root,
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value),
+        decryptString: value => value.toString("utf8") },
+      sessionStore: { exportLibrary: () => [] }, statsFile: path.join(root, "missing.sqlite3"),
+      terminalManager: { listSessions: () => [session], getSession: () => session },
+      historyService: {
+        listHistoryForSession: async () => ({ items: [{ ref: "codex:conversation", updatedAt: 1 }], nextCursor: null }),
+        getHistoryMessagesForSession: async () => ({ messages: [{ id: longId, text: "content", timestamp: 1 }], nextCursor: null })
+      }, PoolClass: FakePool, now: () => 1234 });
+    try {
+      service.load();
+      await service.saveConfig({ enabled: true, host: "localhost", database: "backup", user: "user",
+        password: "db-password", passphrase: "portable-passphrase" });
+      await service.shutdown();
+      service.trackSessions([{ type: "ssh", cwd: "/work", sshConfig: { host: "example.org", username: "user", port: 22 } }]);
+      const first = await service.backupNow();
+      expect(first.lastSuccessAt).toBeNull();
+      expect(first.lastError).toContain("temporary write failure");
+      const second = await service.backupNow();
+      expect(second.lastSuccessAt).toBe(1234);
+      expect(second.lastError).toBe("");
+      expect(second.pendingSources).toEqual(["example.org · /work"]);
+      expect(existingHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0][3]).toBe(longId);
+      expect(inserted[0][4]).toBe(existingHash);
+      expect(queries.some(sql => sql.includes("DROP CONSTRAINT ph_messages_pkey"))).toBe(true);
+      expect(queries.filter(sql => sql.includes("ADD CONSTRAINT ph_messages_pkey"))).toHaveLength(1);
+    } finally {
+      await service.shutdown();
+      if (path.resolve(root).startsWith(`${path.resolve(tmpdir())}${path.sep}`)) {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
 });

@@ -468,8 +468,8 @@ export function installBrowserPreview() {
       onLiveChanged: () => () => undefined
     } satisfies Window["agentTokenStatsApi"],
     postgresBackupApi: {
-      getConfig: async () => ({ deviceId: "preview-device", deviceName: "预览电脑", enabled: false, host: "", port: 5432, database: "", user: "", ssl: true, hasPassword: false, hasPassphrase: false, lastSuccessAt: null, lastError: "", running: false }),
-      saveConfig: async (input) => ({ deviceId: "preview-device", deviceName: input.deviceName || "预览电脑", enabled: input.enabled === true, host: input.host || "", port: input.port || 5432, database: input.database || "", user: input.user || "", ssl: input.ssl !== false, hasPassword: Boolean(input.password), hasPassphrase: Boolean(input.passphrase), lastSuccessAt: null, lastError: "", running: false }),
+      getConfig: async () => ({ deviceId: "preview-device", deviceName: "预览电脑", enabled: false, host: "", port: 5432, database: "", user: "", ssl: true, hasPassword: false, hasPassphrase: false, lastSuccessAt: null, lastError: "", pendingSources: [], running: false }),
+      saveConfig: async (input) => ({ deviceId: "preview-device", deviceName: input.deviceName || "预览电脑", enabled: input.enabled === true, host: input.host || "", port: input.port || 5432, database: input.database || "", user: input.user || "", ssl: input.ssl !== false, hasPassword: Boolean(input.password), hasPassphrase: Boolean(input.passphrase), lastSuccessAt: null, lastError: "", pendingSources: [], running: false }),
       testConnection: async () => ({ ok: false, error: "浏览器预览无法连接 PostgreSQL" }),
       run: async () => { throw new Error("浏览器预览无法执行备份"); },
       listDevices: async () => [],

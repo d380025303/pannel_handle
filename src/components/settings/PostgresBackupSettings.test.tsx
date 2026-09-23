@@ -5,7 +5,7 @@ import { PostgresBackupSettings } from "./PostgresBackupSettings";
 
 const config = { deviceId: "device-a", deviceName: "办公电脑", enabled: false,
   host: "localhost", port: 5432, database: "backups", user: "backup_user", ssl: false,
-  hasPassword: false, hasPassphrase: false, lastSuccessAt: null, lastError: "", running: false };
+  hasPassword: false, hasPassphrase: false, lastSuccessAt: null, lastError: "", pendingSources: [], running: false };
 
 describe("PostgresBackupSettings", () => {
   afterEach(cleanup);
@@ -32,5 +32,15 @@ describe("PostgresBackupSettings", () => {
     expect(await screen.findByRole("button", { name: "作为副本恢复" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "作为副本恢复" }));
     await waitFor(() => expect(restore).toHaveBeenCalledWith("snapshot-1", undefined));
+  });
+
+  it("shows offline remote sources as pending instead of errors", async () => {
+    Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
+      getConfig: async () => ({ ...config, pendingSources: ["example.org · /work"] }),
+      onChanged: () => () => undefined
+    } });
+    render(<PostgresBackupSettings />);
+    expect(await screen.findByText("1 个远程来源待重连后同步")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

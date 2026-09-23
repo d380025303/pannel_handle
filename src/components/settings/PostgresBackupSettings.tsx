@@ -84,10 +84,21 @@ export function PostgresBackupSettings() {
         setConfig(await window.postgresBackupApi.saveConfig({ ...config, password, passphrase }));
         setPassword(""); setPassphrase("");
       }, tr("设置已保存", "Settings saved"))}>{tr("保存设置", "Save settings")}</button>
-      <button type="button" disabled={busy || !config.enabled} onClick={() => void perform(async () => { setConfig(await window.postgresBackupApi.run()); await loadDevices(); }, tr("备份完成", "Backup complete"))}>{tr("立即备份", "Back up now")}</button>
+      <button type="button" disabled={busy || !config.enabled} onClick={() => void perform(async () => {
+        const next = await window.postgresBackupApi.run();
+        setConfig(next);
+        await loadDevices();
+        return next.lastError ? tr("部分备份失败，请查看错误", "Part of the backup failed; see the error")
+          : next.pendingSources.length ? tr("备份完成，部分远程来源待同步", "Backup complete; some remote sources are pending")
+            : tr("备份完成", "Backup complete");
+      }, tr("备份完成", "Backup complete"))}>{tr("立即备份", "Back up now")}</button>
     </div>
     <p className="settings-help">{tr("上次成功", "Last successful backup")}：{config.lastSuccessAt ? new Date(config.lastSuccessAt).toLocaleString() : tr("尚未完成", "None yet")}{config.running ? tr(" · 正在备份", " · Running") : ""}</p>
     {config.lastError && <p className="settings-result error" role="alert">{config.lastError}</p>}
+    {config.pendingSources?.length > 0 && <details className="settings-result">
+      <summary>{tr(`${config.pendingSources.length} 个远程来源待重连后同步`, `${config.pendingSources.length} remote sources will sync after reconnecting`)}</summary>
+      <ul>{config.pendingSources.map((source, index) => <li key={`${source}:${index}`}>{source}</li>)}</ul>
+    </details>}
     {result && <p className="settings-result" role="status">{result}</p>}
     <hr />
     <div className="settings-card-header"><div><h4>{tr("查看与恢复", "Browse and restore")}</h4><p className="settings-help">{tr("会话恢复会创建副本，不覆盖本机模板。", "Restoring sessions creates copies without replacing local templates.")}</p></div></div>

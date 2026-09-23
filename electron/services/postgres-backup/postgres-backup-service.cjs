@@ -21,7 +21,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
   const configFile = path.join(userData, "postgres-backup.json");
   let state = { deviceId: crypto.randomUUID(), deviceName: localIdentity(), enabled: false,
     host: "", port: 5432, database: "", user: "", ssl: true, password: "", passphrase: "",
-    lastSuccessAt: null, lastError: "", sources: [], deviceMarker: "", statsEpoch: 0,
+    lastSuccessAt: null, lastError: "", pendingSources: [], sources: [], deviceMarker: "", statsEpoch: 0,
     snapshotKeyVersion: 0, snapshotHashKey: "" };
   let pool = null;
   let timer = null;
@@ -75,7 +75,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     return { deviceId: state.deviceId, deviceName: state.deviceName, enabled: state.enabled,
       host: state.host, port: state.port, database: state.database, user: state.user,
       ssl: state.ssl, hasPassword: Boolean(state.password), hasPassphrase: Boolean(state.passphrase),
-      lastSuccessAt: state.lastSuccessAt, lastError: state.lastError, running: Boolean(running) };
+      lastSuccessAt: state.lastSuccessAt, lastError: state.lastError,
+      pendingSources: state.pendingSources || [], running: Boolean(running) };
   }
   function connection(options = {}) {
     const password = options.password ?? decryptLocal(state.password);
@@ -138,11 +139,34 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
       );
       CREATE TABLE IF NOT EXISTS ph_messages (
         device_id UUID NOT NULL, source_key TEXT NOT NULL, conversation_ref TEXT NOT NULL,
-        message_id TEXT NOT NULL, data JSONB NOT NULL,
-        PRIMARY KEY(device_id, source_key, conversation_ref, message_id),
+        message_id TEXT NOT NULL, message_hash TEXT NOT NULL, data JSONB NOT NULL,
+        PRIMARY KEY(device_id, source_key, conversation_ref, message_hash),
         FOREIGN KEY(device_id, source_key, conversation_ref)
           REFERENCES ph_conversations(device_id, source_key, conversation_ref) ON DELETE CASCADE
       );`);
+    await client.query("BEGIN");
+    try {
+      await client.query("SELECT pg_advisory_xact_lock(317109, 1)");
+      const primaryKey = await client.query(`SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint WHERE conrelid='ph_messages'::regclass AND conname='ph_messages_pkey'`);
+      if (primaryKey.rows[0]?.definition?.includes("message_id")) {
+        await client.query("ALTER TABLE ph_messages ADD COLUMN IF NOT EXISTS message_hash TEXT");
+        while (true) {
+          const batch = (await client.query(`SELECT ctid::text AS row_tid, message_id FROM ph_messages
+            WHERE message_hash IS NULL LIMIT 500`)).rows;
+          if (!batch.length) break;
+          for (const row of batch) {
+            await client.query("UPDATE ph_messages SET message_hash=$1 WHERE ctid=$2::tid",
+              [crypto.createHash("sha256").update(row.message_id).digest("hex"), row.row_tid]);
+          }
+        }
+        await client.query("ALTER TABLE ph_messages ALTER COLUMN message_hash SET NOT NULL");
+        await client.query("ALTER TABLE ph_messages DROP CONSTRAINT ph_messages_pkey");
+        await client.query(`ALTER TABLE ph_messages ADD CONSTRAINT ph_messages_pkey
+          PRIMARY KEY(device_id, source_key, conversation_ref, message_hash)`);
+      }
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
   }
   function sourceKey(session) {
     return JSON.stringify([session.type, session.type === "ssh" ? session.sshConfig?.host || "" : "",
@@ -226,10 +250,11 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     })
       .filter(source => source.type === "windows" || source.type === "ssh" && source.agentLocation === "local" ||
         activeSessions.some(active => active.id === source.id));
-    const failed = state.sources.filter(source => source.type !== "windows" &&
+    const pendingSources = state.sources.filter(source => source.type !== "windows" &&
       !(source.type === "ssh" && source.agentLocation === "local") &&
       !activeSessions.some(active => sourceKey(active) === sourceKey(source)))
-      .map(source => `${sourceKey(source)}: waiting for the remote session to reconnect`);
+      .map(source => `${source.type === "ssh" ? source.sshConfig?.host || "SSH" : source.wslDistro || "WSL"} · ${source.cwd}`);
+    const failed = [];
     for (const session of sources) {
       try {
         const key = sourceKey(session);
@@ -253,9 +278,11 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
                 const messages = await historyService.getHistoryMessagesForSession(session, {
                   conversationRef: item.ref, cursor: messageCursor, limit: 200 });
                 for (const message of messages.messages) {
-                  await client.query(`INSERT INTO ph_messages(device_id,source_key,conversation_ref,message_id,data)
-                    VALUES($1,$2,$3,$4,$5) ON CONFLICT(device_id,source_key,conversation_ref,message_id)
-                    DO UPDATE SET data=excluded.data`, [state.deviceId, key, item.ref, message.id, message]);
+                  await client.query(`INSERT INTO ph_messages(device_id,source_key,conversation_ref,message_id,message_hash,data)
+                    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(device_id,source_key,conversation_ref,message_hash)
+                    DO UPDATE SET message_id=excluded.message_id,data=excluded.data`,
+                  [state.deviceId, key, item.ref, message.id,
+                    crypto.createHash("sha256").update(message.id).digest("hex"), message]);
                 }
                 messageCursor = messages.nextCursor;
               } while (messageCursor);
@@ -266,7 +293,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
         } while (cursor);
       } catch (error) { failed.push(`${sourceKey(session)}: ${toError(error)}`); }
     }
-    return failed;
+    return { failed, pendingSources };
   }
   async function backupNow() {
     if (!state.enabled) return publicState();
@@ -281,10 +308,11 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
           ON CONFLICT(id) DO UPDATE SET name=excluded.name,last_seen_at=now()`, [state.deviceId, state.deviceName]);
         await uploadSessions(client);
         await uploadStats(client);
-        const pendingSources = await uploadConversations(client);
-        state.lastSuccessAt = now(); state.lastError = pendingSources.join("; "); saveFile();
+        const { failed, pendingSources } = await uploadConversations(client);
+        if (!failed.length) state.lastSuccessAt = now();
+        state.lastError = failed.join("; "); state.pendingSources = pendingSources; saveFile();
       } catch (error) {
-        state.lastError = toError(error); saveFile();
+        state.lastError = toError(error); state.pendingSources = []; saveFile();
         throw error;
       } finally { client?.release(); }
     })();
