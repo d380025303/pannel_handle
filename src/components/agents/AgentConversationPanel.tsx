@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, History, Search, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -85,14 +85,16 @@ export function AgentConversationPanel({
   const [totalMatches, setTotalMatches] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const followTopRef = useRef(true);
+  const prependedScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const lastScrollKeyRef = useRef("");
+  const lastSearchTargetRef = useRef("");
   const listRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
   const selectedHistory = historyItems.find(item => item.ref === selectedRef);
   const showingLive = selectedRef === "live" && hasLive;
   const detailMessages = useMemo(
-    () => showingLive ? [...(turn?.messages || [])].reverse() : historyMessages,
+    () => showingLive ? turn?.messages || [] : historyMessages,
     [historyMessages, showingLive, turn?.messages]
   );
   const normalizedSearchQuery = searchQuery.trim();
@@ -191,7 +193,11 @@ export function AgentConversationPanel({
           nextCursor: page.length === 100 ? String(offset + page.length) : null };
       })();
       if (requestId !== detailRequestRef.current || result.conversationRef !== selectedRef) return;
-      setHistoryMessages(current => append ? [...current, ...result.messages] : result.messages);
+      if (append && scrollRef.current) {
+        prependedScrollRef.current = { height: scrollRef.current.scrollHeight, top: scrollRef.current.scrollTop };
+      }
+      const chronologicalPage = [...result.messages].reverse();
+      setHistoryMessages(current => append ? [...chronologicalPage, ...current] : chronologicalPage);
       setMessageCursor(result.nextCursor);
     } catch (error) {
       if (requestId !== detailRequestRef.current) return;
@@ -210,12 +216,21 @@ export function AgentConversationPanel({
     if (selectedRef && selectedRef !== "live") void loadMessages();
   }, [loadMessages, selectedRef]);
 
-  useEffect(() => {
-    if (!followTopRef.current || normalizedSearchQuery) return;
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = 0;
-    });
-  }, [detailMessages.length, normalizedSearchQuery]);
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const prependedScroll = prependedScrollRef.current;
+    if (prependedScroll) {
+      scroller.scrollTop = prependedScroll.top + scroller.scrollHeight - prependedScroll.height;
+      prependedScrollRef.current = null;
+      return;
+    }
+    const scrollKey = `${session?.id || ""}:${selectedRef}:${detailMessages.length}:${detailMessages.at(-1)?.id || ""}`;
+    if (scrollKey !== lastScrollKeyRef.current) {
+      scroller.scrollTop = scroller.scrollHeight;
+      lastScrollKeyRef.current = scrollKey;
+    }
+  }, [detailMessages, selectedRef, session?.id]);
 
   const openSearch = useCallback(() => {
     setHistoryOpen(false);
@@ -247,11 +262,18 @@ export function AgentConversationPanel({
   }, [detailMessages, normalizedSearchQuery]);
 
   useEffect(() => {
-    if (!normalizedSearchQuery || !totalMatches) return;
+    if (!normalizedSearchQuery) {
+      lastSearchTargetRef.current = "";
+      return;
+    }
+    if (!totalMatches) return;
+    const searchTarget = `${selectedRef}:${normalizedSearchQuery}:${activeMatchIndex}`;
+    if (searchTarget === lastSearchTargetRef.current) return;
+    lastSearchTargetRef.current = searchTarget;
     requestAnimationFrame(() => {
       scrollRef.current?.querySelector<HTMLElement>(`[data-search-index="${activeMatchIndex}"]`)?.scrollIntoView?.({ block: "center" });
     });
-  }, [activeMatchIndex, normalizedSearchQuery, totalMatches]);
+  }, [activeMatchIndex, normalizedSearchQuery, selectedRef, totalMatches]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -305,6 +327,11 @@ export function AgentConversationPanel({
     const nextSearchMatchIndex = () => searchMatchIndex++;
     const highlight = (children: ReactNode) => highlightChildren(children, normalizedSearchQuery, nextSearchMatchIndex, activeMatchIndex);
     return <>
+      {messageCursor && !showingLive && (
+        <button className="agent-conversation-messages-more" type="button" disabled={detailLoading} onClick={() => void loadMessages(messageCursor, true)}>
+          {detailLoading ? (isEnglish ? "Loading…" : "正在加载…") : (isEnglish ? "Load earlier messages" : "加载更早消息")}
+        </button>
+      )}
       {detailMessages.map(message => (
         <article className={`agent-conversation-message ${message.kind}`} key={message.id}>
           {message.kind !== "reply" && (
@@ -342,11 +369,6 @@ export function AgentConversationPanel({
           </ReactMarkdown>
         </article>
       ))}
-      {messageCursor && !showingLive && (
-        <button className="agent-conversation-messages-more" type="button" disabled={detailLoading} onClick={() => void loadMessages(messageCursor, true)}>
-          {detailLoading ? (isEnglish ? "Loading…" : "正在加载…") : (isEnglish ? "Load earlier messages" : "加载更早消息")}
-        </button>
-      )}
     </>;
   }
 
@@ -427,7 +449,7 @@ export function AgentConversationPanel({
             <button type="button" aria-label={isEnglish ? "Close search" : "关闭搜索"} onClick={closeSearch}><X aria-hidden="true" /></button>
           </div>
         )}
-        <div className="agent-conversation-messages" ref={scrollRef} onScroll={event => { followTopRef.current = event.currentTarget.scrollTop < 48; }}>
+        <div className="agent-conversation-messages" ref={scrollRef}>
           {renderMessages()}
         </div>
       </div>

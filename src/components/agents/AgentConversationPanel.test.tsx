@@ -26,6 +26,10 @@ describe("AgentConversationPanel", () => {
   const getHistoryMessages = vi.fn();
 
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() { return this.querySelectorAll(".agent-conversation-message").length * 100; }
+    });
     Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: undefined });
     Object.defineProperty(window, "agentConversationApi", {
       configurable: true,
@@ -99,6 +103,7 @@ describe("AgentConversationPanel", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
   });
 
   it("renders intermediate and final Markdown replies", async () => {
@@ -109,16 +114,16 @@ describe("AgentConversationPanel", () => {
     expect(screen.getByText("处理完成。")).toBeTruthy();
   });
 
-  it("renders the newest message first and keeps a following view at the top", () => {
+  it("renders live messages oldest first and follows new messages to the bottom", () => {
     const { rerender } = render(<AgentConversationPanel snapshot={baseSnapshot} />);
     const messageList = document.querySelector<HTMLElement>(".agent-conversation-messages")!;
     const initialMessages = document.querySelectorAll<HTMLElement>(".agent-conversation-message");
 
-    expect(initialMessages[0].textContent).toContain(baseSnapshot.turn!.messages[1].text);
-    expect(initialMessages[1].textContent).toContain(baseSnapshot.turn!.messages[0].text.replace(/\*\*/g, ""));
+    expect(initialMessages[0].textContent).toContain(baseSnapshot.turn!.messages[0].text.replace(/\*\*/g, ""));
+    expect(initialMessages[1].textContent).toContain(baseSnapshot.turn!.messages[1].text);
+    expect(messageList.scrollTop).toBe(200);
 
     messageList.scrollTop = 12;
-    fireEvent.scroll(messageList);
     rerender(
       <AgentConversationPanel
         snapshot={{
@@ -134,8 +139,55 @@ describe("AgentConversationPanel", () => {
       />
     );
 
-    expect(document.querySelector<HTMLElement>(".agent-conversation-message")?.textContent).toContain("newest reply");
-    expect(messageList.scrollTop).toBe(0);
+    expect(document.querySelectorAll<HTMLElement>(".agent-conversation-message")[2].textContent).toContain("newest reply");
+    expect(messageList.scrollTop).toBe(300);
+
+    fireEvent.click(screen.getByRole("button", { name: "搜索内容" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话内容" }), { target: { value: "。" } });
+    messageList.scrollTop = 30;
+    rerender(<AgentConversationPanel snapshot={{ ...baseSnapshot, turn: { ...baseSnapshot.turn!, messages: [
+      ...baseSnapshot.turn!.messages,
+      { id: "three", provider: "codex", kind: "reply", text: "newest reply", timestamp: 3 },
+      { id: "four", provider: "codex", kind: "reply", text: "new while searching", timestamp: 4 }
+    ] } }} />);
+    expect(messageList.scrollTop).toBe(400);
+  });
+
+  it("prepends older history pages without moving the current reading position", async () => {
+    listHistory.mockResolvedValue({
+      items: [{ ref: "codex:history", provider: "codex", title: "History", preview: "",
+        cwd: "C:\\work", createdAt: 1, updatedAt: 4, archived: false }],
+      nextCursor: null,
+      errors: []
+    });
+    getHistoryMessages.mockImplementation(async ({ cursor }: { cursor?: string }) => ({
+      conversationRef: "codex:history",
+      messages: cursor
+        ? [{ id: "older", provider: "codex", kind: "user", text: "Older", timestamp: 2 },
+          { id: "oldest", provider: "codex", kind: "user", text: "Oldest", timestamp: 1 }]
+        : [{ id: "newest", provider: "codex", kind: "final", text: "Newest", timestamp: 4 },
+          { id: "newer", provider: "codex", kind: "reply", text: "Newer", timestamp: 3 }],
+      nextCursor: cursor ? null : "2"
+    }));
+
+    render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }}
+      session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }} />);
+    expect(await screen.findByText("Newest")).toBeTruthy();
+    const messageList = document.querySelector<HTMLElement>(".agent-conversation-messages")!;
+    expect(Array.from(messageList.querySelectorAll(".agent-conversation-message"), item => item.textContent)).toEqual([
+      expect.stringContaining("Newer"), expect.stringContaining("Newest")
+    ]);
+    expect(messageList.scrollTop).toBe(200);
+
+    messageList.scrollTop = 40;
+    fireEvent.click(screen.getByRole("button", { name: "加载更早消息" }));
+    expect(await screen.findByText("Oldest")).toBeTruthy();
+    expect(Array.from(messageList.querySelectorAll(".agent-conversation-message"), item => item.textContent)).toEqual([
+      expect.stringContaining("Oldest"), expect.stringContaining("Older"),
+      expect.stringContaining("Newer"), expect.stringContaining("Newest")
+    ]);
+    expect(messageList.firstElementChild?.textContent).toContain("Oldest");
+    expect(messageList.scrollTop).toBe(240);
   });
 
   it("renders as an embedded panel without floating-window controls", async () => {
