@@ -56,7 +56,7 @@ function createHarness(sessionOverrides = {}) {
     workspacesRoot: path.join(tempDir, "workspaces"),
     broadcast
   });
-  return { service, sshSessionRuntime, remoteFileService, dialog, broadcast, tempDir };
+  return { service, sshSessionRuntime, remoteFileService, sftp, dialog, broadcast, tempDir };
 }
 
 async function post(binding, message, token = binding.token) {
@@ -161,6 +161,63 @@ describe("remote-agent-bridge-service", () => {
     const harness = createHarness({ localAgentCwd: "relative\\workspace" });
 
     await expect(harness.service.createBinding("run-1")).rejects.toThrow("Windows 绝对路径");
+    await harness.service.shutdown();
+  });
+
+  it.each([
+    { platform: "linux", root: "/srv/app", file: "/srv/app/AGENTS.md" },
+    { platform: "windows", root: "C:/Work Space/repo", file: "C:/Work Space/repo/AGENTS.md" }
+  ])("creates a missing text file through the $platform bridge", async ({ platform, root, file }) => {
+    const harness = createHarness({ cwd: root, sshConfig: { host: "example.com", remotePlatform: platform } });
+    const existingPaths = new Set([root]);
+    harness.sftp.realPath.mockImplementation(async (value) => existingPaths.has(value) ? value : "");
+    const binding = await harness.service.createBinding("run-1");
+    const create = () => post(binding, {
+      id: 1,
+      method: "tools/call",
+      params: { name: "remote_apply_patch", arguments: { changes: [{ path: "./AGENTS.md", content: "# Repository Guidelines\n" }] } }
+    });
+
+    const responsePromise = create();
+    await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+    expect(harness.service.resolveApproval(harness.service.listPendingApprovals()[0].id, "session")).toBe(true);
+    const payload = await (await responsePromise).json();
+    expect(payload.result.isError).not.toBe(true);
+    expect(harness.remoteFileService.writeText).toHaveBeenCalledWith(
+      "run-1", file, "# Repository Guidelines\n", "",
+      { force: true, format: { bom: false, eol: "lf" } }
+    );
+
+    existingPaths.add(file);
+    const collision = await (await create()).json();
+    expect(collision.result.isError).toBe(true);
+    expect(collision.result.content[0].text).toContain("新建文件已经存在");
+    expect(harness.remoteFileService.writeText).toHaveBeenCalledTimes(1);
+    await harness.service.shutdown();
+  });
+
+  it("rejects creation when its parent is missing or resolves outside the workspace", async () => {
+    const harness = createHarness();
+    const binding = await harness.service.createBinding("run-1");
+    const create = () => post(binding, {
+      id: 1,
+      method: "tools/call",
+      params: { name: "remote_apply_patch", arguments: { changes: [{ path: "docs/AGENTS.md", content: "guide" }] } }
+    });
+    harness.sftp.realPath.mockImplementation(async (value) => value === "/srv/app" ? value : "");
+    const responsePromise = create();
+    await vi.waitFor(() => expect(harness.service.listPendingApprovals()).toHaveLength(1));
+    expect(harness.service.resolveApproval(harness.service.listPendingApprovals()[0].id, "session")).toBe(true);
+
+    const missingParent = await (await responsePromise).json();
+    expect(missingParent.result.isError).toBe(true);
+    expect(missingParent.result.content[0].text).toContain("远程父目录不存在");
+
+    harness.sftp.realPath.mockImplementation(async (value) => value === "/srv/app/docs" ? "/tmp/outside" : "");
+    const outsideParent = await (await create()).json();
+    expect(outsideParent.result.isError).toBe(true);
+    expect(outsideParent.result.content[0].text).toContain("符号链接越出了工作目录");
+    expect(harness.remoteFileService.writeText).not.toHaveBeenCalled();
     await harness.service.shutdown();
   });
 

@@ -238,7 +238,9 @@ function createRemoteAgentBridgeService({
   async function resolveRealRoot(sessionId, root, platform) {
     const client = await sshSessionRuntime.createSftpClient(sessionId, { actionName: "验证远程 Agent 工作目录" });
     try {
-      const realRoot = normalizeResolvedPath(await client.realPath(root), platform);
+      const resolvedRoot = await client.realPath(root);
+      if (!resolvedRoot) throw new Error("远程 Agent 工作目录不存在。");
+      const realRoot = normalizeResolvedPath(resolvedRoot, platform);
       const stat = await client.stat(realRoot);
       if (!stat || stat.isDirectory === false || stat.type === "-") {
         throw new Error("远程 Agent 工作目录不是目录。");
@@ -254,18 +256,18 @@ function createRemoteAgentBridgeService({
     const client = await sshSessionRuntime.createSftpClient(binding.sessionId, { actionName: "验证远程路径" });
     try {
       let resolved;
-      try {
-        resolved = normalizeResolvedPath(await client.realPath(candidate), binding.platform);
+      const realPath = await client.realPath(candidate);
+      if (realPath) {
         if (options.requireMissing) {
-          const error = new Error("新建文件已经存在，请先读取并携带版本号后再修改。");
-          error.code = "REMOTE_PATH_EXISTS";
-          throw error;
+          throw new Error("新建文件已经存在，请先读取并携带版本号后再修改。");
         }
-      } catch (error) {
-        if (error?.code === "REMOTE_PATH_EXISTS") throw error;
-        if (!options.allowMissing) throw error;
+        resolved = normalizeResolvedPath(realPath, binding.platform);
+      } else {
+        if (!options.allowMissing) throw new Error(`远程路径不存在：${requestedPath}`);
         const parent = dirnameRemote(candidate, binding.platform);
-        const realParent = normalizeResolvedPath(await client.realPath(parent), binding.platform);
+        const parentPath = await client.realPath(parent);
+        if (!parentPath) throw new Error(`远程父目录不存在：${parent}`);
+        const realParent = normalizeResolvedPath(parentPath, binding.platform);
         if (!isPathInside(binding.realRoot, realParent, binding.platform)) {
           throw new Error("远程路径通过符号链接越出了工作目录。");
         }
