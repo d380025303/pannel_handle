@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, LayoutGrid, Library, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, LayoutGrid, Library, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -12,6 +12,7 @@ type TitleBarProps = {
   onOpenCreate: () => void;
   onQuickCreateAgent?: (provider: AgentProvider) => Promise<void>;
   onOpenStats?: () => void;
+  onOpenTerminal?: () => void;
   onOpenSessionOverview?: () => void;
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
@@ -20,7 +21,7 @@ type TitleBarProps = {
   onCaptureScreenshot?: () => void;
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenSessionOverview, onOpenSkills, onOpenMcp }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSessionOverview, onOpenSkills, onOpenMcp }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -59,6 +60,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
       <div className="titlebar-brand">
         <span className="titlebar-brand-label">Pannel Handle</span>
         <div className="titlebar-actions" onDoubleClick={(event) => event.stopPropagation()}>
+          <button className="titlebar-settings-btn" type="button" title={t("app.openTerminal")} aria-label={t("app.openTerminal")} onClick={() => onOpenTerminal?.()}><Terminal aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("sessionOverview.title")} aria-label={t("sessionOverview.openOverview")} onClick={() => onOpenSessionOverview?.()}><LayoutGrid aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("tokenStats.title")} aria-label={t("tokenStats.open")} onClick={() => onOpenStats?.()}><BarChart3 aria-hidden="true" /></button>
           <button className="titlebar-settings-btn" type="button" title={t("skills.title")} aria-label={t("skills.open")} onClick={() => onOpenSkills?.()}><BookOpen aria-hidden="true" /></button>

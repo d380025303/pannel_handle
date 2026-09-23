@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Cable, Eye, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { Cable, Eye, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type {
   McpDocument,
@@ -13,7 +13,6 @@ import type {
 
 type McpManagerProps = {
   session?: TerminalSession;
-  onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (handler: (() => Promise<boolean>) | null) => void;
 };
@@ -101,7 +100,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   );
 }
 
-export function McpManager({ session, onClose, onDirtyChange, onRegisterSave }: McpManagerProps) {
+export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManagerProps) {
   const { t } = useI18n();
   const [provider, setProvider] = useState<McpProvider>("codex");
   const [scope, setScope] = useState<McpScope>("user");
@@ -282,7 +281,6 @@ export function McpManager({ session, onClose, onDirtyChange, onRegisterSave }: 
     <main className="mcp-page">
       <header className="mcp-header">
         <div>
-          <button className="icon-button" type="button" onClick={() => { if (confirmDiscard()) onClose(); }} title={t("mcp.back")} aria-label={t("mcp.back")}><ArrowLeft aria-hidden="true" /></button>
           <Cable aria-hidden="true" />
           <div><h1>{t("mcp.title")}</h1><p>{t("mcp.description")}</p></div>
         </div>

@@ -7,10 +7,10 @@ export type TranslationParams = Record<string, string | number>;
 export type TranslationKey =
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
+  | "app.openTerminal"
   | "sessionOverview.title"
   | "sessionOverview.openOverview"
   | "sessionOverview.description"
-  | "sessionOverview.back"
   | "sessionOverview.empty"
   | "sessionOverview.emptyHint"
   | "sessionOverview.openSession"
@@ -474,7 +474,6 @@ export type TranslationKey =
   | "tokenStats.title"
   | "tokenStats.open"
   | "tokenStats.description"
-  | "tokenStats.back"
   | "tokenStats.range"
   | "tokenStats.last7Days"
   | "tokenStats.last30Days"
@@ -524,7 +523,6 @@ export type TranslationKey =
   | "skills.title"
   | "skills.open"
   | "skills.description"
-  | "skills.back"
   | "skills.provider"
   | "skills.search"
   | "skills.empty"
@@ -533,7 +531,6 @@ export type TranslationKey =
   | "mcp.title"
   | "mcp.open"
   | "mcp.description"
-  | "mcp.back"
   | "mcp.provider"
   | "mcp.scope"
   | "mcp.scopeUser"
@@ -956,10 +953,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
+    "app.openTerminal": "打开终端",
     "sessionOverview.title": "实例总览",
     "sessionOverview.openOverview": "打开实例总览",
     "sessionOverview.description": "当前打开 {count} 个终端实例",
-    "sessionOverview.back": "返回终端",
     "sessionOverview.empty": "暂无终端实例",
     "sessionOverview.emptyHint": "创建或启动会话后，实例会显示在这里。",
     "sessionOverview.openSession": "打开终端：{name}",
@@ -1423,7 +1420,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.title": "Token 统计",
     "tokenStats.open": "打开 Token 统计",
     "tokenStats.description": "查看 OpenCode 等 Agent 的会话消耗趋势和明细",
-    "tokenStats.back": "返回终端",
     "tokenStats.range": "统计时间范围",
     "tokenStats.last7Days": "最近 7 天",
     "tokenStats.last30Days": "最近 30 天",
@@ -1473,7 +1469,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.title": "Skills",
     "skills.open": "打开 Skills",
     "skills.description": "浏览 Codex 与 CodeBuddy 技能",
-    "skills.back": "返回终端",
     "skills.provider": "Skill 提供方",
     "skills.search": "搜索 Skills",
     "skills.empty": "尚未发现 Skills",
@@ -1482,7 +1477,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.title": "MCP 管理",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
-    "mcp.back": "返回终端",
     "mcp.provider": "MCP 提供方",
     "mcp.scope": "配置作用域",
     "mcp.scopeUser": "用户级",
@@ -1897,10 +1891,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "en-US": {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
+    "app.openTerminal": "Open terminal",
     "sessionOverview.title": "Instance overview",
     "sessionOverview.openOverview": "Open instance overview",
     "sessionOverview.description": "{count} terminal instances open",
-    "sessionOverview.back": "Back to terminal",
     "sessionOverview.empty": "No terminal instances",
     "sessionOverview.emptyHint": "Create or launch a session to see it here.",
     "sessionOverview.openSession": "Open terminal: {name}",
@@ -2364,7 +2358,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tokenStats.title": "Token statistics",
     "tokenStats.open": "Open token statistics",
     "tokenStats.description": "Review session usage, trends, and details for OpenCode and other supported agents",
-    "tokenStats.back": "Back to terminals",
     "tokenStats.range": "Statistics date range",
     "tokenStats.last7Days": "Last 7 days",
     "tokenStats.last30Days": "Last 30 days",
@@ -2414,7 +2407,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.title": "Skills",
     "skills.open": "Open Skills",
     "skills.description": "Browse Codex and CodeBuddy skills",
-    "skills.back": "Back to terminal",
     "skills.provider": "Skill provider",
     "skills.search": "Search Skills",
     "skills.empty": "No Skills found",
@@ -2423,7 +2415,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.title": "MCP Manager",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",
-    "mcp.back": "Back to terminal",
     "mcp.provider": "MCP provider",
     "mcp.scope": "Configuration scope",
     "mcp.scopeUser": "User",

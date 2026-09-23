@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, ArrowLeftRight, BarChart3, ChevronDown, ChevronUp, Gauge, MessageSquare, RefreshCw, Trash2, Wrench } from "lucide-react";
+import { Activity, ArrowLeftRight, BarChart3, ChevronDown, ChevronUp, Gauge, MessageSquare, RefreshCw, Trash2, Wrench } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useAgentTokenStats, type TokenStatsProvider, type TokenStatsRange } from "../../hooks/useAgentTokenStats";
@@ -131,7 +131,7 @@ function RankingList({ items, emptyText, nameFor = (name) => name }: { items: Ar
   return <div className="token-capability-ranking">{items.slice(0, 8).map(item => <div key={item.name}><span><strong>{nameFor(item.name)}</strong><b>{item.count}</b></span><i><span style={{ width: `${item.count / max * 100}%` }} /></i></div>)}</div>;
 }
 
-export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
+export function AgentTokenStatsDashboard() {
   const { locale, t } = useI18n();
   const [range, setRange] = useState<TokenStatsRange>("30d");
   const [provider, setProvider] = useState<TokenStatsProvider>("all");
@@ -156,7 +156,7 @@ export function AgentTokenStatsDashboard({ onClose }: { onClose: () => void }) {
   return (
     <main className="token-stats-page">
       <header className="token-stats-header">
-        <div className="token-stats-heading"><button className="icon-button" type="button" onClick={onClose} title={t("tokenStats.back")}><ArrowLeft aria-hidden="true" /></button><span className="token-stats-title-icon"><BarChart3 aria-hidden="true" /></span><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
+        <div className="token-stats-heading"><span className="token-stats-title-icon"><BarChart3 aria-hidden="true" /></span><div><h1>{t("tokenStats.title")}</h1><p>{t("tokenStats.description")}</p></div></div>
         <div className="token-stats-actions">
           {devices.length > 0 && <select value={deviceId} onChange={event => setDeviceId(event.target.value)} aria-label={locale === "en-US" ? "Source computer" : "来源电脑"}><option value="local">{locale === "en-US" ? "Local" : "本机"}</option><option value="all">{locale === "en-US" ? "All computers" : "全部电脑"}</option>{devices.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select>}
           <select value={range} onChange={(event) => setRange(event.target.value as TokenStatsRange)} aria-label={t("tokenStats.range")}><option value="7d">{t("tokenStats.last7Days")}</option><option value="30d">{t("tokenStats.last30Days")}</option><option value="all">{t("tokenStats.allTime")}</option></select>

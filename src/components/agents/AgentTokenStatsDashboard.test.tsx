@@ -35,8 +35,9 @@ describe("AgentTokenStatsDashboard", () => {
   });
 
   it("loads the dashboard and requires a second click before clearing", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     expect(await screen.findByText("还没有 Token 统计")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "返回终端" })).toBeNull();
     expect(document.querySelectorAll(".token-stats-metric")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
     expect(clear).not.toHaveBeenCalled();
@@ -49,34 +50,34 @@ describe("AgentTokenStatsDashboard", () => {
     Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
       listDevices: async () => [{ id: "remote-device", name: "Remote device" }], getDashboard: remoteDashboard
     } });
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     fireEvent.change(await screen.findByRole("combobox", { name: "来源电脑" }), { target: { value: "remote-device" } });
     await waitFor(() => expect(remoteDashboard).toHaveBeenCalledWith(expect.objectContaining({ deviceId: "remote-device" })));
   });
 
   it("switches the date range and reloads", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     await screen.findByText("还没有 Token 统计");
     fireEvent.change(screen.getByLabelText("统计时间范围"), { target: { value: "7d" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ range: "7d" })));
   });
 
   it("offers CodeBuddy as a provider filter", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     await screen.findByText("CodeBuddy");
     fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "codebuddy" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "codebuddy" })));
   });
 
   it("offers OpenCode as a provider filter", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     await screen.findByText("OpenCode");
     fireEvent.change(screen.getByRole("combobox", { name: /Agent/ }), { target: { value: "opencode" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "opencode" })));
   });
 
   it("offers Qoder as a provider filter", async () => {
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
     await screen.findByText("Qoder");
     fireEvent.change(screen.getByLabelText("Agent 类型"), { target: { value: "qoder" } });
     await waitFor(() => expect(getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "qoder" })));
@@ -90,7 +91,7 @@ describe("AgentTokenStatsDashboard", () => {
         { date: "2026-08-18", tokens: { ...emptyTokens, inputTokens: 120, cachedInputTokens: 30, outputTokens: 80, totalTokens: 200 } }
       ]
     });
-    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard /></I18nProvider>);
 
     const point = await screen.findByRole("button", { name: "2026-08-17: Total tokens 100" });
     expect(document.querySelector(".token-stats-trend-area")).not.toBeNull();
@@ -115,7 +116,7 @@ describe("AgentTokenStatsDashboard", () => {
       ...defaultDashboard,
       dailyTrend: [{ date: "2026-08-17", tokens: { ...emptyTokens, inputTokens: 60, outputTokens: 40, totalTokens: 100 } }]
     });
-    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="en-US"><AgentTokenStatsDashboard /></I18nProvider>);
 
     const point = await screen.findByRole("button", { name: "2026-08-17: Total tokens 100" });
     fireEvent.focus(point);
@@ -140,7 +141,7 @@ describe("AgentTokenStatsDashboard", () => {
       }],
       totalCount: 1
     });
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
 
     expect(await screen.findAllByText("diagnosing-bugs")).toHaveLength(1);
     expect(screen.getAllByRole("columnheader")).toHaveLength(7);
@@ -165,7 +166,7 @@ describe("AgentTokenStatsDashboard", () => {
       }],
       totalCount: 1
     });
-    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard onClose={() => undefined} /></I18nProvider>);
+    render(<I18nProvider locale="zh-CN"><AgentTokenStatsDashboard /></I18nProvider>);
 
     expect(await screen.findByText("Pannel Handle 远程桥")).toBeTruthy();
     expect(screen.queryByText("pannel_handle_remote")).toBeNull();

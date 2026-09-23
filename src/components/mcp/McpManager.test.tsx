@@ -43,7 +43,7 @@ const remove = vi.fn();
 function renderManager(session: TerminalSession | undefined = windowsSession, onDirtyChange = vi.fn()) {
   return render(
     <I18nProvider locale="zh-CN">
-      <McpManager session={session} onClose={() => undefined} onDirtyChange={onDirtyChange} onRegisterSave={() => undefined} />
+      <McpManager session={session} onDirtyChange={onDirtyChange} onRegisterSave={() => undefined} />
     </I18nProvider>
   );
 }
@@ -76,6 +76,7 @@ describe("McpManager", () => {
     renderManager(windowsSession, onDirtyChange);
 
     expect(await screen.findByRole("heading", { name: "local-tools" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "返回终端" })).toBeNull();
     const masked = screen.getByDisplayValue("••••••••") as HTMLInputElement;
     expect(masked.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "揭示敏感值" }));

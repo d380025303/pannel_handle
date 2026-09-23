@@ -595,6 +595,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
           onQuickCreateAgent={handleQuickCreateAgent}
+          onOpenTerminal={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowSessionOverview(false);
+            setShowTokenStats(false);
+            setShowSkills(false);
+            setShowMcp(false);
+            setWorkspaceTab("terminal");
+          }}
           onOpenSessionOverview={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
             setShowTokenStats(false);
@@ -648,12 +656,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           </div>
         )}
 
-        {showTokenStats && <AgentTokenStatsDashboard onClose={() => setShowTokenStats(false)} />}
+        {showTokenStats && <AgentTokenStatsDashboard />}
         {showSessionOverview && (
           <SessionOverview
             sessions={terminalSessions.sessions}
             agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
-            onClose={() => setShowSessionOverview(false)}
             onSelectSession={(id) => {
               handleSelectSession(id);
               setWorkspaceTab("terminal");
@@ -661,11 +668,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             }}
           />
         )}
-        {showSkills && <SkillsManager onClose={() => setShowSkills(false)} />}
+        {showSkills && <SkillsManager />}
         {showMcp && (
           <McpManager
             session={terminalSessions.activeSession}
-            onClose={() => setShowMcp(false)}
             onDirtyChange={setMcpDirty}
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />

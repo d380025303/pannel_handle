@@ -166,4 +166,22 @@ describe("TitleBar mobile access layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "打开 Skills" }));
     expect(onOpenSkills).toHaveBeenCalledTimes(1);
   });
+
+  it("opens the terminal workspace from the title bar", () => {
+    const onOpenTerminal = vi.fn();
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenTerminal={onOpenTerminal}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开终端" }));
+    expect(onOpenTerminal).toHaveBeenCalledTimes(1);
+  });
 });

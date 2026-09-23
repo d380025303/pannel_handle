@@ -1,4 +1,4 @@
-import { ArrowLeft, LayoutGrid, Server, Terminal } from "lucide-react";
+import { LayoutGrid, Server, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { getAgentStatusClass, getAgentStatusLabel } from "../../utils/agentStatus";
 import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
@@ -6,19 +6,15 @@ import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 type SessionOverviewProps = {
   sessions: TerminalSession[];
   agentStatusesBySessionId: Record<string, AgentStatusPayload>;
-  onClose: () => void;
   onSelectSession: (id: string) => void;
 };
 
-export function SessionOverview({ sessions, agentStatusesBySessionId, onClose, onSelectSession }: SessionOverviewProps) {
+export function SessionOverview({ sessions, agentStatusesBySessionId, onSelectSession }: SessionOverviewProps) {
   const { t } = useI18n();
 
   return (
     <main className="session-overview-page">
       <header className="session-overview-header">
-        <button className="icon-button" type="button" onClick={onClose} title={t("sessionOverview.back")} aria-label={t("sessionOverview.back")}>
-          <ArrowLeft aria-hidden="true" />
-        </button>
         <span className="session-overview-icon"><LayoutGrid aria-hidden="true" /></span>
         <div>
           <h1>{t("sessionOverview.title")}</h1>

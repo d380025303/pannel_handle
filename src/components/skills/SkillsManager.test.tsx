@@ -21,7 +21,7 @@ const list = vi.fn();
 function renderManager() {
   return render(
     <I18nProvider locale="en-US">
-      <SkillsManager onClose={() => undefined} />
+      <SkillsManager />
     </I18nProvider>
   );
 }
@@ -42,6 +42,7 @@ describe("SkillsManager", () => {
     renderManager();
 
     expect(await screen.findByRole("heading", { name: "review" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Back to terminal" })).toBeNull();
     expect(screen.getByText("Review code changes")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "summaryless" })).toBeTruthy();
     expect(screen.getAllByRole("article")).toHaveLength(3);

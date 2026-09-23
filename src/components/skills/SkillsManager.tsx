@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, RefreshCw, Search } from "lucide-react";
+import { BookOpen, RefreshCw, Search } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { SkillProvider, SkillSummary } from "../../vite-env";
 
-type SkillsManagerProps = {
-  onClose: () => void;
-};
-
-export function SkillsManager({ onClose }: SkillsManagerProps) {
+export function SkillsManager() {
   const { t } = useI18n();
   const [provider, setProvider] = useState<SkillProvider>("codex");
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -52,7 +48,6 @@ export function SkillsManager({ onClose }: SkillsManagerProps) {
     <main className="skills-page">
       <header className="skills-header">
         <div>
-          <button className="icon-button" type="button" onClick={onClose} title={t("skills.back")} aria-label={t("skills.back")}><ArrowLeft aria-hidden="true" /></button>
           <BookOpen aria-hidden="true" />
           <div><h1>{t("skills.title")}</h1><p>{t("skills.description")}</p></div>
         </div>

@@ -26,10 +26,10 @@ const ssh: TerminalSession = {
   sshConnectionState: "reconnecting"
 };
 
-function renderOverview(sessions: TerminalSession[], statuses: Record<string, AgentStatusPayload> = {}, onSelectSession = vi.fn(), onClose = vi.fn()) {
+function renderOverview(sessions: TerminalSession[], statuses: Record<string, AgentStatusPayload> = {}, onSelectSession = vi.fn()) {
   return render(
     <I18nProvider locale="zh-CN">
-      <SessionOverview sessions={sessions} agentStatusesBySessionId={statuses} onSelectSession={onSelectSession} onClose={onClose} />
+      <SessionOverview sessions={sessions} agentStatusesBySessionId={statuses} onSelectSession={onSelectSession} />
     </I18nProvider>
   );
 }
@@ -39,9 +39,8 @@ describe("SessionOverview", () => {
 
   it("keeps connection state separate from Agent state and opens the selected terminal", () => {
     const onSelectSession = vi.fn();
-    const onClose = vi.fn();
     const status: AgentStatusPayload = { id: "ssh", provider: "codex", status: "waiting_for_permission", eventName: "PermissionRequest", timestamp: 1, activitySummary: "等待确认部署命令" };
-    renderOverview([local, ssh], { ssh: status }, onSelectSession, onClose);
+    renderOverview([local, ssh], { ssh: status }, onSelectSession);
 
     expect(screen.getByRole("button", { name: "打开终端：Local terminal" }).textContent).toContain("会话已打开");
     expect(screen.getByRole("button", { name: "打开终端：Local terminal" }).textContent).toContain("暂无活动摘要");
@@ -51,9 +50,8 @@ describe("SessionOverview", () => {
     expect(remoteCard.textContent).toContain("等待确认部署命令");
 
     fireEvent.click(remoteCard);
-    fireEvent.click(screen.getByRole("button", { name: "返回终端" }));
     expect(onSelectSession).toHaveBeenCalledWith("ssh");
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "返回终端" })).toBeNull();
   });
 
   it("updates stopped and running states from the current data and shows an empty state", () => {
@@ -64,7 +62,7 @@ describe("SessionOverview", () => {
 
     rerender(
       <I18nProvider locale="zh-CN">
-        <SessionOverview sessions={[{ ...ssh, sshConnectionState: "disconnected" }]} agentStatusesBySessionId={{ ssh: { id: "ssh", provider: "codex", status: "ended", eventName: "End", timestamp: 2 } }} onSelectSession={() => undefined} onClose={() => undefined} />
+        <SessionOverview sessions={[{ ...ssh, sshConnectionState: "disconnected" }]} agentStatusesBySessionId={{ ssh: { id: "ssh", provider: "codex", status: "ended", eventName: "End", timestamp: 2 } }} onSelectSession={() => undefined} />
       </I18nProvider>
     );
     const card = screen.getByRole("button", { name: "打开终端：Remote terminal" });
@@ -72,7 +70,7 @@ describe("SessionOverview", () => {
     expect(card.textContent).toContain("Codex 已结束");
     expect(card.textContent).toContain("暂无活动摘要");
 
-    rerender(<I18nProvider locale="zh-CN"><SessionOverview sessions={[]} agentStatusesBySessionId={{}} onSelectSession={() => undefined} onClose={() => undefined} /></I18nProvider>);
+    rerender(<I18nProvider locale="zh-CN"><SessionOverview sessions={[]} agentStatusesBySessionId={{}} onSelectSession={() => undefined} /></I18nProvider>);
     expect(screen.getByText("暂无终端实例")).toBeTruthy();
   });
 });
