@@ -19,14 +19,14 @@ const session: TerminalSession = {
   type: "windows"
 };
 
-function renderSidebar(agentStatus?: AgentStatusPayload) {
+function renderSidebar(agentStatus?: AgentStatusPayload, sidebarSession: TerminalSession = session) {
   const noop = () => undefined;
   return render(
     <I18nProvider locale="zh-CN">
       <SessionSidebar
-        sessions={[session]}
-        activeId={session.id}
-        agentStatusesBySessionId={agentStatus ? { [session.id]: agentStatus } : {}}
+        sessions={[sidebarSession]}
+        activeId={sidebarSession.id}
+        agentStatusesBySessionId={agentStatus ? { [sidebarSession.id]: agentStatus } : {}}
         onSelectSession={noop}
         onEditSession={noop}
         onDuplicateSession={async () => undefined}
@@ -85,6 +85,19 @@ describe("SessionSidebar Agent summary", () => {
 
   it("clamps long summaries to two lines", () => {
     expect(componentStyles).toMatch(/\.agent-status-summary\s*{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*overflow:\s*hidden;/s);
+  });
+
+  it("does not show a status badge while an SSH session first connects", () => {
+    const { container } = renderSidebar(undefined, {
+      ...session,
+      type: "ssh",
+      shell: "ssh2",
+      sshConfig: { host: "example.com" },
+      sshConnectionState: "connecting"
+    });
+
+    expect(container.querySelector(".ssh-connection-badge")).toBeNull();
+    expect(screen.queryByText("SSH 连接中")).toBeNull();
   });
 
   it("duplicates a running session without selecting it", async () => {

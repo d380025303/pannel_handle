@@ -179,13 +179,11 @@ export function SessionSidebar({
             const agentStatus = agentStatusesBySessionId[session.id];
             const agentStatusLabel = getAgentStatusLabel(agentStatus, t);
             const agentSummary = agentStatus?.activitySummary?.trim();
-            const sshStatusLabel = session.sshConnectionState === "connecting"
-              ? t("sidebar.sshConnecting")
-              : session.sshConnectionState === "reconnecting"
-                ? t("sidebar.sshReconnecting", { attempt: session.sshReconnectAttempt || 1 })
-                : session.sshConnectionState === "disconnected"
-                  ? t("sidebar.sshDisconnected")
-                  : null;
+            const sshStatusLabel = session.sshConnectionState === "reconnecting"
+              ? t("sidebar.sshReconnecting", { attempt: session.sshReconnectAttempt || 1 })
+              : session.sshConnectionState === "disconnected"
+                ? t("sidebar.sshDisconnected")
+                : null;
             const canReconnect = session.type === "ssh"
               && (session.sshConnectionState === "reconnecting" || session.sshConnectionState === "disconnected");
             return (
