@@ -82,12 +82,18 @@ describe("TerminalComposer", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     expect(write).toHaveBeenCalledWith("session-1", "review this");
+    expect(write).not.toHaveBeenCalledWith("session-1", "\r");
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(write).toHaveBeenCalledWith("session-1", "\r");
     expect(textarea.value).toBe("");
 
     fireEvent.change(textarea, { target: { value: "send by button", selectionStart: 14 } });
     fireEvent.click(screen.getByRole("button", { name: "发送到终端" }));
 
     expect(write).toHaveBeenCalledWith("session-1", "send by button");
+    expect(write).toHaveBeenCalledTimes(3);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(write.mock.calls[3]).toEqual(["session-1", "\r"]);
     expect(document.activeElement).toBe(textarea);
     expect(textarea.value).toBe("");
   });

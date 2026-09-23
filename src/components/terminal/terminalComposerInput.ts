@@ -1,4 +1,5 @@
-const SUBMIT_DELAY_MS = 30;
+// Codex treats Enter immediately after a burst of input as part of the paste.
+const SUBMIT_DELAY_MS = 200;
 
 type TerminalWrite = (sessionId: string, data: string) => void;
 type Schedule = (callback: () => void, delay: number) => unknown;
