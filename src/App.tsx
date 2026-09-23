@@ -17,6 +17,7 @@ import { IdeaRunPanel } from "./components/idea/IdeaRunPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
 import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
+import { SessionOverview } from "./components/sessions/SessionOverview";
 import { getAgentProviderLabel } from "./components/sessions/agentProviders";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { TerminalComposer } from "./components/terminal/TerminalComposer";
@@ -100,6 +101,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showTokenStats, setShowTokenStats] = useState(false);
+  const [showSessionOverview, setShowSessionOverview] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
@@ -378,6 +380,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         persist: false
       });
       setShowTokenStats(false);
+      setShowSessionOverview(false);
       setShowSkills(false);
       setShowMcp(false);
       setMcpDirty(false);
@@ -583,7 +586,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
+          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : showSessionOverview ? t("sessionOverview.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
@@ -592,19 +595,29 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onOpenPicker={terminalSessions.openPicker}
           onOpenCreate={handleOpenCreateModal}
           onQuickCreateAgent={handleQuickCreateAgent}
+          onOpenSessionOverview={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowTokenStats(false);
+            setShowSkills(false);
+            setShowMcp(false);
+            setShowSessionOverview(true);
+          }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowSessionOverview(false);
             setShowSkills(false);
             setShowMcp(false);
             setShowTokenStats(true);
           }}
           onOpenSkills={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowMcp(false);
             setShowSkills(true);
           }}
           onOpenMcp={() => {
+            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
@@ -636,6 +649,18 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         )}
 
         {showTokenStats && <AgentTokenStatsDashboard onClose={() => setShowTokenStats(false)} />}
+        {showSessionOverview && (
+          <SessionOverview
+            sessions={terminalSessions.sessions}
+            agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
+            onClose={() => setShowSessionOverview(false)}
+            onSelectSession={(id) => {
+              handleSelectSession(id);
+              setWorkspaceTab("terminal");
+              setShowSessionOverview(false);
+            }}
+          />
+        )}
         {showSkills && <SkillsManager onClose={() => setShowSkills(false)} />}
         {showMcp && (
           <McpManager
@@ -645,7 +670,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp ? "none" : undefined }}>
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSessionOverview || showSkills || showMcp ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}

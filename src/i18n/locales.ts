@@ -7,6 +7,22 @@ export type TranslationParams = Record<string, string | number>;
 export type TranslationKey =
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
+  | "sessionOverview.title"
+  | "sessionOverview.openOverview"
+  | "sessionOverview.description"
+  | "sessionOverview.back"
+  | "sessionOverview.empty"
+  | "sessionOverview.emptyHint"
+  | "sessionOverview.openSession"
+  | "sessionOverview.open"
+  | "sessionOverview.connecting"
+  | "sessionOverview.connected"
+  | "sessionOverview.reconnecting"
+  | "sessionOverview.disconnected"
+  | "sessionOverview.noAgent"
+  | "sessionOverview.noAgentStatus"
+  | "sessionOverview.summary"
+  | "sessionOverview.noSummary"
   | "settings.title"
   | "settings.subtitle"
   | "settings.categories"
@@ -940,6 +956,22 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "zh-CN": {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
+    "sessionOverview.title": "实例总览",
+    "sessionOverview.openOverview": "打开实例总览",
+    "sessionOverview.description": "当前打开 {count} 个终端实例",
+    "sessionOverview.back": "返回终端",
+    "sessionOverview.empty": "暂无终端实例",
+    "sessionOverview.emptyHint": "创建或启动会话后，实例会显示在这里。",
+    "sessionOverview.openSession": "打开终端：{name}",
+    "sessionOverview.open": "会话已打开",
+    "sessionOverview.connecting": "SSH 连接中",
+    "sessionOverview.connected": "SSH 已连接",
+    "sessionOverview.reconnecting": "SSH 重连中",
+    "sessionOverview.disconnected": "SSH 已断开",
+    "sessionOverview.noAgent": "未配置 Agent",
+    "sessionOverview.noAgentStatus": "暂无 Agent 状态",
+    "sessionOverview.summary": "活动摘要",
+    "sessionOverview.noSummary": "暂无活动摘要",
     "settings.title": "设置",
     "settings.subtitle": "管理应用行为、模型服务与本地连接",
     "settings.categories": "设置分类",
@@ -1865,6 +1897,22 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
   "en-US": {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
+    "sessionOverview.title": "Instance overview",
+    "sessionOverview.openOverview": "Open instance overview",
+    "sessionOverview.description": "{count} terminal instances open",
+    "sessionOverview.back": "Back to terminal",
+    "sessionOverview.empty": "No terminal instances",
+    "sessionOverview.emptyHint": "Create or launch a session to see it here.",
+    "sessionOverview.openSession": "Open terminal: {name}",
+    "sessionOverview.open": "Session open",
+    "sessionOverview.connecting": "SSH connecting",
+    "sessionOverview.connected": "SSH connected",
+    "sessionOverview.reconnecting": "SSH reconnecting",
+    "sessionOverview.disconnected": "SSH disconnected",
+    "sessionOverview.noAgent": "No Agent configured",
+    "sessionOverview.noAgentStatus": "No Agent status yet",
+    "sessionOverview.summary": "Activity summary",
+    "sessionOverview.noSummary": "No activity summary yet",
     "settings.title": "Settings",
     "settings.subtitle": "Manage app behavior, model services, and local connections",
     "settings.categories": "Settings categories",
