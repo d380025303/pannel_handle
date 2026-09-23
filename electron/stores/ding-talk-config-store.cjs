@@ -1,6 +1,6 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 
-function createDingTalkConfigStore({ configFile, safeStorage, logger = console }) {
+function createDingTalkConfigStore({ configFile, safeStorage, dataStore, logger = console }) {
   let config = {
     enabled: false,
     encryptedWebhook: "",
@@ -31,15 +31,12 @@ function createDingTalkConfigStore({ configFile, safeStorage, logger = console }
   }
 
   function saveConfig() {
-    const data = JSON.stringify(serializeConfig(), null, 2);
-    const tmpPath = `${configFile}.tmp`;
-    fs.writeFileSync(tmpPath, data, "utf-8");
-    fs.renameSync(tmpPath, configFile);
+    writeJson(dataStore, configFile, serializeConfig());
   }
 
   function loadConfig() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      const parsed = readJson(dataStore, configFile);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         config = {
           enabled: parsed.enabled === true,

@@ -1,5 +1,5 @@
 const { normalizeEntries } = require("../services/environment/index.cjs");
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
@@ -36,7 +36,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore, onChanged = () => {} }) {
+function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore, dataStore, onChanged = () => {} }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -197,8 +197,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
 
   function loadSessions() {
     try {
-      const data = fs.readFileSync(sessionsFile, "utf-8");
-      const parsed = JSON.parse(data);
+      const parsed = readJson(dataStore, sessionsFile);
       if (Array.isArray(parsed)) return parsed;
       return [];
     } catch (err) {
@@ -218,10 +217,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
 
   function saveLibrary() {
     try {
-      const data = JSON.stringify(librarySessions, null, 2);
-      const tmpPath = sessionsFile + ".tmp";
-      fs.writeFileSync(tmpPath, data, "utf-8");
-      fs.renameSync(tmpPath, sessionsFile);
+      writeJson(dataStore, sessionsFile, librarySessions);
       onChanged();
     } catch (err) {
       console.error("Failed to save library:", err);

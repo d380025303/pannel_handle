@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
 const http = require("node:http");
 const https = require("node:https");
 const os = require("node:os");
@@ -124,6 +125,7 @@ function buildModelCatalog(models) {
 function createCodeBuddyCodexBridgeService({
   store,
   verificationFile,
+  dataStore,
   catalogFile,
   preloadFile,
   workBuddyModelCatalogService,
@@ -140,7 +142,7 @@ function createCodeBuddyCodexBridgeService({
   let versionCache;
   let shuttingDown = false;
 
-  try { verifications = JSON.parse(fs.readFileSync(verificationFile, "utf-8")); } catch {}
+  try { verifications = readJson(dataStore, verificationFile); } catch (error) { if (error.code !== "ENOENT") throw error; }
 
   function inspectCliVersion({ refresh = false } = {}) {
     if (!refresh && versionCache) return versionCache;
@@ -198,10 +200,8 @@ function createCodeBuddyCodexBridgeService({
   }
 
   function saveVerifications() {
-    fs.mkdirSync(path.dirname(verificationFile), { recursive: true });
-    const temporaryFile = `${verificationFile}.tmp`;
-    fs.writeFileSync(temporaryFile, JSON.stringify(verifications, null, 2), "utf-8");
-    fs.renameSync(temporaryFile, verificationFile);
+    if (!dataStore) fs.mkdirSync(path.dirname(verificationFile), { recursive: true });
+    writeJson(dataStore, verificationFile, verifications);
   }
 
   function writeCatalog() {

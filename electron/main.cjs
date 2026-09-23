@@ -1,4 +1,5 @@
 const { createEnvironmentService } = require("./services/environment/index.cjs");
+const fs = require("node:fs");
 const path = require("node:path");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
 
@@ -50,11 +51,14 @@ const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createOpenRouterConfigStore } = require("./stores/openrouter-config-store.cjs");
 const { createCodeBuddyCodexConfigStore } = require("./stores/codebuddy-codex-config-store.cjs");
 const { createSessionStore } = require("./stores/session-store.cjs");
+const { createBusinessDataStore } = require("./stores/business-data-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
 
 let windowManager = null;
 let sessionStore = null;
+let businessDataStore = null;
+let modelCatalogDir = null;
 let environmentService = null;
 let templateUsageStore = null;
 let launchTemplateStore = null;
@@ -121,21 +125,23 @@ if (!gotSingleInstanceLock) {
     windowManager = createWindowManager({
       onMainWindowClosed: () => agentConversationManager?.shutdown()
     });
+    businessDataStore = createBusinessDataStore({ userData: app.getPath("userData") }).open();
+    modelCatalogDir = fs.mkdtempSync(path.join(app.getPath("temp"), "pannel-handle-catalog-"));
     templateUsageStore = createTemplateUsageStore({
-      usageFile: path.join(app.getPath("userData"), "template-usage.json")
+      usageFile: path.join(app.getPath("userData"), "template-usage.json"), dataStore: businessDataStore
     });
     templateUsageStore.load();
     launchTemplateStore = createLaunchTemplateStore({
-      templatesFile: path.join(app.getPath("userData"), "launch-templates.json")
+      templatesFile: path.join(app.getPath("userData"), "launch-templates.json"), dataStore: businessDataStore
     });
     launchTemplateStore.load();
     environmentService = createEnvironmentService({
-      configFile: path.join(app.getPath("userData"), "environment-profiles.json"),
+      configFile: path.join(app.getPath("userData"), "environment-profiles.json"), dataStore: businessDataStore,
       getReferences: () => [...(sessionStore?.getLibrary() || []), ...(terminalManager?.listSessions() || [])]
     });
     sessionStore = createSessionStore({
       environmentService,
-      sessionsFile: path.join(app.getPath("userData"), "sessions.json"),
+      sessionsFile: path.join(app.getPath("userData"), "sessions.json"), dataStore: businessDataStore,
       // Reading saved metadata must work even if the selected shell is not installed.
       getDefaultShell: () => resolveConfiguredShell(undefined, false),
       getWslShell,
@@ -145,39 +151,39 @@ if (!gotSingleInstanceLock) {
       launchTemplateStore
     });
     configStore = createConfigStore({
-      configFile: path.join(app.getPath("userData"), "config.json"),
+      configFile: path.join(app.getPath("userData"), "config.json"), dataStore: businessDataStore,
       safeStorage
     });
     openRouterConfigStore = createOpenRouterConfigStore({
-      configFile: path.join(app.getPath("userData"), "openrouter.json"),
+      configFile: path.join(app.getPath("userData"), "openrouter.json"), dataStore: businessDataStore,
       safeStorage
     });
     naraRouterConfigStore = createOpenRouterConfigStore({
-      configFile: path.join(app.getPath("userData"), "nararouter.json"),
+      configFile: path.join(app.getPath("userData"), "nararouter.json"), dataStore: businessDataStore,
       safeStorage,
       providerName: "NaraRouter",
       assumeCompatibleWhenCapabilitiesMissing: true,
       verificationProfile: "chat-completions-bridge-v1"
     });
     miniMaxConfigStore = createOpenRouterConfigStore({
-      configFile: path.join(app.getPath("userData"), "minimax.json"),
+      configFile: path.join(app.getPath("userData"), "minimax.json"), dataStore: businessDataStore,
       safeStorage,
       providerName: "MiniMax",
       assumeCompatibleWhenCapabilitiesMissing: true,
       verificationProfile: "chat-completions-bridge-v1"
     });
     codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
-      configFile: path.join(app.getPath("userData"), "codebuddy-codex.json")
+      configFile: path.join(app.getPath("userData"), "codebuddy-codex.json"), dataStore: businessDataStore
     });
     dingTalkConfigStore = createDingTalkConfigStore({
-      configFile: path.join(app.getPath("userData"), "dingtalk.json"),
+      configFile: path.join(app.getPath("userData"), "dingtalk.json"), dataStore: businessDataStore,
       safeStorage
     });
     knownHostStore = createKnownHostStore({
-      knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json")
+      knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json"), dataStore: businessDataStore
     });
     mobileAccessStore = createMobileAccessStore({
-      accessFile: path.join(app.getPath("userData"), "mobile-access.json"),
+      accessFile: path.join(app.getPath("userData"), "mobile-access.json"), dataStore: businessDataStore,
       safeStorage
     });
     hookConfigManager = createHookConfigManager();
@@ -321,8 +327,8 @@ if (!gotSingleInstanceLock) {
       codeBuddy: {
         store: codeBuddyCodexConfigStore,
         workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
-        verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"),
-        catalogFile: path.join(app.getPath("userData"), "codebuddy-codex-model-catalog.json"),
+        verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"), dataStore: businessDataStore,
+        catalogFile: path.join(modelCatalogDir, "codebuddy-codex-model-catalog.json"),
         preloadFile: app.isPackaged
           ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "services", "codex-model-bridge", "codebuddy-preload.cjs")
           : path.join(__dirname, "services", "codex-model-bridge", "codebuddy-preload.cjs")
@@ -340,9 +346,9 @@ if (!gotSingleInstanceLock) {
       miniMaxConfigStore,
       codeBuddyCodexBridgeService: codexModelBridgeModule.codeBuddyService,
       codexModelBridgeModule,
-      openRouterCatalogFile: path.join(app.getPath("userData"), "openrouter-model-catalog.json"),
-      naraRouterCatalogFile: path.join(app.getPath("userData"), "nararouter-model-catalog.json"),
-      miniMaxCatalogFile: path.join(app.getPath("userData"), "minimax-model-catalog.json")
+      openRouterCatalogFile: path.join(modelCatalogDir, "openrouter-model-catalog.json"),
+      naraRouterCatalogFile: path.join(modelCatalogDir, "nararouter-model-catalog.json"),
+      miniMaxCatalogFile: path.join(modelCatalogDir, "minimax-model-catalog.json")
     });
     screenshotModule = createScreenshotModule({
       ipcMain,
@@ -445,7 +451,7 @@ if (!gotSingleInstanceLock) {
     });
     sessionStore.loadLibrary();
     postgresBackupService = createPostgresBackupService({
-      userData: app.getPath("userData"), safeStorage, sessionStore,
+      userData: app.getPath("userData"), safeStorage, sessionStore, dataStore: businessDataStore,
       statsFile: path.join(app.getPath("userData"), "agent-token-stats.sqlite3"),
       terminalManager, historyService: agentConversationHistoryService,
       onChanged: value => windowManager.broadcast("postgres-backup:changed", value)
@@ -491,6 +497,10 @@ if (!gotSingleInstanceLock) {
         windowManager.createWindow();
       }
     });
+  }).catch((error) => {
+    console.error("Failed to initialize application data:", error);
+    dialog.showErrorBox("Pannel Handle 启动失败", `业务数据迁移或加载失败：${error.message}`);
+    app.quit();
   });
 }
 
@@ -553,5 +563,16 @@ app.on("window-all-closed", () => {
 
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("will-quit", () => {
+  businessDataStore?.close();
+  if (modelCatalogDir) {
+    const target = path.resolve(modelCatalogDir);
+    const tempRoot = path.resolve(app.getPath("temp"));
+    if (target.startsWith(`${tempRoot}${path.sep}`) && path.basename(target).startsWith("pannel-handle-catalog-")) {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
   }
 });

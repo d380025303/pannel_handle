@@ -1,4 +1,4 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 
 const CODEX_INPUT_MODALITIES = ["text", "image", "audio"];
 
@@ -80,7 +80,7 @@ function normalizeVerification(value) {
   };
 }
 
-function createOpenRouterConfigStore({ configFile, safeStorage, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false, verificationProfile = "" }) {
+function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false, verificationProfile = "" }) {
   let config = {
     encryptedApiKey: "",
     favoriteModelIds: [],
@@ -118,14 +118,12 @@ function createOpenRouterConfigStore({ configFile, safeStorage, logger = console
   }
 
   function save() {
-    const tmpPath = `${configFile}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(serialize(), null, 2), "utf-8");
-    fs.renameSync(tmpPath, configFile);
+    writeJson(dataStore, configFile, serialize());
   }
 
   function load() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      const parsed = readJson(dataStore, configFile);
       const cachedModels = Array.isArray(parsed?.cachedModels)
         ? parsed.cachedModels.map(model => normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing })).filter(Boolean)
         : [];

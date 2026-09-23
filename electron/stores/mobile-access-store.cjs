@@ -1,11 +1,11 @@
 const crypto = require("node:crypto");
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 
 const DEFAULT_PORT = 43123;
 const AUDIT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const AUDIT_MAX_ENTRIES = 1000;
 
-function createMobileAccessStore({ accessFile, safeStorage, now = () => Date.now() }) {
+function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () => Date.now() }) {
   let state = {
     config: { enabled: false, interfaceName: "", port: DEFAULT_PORT },
     devices: [],
@@ -28,14 +28,12 @@ function createMobileAccessStore({ accessFile, safeStorage, now = () => Date.now
   }
 
   function save() {
-    const tmpPath = `${accessFile}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(serialize(), null, 2), "utf8");
-    fs.renameSync(tmpPath, accessFile);
+    writeJson(dataStore, accessFile, serialize());
   }
 
   function load() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(accessFile, "utf8"));
+      const parsed = readJson(dataStore, accessFile);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
       const port = Number(parsed.config?.port);
       state = {

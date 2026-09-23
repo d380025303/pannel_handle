@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 const path = require("node:path");
 
 function normalizeModel(model) {
@@ -16,7 +17,7 @@ function normalizeModel(model) {
   };
 }
 
-function createCodeBuddyCodexConfigStore({ configFile, logger = console }) {
+function createCodeBuddyCodexConfigStore({ configFile, dataStore, logger = console }) {
   let config = {
     catalogVersion: "",
     cachedModels: [],
@@ -38,15 +39,13 @@ function createCodeBuddyCodexConfigStore({ configFile, logger = console }) {
   }
 
   function save() {
-    fs.mkdirSync(path.dirname(configFile), { recursive: true });
-    const temporaryFile = `${configFile}.tmp`;
-    fs.writeFileSync(temporaryFile, JSON.stringify(serialize(), null, 2), "utf-8");
-    fs.renameSync(temporaryFile, configFile);
+    if (!dataStore) fs.mkdirSync(path.dirname(configFile), { recursive: true });
+    writeJson(dataStore, configFile, serialize());
   }
 
   function load() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      const parsed = readJson(dataStore, configFile);
       const cachedModels = Array.isArray(parsed?.cachedModels) ? parsed.cachedModels.map(normalizeModel).filter(Boolean) : [];
       const availableIds = new Set(cachedModels.map(model => model.id));
       const favoriteModelIds = Array.isArray(parsed?.favoriteModelIds)

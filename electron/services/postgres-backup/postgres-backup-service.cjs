@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 const { Pool } = require("pg");
 const { encryptPortable, decryptPortable } = require("./backup-crypto.cjs");
+const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
 
 const TABLES = ["token_sessions", "token_session_models", "token_session_skills", "token_session_mcp_tools", "token_daily"];
 const PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
@@ -15,7 +16,7 @@ function validPort(value) { const n = Number(value); return Number.isInteger(n) 
 function toError(error) { return error instanceof Error ? error.message : String(error); }
 function localIdentity() { return `${os.hostname()} (${process.env.USERNAME || os.userInfo().username})`; }
 
-function createPostgresBackupService({ userData, safeStorage, sessionStore, statsFile,
+function createPostgresBackupService({ userData, safeStorage, sessionStore, statsFile, dataStore,
   terminalManager, historyService, onChanged = () => {}, now = () => Date.now(),
   PoolClass = Pool, Database = DatabaseSync, fsApi = fs }) {
   const configFile = path.join(userData, "postgres-backup.json");
@@ -41,7 +42,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
   }
   function load() {
     try {
-      const saved = JSON.parse(fsApi.readFileSync(configFile, "utf8"));
+      const saved = readJson(dataStore, configFile, fsApi);
       state = { ...state, ...saved, password: saved.password || "", passphrase: saved.passphrase || "" };
     } catch (error) { if (error.code !== "ENOENT") console.error("Failed to load PostgreSQL backup config:", error); }
     if (state.deviceMarker && safeStorage?.isEncryptionAvailable?.()) {
@@ -66,10 +67,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
     saveFile();
   }
   function saveFile() {
-    fsApi.mkdirSync(path.dirname(configFile), { recursive: true });
-    const tmp = `${configFile}.tmp`;
-    fsApi.writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
-    fsApi.renameSync(tmp, configFile);
+    if (!dataStore) fsApi.mkdirSync(path.dirname(configFile), { recursive: true });
+    writeJson(dataStore, configFile, state, fsApi);
   }
   function publicState() {
     return { deviceId: state.deviceId, deviceName: state.deviceName, enabled: state.enabled,

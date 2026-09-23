@@ -1,4 +1,4 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 const { randomUUID } = require("node:crypto");
 
 function normalizeSessionTemplateIds(value) {
@@ -14,7 +14,7 @@ function normalizeSessionTemplateIds(value) {
   return ids;
 }
 
-function createLaunchTemplateStore({ templatesFile, now = () => Date.now(), createId = () => randomUUID() }) {
+function createLaunchTemplateStore({ templatesFile, dataStore, now = () => Date.now(), createId = () => randomUUID() }) {
   let launchTemplates = [];
 
   function clone(template) {
@@ -43,14 +43,12 @@ function createLaunchTemplateStore({ templatesFile, now = () => Date.now(), crea
       schemaVersion: 1,
       launchTemplates
     };
-    const tempFile = `${templatesFile}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(payload, null, 2), "utf-8");
-    fs.renameSync(tempFile, templatesFile);
+    writeJson(dataStore, templatesFile, payload);
   }
 
   function load() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(templatesFile, "utf-8"));
+      const parsed = readJson(dataStore, templatesFile);
       const items = Array.isArray(parsed) ? parsed : parsed?.launchTemplates;
       if (!Array.isArray(items)) {
         launchTemplates = [];

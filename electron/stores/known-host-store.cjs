@@ -1,13 +1,12 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 const crypto = require("node:crypto");
 
-function createKnownHostStore({ knownHostsFile }) {
+function createKnownHostStore({ knownHostsFile, dataStore }) {
   let knownHosts = {};
 
   function loadKnownHosts() {
     try {
-      const data = fs.readFileSync(knownHostsFile, "utf-8");
-      const parsed = JSON.parse(data);
+      const parsed = readJson(dataStore, knownHostsFile);
       knownHosts = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch (err) {
       if (err.code === "ENOENT") return;
@@ -18,10 +17,7 @@ function createKnownHostStore({ knownHostsFile }) {
 
   function saveKnownHosts() {
     try {
-      const data = JSON.stringify(knownHosts, null, 2);
-      const tmpPath = knownHostsFile + ".tmp";
-      fs.writeFileSync(tmpPath, data, "utf-8");
-      fs.renameSync(tmpPath, knownHostsFile);
+      writeJson(dataStore, knownHostsFile, knownHosts);
     } catch (err) {
       console.error("Failed to save known SSH hosts:", err);
     }

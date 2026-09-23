@@ -1,8 +1,8 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-function createTemplateUsageStore({ usageFile, now = () => Date.now(), windowMs = DEFAULT_WINDOW_MS }) {
+function createTemplateUsageStore({ usageFile, dataStore, now = () => Date.now(), windowMs = DEFAULT_WINDOW_MS }) {
   let launchesByTemplateId = {};
 
   function pruneTimestamps(timestamps, currentTime = now()) {
@@ -14,9 +14,7 @@ function createTemplateUsageStore({ usageFile, now = () => Date.now(), windowMs 
 
   function save() {
     try {
-      const tmpPath = `${usageFile}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(launchesByTemplateId, null, 2), "utf-8");
-      fs.renameSync(tmpPath, usageFile);
+      writeJson(dataStore, usageFile, launchesByTemplateId);
     } catch (err) {
       console.error("Failed to save template usage:", err);
     }
@@ -26,7 +24,7 @@ function createTemplateUsageStore({ usageFile, now = () => Date.now(), windowMs 
     let parsed = {};
     let loadedFromFile = false;
     try {
-      parsed = JSON.parse(fs.readFileSync(usageFile, "utf-8"));
+      parsed = readJson(dataStore, usageFile);
       loadedFromFile = true;
     } catch (err) {
       if (err.code !== "ENOENT") {

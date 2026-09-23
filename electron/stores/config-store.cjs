@@ -1,4 +1,4 @@
-const fs = require("node:fs");
+const { readJson, writeJson } = require("./business-store-io.cjs");
 const { DEFAULT_SCREENSHOT_SHORTCUT, normalizeScreenshotShortcut } = require("../services/screenshot/screenshot-shortcut.cjs");
 
 const DEFAULT_THEME_ID = "dark-slate";
@@ -17,7 +17,7 @@ function normalizeWindowsShell(value) {
   return ["cmd", "powershell", "pwsh"].includes(value) ? value : "cmd";
 }
 
-function createConfigStore({ configFile }) {
+function createConfigStore({ configFile, dataStore }) {
   let config = {
     defaultWindowsShell: "cmd",
     autoRestore: true,
@@ -52,8 +52,7 @@ function createConfigStore({ configFile }) {
 
   function loadConfig() {
     try {
-      const data = fs.readFileSync(configFile, "utf-8");
-      const parsed = JSON.parse(data);
+      const parsed = readJson(dataStore, configFile);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         config = {
           defaultWindowsShell: normalizeWindowsShell(parsed.defaultWindowsShell),
@@ -84,10 +83,7 @@ function createConfigStore({ configFile }) {
 
   function saveConfig() {
     try {
-      const data = JSON.stringify(serializeConfig(), null, 2);
-      const tmpPath = configFile + ".tmp";
-      fs.writeFileSync(tmpPath, data, "utf-8");
-      fs.renameSync(tmpPath, configFile);
+      writeJson(dataStore, configFile, serializeConfig());
     } catch (err) {
       console.error("Failed to save config:", err);
     }

@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { readJson, writeJson } = require("../../stores/business-store-io.cjs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
@@ -27,17 +28,17 @@ function mergeEnvironment(layers, windows = false) {
   return Object.fromEntries(result.values());
 }
 
-function createEnvironmentService({ configFile, getReferences = () => [] }) {
+function createEnvironmentService({ configFile, dataStore, getReferences = () => [] }) {
   let profiles = [];
-  if (fs.existsSync(configFile)) {
-    profiles = JSON.parse(fs.readFileSync(configFile, "utf8"));
+  if (dataStore || fs.existsSync(configFile)) {
+    try { profiles = readJson(dataStore, configFile); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
     if (!Array.isArray(profiles)) throw new Error("环境变量配置文件无效。");
     profiles = profiles.map(p => ({ ...p, entries: normalizeEntries(p.entries) }));
   }
   function commit(next) {
-    fs.mkdirSync(path.dirname(configFile), { recursive: true });
-    fs.writeFileSync(`${configFile}.tmp`, JSON.stringify(next, null, 2), "utf8");
-    fs.renameSync(`${configFile}.tmp`, configFile);
+    if (!dataStore) fs.mkdirSync(path.dirname(configFile), { recursive: true });
+    writeJson(dataStore, configFile, next);
     profiles = next;
   }
   function list() {
