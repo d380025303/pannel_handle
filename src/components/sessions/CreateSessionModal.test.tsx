@@ -58,6 +58,7 @@ describe("CreateSessionModal local SSH bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "SSH" }));
     fireEvent.click(screen.getByRole("button", { name: "Codex" }));
     expect(screen.getByText("本机 Agent 工作目录（可选）")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /使用 App Server/ })).toHaveProperty("checked", true);
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     await vi.waitFor(() => expect(screen.getByDisplayValue("C:\\local agent")).toBeTruthy());
@@ -70,7 +71,8 @@ describe("CreateSessionModal local SSH bridge", () => {
       cwd: "/srv/app",
       agentProvider: "codex",
       agentLocation: "local",
-      localAgentCwd: "C:\\local agent"
+      localAgentCwd: "C:\\local agent",
+      codexAppServerEnabled: true
     })));
   });
 

@@ -133,10 +133,10 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
-    const codexAppServerEnabled = agentProvider === "codex" && (template.type !== "ssh" || agentLocation === "remote")
+    const codexAppServerEnabled = agentProvider === "codex"
       ? template.codexAppServerEnabled !== false
       : undefined;
-    const codexExecutionPermission = agentProvider === "codex" && (template.type !== "ssh" || agentLocation === "remote")
+    const codexExecutionPermission = agentProvider === "codex"
       ? (CODEX_EXECUTION_PERMISSIONS.has(template.codexExecutionPermission) ? template.codexExecutionPermission : "askApproval")
       : undefined;
     return {
@@ -219,11 +219,13 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   function loadLibrary() {
     const saved = loadSessions();
     const legacyEnabled = getLegacyCodexAppServerEnabled();
-    const needsMigration = saved.some(template => template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.codexAppServerEnabled !== "boolean");
+    const needsMigration = saved.some(template => template?.agentProvider === "codex" && typeof template.codexAppServerEnabled !== "boolean");
     librarySessions = saved.map(template => normalizeTemplate({
       ...template,
       ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.codexAppServerEnabled !== "boolean"
-        ? { codexAppServerEnabled: legacyEnabled } : {})
+        ? { codexAppServerEnabled: legacyEnabled } : {}),
+      ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.codexAppServerEnabled !== "boolean"
+        ? { codexAppServerEnabled: false } : {})
     }));
     for (const session of librarySessions) {
       bumpTemplateIdCounter(session.id);
@@ -297,7 +299,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const idx = librarySessions.findIndex(session => session.id === id);
     if (idx < 0) throw new Error("会话模板不存在。");
     const template = librarySessions[idx];
-    if (template.agentProvider !== "codex" || (template.type === "ssh" && template.agentLocation !== "remote"))
+    if (template.agentProvider !== "codex")
       throw new Error("会话模板不支持 Codex App Server。");
     const updated = [...librarySessions];
     updated[idx] = { ...template, codexExecutionPermission: permission };

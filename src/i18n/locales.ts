@@ -396,6 +396,8 @@ export type TranslationKey =
   | "tag.placeholderAdd"
   | "agent.waitingForPermission"
   | "agent.waitingForPermissionTool"
+  | "agent.waitingForAnswer"
+  | "agent.waitingForPlanConfirmation"
   | "agent.idlePrompt"
   | "agent.completed"
   | "agent.failed"
@@ -1366,6 +1368,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tag.placeholderAdd": "添加标签",
     "agent.waitingForPermission": "{agent} 等待确认",
     "agent.waitingForPermissionTool": "{agent} 等待确认: {tool}",
+    "agent.waitingForAnswer": "{agent} 等待回答",
+    "agent.waitingForPlanConfirmation": "{agent} 等待确认计划",
     "agent.idlePrompt": "{agent} 空闲中",
     "agent.completed": "{agent} 已完成",
     "agent.failed": "{agent} 失败",
@@ -2328,6 +2332,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tag.placeholderAdd": "Add tag",
     "agent.waitingForPermission": "{agent} waiting for confirmation",
     "agent.waitingForPermissionTool": "{agent} waiting for confirmation: {tool}",
+    "agent.waitingForAnswer": "{agent} waiting for an answer",
+    "agent.waitingForPlanConfirmation": "{agent} waiting for plan confirmation",
     "agent.idlePrompt": "{agent} idle",
     "agent.completed": "{agent} completed",
     "agent.failed": "{agent} failed",

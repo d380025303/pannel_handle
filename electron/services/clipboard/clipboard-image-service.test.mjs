@@ -83,6 +83,23 @@ describe("clipboard-image-service", () => {
     });
   });
 
+  it.skipIf(process.platform !== "win32")("saves local bridge App Server images in its local workspace", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-local-app-server-image-"));
+    const pngBuffer = Buffer.from([1, 2, 3]);
+    const remoteFileService = { writeBinaryFile: vi.fn() };
+    const service = createClipboardImageService({
+      clipboard: { readImage: () => createNativeImageMock(pngBuffer) },
+      terminalManager: { getSession: () => ({ id: "bridge", type: "ssh", agentLocation: "local" }) },
+      remoteFileService
+    });
+    try {
+      const result = await service.pasteImageToSession("bridge", { localCwd: directory });
+      expect(result.status).toBe("saved");
+      expect(fs.readFileSync(result.path)).toEqual(pngBuffer);
+      expect(remoteFileService.writeBinaryFile).not.toHaveBeenCalled();
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("saves images under the configured Windows working directory", async () => {
     const pngBuffer = Buffer.from([7, 8, 9]);
     const remoteFileService = {

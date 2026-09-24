@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, Ellipsis, FileText, History, Image as ImageIcon, Paperclip, Plus, Sparkles, Square, X } from "lucide-react";
 import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand } from "../../vite-env";
@@ -174,7 +174,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [historyError, setHistoryError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [resumingHistory, setResumingHistory] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -246,7 +246,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   useEffect(() => {
     if (!snapshot.error) setDismissedSnapshotError(null);
   }, [snapshot.error]);
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [snapshot.items.length, snapshot.approvals.length, snapshot.questions?.length]);
+  useLayoutEffect(() => {
+    const messages = messagesRef.current;
+    if (messages) messages.scrollTop = messages.scrollHeight;
+  }, [snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
     if (!previewFile) return;
     let active = true;
@@ -414,7 +417,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     : history;
 
   return <section className="codex-app-server-session" aria-label="Codex App Server">
-    <div className="codex-app-server-messages" aria-live="polite">
+    <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，Codex 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
       {groupTools(snapshot.items).map(entry => {
         if (entry.kind === "tools") {
@@ -471,7 +474,6 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             setDismissedSnapshotError(snapshot.error);
           }}><X aria-hidden="true" /></button>
         </div>}
-      <div ref={endRef} />
     </div>
     <form className="codex-app-server-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
       {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <AttachmentTile key={filePath} sessionId={sessionId}
@@ -502,15 +504,23 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
             }}>
               <button type="button" role="menuitem" disabled={snapshot.busy} onClick={() => { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }}><History aria-hidden="true" />历史会话</button>
-              <span className="codex-app-server-menu-label">模式</span>
-              <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "default"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("default"); }}>Exec</button>
-              <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
-              <span className="codex-app-server-menu-label">执行权限（下一轮生效）</span>
-              {(["readOnly", "askApproval", "fullAccess"] as const).map(permission => <button key={permission} type="button"
-                role="menuitemradio" aria-label={permissionLabels[permission]} aria-checked={snapshot.executionPermission === permission}
-                disabled={snapshot.busy || changingPermission} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
-                <span className="codex-app-server-permission-option"><strong>{permissionLabels[permission]}</strong><small>{permissionDescriptions[permission]}</small></span>
-              </button>)}
+              <div className="codex-app-server-menu-group" role="group" aria-label="模式">
+                <span className="codex-app-server-menu-label" aria-hidden="true">模式</span>
+                <div className="codex-app-server-mode-options">
+                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "default"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("default"); }}>Exec</button>
+                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
+                </div>
+              </div>
+              <div className="codex-app-server-menu-group" role="group" aria-label="执行权限（下一轮生效）">
+                <span className="codex-app-server-menu-label" aria-hidden="true">执行权限 <small>下一轮生效</small></span>
+                <div className="codex-app-server-permission-options">
+                  {(["readOnly", "askApproval", "fullAccess"] as const).map(permission => <button key={permission} type="button"
+                    role="menuitemradio" aria-label={permissionLabels[permission]} aria-checked={snapshot.executionPermission === permission}
+                    disabled={snapshot.busy || changingPermission} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
+                    <span className="codex-app-server-permission-option"><strong>{permissionLabels[permission]}</strong><small>{permissionDescriptions[permission]}</small></span>
+                  </button>)}
+                </div>
+              </div>
               <button type="button" role="menuitem" disabled={snapshot.busy || sending || pastingImage || attachments.length >= 10} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
           </div>

@@ -57,6 +57,19 @@ describe("SessionSidebar Agent summary", () => {
     expect(screen.getByText("Codex 已完成")).toBeTruthy();
   });
 
+  it("shows App Server question and pending plan states instead of generic labels", () => {
+    const { unmount } = renderSidebar({ id: session.id, provider: "codex", status: "e_prompt",
+      eventName: "AppServerQuestion", timestamp: 1 });
+    expect(screen.getByText("Codex 等待回答")).toBeTruthy();
+    expect(screen.queryByText("Codex 空闲中")).toBeNull();
+
+    unmount();
+    renderSidebar({ id: session.id, provider: "codex", status: "completed",
+      eventName: "AppServerPlanPending", timestamp: 2 });
+    expect(screen.getByText("Codex 等待确认计划")).toBeTruthy();
+    expect(screen.queryByText("Codex 已完成")).toBeNull();
+  });
+
   it("does not render an empty summary placeholder", () => {
     const { container } = renderSidebar({
       id: session.id,

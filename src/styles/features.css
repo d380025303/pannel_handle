@@ -7940,7 +7940,7 @@ button.agent-usage-status[aria-expanded="true"] {
 @keyframes idea-spin {
   to { transform: rotate(360deg); }
 }
-.codex-app-server-session { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--color-text); background: var(--color-bg-app); }
+.codex-app-server-session { display: flex; flex-direction: column; min-height: 0; height: 100%; container-type: inline-size; color: var(--color-text); background: var(--color-bg-app); }
 .codex-app-server-session button, .codex-app-server-session select, .codex-app-server-session textarea { font: inherit; }
 .codex-app-server-session button { cursor: pointer; }
 .codex-app-server-session button:disabled { cursor: not-allowed; opacity: .45; }
@@ -8063,12 +8063,27 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-icon-button { border: 0; color: var(--color-text-secondary); background: transparent; }
 .codex-app-server-icon-button:hover:not(:disabled), .codex-app-server-icon-button[aria-expanded="true"] { color: var(--color-text-strong); background: var(--color-bg-control-hover); }
 .codex-app-server-icon-button svg { width: 16px; height: 16px; }
-.codex-app-server-menu { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 0; display: flex; flex-direction: column; gap: 2px; min-width: 176px; padding: 5px; border: 1px solid var(--color-border-strong); border-radius: 9px; background: var(--color-bg-panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
-.codex-app-server-menu > button { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 5px 9px; border: 0; border-radius: 6px; color: var(--color-text); background: transparent; text-align: left; font-size: 12px; }
+.codex-app-server-menu { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; width: min(424px, calc(100cqw - 24px)); max-height: calc(100vh - 80px); overflow-y: auto; padding: 8px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg-panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
+.codex-app-server-menu > button { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 9px; border: 0; border-radius: 7px; color: var(--color-text); background: transparent; text-align: left; font-size: 12px; }
 .codex-app-server-menu > button:hover:not(:disabled), .codex-app-server-menu > button:focus-visible { background: var(--color-bg-control-hover); }
-.codex-app-server-menu > button[aria-checked="true"] { color: var(--color-accent); background: var(--color-bg-selection); }
 .codex-app-server-menu > button svg { width: 14px; height: 14px; }
-.codex-app-server-menu-label { padding: 7px 9px 2px; color: var(--color-text-muted); font-size: 11px; }
+.codex-app-server-menu > button:last-child { border-top: 1px solid var(--color-border); border-radius: 0 0 7px 7px; padding-top: 9px; }
+.codex-app-server-menu-group { display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; }
+.codex-app-server-menu-label { display: flex; align-items: baseline; gap: 7px; padding: 0 4px; color: var(--color-text-secondary); font-size: 12px; font-weight: 600; }
+.codex-app-server-menu-label small { color: var(--color-text-muted); font-size: 11px; font-weight: 400; }
+.codex-app-server-mode-options, .codex-app-server-permission-options { display: grid; gap: 6px; }
+.codex-app-server-mode-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.codex-app-server-permission-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.codex-app-server-mode-options > button, .codex-app-server-permission-options > button { position: relative; min-width: 0; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; font-size: 12px; }
+.codex-app-server-mode-options > button { min-height: 36px; padding: 7px 11px; text-align: center; font-weight: 600; }
+.codex-app-server-permission-options > button { min-height: 76px; padding: 9px 8px; }
+.codex-app-server-mode-options > button:hover:not(:disabled), .codex-app-server-permission-options > button:hover:not(:disabled) { background: var(--color-bg-control-hover); }
+.codex-app-server-mode-options > button[aria-checked="true"], .codex-app-server-permission-options > button[aria-checked="true"] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-selection); }
+.codex-app-server-permission-options > button[aria-checked="true"]::after { position: absolute; top: 7px; right: 8px; content: "✓"; font-size: 12px; line-height: 1; }
+.codex-app-server-permission-option { display: flex; flex-direction: column; gap: 5px; }
+.codex-app-server-permission-option strong { padding-right: 12px; font-size: 12px; }
+.codex-app-server-permission-option small { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+@container (max-width: 410px) { .codex-app-server-permission-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } .codex-app-server-permission-options > button:last-child { grid-column: span 2; min-height: 54px; } }
 .codex-app-server-send { border: 1px solid var(--color-accent); color: #fff; background: var(--color-accent); }
 .codex-app-server-send:hover:not(:disabled) { filter: brightness(1.13); }
 .codex-app-server-send svg { width: 16px; height: 16px; }

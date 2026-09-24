@@ -45,6 +45,26 @@ describe("CodexAppServerSession", () => {
     } });
   });
 
+  it("follows streamed plan text and new lines after the reader scrolls up", async () => {
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledWith("run-1"));
+    const messages = container.querySelector<HTMLElement>(".codex-app-server-messages")!;
+    Object.defineProperty(messages, "scrollHeight", { configurable: true, value: 600 });
+    const snapshot = (text: string) => ({ threadId: "thread-1", mode: "plan", busy: true,
+      error: null, approvals: [], items: [{ id: "plan-1", type: "plan", text }] });
+
+    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划") }));
+    expect(messages.scrollTop).toBe(600);
+
+    messages.scrollTop = 80;
+    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步") }));
+    expect(messages.scrollTop).toBe(600);
+
+    messages.scrollTop = 120;
+    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步\n第二步") }));
+    expect(messages.scrollTop).toBe(600);
+  });
+
   it("opens history from the input menu and keeps icon actions inside the input", async () => {
     listHistory.mockResolvedValueOnce({ data: [{ id: "old-thread", title: "之前的任务", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: null });
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
@@ -55,9 +75,20 @@ describe("CodexAppServerSession", () => {
     for (const name of ["更多操作", "新对话", "发送"]) expect(inputBorder.contains(screen.getByRole("button", { name }))).toBe(true);
     expect(composer.querySelector(".codex-app-server-composer-footer")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menu", { name: "会话操作" })).toBeTruthy();
+    const menu = screen.getByRole("menu", { name: "会话操作" });
+    const modeGroup = screen.getByRole("group", { name: "模式" });
+    const permissionGroup = screen.getByRole("group", { name: "执行权限（下一轮生效）" });
+    expect(menu.contains(modeGroup)).toBe(true);
+    expect(menu.contains(permissionGroup)).toBe(true);
+    expect(modeGroup.querySelectorAll('.codex-app-server-mode-options > [role="menuitemradio"]')).toHaveLength(2);
+    expect(permissionGroup.querySelectorAll('.codex-app-server-permission-options > [role="menuitemradio"]')).toHaveLength(3);
     expect(screen.getByRole("menuitemradio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("menuitem", { name: "附加文件" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "历史会话" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Exec" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Plan" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
     const dialog = await screen.findByRole("dialog", { name: "历史会话" });
     expect(composer.contains(dialog)).toBe(false);

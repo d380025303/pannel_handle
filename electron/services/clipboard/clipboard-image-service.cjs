@@ -68,7 +68,7 @@ function createClipboardImageService({
   now = () => new Date(),
   randomBytes = crypto.randomBytes
 }) {
-  async function pasteImageToSession(sessionId) {
+  async function pasteImageToSession(sessionId, { localCwd } = {}) {
     const image = clipboard.readImage();
     const pngBuffer = getPngBuffer(image);
     if (!pngBuffer) {
@@ -78,6 +78,15 @@ function createClipboardImageService({
     const session = terminalManager.getSession(sessionId);
     if (!session) {
       throw new Error("Session is not running.");
+    }
+
+    if (localCwd) {
+      const fileName = createImageFileName(now(), randomBytes);
+      const directory = path.win32.join(localCwd, IMAGE_DIR_NAME);
+      await fs.promises.mkdir(directory, { recursive: true });
+      const filePath = path.win32.join(directory, fileName);
+      await fs.promises.writeFile(filePath, pngBuffer, { flag: "wx" });
+      return { status: "saved", path: filePath, size: pngBuffer.length };
     }
 
     const basePath = await resolveSessionWorkingDirectory(session, remoteFileService, sessionId);

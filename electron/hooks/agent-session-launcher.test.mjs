@@ -167,6 +167,28 @@ describe("agent-session-launcher", () => {
       .rejects.toThrow("Linux Codex CLI");
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
+  it("uses the interactive Bash login environment for WSL App Server", async () => {
+    const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const session = await mocks.launcher.createSession({ type: "wsl", wslDistro: "ubuntu", cwd: "/repo", agentProvider: "codex" });
+    expect(session.runtimeMode).toBe("app-server");
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1);
+    expect(mocks.spawnSync).toHaveBeenCalledWith("wsl.exe",
+      expect.arrayContaining(["-d", "ubuntu", "bash", "-lic"]), expect.objectContaining({ timeout: 30000 }));
+    expect(codexAppServerSessionService.start).toHaveBeenCalledWith(session, expect.any(Object));
+  });
+  it("reports a missing WSL Codex command separately from a Windows shim", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      spawnSync: vi.fn(() => ({ status: 127 })) });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow("Bash 登录环境中找到 codex");
+  });
+  it("reports a timed out WSL Codex command check", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn() },
+      spawnSync: vi.fn(() => ({ error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) })) });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow("命令检测超时");
+  });
   it("duplicates a persisted running session from its saved template", async () => {
     const mocks = createMocks();
     const template = {
@@ -739,6 +761,60 @@ describe("agent-session-launcher", () => {
       { type: "windows", path: "C:\\runtime\\run-1" },
       ["codex"]
     );
+  });
+
+  it("starts local SSH Codex through App Server with the scoped bridge", async () => {
+    const binding = {
+      workspacePath: "C:\\runtime\\run-1",
+      developerInstructions: "Use only the remote workspace.",
+      url: "http://127.0.0.1:4568/mcp",
+      token: "secret-token",
+      tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN"
+    };
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => binding),
+      runConfiguredCommand: vi.fn(async () => ({ exitCode: 0 })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const codexAppServerSessionService = { start: vi.fn(async () => ({})) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
+    const options = { type: "ssh", cwd: "/srv/app", initialCommand: "git status --short",
+      agentProvider: "codex", agentLocation: "local", codexAppServerEnabled: true,
+      sshConfig: { host: "example.com" } };
+    const session = await mocks.launcher.createSession(options);
+    expect(session).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
+    expect(remoteAgentBridgeService.runConfiguredCommand).toHaveBeenCalledWith(session.id, "git status --short");
+    expect(codexAppServerSessionService.start).toHaveBeenCalledWith(session, expect.objectContaining({
+      localBridge: true, workspaceCwd: binding.workspacePath, shell: "powershell.exe",
+      runtimeEnv: { PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "secret-token" }
+    }));
+    const command = codexAppServerSessionService.start.mock.calls[0][1].codexCommand;
+    expect(command).toContain("mcp_servers.pannel_handle_remote.url");
+    expect(command).toContain("mcp_servers.pannel_handle_remote.bearer_token_env_var");
+    expect(command).toContain("developer_instructions");
+    expect(command).not.toContain(binding.token);
+    expect(mocks.terminalManager.startDeferredSession).not.toHaveBeenCalled();
+    const launched = await mocks.launcher.launchSession({ ...options, id: "saved" });
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      deferTerminalStart: true, runtimeMode: "app-server"
+    }));
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("cleans up a local bridge when its App Server fails to start", async () => {
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({ workspacePath: "C:\\runtime\\run-1", url: "http://127.0.0.1:4568/mcp",
+        token: "secret-token", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN" })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const codexAppServerSessionService = { start: vi.fn(async () => { throw new Error("App Server failed"); }) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex",
+      agentLocation: "local", codexAppServerEnabled: true, sshConfig: { host: "example.com" } }))
+      .rejects.toThrow("App Server failed");
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
+    expect(remoteAgentBridgeService.closeBinding).toHaveBeenCalledWith("run-1");
+    expect(mocks.terminalManager.deleteSavedSession).toHaveBeenCalledWith("1");
   });
 
   it("runs OpenCode locally with inline bridge configuration and its notification plugin", async () => {

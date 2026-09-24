@@ -35,6 +35,34 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("runs local SSH bridge threads and attachments in the local workspace", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "thread/read"
+      ? { thread: { id: "old-thread", cwd: "C:\\bridge" } }
+      : request.method === "thread/resume"
+        ? { thread: { id: "old-thread", model: "test-model", turns: [] } }
+        : undefined);
+    const spawnProcess = vi.fn(() => child);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {}, getSession: () => ({ id: "bridge", type: "ssh" }),
+        setAppServerConnectionState: vi.fn(), listSessions: () => [{ id: "bridge" }] },
+      broadcast: () => {}, spawnProcess });
+    const session = { id: "bridge", type: "ssh", agentLocation: "local", cwd: "/srv/project", initialCommand: "remote command" };
+    const runtime = { localBridge: true, workspaceCwd: "C:\\bridge", shell: "powershell.exe",
+      codexCommand: "codex -c 'developer_instructions=\"remote only\"'", runtimeEnv: { PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "secret" } };
+    try {
+      await service.start(session, runtime);
+      expect(spawnProcess).toHaveBeenCalledWith("powershell.exe", expect.any(Array), expect.objectContaining({ cwd: "C:\\bridge" }));
+      expect(spawnProcess.mock.calls[0][1].at(-1)).not.toContain("remote command");
+      expect(received.find(request => request.method === "thread/start").params.cwd).toBe("C:\\bridge");
+      expect(service.getWorkspaceCwd("bridge")).toBe("C:\\bridge");
+      await service.listHistory("bridge");
+      expect(received.find(request => request.method === "thread/list").params.cwd).toBe("C:\\bridge");
+      await service.resume("bridge", "old-thread");
+      await service.submit("bridge", "Inspect the remote workspace");
+      expect(received.find(request => request.method === "turn/start").params.sandboxPolicy.writableRoots).toEqual(["C:\\bridge"]);
+    } finally { service.close("bridge"); }
+  });
   it("previews only attached files and restores preview links from user message content", async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-codex-preview-"));
     const textPath = path.join(directory, "notes.txt");
@@ -137,9 +165,26 @@ describe("Codex App Server session", () => {
     const wsl = buildInvocation({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", initialCommand: "export FROM_START=yes" },
       { codexCommand: "codex" }, { CUSTOM: "value" });
     expect(wsl.args).toContain("/repo");
+    expect(wsl.args).toContain("-lic");
     expect(wsl.args.at(-1)).toContain("export FROM_START=yes");
     expect(wsl.args.at(-1)).toContain("exec codex app-server");
     expect(wsl.env.WSLENV).toContain("CUSTOM/u");
+  });
+  it("reports WSL App Server startup output without exposing configured secrets", async () => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = vi.fn();
+    const service = createCodexAppServerSessionService({
+      environmentService: { resolve: () => ({ CODEX_TEST_TOKEN: "private-token-value" }) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child
+    });
+    const started = service.start({ id: "wsl-failed", type: "wsl", wslDistro: "ubuntu", cwd: "/repo" });
+    child.stderr.write("CLI failed with private-token-value\n");
+    child.emit("exit", 127);
+    await expect(started).rejects.toThrow("启动输出：CLI failed with [已隐藏]");
+    expect(child.kill).toHaveBeenCalled();
   });
 
   it("initializes, starts a thread, sends a turn, and resolves approval once", async () => {
@@ -184,7 +229,7 @@ describe("Codex App Server session", () => {
         { id: "details", header: "细节", question: "补充说明", options: null }
       ] } })}\n`);
     await vi.waitFor(() => expect(service.snapshot("run-1").questions).toHaveLength(1));
-    expect(statuses.at(-1).status).toBe("e_prompt");
+    expect(statuses.at(-1)).toMatchObject({ status: "e_prompt", eventName: "AppServerQuestion" });
     expect(received.some(item => item.id === 42 && item.result?.answers)).toBe(false);
     expect(() => service.answerQuestion("run-1", 42, { framework: { answers: ["React"] } })).toThrow("请回答所有问题");
     const answers = { framework: { answers: ["React", "user_note: 继续"] }, details: { answers: ["user_note: 保持简单"] } };
@@ -202,7 +247,7 @@ describe("Codex App Server session", () => {
     child.stdout.write(`${JSON.stringify({ method: "serverRequest/resolved", params: { threadId: "thread-1", requestId: 42 } })}\n`);
     await new Promise(resolve => setImmediate(resolve));
     expect(service.snapshot("run-1").items.filter(item => item.type === "questionAnswer")).toHaveLength(1);
-    expect(statuses.at(-1).status).toBe("running");
+    expect(statuses.at(-1)).toMatchObject({ status: "running", eventName: "AppServerTurn" });
     service.close("run-1");
   });
 
@@ -343,8 +388,9 @@ describe("Codex App Server session", () => {
   it("offers a completed plan once and executes it in the same thread with Exec mode", async () => {
     const received = [];
     const child = fakeProcess(received);
+    const statuses = [];
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: value => statuses.push(value) }, broadcast: () => {}, spawnProcess: () => child });
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     service.setMode("run-1", "plan");
     await service.submit("run-1", "制定计划");
@@ -356,7 +402,9 @@ describe("Codex App Server session", () => {
     expect(service.snapshot("run-1").pendingPlan).toBeNull();
     child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { status: "completed" } } })}\n`);
     await vi.waitFor(() => expect(service.snapshot("run-1").pendingPlan).toEqual({ itemId: "plan-1" }));
+    expect(statuses.at(-1)).toMatchObject({ status: "completed", eventName: "AppServerPlanPending" });
     await service.executePlan("run-1", "plan-1");
+    expect(statuses.at(-1)).toMatchObject({ status: "running", eventName: "AppServerTurn" });
     const turns = received.filter(item => item.method === "turn/start");
     expect(turns).toHaveLength(2);
     expect(turns[1].params).toMatchObject({ threadId: "thread-1", collaborationMode: { mode: "default" },
@@ -369,8 +417,9 @@ describe("Codex App Server session", () => {
 
   it("does not offer failed or progress-only plans and can dismiss a completed plan", async () => {
     const child = fakeProcess([]);
+    const statuses = [];
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: value => statuses.push(value) }, broadcast: () => {}, spawnProcess: () => child });
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     service.setMode("run-1", "plan");
     await service.submit("run-1", "制定计划");
@@ -390,9 +439,19 @@ describe("Codex App Server session", () => {
       item: { id: "plan-3", type: "plan", text: "# 新计划" } } })}\n`);
     child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { status: "completed" } } })}\n`);
     await vi.waitFor(() => expect(service.snapshot("run-1").pendingPlan).toEqual({ itemId: "plan-3" }));
+    expect(statuses.at(-1).eventName).toBe("AppServerPlanPending");
     service.dismissPlan("run-1", "plan-3");
     expect(service.snapshot("run-1").pendingPlan).toBeNull();
+    expect(statuses.at(-1)).toMatchObject({ status: "completed", eventName: "AppServerTurn" });
     await expect(service.executePlan("run-1", "plan-3")).rejects.toThrow("失效");
+    await service.submit("run-1", "更新计划");
+    child.stdout.write(`${JSON.stringify({ method: "item/completed", params: { threadId: "thread-1",
+      item: { id: "plan-4", type: "plan", text: "# 更新计划" } } })}\n`);
+    child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { status: "completed" } } })}\n`);
+    await vi.waitFor(() => expect(service.snapshot("run-1").pendingPlan).toEqual({ itemId: "plan-4" }));
+    service.setMode("run-1", "default");
+    expect(service.snapshot("run-1").pendingPlan).toBeNull();
+    expect(statuses.at(-1)).toMatchObject({ status: "completed", eventName: "AppServerTurn" });
     service.close("run-1");
   });
 

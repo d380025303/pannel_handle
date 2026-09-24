@@ -62,6 +62,10 @@ export function getAgentStatusLabel(status: AgentStatusPayload | undefined, t: T
       ? t("agent.waitingForPermissionTool", { agent, tool: status.toolName })
       : t("agent.waitingForPermission", { agent });
   }
+  if (status.provider === "codex" && status.eventName === "AppServerQuestion" && status.status === "e_prompt")
+    return t("agent.waitingForAnswer", { agent });
+  if (status.provider === "codex" && status.eventName === "AppServerPlanPending" && status.status === "completed")
+    return t("agent.waitingForPlanConfirmation", { agent });
   if (status.status === "e_prompt") return t("agent.idlePrompt", { agent });
   if (status.status === "completed") return t("agent.completed", { agent });
   if (status.status === "failed") return t("agent.failed", { agent });

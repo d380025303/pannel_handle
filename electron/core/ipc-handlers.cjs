@@ -70,7 +70,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:paste-image", async (_event, id) => {
       const sessionId = String(id || "");
       codexAppServerSessionService.snapshot(sessionId);
-      const result = await clipboardImageService.pasteImageToSession(sessionId);
+      const session = terminalManager.getSession(sessionId);
+      const localCwd = session?.type === "ssh" && session.agentLocation === "local"
+        ? codexAppServerSessionService.getWorkspaceCwd(sessionId) : undefined;
+      const result = await clipboardImageService.pasteImageToSession(sessionId, { localCwd });
       if (result.status === "saved") codexAppServerSessionService.allowPastedImage(sessionId, result.path);
       return result;
     });

@@ -178,6 +178,16 @@ function buildLocalCodexStartCommand(binding) {
   return args.join(" ");
 }
 
+function buildLocalCodexAppServerCommand(binding) {
+  const powerShellQuote = value => `'${String(value).replace(/'/g, "''")}'`;
+  const config = [
+    `mcp_servers.pannel_handle_remote.url=${JSON.stringify(binding.url)}`,
+    `mcp_servers.pannel_handle_remote.bearer_token_env_var=${JSON.stringify(binding.tokenEnv)}`,
+    ...(binding.developerInstructions ? [`developer_instructions=${JSON.stringify(binding.developerInstructions)}`] : [])
+  ];
+  return `codex ${config.map(value => `-c ${powerShellQuote(value)}`).join(" ")}`;
+}
+
 function readCodeBuddyVersion(spawnSync) {
   const result = spawnSync("cmd.exe", ["/d", "/s", "/c", "codebuddy --version"], {
     encoding: "utf-8",
@@ -286,7 +296,6 @@ function createAgentSessionLauncher({
 }) {
   const switchingSessions = new Map();
   const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex"
-    && (session.type !== "ssh" || session.agentLocation !== "local")
     && session.codexAppServerEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
@@ -329,19 +338,22 @@ function createAgentSessionLauncher({
 
   function assertLocalCommand(session) {
     const command = getAgentCommand(session.agentProvider);
+    if (session.type === "wsl" && session.agentProvider === "codex" && useAppServer(session)) {
+      const result = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
+        "resolved=$(command -v codex) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac"],
+      { encoding: "utf-8", windowsHide: true, timeout: 30000 });
+      if (result.error?.code === "ETIMEDOUT") throw new Error(`WSL ${session.wslDistro} 中的 Codex 命令检测超时。`);
+      if (result.error) throw new Error(`无法检测 WSL ${session.wslDistro} 中的 Codex 命令：${result.error.message}`);
+      if (result.status === 126) throw new Error(`WSL ${session.wslDistro} 中的 codex 指向 Windows 安装；请在该发行版中安装 Linux Codex CLI。`);
+      if (result.status === 127) throw new Error(`未在 WSL ${session.wslDistro} 的 Bash 登录环境中找到 codex 命令。${getAgentInstallHint("codex")}`);
+      if (result.status !== 0) throw new Error(`检测 WSL ${session.wslDistro} 中的 Codex 命令失败（退出代码 ${result.status ?? "未知"}）：${String(result.stderr || "").trim().slice(-1000)}`);
+      return;
+    }
     const result = session.type === "wsl"
       ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", `command -v ${shellQuote(command)}`], { encoding: "utf-8", windowsHide: true })
       : spawnSync("where.exe", [command], { encoding: "utf-8", windowsHide: true });
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
-    }
-    if (session.type === "wsl" && session.agentProvider === "codex" && useAppServer(session)) {
-      const native = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc",
-        "resolved=$(command -v codex) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; codex --version"],
-      { encoding: "utf-8", windowsHide: true, timeout: 10000 });
-      if (native.error || native.status !== 0) {
-        throw new Error("WSL App Server 需要在所选发行版中安装可运行的 Linux Codex CLI；当前检测到 Windows 包装命令或 CLI 无法启动。");
-      }
     }
     if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
     if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
@@ -543,6 +555,31 @@ function createAgentSessionLauncher({
     }
   }
 
+  async function finishLocalSshAppServer(session) {
+    let binding;
+    try {
+      validateAgentSession(session);
+      assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
+      if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
+      binding = await remoteAgentBridgeService.createBinding(session.id);
+      const preCommand = String(session.initialCommand || "").trim();
+      if (preCommand) await remoteAgentBridgeService.runConfiguredCommand(session.id, preCommand);
+      await ensureLocalHookAt(binding.workspacePath, "codex");
+      await codexAppServerSessionService.start(terminalManager.getSession(session.id), {
+        localBridge: true,
+        workspaceCwd: binding.workspacePath,
+        shell: getLocalBridgeShell(),
+        codexCommand: buildLocalCodexAppServerCommand(binding),
+        runtimeEnv: { [binding.tokenEnv]: binding.token }
+      });
+      return session;
+    } catch (error) {
+      terminalManager.closeSession(session.id);
+      if (binding) await remoteAgentBridgeService.closeBinding(session.id);
+      throw error;
+    }
+  }
+
   async function finishSsh(session) {
     try {
       validateAgentSession(session);
@@ -572,6 +609,11 @@ function createAgentSessionLauncher({
     validateAgentSession(request);
     if (request.type === "ssh") {
       if (useAppServer(request)) {
+        if (request.agentLocation === "local") {
+          const session = terminalManager.createSession({ ...request, deferTerminalStart: true, runtimeMode: "app-server" });
+          try { return await finishLocalSshAppServer(session); }
+          catch (error) { if (session.templateId) terminalManager.deleteSavedSession(session.templateId); throw error; }
+        }
         return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request, {}, true);
       }
       const localBridge = request.agentLocation === "local";
@@ -600,7 +642,12 @@ function createAgentSessionLauncher({
       validateAgentSession(launchTemplate);
       if (launchTemplate.type === "ssh") {
         if (useAppServer(launchTemplate)) {
-          session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, {});
+          if (launchTemplate.agentLocation === "local") {
+            const pending = terminalManager.launchSession(launchTemplate, { ...launchOptions, deferTerminalStart: true, runtimeMode: "app-server" });
+            session = await finishLocalSshAppServer(pending);
+          } else {
+            session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, {});
+          }
         } else {
           const localBridge = launchTemplate.agentLocation === "local";
           const pendingSession = terminalManager.launchSession(launchTemplate, {
@@ -724,9 +771,10 @@ function createAgentSessionLauncher({
         const replacement = terminalManager.launchSession(target, {
           useProvidedTemplate: true,
           templateId: session.templateId,
-          deferTerminalStart: true
+          deferTerminalStart: true,
+          ...(useAppServer(target) ? { runtimeMode: "app-server" } : {})
         });
-        return await finishLocalSsh(replacement);
+        return useAppServer(target) ? await finishLocalSshAppServer(replacement) : await finishLocalSsh(replacement);
       }
 
       const target = createReplacementTemplate(session, provider);

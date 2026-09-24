@@ -64,6 +64,20 @@ describe("session-store", () => {
     expect(reopened.getTemplate("1").codexAppServerEnabled).toBe(enabled);
   });
 
+  it("keeps existing local SSH Codex templates in terminal mode while allowing new App Server templates", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "old", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "example.com" } }
+    ]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("old").codexAppServerEnabled).toBe(false);
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEnabled).toBe(false);
+    store.updateLibrary("old", { codexAppServerEnabled: true });
+    expect(store.getTemplate("old").codexAppServerEnabled).toBe(true);
+    expect(store.normalizeTemplate({ id: "new", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "local" }).codexAppServerEnabled).toBe(true);
+  });
+
   it("preserves each Codex template mode through edits, duplication, export, and import", () => {
     const sessionsFile = createTempSessionsFile();
     const store = createStore(sessionsFile);
@@ -92,10 +106,11 @@ describe("session-store", () => {
     expect(store.getTemplate("2").codexExecutionPermission).toBe("askApproval");
     expect(store.getTemplate("3").codexExecutionPermission).toBeUndefined();
     expect(store.getTemplate("4").codexExecutionPermission).toBe("askApproval");
-    expect(store.getTemplate("5").codexExecutionPermission).toBeUndefined();
+    expect(store.getTemplate("5").codexExecutionPermission).toBe("askApproval");
     expect(() => store.setCodexExecutionPermission("1", "invalid")).toThrow("无效");
     expect(() => store.setCodexExecutionPermission("3", "fullAccess")).toThrow("不支持");
-    expect(() => store.setCodexExecutionPermission("5", "fullAccess")).toThrow("不支持");
+    store.setCodexExecutionPermission("5", "fullAccess");
+    expect(store.getTemplate("5").codexExecutionPermission).toBe("fullAccess");
     store.setCodexExecutionPermission("1", "fullAccess");
     store.setCodexExecutionPermission("4", "readOnly");
     expect(store.getTemplate("2").codexExecutionPermission).toBe("askApproval");

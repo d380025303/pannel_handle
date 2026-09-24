@@ -21,6 +21,15 @@ const EXECUTION_PERMISSIONS = {
 
 function quoteBash(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function isPowerShell(shell) { return /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell); }
+function startupStderrDetail(stderr, environment) {
+  let detail = String(stderr || "").trim();
+  for (const [name, value] of Object.entries({ ...process.env, ...environment })) {
+    if (!/(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL)/i.test(name) || value == null) continue;
+    const secret = String(value);
+    if (secret.length >= 4) detail = detail.split(secret).join("[已隐藏]");
+  }
+  return detail.slice(-2000);
+}
 
 function buildRemoteCommand(session, environment) {
   const exports = Object.entries(environment).map(([name, value]) => {
@@ -55,7 +64,9 @@ async function createRemoteChild(sshAgentTransport, session, environment) {
 
 function buildInvocation(session, runtime, environment) {
   const command = `${runtime.codexCommand || "codex"} app-server`;
-  const before = String(session.initialCommand || "").trim();
+  const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
+  const shell = runtime.shell || session.shell;
+  const cwd = runtime.workspaceCwd || session.cwd;
   if (session.type === "wsl") {
     const script = before ? `{ ${before}; } 1>&2 && exec ${command}` : `exec ${command}`;
     const configuredNames = Object.keys(environment);
@@ -64,18 +75,18 @@ function buildInvocation(session, runtime, environment) {
     for (const name of configuredNames) if (!names.has(name)) existing.push(`${name}/u`);
     return {
       executable: "wsl.exe",
-      args: ["-d", session.wslDistro, "--cd", session.cwd, "--", "bash", "-lc", script],
+      args: ["-d", session.wslDistro, "--cd", session.cwd, "--", "bash", "-lic", script],
       cwd: process.cwd(),
       env: { ...process.env, ...environment, WSLENV: existing.join(":") }
     };
   }
-  if (isPowerShell(session.shell)) {
+  if (isPowerShell(shell)) {
     const script = before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; & ${command}` : `& ${command}`;
-    return { executable: session.shell, args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], cwd: session.cwd,
+    return { executable: shell, args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], cwd,
       env: mergeEnvironment([process.env, environment], true) };
   }
   const script = before ? `(${before}) 1>&2 && ${command}` : command;
-  return { executable: session.shell, args: ["/d", "/s", "/c", script], cwd: session.cwd,
+  return { executable: shell, args: ["/d", "/s", "/c", script], cwd,
     env: mergeEnvironment([process.env, environment], true) };
 }
 
@@ -192,11 +203,13 @@ function updateTokenUsage(entry, params) {
 function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
   sshAgentTransport = null, sshFileSystem = null, removePastedImage = null }) {
   const sessions = new Map();
-  const removeImage = removePastedImage || ((entry, filePath) => entry.session.type === "ssh"
+  const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
+  const projectCwd = entry => entry.runtime.workspaceCwd || entry.session.cwd;
+  const removeImage = removePastedImage || ((entry, filePath) => isRemote(entry)
     ? sshFileSystem.remove(entry.session.id, filePath)
     : fs.promises.rm(entry.session.type === "wsl" ? toWslHostPath(entry.session.wslDistro, filePath) : filePath, { force: true }));
 
-  function broadcastStatus(id, entry, immediate = false, eventName = "AppServerTurn") {
+  function broadcastStatus(id, entry, immediate = false, eventName = null) {
     if (entry.statusTimer) {
       if (!immediate) return;
       clearTimeout(entry.statusTimer); entry.statusTimer = null;
@@ -205,8 +218,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.statusTimer = null;
       if (sessions.get(id) !== entry) return;
       entry.lastStatusBroadcastAt = Date.now();
+      const currentEventName = eventName || (entry.status === "e_prompt" && entry.questions.size
+        ? "AppServerQuestion" : entry.status === "completed" && entry.pendingPlan
+          ? "AppServerPlanPending" : "AppServerTurn");
       terminalManager.broadcastAgentStatus({ id, provider: "codex", status: entry.status,
-        eventName, activitySummary: entry.activitySummary || undefined });
+        eventName: currentEventName, activitySummary: entry.activitySummary || undefined });
     };
     const remaining = SUMMARY_BROADCAST_INTERVAL_MS - (Date.now() - entry.lastStatusBroadcastAt);
     if (immediate || remaining <= 0) sendStatus();
@@ -230,6 +246,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       outputRateAvailable: entry.outputRateAvailable,
       items: [...entry.items], approvals: [...entry.approvals.values()].map(({ requestId, method, params }) => ({ requestId, method, params })),
       questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })) };
+  }
+  function getWorkspaceCwd(id) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    return projectCwd(entry);
   }
   function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
   function send(entry, value) {
@@ -387,13 +408,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const id = session.id;
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
     let child;
-    if (session.type === "ssh") child = await createRemoteChild(sshAgentTransport, session, environment);
+    if (session.type === "ssh" && !runtime.localBridge) child = await createRemoteChild(sshAgentTransport, session, environment);
     else {
       const invocation = buildInvocation(session, runtime, environment);
       child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     }
-    const entry = { child, session, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
+    const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
       turnId: null, mode: "default", executionPermission: sessionStore?.getTemplate(session.templateId)?.codexExecutionPermission || session.codexExecutionPermission || "askApproval", model: session.codexModel || null, busy: false, error: null, items: [],
       pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0,
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
@@ -401,7 +422,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0 };
     sessions.set(id, entry);
     const lines = readline.createInterface({ input: child.stdout });
-    child.stderr.resume();
+    let startupStderr = "";
+    child.stderr.on("data", chunk => {
+      if (!entry.threadId) startupStderr = (startupStderr + chunk.toString()).slice(-4096);
+    });
     lines.on("line", line => {
       try { onMessage(id, entry, JSON.parse(line)); }
       catch { if (sessions.get(id) === entry) { entry.error = "App Server 返回了无效协议消息。"; publish(id); } }
@@ -416,7 +440,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (sessions.get(id) !== entry) return;
       entry.busy = false;
       entry.questions.clear();
-      entry.error ||= `Codex App Server 已退出（代码 ${code ?? "未知"}）。`;
+      const detail = session.type === "wsl" && !entry.threadId ? startupStderrDetail(startupStderr, environment) : "";
+      entry.error ||= `Codex App Server 已退出（代码 ${code ?? "未知"}）。${detail ? ` 启动输出：${detail}` : ""}`;
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(entry.error)); }
       entry.pending.clear(); publish(id);
       entry.status = "exited";
@@ -427,8 +452,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true } });
       send(entry, { method: "initialized", params: {} });
       const result = runtime.resumeThreadId
-        ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: session.cwd })
-        : await request(entry, "thread/start", { cwd: session.cwd, approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+        ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry) })
+        : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
       entry.threadId = result.thread.id;
       entry.model = result.thread.model || entry.model;
       if (runtime.resumeThreadId) {
@@ -441,7 +466,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(id, "connected");
       publish(id);
       return snapshot(id);
-    } catch (error) { close(id); throw error; }
+    } catch (error) {
+      const detail = session.type === "wsl" ? startupStderrDetail(startupStderr, environment) : "";
+      close(id);
+      if (detail && !String(error?.message || error).includes(detail)) {
+        throw new Error(`${error?.message || error} WSL ${session.wslDistro} App Server 启动输出：${detail}`);
+      }
+      throw error;
+    }
   }
   async function restart(id) {
     const entry = sessions.get(id);
@@ -451,7 +483,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     terminalManager.setAppServerConnectionState?.(id, "reconnecting");
     close(id);
     try {
-      await start(session, { resumeThreadId: threadId });
+      await start(session, { ...entry.runtime, resumeThreadId: threadId });
       return terminalManager.listSessions().find(value => value.id === id);
     } catch (error) {
       terminalManager.setAppServerConnectionState?.(id, "disconnected");
@@ -474,7 +506,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const attached = entry.items.some(item => item.type === "userMessage"
       && item.attachments?.some(file => file.path === filePath));
     if (!entry.allowedFiles.has(filePath) && !attached) throw new Error("只能预览当前会话的附件。");
-    if (entry.session.type === "ssh" && filePath.startsWith("/")) {
+    if (isRemote(entry) && filePath.startsWith("/")) {
       if (!sshFileSystem) throw new Error("SSH 文件服务不可用。");
       const mime = IMAGE_MIME[path.posix.extname(filePath).toLowerCase()];
       const limit = mime ? IMAGE_PREVIEW_LIMIT : TEXT_PREVIEW_LIMIT;
@@ -534,7 +566,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function listHistory(id, cursor = null) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
-    const result = await request(entry, "thread/list", { cwd: entry.session.cwd, sourceKinds: ["cli", "vscode", "appServer"],
+    const result = await request(entry, "thread/list", { cwd: projectCwd(entry), sourceKinds: ["cli", "vscode", "appServer"],
       sortKey: "updated_at", sortDirection: "desc", limit: 25, ...(cursor ? { cursor } : {}) });
     return { data: (result.data || []).map(thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
       updatedAt: thread.updatedAt, source: typeof thread.source === "string" ? thread.source : "unknown",
@@ -546,11 +578,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if ([...sessions.entries()].some(([otherId, other]) => otherId !== id && other.threadId === threadId)) throw new Error("该历史会话已在其他窗口打开。");
     if (threadId === entry.threadId) return snapshot(id);
     const detail = await request(entry, "thread/read", { threadId, includeTurns: false });
-    if (detail.thread?.cwd !== entry.session.cwd) throw new Error("只能恢复当前项目的历史会话。");
+    if (detail.thread?.cwd !== projectCwd(entry)) throw new Error("只能恢复当前项目的历史会话。");
     entry.pendingThreadId = threadId;
     entry.pendingTokenUsage = null;
     let result;
-    try { result = await request(entry, "thread/resume", { threadId, cwd: entry.session.cwd }); }
+    try { result = await request(entry, "thread/resume", { threadId, cwd: projectCwd(entry) }); }
     catch (error) { entry.pendingThreadId = null; entry.pendingTokenUsage = null; throw error; }
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
@@ -583,7 +615,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function newThread(id) {
     const entry = ready(id);
-    const result = await request(entry, "thread/start", { cwd: entry.session.cwd, approvalPolicy: "on-request",
+    const result = await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request",
       sandbox: "workspace-write", serviceName: "pannel_handle_session" });
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
@@ -610,8 +642,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function setMode(id, mode) {
     const entry = ready(id);
     if (mode !== "plan" && mode !== "default") throw new Error("无效的 Codex 模式。");
+    const hadPendingPlan = Boolean(entry.pendingPlan);
     entry.mode = mode;
     entry.pendingPlan = null;
+    if (hadPendingPlan) broadcastStatus(id, entry, true);
     publish(id);
     return snapshot(id);
   }
@@ -632,6 +666,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry?.pendingPlan || entry.pendingPlan.itemId !== itemId) throw new Error("计划确认已失效。");
     entry.pendingPlan = null;
+    broadcastStatus(id, entry, true);
     publish(id);
     return snapshot(id);
   }
@@ -667,10 +702,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (checked.status !== 0) throw new Error(`WSL 无法访问文件：${filePath}`);
     }
     return { path: targetPath, image: /\.(png|jpe?g|gif|webp|bmp)$/i.test(filePath),
-      ...(entry.session.type === "ssh" ? { localPath: filePath } : {}) };
+      ...(isRemote(entry) ? { localPath: filePath } : {}) };
   }
   async function prepareRemoteFiles(entry, files, uploaded) {
-    if (entry.session.type !== "ssh" || !files.some(file => file.localPath)) return files;
+    if (!isRemote(entry) || !files.some(file => file.localPath)) return files;
     if (!sshFileSystem) throw new Error("SSH 文件服务不可用。");
     const home = await sshFileSystem.cwd(entry.session.id);
     if (typeof home !== "string" || !home.startsWith("/")) throw new Error("无法确定远端用户目录。");
@@ -738,7 +773,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
         const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
         const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
-          ? { ...permission.sandboxPolicy, writableRoots: [entry.session.cwd] } : permission.sandboxPolicy;
+          ? { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } : permission.sandboxPolicy;
         turnRequestSent = true;
         const result = await request(entry, "turn/start", { threadId: entry.threadId, input,
           approvalPolicy: permission.approvalPolicy, sandboxPolicy,
@@ -804,7 +839,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     publish(id);
   }
   function shutdown() { for (const id of sessions.keys()) close(id); }
-  return { start, restart, snapshot, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
+  return { start, restart, snapshot, getWorkspaceCwd, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };
