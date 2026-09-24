@@ -6,10 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 const { createProjectAssistantService } = require("./project-assistant-service.cjs");
 
-function fixture({ failNewThread = false } = {}) {
+function fixture({ failNewThread = false, initiallySignedOut = false } = {}) {
   let stored = JSON.stringify({ threadId: "old-thread", messages: [{ role: "assistant", text: "旧消息", at: 1 }] });
   let threadStarts = 0;
   let holdTurn = false;
+  let signedOut = initiallySignedOut;
   const requests = [];
   const processHandle = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn()
@@ -25,7 +26,10 @@ function fixture({ failNewThread = false } = {}) {
       requests.push(message);
       let result = {};
       let error;
-      if (message.method === "account/read") result = { requiresOpenaiAuth: false };
+      if (message.method === "account/read") result = signedOut
+        ? { requiresOpenaiAuth: true, account: null }
+        : { requiresOpenaiAuth: false, account: null };
+      if (message.method === "account/login/start") result = { type: "chatgpt", loginId: "login-1", authUrl: "https://chatgpt.com/auth" };
       if (message.method === "thread/start") {
         threadStarts++;
         if (failNewThread && threadStarts === 1) error = { message: "Could not create thread" };
@@ -49,10 +53,23 @@ function fixture({ failNewThread = false } = {}) {
       codexSessionControl: { listSessions: () => [], getContext: async () => null }
     }
   });
-  return { service, fsApi, requests, getStored: () => JSON.parse(stored), holdTurn: () => { holdTurn = true; } };
+  return { service, fsApi, requests, getStored: () => JSON.parse(stored), holdTurn: () => { holdTurn = true; },
+    completeLogin: () => { signedOut = false; processHandle.stdout.write(`${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`); } };
 }
 
 describe("project assistant new conversation", () => {
+  it("keeps the App Server available for login before resuming a saved thread", async () => {
+    const { service, requests, completeLogin } = fixture({ initiallySignedOut: true });
+    await service.start();
+    expect(service.snapshot().account.status).toBe("signedOut");
+    expect(requests.some(item => item.method === "thread/resume")).toBe(false);
+    await expect(service.sendMessage("hello")).rejects.toThrow("请先登录");
+    await service.startLogin("chatgpt");
+    completeLogin();
+    await vi.waitFor(() => expect(requests.some(item => item.method === "thread/resume")).toBe(true));
+    expect(service.snapshot().messages).toEqual([{ role: "assistant", text: "旧消息", at: 1 }]);
+    service.shutdown();
+  });
   it("creates and persists an empty thread, leaving the old thread available", async () => {
     const { service, requests, getStored } = fixture();
     await service.start();

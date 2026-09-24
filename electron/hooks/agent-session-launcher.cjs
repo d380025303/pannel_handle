@@ -295,10 +295,9 @@ function createAgentSessionLauncher({
   getHomeDirectory = () => os.homedir()
 }) {
   const switchingSessions = new Map();
-  const useAppServer = session => Boolean(codexAppServerSessionService) && (
-    (session.agentProvider === "codex" && session.codexAppServerEnabled !== false)
-    || (session.agentProvider === "codebuddy" && session.codeBuddyAcpEnabled === true)
-    || (session.agentProvider === "opencode" && session.openCodeAcpEnabled === true));
+  const useAppServer = session => Boolean(codexAppServerSessionService)
+    && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode")
+    && session.graphicalSessionEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
     return { ...session, cwd: getHomeDirectory() };
@@ -722,9 +721,7 @@ function createAgentSessionLauncher({
       codexBackend: provider === "codex" ? session.codexBackend : undefined,
       codexModel: provider === "codex" ? session.codexModel : undefined,
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
-      codexAppServerEnabled: provider === "codex" ? session.codexAppServerEnabled : undefined,
-      codeBuddyAcpEnabled: provider === "codebuddy" ? session.codeBuddyAcpEnabled : undefined,
-      openCodeAcpEnabled: provider === "opencode" ? session.openCodeAcpEnabled : undefined,
+      graphicalSessionEnabled: session.graphicalSessionEnabled,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,

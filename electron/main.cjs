@@ -37,6 +37,7 @@ const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/s
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
+const { createDiagnosticsStore } = require("./services/codex-app-server/diagnostics-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
@@ -115,6 +116,7 @@ let projectAssistantService = null;
 let codexSessionControl = null;
 let codexAppServerSessionService = null;
 let questionAnswerStore = null;
+let diagnosticsStore = null;
 
 registerRemoteFileScheme(protocol);
 
@@ -261,6 +263,7 @@ if (!gotSingleInstanceLock) {
       }
     });
     questionAnswerStore = createQuestionAnswerStore({ userData: app.getPath("userData") });
+    diagnosticsStore = createDiagnosticsStore({ userData: app.getPath("userData") });
     agentNotificationManager = createAgentNotificationManager({
       Notification,
       windowManager,
@@ -283,6 +286,7 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast,
       sessionStore,
       questionAnswerStore,
+      diagnosticsStore,
       sshAgentTransport,
       sshFileSystem,
       onTokenUsage: usage => tokenUsageModule?.recordAppServerUsage(usage)
@@ -624,6 +628,7 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   questionAnswerStore?.close();
+  diagnosticsStore?.close();
   businessDataStore?.close();
   if (modelCatalogDir) {
     const target = path.resolve(modelCatalogDir);

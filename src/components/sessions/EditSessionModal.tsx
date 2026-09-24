@@ -9,6 +9,7 @@ import { windowsCommandExample } from "../../utils/windowsShell";
 import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, QuickCommand, RemotePlatform, SshConfig, TerminalSession } from "../../vite-env";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { AgentProviderSelect } from "./AgentProviderSelect";
+import { AgentSessionModeCheckbox } from "./AgentSessionModeCheckbox";
 import { CodexBackendFields } from "./CodexBackendFields";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { supportsLocalBridge } from "./agentProviders";
@@ -17,7 +18,7 @@ import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean, codeBuddyAcpEnabled?: boolean, openCodeAcpEnabled?: boolean) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -31,9 +32,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [agentLocation, setAgentLocation] = useState<AgentLocation>(session.agentLocation || "remote");
   const [localAgentCwd, setLocalAgentCwd] = useState(session.localAgentCwd || "");
   const [codexBackend, setCodexBackend] = useState<CodexBackend>(session.codexBackend || "openai");
-  const [codexAppServerEnabled, setCodexAppServerEnabled] = useState(session.codexAppServerEnabled !== false);
-  const [codeBuddyAcpEnabled, setCodeBuddyAcpEnabled] = useState(session.codeBuddyAcpEnabled === true);
-  const [openCodeAcpEnabled, setOpenCodeAcpEnabled] = useState(session.openCodeAcpEnabled === true);
+  const [graphicalSessionEnabled, setGraphicalSessionEnabled] = useState(session.graphicalSessionEnabled !== false);
   const [codexModel, setCodexModel] = useState<string | undefined>(session.codexModel);
   const [codexReady, setCodexReady] = useState(true);
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(session.codexExperimentalAcknowledged === true);
@@ -78,9 +77,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         tags,
         !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
         environment,
-        agentProvider === "codex" ? codexAppServerEnabled : undefined,
-        agentProvider === "codebuddy" ? codeBuddyAcpEnabled : undefined,
-        agentProvider === "opencode" ? openCodeAcpEnabled : undefined
+        graphicalSessionEnabled
       );
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));
@@ -114,9 +111,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     <SessionFormSection title={t("session.agentCli")}>
       <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); }} />
       {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
-      {agentProvider === "codex" && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codexAppServerEnabled} onChange={event => setCodexAppServerEnabled(event.target.checked)} /><span className="settings-help">{t("session.codexAppServerHint")}</span></label>}
-      {agentProvider === "codebuddy" && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codeBuddyAcpEnabled} onChange={event => setCodeBuddyAcpEnabled(event.target.checked)} /><span className="settings-help">{t("session.codeBuddyAcpHint")}</span></label>}
-      {agentProvider === "opencode" && <label className="modal-field"><span className="modal-label">{t("session.openCodeAcp")}</span><input type="checkbox" checked={openCodeAcpEnabled} onChange={event => setOpenCodeAcpEnabled(event.target.checked)} /><span className="settings-help">{t("session.openCodeAcpHint")}</span></label>}
+      {(agentProvider === "codex" || agentProvider === "codebuddy" || agentProvider === "opencode") && <AgentSessionModeCheckbox provider={agentProvider} checked={graphicalSessionEnabled} onChange={setGraphicalSessionEnabled} />}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
       {agentProvider && !editCwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}

@@ -17,8 +17,8 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, openCodeAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
-  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, openCodeAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
+function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
 function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService }) {
@@ -39,6 +39,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("project-assistant:send", (_event, text, sessionId) => projectAssistantService.sendMessage(text, sessionId));
     ipcMain.handle("project-assistant:resolve", (_event, approved) => projectAssistantService.resolveAction(approved === true));
     ipcMain.handle("project-assistant:stop", () => projectAssistantService.stop());
+    ipcMain.handle("project-assistant:account-read", () => projectAssistantService.readAccount());
+    ipcMain.handle("project-assistant:account-login", (_event, type) => projectAssistantService.startLogin(type));
+    ipcMain.handle("project-assistant:account-cancel", () => projectAssistantService.cancelLogin());
+    ipcMain.handle("project-assistant:account-logout", () => projectAssistantService.logout());
+    ipcMain.handle("project-assistant:account-usage", () => projectAssistantService.refreshAccountUsage());
   }
   if (codexSessionControl) {
     ipcMain.handle("project-assistant:codex-sessions", () => codexSessionControl.listSessions());
@@ -50,13 +55,29 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   }
   if (codexAppServerSessionService) {
     ipcMain.handle("codex-app-server:snapshot", (_event, id) => codexAppServerSessionService.snapshot(String(id || "")));
-    ipcMain.handle("codex-app-server:history", (_event, id, cursor) => codexAppServerSessionService.listHistory(String(id || ""), cursor));
+    ipcMain.handle("codex-app-server:account-read", (_event, id) => codexAppServerSessionService.readAccount(String(id || "")));
+    ipcMain.handle("codex-app-server:account-login", (_event, id, type) => codexAppServerSessionService.startLogin(String(id || ""), type));
+    ipcMain.handle("codex-app-server:account-cancel", (_event, id) => codexAppServerSessionService.cancelLogin(String(id || "")));
+    ipcMain.handle("codex-app-server:account-logout", (_event, id) => codexAppServerSessionService.logout(String(id || "")));
+    ipcMain.handle("codex-app-server:account-usage", (_event, id) => codexAppServerSessionService.refreshAccountUsage(String(id || "")));
+    ipcMain.handle("codex-app-server:history", (_event, id, cursor, archived, isPinned) => codexAppServerSessionService.listHistory(String(id || ""), cursor, archived, isPinned));
+    ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
+    ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));
+    ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId) => codexAppServerSessionService.forkThread(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:archive-thread", (_event, id, threadId) => codexAppServerSessionService.archiveThread(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:unarchive-thread", (_event, id, threadId) => codexAppServerSessionService.unarchiveThread(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:capabilities", (_event, id, refresh) => codexAppServerSessionService.listCapabilities(String(id || ""), refresh === true));
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
+    ipcMain.handle("codex-app-server:compact", (_event, id) => codexAppServerSessionService.compactThread(String(id || "")));
+    ipcMain.handle("codex-app-server:goal-get", (_event, id) => codexAppServerSessionService.getGoal(String(id || "")));
+    ipcMain.handle("codex-app-server:goal-set", (_event, id, changes) => codexAppServerSessionService.setGoal(String(id || ""), changes));
+    ipcMain.handle("codex-app-server:goal-clear", (_event, id) => codexAppServerSessionService.clearGoal(String(id || "")));
     ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
     ipcMain.handle("codex-app-server:native-mode", (_event, id, modeId) => codexAppServerSessionService.setNativeMode(String(id || ""), modeId));
     ipcMain.handle("codex-app-server:model", (_event, id, modelId) => codexAppServerSessionService.setModel(String(id || ""), modelId));
     ipcMain.handle("codex-app-server:effort", (_event, id, effort) => codexAppServerSessionService.setEffort(String(id || ""), effort));
+    ipcMain.handle("codex-app-server:multitask", (_event, id, enabled) => codexAppServerSessionService.setMultitask(String(id || ""), enabled));
     ipcMain.handle("codex-app-server:fast-mode", (_event, id, enabled) => codexAppServerSessionService.setFastMode(String(id || ""), enabled));
     ipcMain.handle("codex-app-server:execution-permission", (_event, id, permission) =>
       codexAppServerSessionService.setExecutionPermission(String(id || ""), permission));
@@ -83,7 +104,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     });
     ipcMain.handle("codex-app-server:discard-image", (_event, id, filePath) =>
       codexAppServerSessionService.discardPastedImage(String(id || ""), filePath));
-    ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths) => codexAppServerSessionService.submit(String(id || ""), text, filePaths));
+    ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths, references) => codexAppServerSessionService.submit(String(id || ""), text, filePaths, references));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, typeof approved === "string" ? approved : approved === true));
     ipcMain.handle("codex-app-server:answer-question", (_event, id, requestId, answers) =>

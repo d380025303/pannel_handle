@@ -92,6 +92,7 @@ function createMocks(overrides = {}) {
       codexBackend: template.codexBackend,
       codexModel: template.codexModel,
       codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
+      graphicalSessionEnabled: template.graphicalSessionEnabled,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -123,12 +124,12 @@ describe("agent-session-launcher", () => {
       { type: "wsl", cwd: "/work", wslDistro: "Ubuntu" },
       { type: "ssh", cwd: "/srv/app", agentLocation: "remote", sshConfig: { host: "example.com" } }
     ]) {
-      const result = await mocks.launcher.createSession({ ...options, agentProvider: "opencode", openCodeAcpEnabled: true });
+      const result = await mocks.launcher.createSession({ ...options, agentProvider: "opencode", graphicalSessionEnabled: true });
       expect(result).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     }
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
-    const old = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode" });
-    expect(old.runtimeMode).toBeUndefined();
+    const terminal = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: false });
+    expect(terminal.runtimeMode).toBeUndefined();
   });
   it("routes opted-in CodeBuddy Windows, WSL, and SSH remote sessions to ACP", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
@@ -138,11 +139,11 @@ describe("agent-session-launcher", () => {
       { type: "wsl", cwd: "/work", wslDistro: "Ubuntu" },
       { type: "ssh", cwd: "/srv/app", agentLocation: "remote", sshConfig: { host: "example.com" } }
     ]) {
-      const result = await mocks.launcher.createSession({ ...options, agentProvider: "codebuddy", codeBuddyAcpEnabled: true });
+      const result = await mocks.launcher.createSession({ ...options, agentProvider: "codebuddy", graphicalSessionEnabled: true });
       expect(result).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     }
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
-    const legacy = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", codeBuddyAcpEnabled: false });
+    const legacy = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", graphicalSessionEnabled: false });
     expect(legacy.runtimeMode).toBeUndefined();
   });
   it("uses each local Codex template's App Server setting", async () => {
@@ -153,14 +154,31 @@ describe("agent-session-launcher", () => {
     const first = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
     expect(first).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     expect(codexAppServerSessionService.start).toHaveBeenCalledWith(first, expect.any(Object));
-    const second = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false });
+    const second = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: false });
     expect(second.runtimeMode).toBeUndefined();
     expect(second.deferTerminalStart).toBeUndefined();
     expect(first.runtimeMode).toBe("app-server");
-    const savedTemplate = { id: "saved-1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false };
+    const savedTemplate = { id: "saved-1", type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: false };
     const launched = await mocks.launcher.launchSession(savedTemplate);
     expect(launched.runtimeMode).toBeUndefined();
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(1);
+  });
+  it("carries the graphical mode through an Agent switch", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: false });
+    const terminal = await mocks.launcher.switchAgent("run-1", "opencode");
+    expect(terminal.graphicalSessionEnabled).toBe(false);
+    expect(terminal.runtimeMode).toBeUndefined();
+    expect(codexAppServerSessionService.start).not.toHaveBeenCalled();
+
+    const graphical = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: true });
+    const switched = await mocks.launcher.switchAgent(graphical.id, "codebuddy");
+    expect(switched.graphicalSessionEnabled).toBe(true);
+    expect(mocks.terminalManager.launchSession).toHaveBeenLastCalledWith(expect.objectContaining({
+      agentProvider: "codebuddy", graphicalSessionEnabled: true
+    }), expect.objectContaining({ runtimeMode: "app-server" }));
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
   });
   it("starts SSH remote Codex through App Server and keeps the opt-out terminal path", async () => {
     const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
@@ -171,7 +189,7 @@ describe("agent-session-launcher", () => {
     expect(remote).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     expect(codexAppServerSessionService.start).toHaveBeenCalledWith(remote, {});
     expect(mocks.terminalManager.write).not.toHaveBeenCalled();
-    const disabled = await mocks.launcher.createSession({ ...options, codexAppServerEnabled: false });
+    const disabled = await mocks.launcher.createSession({ ...options, graphicalSessionEnabled: false });
     expect(disabled.runtimeMode).toBeUndefined();
     expect(mocks.terminalManager.write).toHaveBeenCalled();
     const template = { ...options, id: "saved-remote" };
@@ -809,7 +827,7 @@ describe("agent-session-launcher", () => {
     const codexAppServerSessionService = { start: vi.fn(async () => ({})) };
     const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
     const options = { type: "ssh", cwd: "/srv/app", initialCommand: "git status --short",
-      agentProvider: "codex", agentLocation: "local", codexAppServerEnabled: true,
+      agentProvider: "codex", agentLocation: "local", graphicalSessionEnabled: true,
       sshConfig: { host: "example.com" } };
     const session = await mocks.launcher.createSession(options);
     expect(session).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
@@ -840,7 +858,7 @@ describe("agent-session-launcher", () => {
     const codexAppServerSessionService = { start: vi.fn(async () => { throw new Error("App Server failed"); }) };
     const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
     await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex",
-      agentLocation: "local", codexAppServerEnabled: true, sshConfig: { host: "example.com" } }))
+      agentLocation: "local", graphicalSessionEnabled: true, sshConfig: { host: "example.com" } }))
       .rejects.toThrow("App Server failed");
     expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
     expect(remoteAgentBridgeService.closeBinding).toHaveBeenCalledWith("run-1");
@@ -932,7 +950,7 @@ describe("agent-session-launcher", () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
     const result = await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codebuddy",
-      codeBuddyAcpEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
+      graphicalSessionEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
     expect(result.runtimeMode).toBe("app-server");
     const runtime = codexAppServerSessionService.start.mock.calls[0][1];
     expect(runtime).toMatchObject({ localBridge: true, workspaceCwd: "C:\\runtime\\run-1" });
@@ -951,7 +969,7 @@ describe("agent-session-launcher", () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
     const result = await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "opencode",
-      openCodeAcpEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
+      graphicalSessionEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
     expect(result.runtimeMode).toBe("app-server");
     const runtime = codexAppServerSessionService.start.mock.calls[0][1];
     expect(runtime.requiredMode).toBe("pannel-handle-remote");

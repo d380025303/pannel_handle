@@ -12,6 +12,7 @@ import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import { CodexAppServerSession, type CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
+import type { CodexCapabilityReference } from "./vite-env";
 import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
@@ -137,6 +138,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showCloseGuard, setShowCloseGuard] = useState(false);
   const [mobileAccessState, setMobileAccessState] = useState<MobileAccessState | null>(null);
   const [appServerDrafts, setAppServerDrafts] = useState<Record<string, string>>({});
+  const [appServerDraftReferences, setAppServerDraftReferences] = useState<Record<string, CodexCapabilityReference[]>>({});
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
   const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -259,6 +261,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       if (!runningSessionIds.has(sessionId)) filePanelNavigationBySessionRef.current.delete(sessionId);
     }
     setAppServerDrafts(current => {
+      const entries = Object.entries(current).filter(([sessionId]) => runningSessionIds.has(sessionId));
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
+    setAppServerDraftReferences(current => {
       const entries = Object.entries(current).filter(([sessionId]) => runningSessionIds.has(sessionId));
       return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
     });
@@ -466,8 +472,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [agentConversation, remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean, codeBuddyAcpEnabled?: boolean, openCodeAcpEnabled?: boolean) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment, codexAppServerEnabled, codeBuddyAcpEnabled, openCodeAcpEnabled);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment, graphicalSessionEnabled);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -827,8 +833,18 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
                   ref={appServerSessionRef}
                   sessionId={terminalSessions.activeSession.id}
+                  sessionType={terminalSessions.activeSession.type}
                   onLinkClick={handleAppServerLink}
                   draft={appServerDrafts[terminalSessions.activeSession.id] ?? ""}
+                  draftReferences={appServerDraftReferences[terminalSessions.activeSession.id] ?? []}
+                  setDraftReferences={value => {
+                    const sessionId = terminalSessions.activeSession!.id;
+                    setAppServerDraftReferences(current => {
+                      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
+                      const next = typeof value === "function" ? value(current[sessionId] ?? []) : value;
+                      return { ...current, [sessionId]: next };
+                    });
+                  }}
                   setDraft={value => {
                     const sessionId = terminalSessions.activeSession!.id;
                     setAppServerDrafts(current => {

@@ -51,9 +51,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexBackend?: CodexBackend;
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
-  codexAppServerEnabled?: boolean;
-  codeBuddyAcpEnabled?: boolean;
-  openCodeAcpEnabled?: boolean;
+  graphicalSessionEnabled?: boolean;
   codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
@@ -953,15 +951,34 @@ export type CodexQuestionRequest = { requestId: number | string; submitting: boo
     options?: Array<{ label: string; description: string }> | null }>;
 } };
 
+export type CodexThreadGoal = {
+  threadId: string;
+  objective: string;
+  status: "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
+  tokenBudget?: number | null;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+};
+
 export type CodexAppServerSnapshot = {
   threadId: string | null;
+  archived?: boolean;
+  threadStatus?: { type: string; activeFlags?: string[] } | null;
+  turnStatus?: string | null;
+  effectiveModel?: string | null;
+  errorDetails?: { message: string; kind: string; httpStatusCode: number | null;
+    additionalDetails: unknown; codexErrorInfo: unknown } | null;
+  diagnosticStoreError?: string | null;
+  diagnostics?: Array<{ id: string; turnId: string | null; kind: string; at: number; payload: Record<string, unknown> }>;
+  turnDiffs?: Array<{ turnId: string; diff: string; updatedAt: number }>;
   provider?: "codex" | "codebuddy" | "opencode";
   nativeMode?: string | null;
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
-  acpOptions?: Array<{ id: string; name: string; category?: string; type: string; currentValue?: string; options?: Array<{ value: string; name: string; description?: string }> }>;
-  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; supportedPermissions?: CodexExecutionPermission[] };
+  acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
+  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
+  account?: CodexAccountState | null;
   models?: Array<{ id: string; displayName: string; fastAvailable: boolean; defaultReasoningEffort: string | null;
     supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }> }>;
   effort?: string | null;
@@ -974,9 +991,16 @@ export type CodexAppServerSnapshot = {
   mode: "default" | "plan";
   executionPermission: CodexExecutionPermission;
   busy: boolean;
+  compacting?: boolean;
+  compactionStatus?: "running" | "completed" | "failed" | null;
+  goal?: CodexThreadGoal | null;
+  goalLoading?: boolean;
+  goalError?: string | null;
   error: string | null;
   pendingPlan: { itemId: string } | null;
   items: Array<{ id: string; type: string; turnId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
+    toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
+    result?: unknown; locations?: Array<{ path?: string; uri?: string }>;
     attachments?: Array<{ path: string; name: string }>;
     afterItemId?: string | null;
     questions?: Array<{ id: string; header: string; question: string; answers: string[] }>;
@@ -985,17 +1009,41 @@ export type CodexAppServerSnapshot = {
   questions?: CodexQuestionRequest[];
 };
 
-export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string };
+export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
+export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
+export type CodexSessionCapabilities = {
+  skills: Array<{ name: string; path: string; description: string; enabled: boolean; scope: string }>;
+  apps: Array<{ id: string; name: string; description: string; accessible: boolean; enabled: boolean; callable: boolean }>;
+  mcp: Array<{ name: string; status: string; authStatus: string; toolsError: string | null;
+    tools: Array<{ name: string; description: string }> }>;
+  errors: { skills?: string; apps?: string; mcp?: string };
+};
 
 export type CodexAppServerApi = {
   snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
-  listHistory: (id: string, cursor?: string | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
+  readAccount: (id: string) => Promise<CodexAccountState>;
+  startLogin: (id: string, type: "chatgpt" | "chatgptDeviceCode") => Promise<CodexAccountState>;
+  cancelLogin: (id: string) => Promise<CodexAccountState>;
+  logout: (id: string) => Promise<CodexAccountState>;
+  refreshAccountUsage: (id: string) => Promise<CodexAccountState>;
+  listHistory: (id: string, cursor?: string | null, archived?: boolean, isPinned?: boolean | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
+  renameThread: (id: string, threadId: string, name: string) => Promise<void>;
+  pinThread: (id: string, threadId: string, isPinned: boolean) => Promise<void>;
+  forkThread: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
+  archiveThread: (id: string, threadId: string) => Promise<void>;
+  unarchiveThread: (id: string, threadId: string) => Promise<void>;
+  listCapabilities: (id: string, refresh?: boolean) => Promise<CodexSessionCapabilities>;
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
+  compactThread: (id: string) => Promise<CodexAppServerSnapshot>;
+  getGoal: (id: string) => Promise<CodexAppServerSnapshot>;
+  setGoal: (id: string, changes: { objective?: string; status?: "active" | "paused"; tokenBudget?: number | null }) => Promise<CodexAppServerSnapshot>;
+  clearGoal: (id: string) => Promise<CodexAppServerSnapshot>;
   setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
   setNativeMode: (id: string, modeId: string) => Promise<CodexAppServerSnapshot>;
   setModel: (id: string, modelId: string) => Promise<CodexAppServerSnapshot>;
   setEffort: (id: string, effort: string) => Promise<CodexAppServerSnapshot>;
+  setMultitask: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
   setFastMode: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
   setExecutionPermission: (id: string, permission: CodexExecutionPermission) => Promise<CodexAppServerSnapshot>;
   dismissPlan: (id: string, itemId: string) => Promise<CodexAppServerSnapshot>;
@@ -1005,7 +1053,7 @@ export type CodexAppServerApi = {
     | { kind: "unsupported" } | { kind: "too_large"; size: number; limit: number }>;
   pasteImage: (id: string) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
   discardImage: (id: string, filePath: string) => Promise<void>;
-  submit: (id: string, text: string, filePaths?: string[]) => Promise<void>;
+  submit: (id: string, text: string, filePaths?: string[], references?: CodexCapabilityReference[]) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
   resolveApproval: (id: string, requestId: number | string, approved: boolean | string) => Promise<void>;
   answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;
@@ -1020,6 +1068,18 @@ export type ProjectAssistantSnapshot = {
   pendingAction: ProjectAssistantAction | null;
   busy: boolean;
   error: string | null;
+  account?: CodexAccountState;
+};
+export type CodexAccountState = {
+  status: "loading" | "signedOut" | "signedIn" | "notRequired";
+  requiresOpenaiAuth: boolean;
+  account: { type: string; email: string | null; planType: string | null } | null;
+  login: { type: "chatgpt" | "chatgptDeviceCode"; loginId: string | null; url?: string; userCode?: string } | null;
+  rateLimits: { rateLimits?: { limitName?: string | null; primary?: { usedPercent?: number; resetsAt?: number }; secondary?: { usedPercent?: number; resetsAt?: number } }; rateLimitsByLimitId?: Record<string, { limitName?: string | null; primary?: { usedPercent?: number; resetsAt?: number }; secondary?: { usedPercent?: number; resetsAt?: number } }> } | null;
+  usage: { summary?: { lifetimeTokens?: number; peakDailyTokens?: number; longestRunningTurnSec?: number; currentStreakDays?: number; longestStreakDays?: number }; dailyUsageBuckets?: Array<{ startDate: string; tokens: number }> } | null;
+  rateLimitsError: string | null;
+  usageError: string | null;
+  error: string | null;
 };
 export type ProjectAssistantApi = {
   getSnapshot: () => Promise<ProjectAssistantSnapshot>;
@@ -1028,6 +1088,11 @@ export type ProjectAssistantApi = {
   send: (text: string, sessionId?: string | null) => Promise<ProjectAssistantSnapshot>;
   resolve: (approved: boolean) => Promise<{ approved: boolean; result?: unknown }>;
   stop: () => Promise<void>;
+  readAccount: () => Promise<CodexAccountState>;
+  startLogin: (type: "chatgpt" | "chatgptDeviceCode") => Promise<CodexAccountState>;
+  cancelLogin: () => Promise<CodexAccountState>;
+  logout: () => Promise<CodexAccountState>;
+  refreshAccountUsage: () => Promise<CodexAccountState>;
   listCodexSessions: () => Promise<ProjectAssistantCodexSession[]>;
   getCodexScreen: (sessionId: string) => Promise<ProjectAssistantCodexScreen>;
   getCodexDeltas: (sessionId: string, afterSeq: number) => Promise<ProjectAssistantCodexDelta[] | null>;
@@ -1040,8 +1105,8 @@ export type ProjectAssistantApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; codexAppServerEnabled?: boolean; codeBuddyAcpEnabled?: boolean; openCodeAcpEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; codexAppServerEnabled?: boolean; codeBuddyAcpEnabled?: boolean; openCodeAcpEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;

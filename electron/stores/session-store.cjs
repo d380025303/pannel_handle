@@ -133,11 +133,12 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
-    const codexAppServerEnabled = agentProvider === "codex"
-      ? template.codexAppServerEnabled !== false
-      : undefined;
-    const codeBuddyAcpEnabled = agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true : undefined;
-    const openCodeAcpEnabled = agentProvider === "opencode" ? template.openCodeAcpEnabled === true : undefined;
+    const graphicalSessionEnabled = typeof template.graphicalSessionEnabled === "boolean"
+      ? template.graphicalSessionEnabled
+      : agentProvider === "codex" ? template.codexAppServerEnabled !== false
+      : agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true
+      : agentProvider === "opencode" ? template.openCodeAcpEnabled === true
+      : true;
     const codexAppServerModel = codexBackend === "openai" && typeof template.codexAppServerModel === "string"
       ? template.codexAppServerModel.trim() || undefined : undefined;
     const codexAppServerEffort = codexBackend === "openai" && typeof template.codexAppServerEffort === "string"
@@ -165,9 +166,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexBackend,
       codexModel,
       codexExperimentalAcknowledged,
-      codexAppServerEnabled,
-      codeBuddyAcpEnabled,
-      openCodeAcpEnabled,
+      graphicalSessionEnabled,
       codexAppServerModel,
       codexAppServerEffort,
       codexAppServerFastMode,
@@ -231,12 +230,13 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   function loadLibrary() {
     const saved = loadSessions();
     const legacyEnabled = getLegacyCodexAppServerEnabled();
-    const needsMigration = saved.some(template => template?.agentProvider === "codex" && typeof template.codexAppServerEnabled !== "boolean");
+    const needsMigration = saved.some(template => typeof template?.graphicalSessionEnabled !== "boolean"
+      || "codexAppServerEnabled" in template || "codeBuddyAcpEnabled" in template || "openCodeAcpEnabled" in template);
     librarySessions = saved.map(template => normalizeTemplate({
       ...template,
-      ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.codexAppServerEnabled !== "boolean"
+      ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
         ? { codexAppServerEnabled: legacyEnabled } : {}),
-      ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.codexAppServerEnabled !== "boolean"
+      ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
         ? { codexAppServerEnabled: false } : {})
     }));
     for (const session of librarySessions) {

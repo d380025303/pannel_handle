@@ -93,6 +93,7 @@ function createManager(overrides = {}) {
       codexBackend: template.codexBackend,
       codexModel: template.codexModel,
       codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
+      graphicalSessionEnabled: template.graphicalSessionEnabled,
       type: template.type || "windows",
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -682,6 +683,19 @@ describe("terminal-manager", () => {
       message: "Exit code 7"
     }));
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("keeps one graphical mode when the template changes Agent providers", () => {
+    expect(createManager().manager.createSession({ title: "New", agentProvider: "codebuddy" }).graphicalSessionEnabled).toBe(true);
+    const { manager, sessionStore } = createManager();
+    const session = manager.createSession({ title: "Agent", agentProvider: "codex", graphicalSessionEnabled: false });
+    expect(session.graphicalSessionEnabled).toBe(false);
+    manager.updateSession(session.id, { agentProvider: "codebuddy", graphicalSessionEnabled: false });
+    expect(manager.getSession(session.id).graphicalSessionEnabled).toBe(false);
+    expect(sessionStore.getTemplate("1").graphicalSessionEnabled).toBe(false);
+    manager.updateSession(session.id, { agentProvider: "opencode", graphicalSessionEnabled: true });
+    expect(manager.getSession(session.id).graphicalSessionEnabled).toBe(true);
+    expect(sessionStore.getTemplate("1").graphicalSessionEnabled).toBe(true);
   });
 
   it("keeps an SSH instance in place and schedules reconnect after a transport failure", () => {

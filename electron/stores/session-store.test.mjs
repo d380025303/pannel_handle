@@ -48,11 +48,30 @@ describe("session-store", () => {
     writeFileSync(sessionsFile, JSON.stringify([{ id: "old", type: "windows", cwd: "C:\\work", agentProvider: "opencode" }]));
     const store = createStore(sessionsFile);
     store.loadLibrary();
-    expect(store.getTemplate("old").openCodeAcpEnabled).toBe(false);
-    store.updateLibrary("old", { openCodeAcpEnabled: true });
-    expect(store.getTemplate("old").openCodeAcpEnabled).toBe(true);
-    expect(store.duplicateInLibrary("old").openCodeAcpEnabled).toBe(true);
-    expect(store.exportLibrary()[0].openCodeAcpEnabled).toBe(true);
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("old", { graphicalSessionEnabled: true });
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(true);
+    expect(store.duplicateInLibrary("old").graphicalSessionEnabled).toBe(true);
+    expect(store.exportLibrary()[0].graphicalSessionEnabled).toBe(true);
+  });
+  it("migrates each old provider choice into one setting and retains it after a provider change", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "codex", type: "windows", agentProvider: "codex", codexAppServerEnabled: false, codeBuddyAcpEnabled: true },
+      { id: "buddy", type: "windows", agentProvider: "codebuddy", codeBuddyAcpEnabled: true, codexAppServerEnabled: false },
+      { id: "open", type: "windows", agentProvider: "opencode", openCodeAcpEnabled: false, codexAppServerEnabled: true },
+      { id: "terminal", type: "windows" }
+    ]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getLibrary().map(template => template.graphicalSessionEnabled)).toEqual([false, true, false, true]);
+    store.updateLibrary("codex", { agentProvider: "opencode" });
+    expect(store.getTemplate("codex").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("buddy", { agentProvider: "codex" });
+    expect(store.getTemplate("buddy").graphicalSessionEnabled).toBe(true);
+    const persisted = JSON.parse(readFileSync(sessionsFile, "utf-8"));
+    expect(persisted.every(template => !Object.hasOwn(template, "codexAppServerEnabled")
+      && !Object.hasOwn(template, "codeBuddyAcpEnabled") && !Object.hasOwn(template, "openCodeAcpEnabled"))).toBe(true);
   });
   it.each([true, false])("migrates old Codex templates using the legacy setting %s once", (enabled) => {
     const sessionsFile = createTempSessionsFile();
@@ -66,13 +85,13 @@ describe("session-store", () => {
       safeStorage: createSafeStorageMock(), getLegacyCodexAppServerEnabled: () => enabled
     });
     store.loadLibrary();
-    expect(store.getTemplate("1").codexAppServerEnabled).toBe(enabled);
-    expect(store.getTemplate("2").codexAppServerEnabled).toBe(!enabled);
-    expect(store.getTemplate("3").codexAppServerEnabled).toBe(true);
-    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEnabled).toBe(enabled);
+    expect(store.getTemplate("1").graphicalSessionEnabled).toBe(enabled);
+    expect(store.getTemplate("2").graphicalSessionEnabled).toBe(!enabled);
+    expect(store.getTemplate("3").graphicalSessionEnabled).toBe(true);
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].graphicalSessionEnabled).toBe(enabled);
     const reopened = createStore(sessionsFile);
     reopened.loadLibrary();
-    expect(reopened.getTemplate("1").codexAppServerEnabled).toBe(enabled);
+    expect(reopened.getTemplate("1").graphicalSessionEnabled).toBe(enabled);
   });
 
   it("keeps existing local SSH Codex templates in terminal mode while allowing new App Server templates", () => {
@@ -82,24 +101,24 @@ describe("session-store", () => {
     ]));
     const store = createStore(sessionsFile);
     store.loadLibrary();
-    expect(store.getTemplate("old").codexAppServerEnabled).toBe(false);
-    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEnabled).toBe(false);
-    store.updateLibrary("old", { codexAppServerEnabled: true });
-    expect(store.getTemplate("old").codexAppServerEnabled).toBe(true);
-    expect(store.normalizeTemplate({ id: "new", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "local" }).codexAppServerEnabled).toBe(true);
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(false);
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("old", { graphicalSessionEnabled: true });
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(true);
+    expect(store.normalizeTemplate({ id: "new", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "local", graphicalSessionEnabled: true }).graphicalSessionEnabled).toBe(true);
   });
 
   it("preserves each Codex template mode through edits, duplication, export, and import", () => {
     const sessionsFile = createTempSessionsFile();
     const store = createStore(sessionsFile);
-    store.addToLibrary({ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false });
+    store.addToLibrary({ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: false });
     store.updateLibrary("1", { title: "Updated" });
-    expect(store.getTemplate("1").codexAppServerEnabled).toBe(false);
-    expect(store.duplicateInLibrary("1").codexAppServerEnabled).toBe(false);
+    expect(store.getTemplate("1").graphicalSessionEnabled).toBe(false);
+    expect(store.duplicateInLibrary("1").graphicalSessionEnabled).toBe(false);
     const exported = store.exportLibrary();
-    expect(exported[0].codexAppServerEnabled).toBe(false);
+    expect(exported[0].graphicalSessionEnabled).toBe(false);
     store.importLibrary([exported[0]]);
-    expect(store.getLibrary().at(-1).codexAppServerEnabled).toBe(false);
+    expect(store.getLibrary().at(-1).graphicalSessionEnabled).toBe(false);
   });
 
   it("persists execution permission per Codex template through reload, duplication, export, and import", () => {

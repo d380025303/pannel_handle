@@ -4,6 +4,7 @@ import type { AgentRunStatus, ProjectAssistantCodexSession, ProjectAssistantSnap
 import { useI18n } from "../../i18n";
 import { getAgentStatusLabel } from "../../utils/agentStatus";
 import { CodexSessionMirror } from "./CodexSessionMirror";
+import { CodexAccountPanel } from "./CodexAccountPanel";
 
 const empty: ProjectAssistantSnapshot = { threadId: null, messages: [], pendingAction: null, busy: false, error: null };
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -101,7 +102,16 @@ export function ProjectAssistantPage({ initialSessionId }: { initialSessionId?: 
       <header className="project-assistant-heading">
         <div className="project-assistant-heading-row">
           <h1>{t("projectAssistant.title")}</h1>
-          <button type="button" onClick={() => void newConversation()} disabled={starting || snapshot.busy || startingNewConversation} aria-label={t("projectAssistant.newConversation")}><MessageSquarePlus aria-hidden="true" />{t("projectAssistant.newConversation")}</button>
+          <div className="project-assistant-heading-actions">
+            <CodexAccountPanel account={snapshot.account} busy={snapshot.busy} actions={{
+              readAccount: window.projectAssistantApi.readAccount,
+              startLogin: window.projectAssistantApi.startLogin,
+              cancelLogin: window.projectAssistantApi.cancelLogin,
+              logout: window.projectAssistantApi.logout,
+              refreshAccountUsage: window.projectAssistantApi.refreshAccountUsage
+            }} />
+            <button type="button" onClick={() => void newConversation()} disabled={starting || snapshot.busy || startingNewConversation || snapshot.account?.status === "signedOut"} aria-label={t("projectAssistant.newConversation")}><MessageSquarePlus aria-hidden="true" />{t("projectAssistant.newConversation")}</button>
+          </div>
         </div>
         <p>{t("projectAssistant.description")}</p>
       </header>
@@ -132,11 +142,11 @@ export function ProjectAssistantPage({ initialSessionId }: { initialSessionId?: 
       <form className="project-assistant-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
         <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
           if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
-        }} placeholder={t("projectAssistant.placeholder")} maxLength={4000} disabled={starting || startingNewConversation || Boolean(snapshot.pendingAction)} />
+        }} placeholder={t("projectAssistant.placeholder")} maxLength={4000} disabled={starting || startingNewConversation || Boolean(snapshot.pendingAction) || snapshot.account?.status === "signedOut"} />
         {snapshot.busy ? (
           <button type="button" onClick={() => void window.projectAssistantApi.stop()} aria-label={t("projectAssistant.stop")}><Square aria-hidden="true" /></button>
         ) : (
-          <button type="submit" disabled={!draft.trim() || starting || startingNewConversation || Boolean(snapshot.pendingAction)} aria-label={t("projectAssistant.send")}><Send aria-hidden="true" /></button>
+          <button type="submit" disabled={!draft.trim() || starting || startingNewConversation || Boolean(snapshot.pendingAction) || snapshot.account?.status === "signedOut"} aria-label={t("projectAssistant.send")}><Send aria-hidden="true" /></button>
         )}
       </form>
       </div>

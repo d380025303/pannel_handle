@@ -26,10 +26,10 @@ const session: TerminalSession = {
 };
 
 describe("EditSessionModal", () => {
-  it("keeps an old OpenCode template in terminal mode until enabled", async () => {
+  it("saves the unified graphical mode for OpenCode", async () => {
     const onSave = vi.fn(async () => undefined);
-    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "opencode" }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
-    const toggle = screen.getByRole("checkbox", { name: /使用图形会话/ });
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "opencode", graphicalSessionEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: "使用图形会话" });
     expect(toggle).toHaveProperty("checked", false);
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -38,34 +38,47 @@ describe("EditSessionModal", () => {
   });
   it("saves the edited App Server setting", async () => {
     const onSave = vi.fn(async () => undefined);
-    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", codexAppServerEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
-    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", graphicalSessionEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: "使用图形会话" });
     expect(toggle).toHaveProperty("checked", false);
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0].at(-3)).toBe(true);
+    expect(onSave.mock.calls[0].at(-1)).toBe(true);
   });
   it("saves the App Server setting for an SSH remote Codex template", async () => {
     const onSave = vi.fn(async () => undefined);
     render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, type: "ssh", cwd: "/srv/app",
-      agentProvider: "codex", agentLocation: "remote", codexAppServerEnabled: true,
+      agentProvider: "codex", agentLocation: "remote", graphicalSessionEnabled: true,
       sshConfig: { host: "example.com" } }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
-    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    const toggle = screen.getByRole("checkbox", { name: "使用图形会话" });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0].at(-3)).toBe(false);
+    expect(onSave.mock.calls[0].at(-1)).toBe(false);
   });
-  it("keeps an existing CodeBuddy template in terminal mode until enabled", async () => {
+  it("saves the unified graphical mode for CodeBuddy", async () => {
     const onSave = vi.fn(async () => undefined);
-    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codebuddy" }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
-    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codebuddy", graphicalSessionEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: "使用图形会话" });
     expect(toggle).toHaveProperty("checked", false);
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0].at(-2)).toBe(true);
+    expect(onSave.mock.calls[0].at(-1)).toBe(true);
+  });
+  it("preserves the edited mode while changing providers", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", graphicalSessionEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const mode = () => screen.getByRole("checkbox", { name: "使用图形会话" });
+    fireEvent.click(screen.getByRole("button", { name: "CodeBuddy" }));
+    expect(mode()).toHaveProperty("checked", false);
+    fireEvent.click(mode());
+    fireEvent.click(screen.getByRole("button", { name: "OpenCode" }));
+    expect(mode()).toHaveProperty("checked", true);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0].at(-1)).toBe(true);
   });
   it("summarizes configured optional groups and preserves edited values", async () => {
     const onSave = vi.fn(async () => undefined);

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
 const { createProjectTools } = require("./project-tools.cjs");
+const { createAccountController } = require("../codex-app-server/account-controller.cjs");
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -45,6 +46,8 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
   let startPromise = null;
   let turnTargetSessionId = null;
   let startingNewConversation = false;
+  let threadReady = false;
+  let threadStartPromise = null;
 
   try {
     const stored = JSON.parse(fsApi.readFileSync(stateFile, "utf8"));
@@ -54,7 +57,7 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
     if (error.code !== "ENOENT") console.error("Could not load project assistant history:", error);
   }
 
-  function snapshot() { return { ...state, messages: [...state.messages] }; }
+  function snapshot() { return { ...state, messages: [...state.messages], account: accountController.snapshot() }; }
   function publish() { broadcast("project-assistant:changed", snapshot()); }
   function persist(nextState = state) {
     fsApi.mkdirSync(userData, { recursive: true });
@@ -76,6 +79,24 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
       pendingRequests.set(id, { resolve, reject, timer });
       try { send({ id, method, params }); } catch (error) { clearTimeout(timer); pendingRequests.delete(id); reject(error); }
     });
+  }
+  const accountController = createAccountController({ request, changed: publish,
+    authenticated: async () => { if (child) await ensureThread(); } });
+  async function ensureThread() {
+    if (threadReady) return;
+    if (threadStartPromise) return threadStartPromise;
+    threadStartPromise = (async () => {
+      if (state.threadId) {
+        try { await request("thread/resume", { threadId: state.threadId, ...threadParams() }); threadReady = true; return; }
+        catch { state.threadId = null; }
+      }
+      const result = await request("thread/start", threadParams());
+      state.threadId = result.thread.id;
+      threadReady = true;
+      persist();
+      publish();
+    })();
+    try { await threadStartPromise; } finally { threadStartPromise = null; }
   }
   function finishTurn(error) {
     const turn = pendingTurn;
@@ -106,6 +127,7 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
       return;
     }
     const params = message.params || {};
+    if (accountController.onNotification(message.method, params)) return;
     if (message.method === "turn/started") activeTurnId = params.turn?.id || null;
     if (message.method === "item/completed" && params.item?.type === "agentMessage" && params.item.phase === "final_answer") finalText = params.item.text || "";
     if (message.method === "item/agentMessage/delta" && typeof params.delta === "string") {
@@ -174,17 +196,8 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
       processHandle.once("exit", code => shutdownProcess(new Error(stderr.trim() || `Codex App Server exited (${code}).`)));
       await request("initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "0.1.0" } });
       send({ method: "initialized", params: {} });
-      const account = await request("account/read", {});
-      if (account.requiresOpenaiAuth && !account.account) throw new Error("请先在终端运行 codex login 完成登录。");
-      if (state.threadId) {
-        try { await request("thread/resume", { threadId: state.threadId, ...threadParams() }); }
-        catch { state.threadId = null; }
-      }
-      if (!state.threadId) {
-        const result = await request("thread/start", threadParams());
-        state.threadId = result.thread.id;
-        persist();
-      }
+      const account = await accountController.refresh();
+      if (account.status !== "signedOut") await ensureThread();
       state.error = null;
       publish();
     })();
@@ -196,12 +209,14 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
     startingNewConversation = true;
     try {
       await start();
+      if (accountController.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
       const result = await request("thread/start", threadParams());
       const threadId = result.thread?.id;
       if (typeof threadId !== "string" || !threadId) throw new Error("Codex did not return a new thread ID.");
       const nextState = { ...state, threadId, messages: [], pendingAction: null, error: null };
       persist(nextState);
       state = nextState;
+      threadReady = true;
       finalText = "";
       streamedText = "";
       publish();
@@ -228,6 +243,8 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
     if (state.busy || startingNewConversation) throw new Error("The assistant is already responding.");
     if (state.pendingAction) throw new Error("请先确认或拒绝当前操作。");
     await start();
+    if (accountController.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
+    await ensureThread();
     state.busy = true;
     turnTargetSessionId = selectedSessionId || null;
     state.error = null;
@@ -277,12 +294,25 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
     lineReader = null;
     for (const pending of pendingRequests.values()) { clearTimeout(pending.timer); pending.reject(error); }
     pendingRequests.clear();
+    threadReady = false;
+    accountController.reset();
     if (pendingTurn) finishTurn(error);
     else { state.error = error?.message || null; publish(); }
     processHandle?.kill();
   }
   function shutdown() { shutdownProcess(new Error("Assistant stopped.")); }
-  return { snapshot, start, newConversation, sendMessage, resolveAction, stop, shutdown };
+  async function readAccount() { await start(); return accountController.refresh(); }
+  async function startLogin(type) { await start(); return accountController.startLogin(type); }
+  async function cancelLogin() { return accountController.cancelLogin(); }
+  async function logout() {
+    if (state.busy) throw new Error("请等待当前回复完成后登出。");
+    const result = await accountController.logout();
+    threadReady = false;
+    return result;
+  }
+  async function refreshAccountUsage() { await start(); return accountController.refreshUsage(); }
+  return { snapshot, start, newConversation, sendMessage, resolveAction, stop, shutdown,
+    readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 
 module.exports = { createProjectAssistantService, OUTPUT_SCHEMA };

@@ -6,13 +6,30 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     return serviceForProvider(session.agentProvider);
   };
   const route = method => (id, ...args) => serviceFor(id)[method](id, ...args);
+  const codexRoute = method => (id, ...args) => {
+    const session = terminalManager.getSession(id);
+    if (!session || session.agentProvider !== "codex") throw new Error("仅 Codex 图形会话支持此操作。");
+    return codex[method](id, ...args);
+  };
+  const routeCodex = method => (id, ...args) => {
+    const session = terminalManager.getSession(id);
+    if (!session || (session.agentProvider && session.agentProvider !== "codex")) throw new Error("仅 Codex 图形会话支持此操作。");
+    return codex[method](id, ...args);
+  };
   return {
     start: (session, runtime) => serviceForProvider(session.agentProvider).start(session, runtime),
     restart: route("restart"), snapshot: route("snapshot"), getWorkspaceCwd: route("getWorkspaceCwd"),
     allowFiles: route("allowFiles"), previewAttachment: route("previewAttachment"),
     allowPastedImage: route("allowPastedImage"), discardPastedImage: route("discardPastedImage"),
-    listHistory: route("listHistory"), resume: route("resume"), newThread: route("newThread"),
+    listHistory: route("listHistory"), listCapabilities: route("listCapabilities"), resume: route("resume"), newThread: route("newThread"),
+    renameThread: routeCodex("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
+    archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
+    compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),
     setMode: route("setMode"), setModel: route("setModel"), setEffort: route("setEffort"), setFastMode: route("setFastMode"),
+    setMultitask(id, enabled) {
+      if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持 Multitask。");
+      return codeBuddy.setMultitask(id, enabled);
+    },
     setNativeMode: route("setNativeMode"),
     resetUsageBaselines: (...args) => codex.resetUsageBaselines?.(...args),
     setExecutionPermission: route("setExecutionPermission"),

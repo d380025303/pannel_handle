@@ -84,12 +84,177 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 
+  it("preserves ACP tool kind, locations, status, and returned content", async () => {
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread-1" } });
+      else if (message.method === "session/prompt") {
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread-1", update: {
+          sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Search project", kind: "search", status: "in_progress" } } });
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread-1", update: {
+          sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed", content: [
+            { type: "content", content: { type: "text", text: "Found 3 results" } }], locations: [{ path: "src/App.tsx" }] } } });
+        emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    await service.submit("one", "Find App.tsx");
+    expect(service.snapshot("one").items.find(item => item.id === "tool-1")).toMatchObject({
+      type: "toolCall", toolKind: "search", toolName: "Search project", status: "completed",
+      output: "Found 3 results", locations: [{ path: "src/App.tsx" }]
+    });
+    service.shutdown();
+  });
+
+  it("switches only advertised CodeBuddy ACP models and refreshes them for a new thread", async () => {
+    const requests = [];
+    const models = [{ value: "hy3", name: "HY3" }, { value: "glm-5.3", name: "GLM 5.3" }];
+    let promptReply;
+    let newCount = 0;
+    const child = fakeChild((message, emit) => {
+      requests.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") {
+        newCount += 1;
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: `thread-${newCount}`,
+          ...(newCount < 3 ? { configOptions: [{
+          id: "model", type: "select", currentValue: newCount === 1 ? "hy3" : "glm-5.3", options: models
+        }] } : {}) } });
+      } else if (message.method === "session/set_config_option") {
+        emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: [{
+          id: "model", type: "select", currentValue: message.params.value, options: models
+        }] } });
+      } else if (message.method === "session/prompt") promptReply = () => emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("hy3");
+    await expect(service.setModel("one", "unlisted")).rejects.toThrow("CodeBuddy");
+    await expect(service.setEffort("one", "high")).rejects.toThrow("无法切换配置");
+    expect(requests.filter(message => message.method === "session/set_config_option")).toHaveLength(0);
+    const switched = await service.setModel("one", "glm-5.3");
+    expect(switched.acpOptions.find(option => option.id === "model").currentValue).toBe("glm-5.3");
+    expect(requests.find(message => message.method === "session/set_config_option").params)
+      .toEqual({ sessionId: "thread-1", configId: "model", value: "glm-5.3" });
+    const turn = service.submit("one", "Hello");
+    await vi.waitFor(() => expect(promptReply).toBeTypeOf("function"));
+    await expect(service.setModel("one", "hy3")).rejects.toThrow("无法切换配置");
+    promptReply();
+    await turn;
+    const next = await service.newThread("one");
+    expect(next.threadId).toBe("thread-2");
+    expect(next.acpOptions.find(option => option.id === "model").currentValue).toBe("glm-5.3");
+    expect((await service.newThread("one")).acpOptions).toEqual([]);
+    service.shutdown();
+  });
+
+  it("keeps the selected CodeBuddy model when ACP rejects a switch", async () => {
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread",
+        configOptions: [{ id: "model", type: "select", currentValue: "hy3", options: [{ value: "hy3" }, { value: "glm-5.3" }] }] } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
+        error: { code: -32603, message: "Model unavailable" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    await expect(service.setModel("one", "glm-5.3")).rejects.toThrow("Model unavailable");
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("hy3");
+    service.shutdown();
+  });
+
+  it("advertises boolean config support and writes only an advertised Multitask option", async () => {
+    const requests = [];
+    let emitUpdate;
+    const child = fakeChild((message, emit) => {
+      requests.push(message);
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+        result: { agentCapabilities: { multitaskSupport: true } } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
+        result: { sessionId: "thread", configOptions: [{ id: "multitask", type: "boolean", currentValue: false }] } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
+        result: { configOptions: [{ id: "multitask", type: "boolean", currentValue: message.params.value }] } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    expect(requests[0].params.clientCapabilities.session.configOptions.boolean).toEqual({});
+    expect(service.snapshot("one").capabilities.multitask).toBe(true);
+    await expect(service.setMultitask("one", "true")).rejects.toThrow("不支持");
+    expect((await service.setMultitask("one", true)).acpOptions[0].currentValue).toBe(true);
+    expect(requests.at(-1).params).toEqual({ sessionId: "thread", configId: "multitask", type: "boolean", value: true });
+    emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread",
+      update: { sessionUpdate: "config_option_update", configOptions: [{ id: "multitask", type: "boolean", currentValue: false }] } } });
+    expect(service.snapshot("one").acpOptions[0].currentValue).toBe(false);
+    service.shutdown();
+  });
+
+  it("hides Multitask without capability or option and preserves state on a detailed rejection", async () => {
+    for (const [support, options] of [[false, [{ id: "multitask", type: "boolean", currentValue: false }]], [true, []],
+      [true, [{ id: "multitask", type: "boolean", currentValue: false }]]]) {
+      const child = fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+          result: { agentCapabilities: { multitaskSupport: support } } });
+        else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
+          result: { sessionId: "thread", configOptions: options } });
+        else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
+          error: { code: -32602, message: "Invalid params", data: { details: "后台任务已禁用" } } });
+      });
+      const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+        terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+      await expect(service.setMultitask("one", true)).rejects.toThrow(support && options.length ? "后台任务已禁用" : "不支持");
+      expect(service.snapshot("one").acpOptions[0]?.currentValue).toBe(options[0]?.currentValue);
+      service.shutdown();
+    }
+  });
+
+  it("keeps worker questions after the parent turn and receives an unsolicited summary turn", async () => {
+    let emitUpdate;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "开始");
+    emitUpdate({ jsonrpc: "2.0", id: 500, method: "session/request_permission", params: { sessionId: "thread",
+      toolCall: { toolCallId: "question-1", title: "子任务提问" }, options: [{ optionId: "yes", kind: "allow_once" }] } });
+    expect(service.snapshot("one").approvals).toHaveLength(1);
+    expect(service.snapshot("one").busy).toBe(false);
+    const meta = { "codebuddy.ai/requestId": "drain-1" };
+    emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "session_info_update", _meta: { ...meta, "codebuddy.ai/unsolicitedTurn": { requestId: "drain-1", reason: "background_drain" } } } } });
+    emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "agent_message_chunk", content: { type: "text", text: "后台结果" }, _meta: meta } } });
+    expect(service.snapshot("one").items.at(-1)).toMatchObject({ type: "agentMessage", turnId: "drain-1", text: "后台结果" });
+    expect(service.snapshot("one").items.find(item => item.type === "backgroundTurn")).toBeTruthy();
+    emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "session_end", _meta: meta } } });
+    expect(service.snapshot("one").busy).toBe(false);
+    expect(service.snapshot("one").approvals).toHaveLength(1);
+    service.resolveApproval("one", 500, true);
+    expect(service.snapshot("one").approvals).toHaveLength(0);
+    service.shutdown();
+  });
+
   it("routes graphical calls by session provider", () => {
     const codex = { snapshot: vi.fn(() => "codex"), close: vi.fn(), shutdown: vi.fn() };
-    const buddy = { snapshot: vi.fn(() => "buddy"), close: vi.fn(), shutdown: vi.fn() };
+    const buddy = { snapshot: vi.fn(() => "buddy"), setMultitask: vi.fn(() => "enabled"), close: vi.fn(), shutdown: vi.fn() };
     const router = createGraphicalSessionRouter(codex, buddy, { getSession: id => ({ agentProvider: id === "buddy" ? "codebuddy" : "codex" }) });
     expect(router.snapshot("buddy")).toBe("buddy");
     expect(router.snapshot("codex")).toBe("codex");
+    expect(router.setMultitask("buddy", true)).toBe("enabled");
+    expect(buddy.setMultitask).toHaveBeenCalledWith("buddy", true);
+    expect(() => router.setMultitask("codex", true)).toThrow("只有 CodeBuddy");
     router.close("buddy");
     expect(codex.close).toHaveBeenCalledWith("buddy");
     expect(buddy.close).toHaveBeenCalledWith("buddy");

@@ -115,11 +115,8 @@ export type TranslationKey =
   | "settings.open"
   | "settings.generalTitle"
   | "settings.autoRestore"
-  | "session.codexAppServer"
-  | "session.codexAppServerHint"
-  | "session.codeBuddyAcpHint"
-  | "session.openCodeAcp"
-  | "session.openCodeAcpHint"
+  | "session.graphicalMode"
+  | "session.graphicalModeHint"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1090,11 +1087,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "打开设置",
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
-    "session.codexAppServer": "使用 App Server",
-    "session.codexAppServerHint": "仅影响此模板之后启动的 Codex 会话。",
-    "session.codeBuddyAcpHint": "使用 CodeBuddy ACP 图形会话；关闭后使用终端。",
-    "session.openCodeAcp": "使用图形会话（ACP）",
-    "session.openCodeAcpHint": "仅影响此模板之后启动的 OpenCode 会话。",
+    "session.graphicalMode": "使用图形会话",
+    "session.graphicalModeHint": "勾选后使用 {mode}；取消勾选后使用终端。仅影响此模板之后启动的会话。",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2057,11 +2051,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "Open settings",
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
-    "session.codexAppServer": "Use App Server",
-    "session.codexAppServerHint": "Applies to future Codex sessions started from this template.",
-    "session.codeBuddyAcpHint": "Use a CodeBuddy ACP graphical session; turn off to use the terminal.",
-    "session.openCodeAcp": "Use graphical session (ACP)",
-    "session.openCodeAcpHint": "Applies to future OpenCode sessions started from this template.",
+    "session.graphicalMode": "Use graphical session",
+    "session.graphicalModeHint": "Checked uses {mode}; unchecked uses the terminal. Applies to future sessions started from this template.",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

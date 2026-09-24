@@ -5,6 +5,7 @@ const readline = require("node:readline");
 const { PassThrough } = require("node:stream");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createAccountController } = require("./account-controller.cjs");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const SUMMARY_LIMIT = 500;
@@ -125,6 +126,7 @@ function displayItem(item) {
 
 function historyItems(thread) {
   return (thread?.turns || []).flatMap(turn => (turn.items || []).map(item => ({ ...displayItem(item),
+    ...(item.type === "contextCompaction" ? { status: "completed" } : {}),
     ...(turn.id ? { turnId: turn.id } : {}) }))).filter(item => item?.id);
 }
 
@@ -205,7 +207,7 @@ function updateTokenUsage(entry, params) {
   return true;
 }
 
-function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
+function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
   sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
@@ -246,7 +248,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
       backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
-      busy: entry.busy, error: entry.error, pendingPlan: entry.pendingPlan,
+      busy: entry.busy, archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
+      goal: entry.goal, goalLoading: entry.goalLoading, goalError: entry.goalError,
+      error: entry.error, pendingPlan: entry.pendingPlan,
+      threadStatus: entry.threadStatus, turnStatus: entry.turnStatus, effectiveModel: entry.effectiveModel,
+      errorDetails: entry.errorDetails, diagnosticStoreError: entry.diagnosticStoreError,
+      diagnostics: [...entry.diagnostics], turnDiffs: [...entry.turnDiffs.values()],
+      account: entry.accountController?.snapshot() || null,
       model: entry.model, tokenUsage: entry.tokenUsage, tokenUpdatedAt: entry.tokenUpdatedAt,
       turnOutputTokens: entry.turnOutputTokens, outputTokensPerSecond: entry.outputTokensPerSecond,
       outputRateAvailable: entry.outputRateAvailable,
@@ -259,6 +267,55 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return projectCwd(entry);
   }
   function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
+  function recordDiagnostic(entry, kind, payload, turnId = null) {
+    const at = Date.now();
+    if (!entry.threadId) {
+      entry.pendingDiagnostics.push({ kind, payload, turnId, at });
+      return;
+    }
+    let eventId = `live-${randomUUID()}`;
+    try { if (diagnosticsStore) eventId = String(diagnosticsStore.addEvent(entry.threadId, turnId, kind, payload, at)); }
+    catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
+    entry.diagnostics.push({ id: eventId, turnId, kind, at, payload });
+  }
+  function loadDiagnostics(entry) {
+    entry.diagnostics = []; entry.turnDiffs = new Map();
+    try {
+      const saved = diagnosticsStore?.list(entry.threadId);
+      if (saved) {
+        entry.diagnostics = saved.events;
+        entry.turnDiffs = new Map(saved.diffs.map(diff => [diff.turnId, diff]));
+      }
+      entry.diagnosticStoreError = null;
+    } catch (error) { entry.diagnosticStoreError = `诊断记录读取失败：${error.message}`; }
+    for (const event of entry.pendingDiagnostics.splice(0)) {
+      let eventId = `live-${randomUUID()}`;
+      try { if (diagnosticsStore) eventId = String(diagnosticsStore.addEvent(entry.threadId, event.turnId, event.kind, event.payload, event.at)); }
+      catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
+      entry.diagnostics.push({ ...event, id: eventId });
+    }
+  }
+  function setTurnDiff(entry, turnId, diff) {
+    if (!turnId || typeof diff !== "string") return;
+    const value = { turnId, diff, updatedAt: Date.now() };
+    entry.turnDiffs.set(turnId, value);
+    try { diagnosticsStore?.setDiff(entry.threadId, turnId, diff, value.updatedAt); }
+    catch (error) { entry.diagnosticStoreError = `变更记录保存失败：${error.message}`; }
+  }
+  function structuredError(value) {
+    if (!value || typeof value !== "object") return null;
+    const info = value.codexErrorInfo;
+    const knownKinds = ["ContextWindowExceeded", "UsageLimitExceeded", "HttpConnectionFailed",
+      "ResponseStreamConnectionFailed", "ResponseStreamDisconnected", "ResponseTooManyFailedAttempts",
+      "BadRequest", "Unauthorized", "SandboxError", "InternalServerError", "Other"];
+    const kind = typeof info === "string" ? info : info && typeof info === "object"
+      ? (info.type || info.kind || info.code || knownKinds.find(name => Object.hasOwn(info, name))) : null;
+    const httpStatusCode = info && typeof info === "object"
+      ? (info.httpStatusCode || info[kind]?.httpStatusCode || null) : null;
+    return { message: String(value.message || "Codex 运行失败。"), kind: kind || "Other",
+      httpStatusCode: Number.isInteger(httpStatusCode) ? httpStatusCode : null,
+      additionalDetails: value.additionalDetails ?? null, codexErrorInfo: info ?? null };
+  }
   function recordTokenUsage(entry, baseline = entry.usageNeedsBaseline) {
     if (!entry.threadId || !entry.tokenUsage) return;
     try {
@@ -369,12 +426,46 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       return;
     }
     const params = message.params || {};
+    if (entry.accountController?.onNotification(message.method, params)) return;
+    if ((message.method === "thread/archived" || message.method === "thread/unarchived") && params.threadId) {
+      for (const [sessionId, current] of sessions) if (current.threadId === params.threadId) {
+        current.archived = message.method === "thread/archived";
+        publish(sessionId);
+      }
+    }
     if (params.threadId && params.threadId !== entry.threadId) {
       if (message.method === "thread/tokenUsage/updated" && params.threadId === entry.pendingThreadId)
         entry.pendingTokenUsage = params;
       return;
     }
+    if (message.method === "thread/status/changed" && params.status?.type) {
+      entry.threadStatus = params.status;
+      const flags = params.status.activeFlags || [];
+      if (params.status.type === "systemError") entry.status = "failed";
+      else if (params.status.type === "notLoaded") entry.status = "exited";
+      else if (params.status.type === "active" && flags.includes("waitingOnApproval")) entry.status = "waiting_for_permission";
+      else if (params.status.type === "active" && flags.includes("waitingOnUserInput")) entry.status = "e_prompt";
+      else if (params.status.type === "active") entry.status = "running";
+      else if (params.status.type === "idle" && !entry.busy) entry.status = "completed";
+      broadcastStatus(id, entry, true);
+    }
+    if (message.method === "turn/diff/updated") setTurnDiff(entry, params.turnId, params.diff);
+    if (message.method === "configWarning" || message.method === "warning"
+      || message.method === "hook/started" || message.method === "hook/completed"
+      || message.method === "model/rerouted" || message.method === "model/safetyBuffering/updated"
+      || message.method === "model/verification") {
+      recordDiagnostic(entry, message.method, params, params.turnId || entry.turnId || null);
+      if (message.method === "model/rerouted" && typeof params.toModel === "string") entry.effectiveModel = params.toModel;
+    }
     if (message.method === "thread/tokenUsage/updated" && updateTokenUsage(entry, params)) recordTokenUsage(entry);
+    if (message.method === "thread/goal/updated") {
+      entry.goalRevision += 1;
+      entry.goal = params.goal || null; entry.goalError = null;
+    }
+    if (message.method === "thread/goal/cleared") {
+      entry.goalRevision += 1;
+      entry.goal = null; entry.goalError = null;
+    }
     if (message.method === "serverRequest/resolved") {
       entry.approvals.delete(params.requestId);
       const answered = entry.questions.get(params.requestId);
@@ -387,6 +478,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.method === "turn/started") {
       entry.turnId = params.turn?.id; entry.busy = true;
+      entry.turnStatus = "inProgress"; entry.effectiveModel = entry.model;
+      entry.status = "running";
+      broadcastStatus(id, entry, true);
       for (const item of entry.items.slice(entry.activeTurnStartIndex)) if (item.type === "userMessage"
         && String(item.id).startsWith("local-") && !item.turnId)
         item.turnId = entry.turnId;
@@ -396,8 +490,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "item/started" || message.method === "item/completed") {
       const item = displayItem(params.item);
       if (item?.id) {
+        if (item.type === "contextCompaction") {
+          item.status = message.method === "item/completed" ? "completed" : "inProgress";
+          if (message.method === "item/started") { entry.compacting = true; entry.compactionStatus = "running"; }
+          else entry.compactionStatus = "completed";
+        }
         const previous = entry.items.find(value => value.id === item.id);
         item.turnId = params.turnId || entry.turnId || previous?.turnId;
+        if (item.type === "commandExecution" && !item.output && previous?.output) item.output = previous.output;
         if (item.type === "userMessage" && !item.attachments?.length && previous?.attachments?.length)
           item.attachments = previous.attachments;
         if (item.type === "userMessage") {
@@ -434,9 +534,28 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.method === "error") {
       entry.error = params.error?.message || "Codex 运行失败。";
+      entry.errorDetails = structuredError(params.error);
+      recordDiagnostic(entry, "error", entry.errorDetails || { message: entry.error }, params.turnId || entry.turnId || null);
+      if (entry.compacting) entry.compactionStatus = "failed";
       updateSummary(id, entry, entry.error);
     }
     if (message.method === "turn/completed") {
+      entry.turnStatus = params.turn?.status || "failed";
+      if (params.turn?.error) {
+        entry.errorDetails = structuredError(params.turn.error);
+        entry.error = entry.errorDetails?.message || entry.error;
+        if (!entry.diagnostics.some(event => event.kind === "error" && event.turnId === (params.turn?.id || entry.turnId)
+          && event.payload.message === entry.error))
+          recordDiagnostic(entry, "error", entry.errorDetails || { message: entry.error }, params.turn?.id || entry.turnId || null);
+      }
+      if (entry.compacting) {
+        entry.compactionStatus = params.turn?.status === "completed" && entry.compactionStatus !== "failed" ? "completed" : "failed";
+        if (entry.compactionStatus === "failed") {
+          const item = [...entry.items].reverse().find(value => value.type === "contextCompaction" && value.turnId === entry.turnId);
+          if (item) item.status = "failed";
+        }
+        entry.compacting = false;
+      }
       for (const question of entry.questions.values()) settleQuestionAnswer(entry, question,
         params.turn?.status === "completed" ? "completed" : "failed");
       entry.questions.clear();
@@ -452,7 +571,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const finalItem = entry.items.slice(entry.activeTurnStartIndex).filter(item =>
         (item.type === "agentMessage" || item.type === "plan") && item.text?.trim()).at(-1);
       if (finalItem) entry.activitySummary = itemSummary(finalItem);
-      entry.status = params.turn?.status === "completed" ? "completed" : "failed";
+      entry.status = params.turn?.status === "completed" ? "completed"
+        : params.turn?.status === "interrupted" ? "interrupted" : "failed";
       broadcastStatus(id, entry, true);
     }
     publish(id);
@@ -474,12 +594,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
       turnId: null, mode: "default", executionPermission: template?.codexExecutionPermission || session.codexExecutionPermission || "askApproval",
       model: template?.codexAppServerModel || session.codexAppServerModel || session.codexModel || null,
-      effort: template?.codexAppServerEffort || session.codexAppServerEffort || null, fastMode, models: [], busy: false, error: null, items: [],
+      effort: template?.codexAppServerEffort || session.codexAppServerEffort || null, fastMode, models: [], busy: false, archived: false, error: null, items: [],
+      threadStatus: null, turnStatus: null, effectiveModel: null, errorDetails: null,
+      diagnostics: [], pendingDiagnostics: [], turnDiffs: new Map(), diagnosticStoreError: null,
+      compacting: false, compactionStatus: null, goal: null, goalLoading: false, goalError: null, goalRevision: 0,
       pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0,
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0 };
+    entry.accountController = createAccountController({ request: (method, params) => request(entry, method, params),
+      changed: () => { if (sessions.get(id) === entry) publish(id); },
+      authenticated: async () => { if (sessions.get(id) === entry && !entry.threadId) await initializeThread(id, entry); } });
     sessions.set(id, entry);
     const lines = readline.createInterface({ input: child.stdout });
     let startupStderr = "";
@@ -493,12 +619,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     child.on("error", error => {
       if (sessions.get(id) !== entry) return;
       entry.error = error.message;
+      entry.accountController.reset();
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
       entry.pending.clear(); publish(id);
     });
     child.on("exit", code => {
       if (sessions.get(id) !== entry) return;
       entry.busy = false;
+      entry.accountController.reset();
       entry.questions.clear();
       const detail = session.type === "wsl" && !entry.threadId ? startupStderrDetail(startupStderr, environment) : "";
       entry.error ||= `Codex App Server 已退出（代码 ${code ?? "未知"}）。${detail ? ` 启动输出：${detail}` : ""}`;
@@ -511,24 +639,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     try {
       await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true } });
       send(entry, { method: "initialized", params: {} });
-      await refreshModels(entry).catch(() => {});
-      const result = runtime.resumeThreadId
-        ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry) })
-        : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
-      entry.threadId = result.thread.id;
-      entry.model = runtime.resumeThreadId && !runtime.preferTemplateModel
-        ? (result.thread.model || entry.model)
-        : (template?.codexAppServerModel || session.codexAppServerModel || result.thread.model || entry.model);
-      entry.effort = compatibleEffort(entry);
-      if (entry.pendingTokenUsage?.threadId === entry.threadId && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
-      entry.pendingThreadId = null; entry.pendingTokenUsage = null;
-      if (runtime.resumeThreadId) {
-        entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
-        const lastTurn = result.thread.turns?.at(-1);
-        entry.busy = lastTurn?.status === "inProgress";
-        entry.turnId = entry.busy ? lastTurn.id : null;
-        entry.status = entry.busy ? "running" : "completed";
-      }
+      const account = (session.codexBackend || "openai") === "openai" && (!session.agentProvider || session.agentProvider === "codex")
+        ? await entry.accountController.refresh() : { status: "notRequired" };
+      if (account.status !== "signedOut") await initializeThread(id, entry);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(id, "connected");
       publish(id);
       return snapshot(id);
@@ -541,11 +654,43 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw error;
     }
   }
+  async function initializeThread(id, entry) {
+    if (entry.threadId || sessions.get(id) !== entry) return;
+    if (entry.threadStartPromise) return entry.threadStartPromise;
+    entry.threadStartPromise = (async () => {
+    await refreshModels(entry).catch(() => {});
+    const { runtime, session } = entry;
+    const template = session.templateId && sessionStore?.getTemplate(session.templateId);
+    const result = runtime.resumeThreadId
+      ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry) })
+      : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+    entry.threadId = result.thread.id;
+    entry.threadStatus = result.thread.status || null;
+    loadDiagnostics(entry);
+    entry.model = runtime.resumeThreadId && !runtime.preferTemplateModel
+      ? (result.thread.model || entry.model)
+      : (template?.codexAppServerModel || session.codexAppServerModel || result.thread.model || entry.model);
+    entry.effort = compatibleEffort(entry);
+    if (entry.pendingTokenUsage?.threadId === entry.threadId && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
+    entry.pendingThreadId = null; entry.pendingTokenUsage = null;
+    if (runtime.resumeThreadId) {
+      entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
+      const lastTurn = result.thread.turns?.at(-1);
+      entry.busy = lastTurn?.status === "inProgress";
+      entry.turnId = entry.busy ? lastTurn.id : null;
+      entry.turnStatus = lastTurn?.status || null;
+      entry.status = entry.busy ? "running" : "completed";
+    }
+    void refreshGoal(id, entry);
+    publish(id);
+    })();
+    try { await entry.threadStartPromise; } finally { entry.threadStartPromise = null; }
+  }
   async function restart(id) {
     const entry = sessions.get(id);
     const session = terminalManager.getSession(id);
     if (!entry || !session || session.type !== "ssh") throw new Error("SSH App Server 会话不存在。");
-    const threadId = entry.threadId;
+    const threadId = entry.archived ? null : entry.threadId;
     terminalManager.setAppServerConnectionState?.(id, "reconnecting");
     close(id);
     try {
@@ -558,8 +703,82 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   function ready(id) {
     const entry = sessions.get(id);
+    if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
     if (!entry?.threadId || entry.busy) throw new Error("Codex 会话未就绪或正在运行。");
     return entry;
+  }
+  async function refreshGoal(id, entry = sessions.get(id)) {
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    const threadId = entry.threadId;
+    const revision = entry.goalRevision;
+    entry.goalLoading = true; entry.goalError = null; publish(id);
+    try {
+      const result = await request(entry, "thread/goal/get", { threadId });
+      if (sessions.get(id) === entry && entry.threadId === threadId && entry.goalRevision === revision) {
+        entry.goal = result.goal || null; entry.goalError = null;
+      }
+    } catch (error) {
+      if (sessions.get(id) === entry && entry.threadId === threadId && entry.goalRevision === revision)
+        entry.goalError = error.message;
+    } finally {
+      if (sessions.get(id) === entry && entry.threadId === threadId) {
+        entry.goalLoading = false; publish(id);
+      }
+    }
+    return sessions.get(id) === entry ? snapshot(id) : null;
+  }
+  async function setGoal(id, changes) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    if (!changes || typeof changes !== "object") throw new Error("无效的目标设置。");
+    const params = { threadId: entry.threadId };
+    if (changes.objective !== undefined) {
+      if (typeof changes.objective !== "string" || !changes.objective.trim() || changes.objective.length > 4000)
+        throw new Error("目标内容须为 1–4000 个字符。");
+      params.objective = changes.objective.trim();
+    }
+    if (changes.status !== undefined) {
+      if (!["active", "paused"].includes(changes.status)) throw new Error("无效的目标状态。");
+      params.status = changes.status;
+    }
+    if (changes.tokenBudget !== undefined) {
+      if (changes.tokenBudget !== null && (!Number.isSafeInteger(changes.tokenBudget) || changes.tokenBudget <= 0))
+        throw new Error("Token 预算须为正整数。");
+      params.tokenBudget = changes.tokenBudget;
+    }
+    if (Object.keys(params).length === 1) throw new Error("没有需要更新的目标内容。");
+    const result = await request(entry, "thread/goal/set", params);
+    if (sessions.get(id) === entry && entry.threadId === params.threadId) {
+      entry.goalRevision += 1;
+      entry.goal = result.goal || null; entry.goalError = null; publish(id);
+    }
+    return snapshot(id);
+  }
+  async function clearGoal(id) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    const threadId = entry.threadId;
+    await request(entry, "thread/goal/clear", { threadId });
+    if (sessions.get(id) === entry && entry.threadId === threadId) {
+      entry.goalRevision += 1;
+      entry.goal = null; entry.goalError = null; publish(id);
+    }
+    return snapshot(id);
+  }
+  async function compactThread(id) {
+    const entry = ready(id);
+    const threadId = entry.threadId;
+    entry.compacting = true; entry.busy = true; entry.compactionStatus = "running";
+    entry.error = null; publish(id);
+    try { await request(entry, "thread/compact/start", { threadId }); }
+    catch (error) {
+      if (sessions.get(id) === entry && entry.threadId === threadId) {
+        entry.compacting = false; entry.busy = false; entry.compactionStatus = "failed";
+        entry.error = error.message; publish(id);
+      }
+      throw error;
+    }
+    return snapshot(id);
   }
   function allowFiles(id, filePaths) {
     const entry = sessions.get(id);
@@ -629,22 +848,136 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       await removeImage(entry, filePath).catch(() => {});
     }));
   }
-  async function listHistory(id, cursor = null) {
+  async function listHistory(id, cursor = null, archived = false, isPinned = null) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
-    const result = await request(entry, "thread/list", { cwd: projectCwd(entry), sourceKinds: ["cli", "vscode", "appServer"],
-      sortKey: "updated_at", sortDirection: "desc", limit: 25, ...(cursor ? { cursor } : {}) });
-    return { data: (result.data || []).map(thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
+    if (typeof archived !== "boolean" || (isPinned !== null && typeof isPinned !== "boolean")) throw new Error("无效的会话筛选条件。");
+    const list = (pinned, pageCursor) => request(entry, "thread/list", { cwd: projectCwd(entry), sourceKinds: ["cli", "vscode", "appServer"],
+      archived, isPinned: pinned, sortKey: "updated_at", sortDirection: "desc", limit: 25,
+      ...(pageCursor ? { cursor: pageCursor } : {}) });
+    const pinned = [];
+    if (isPinned === null && !cursor) {
+      let pinCursor = null;
+      const seen = new Set();
+      do {
+        const page = await list(true, pinCursor);
+        pinned.push(...(page.data || []));
+        pinCursor = page.nextCursor || null;
+        if (!pinCursor || seen.has(pinCursor)) break;
+        seen.add(pinCursor);
+      } while (true);
+    }
+    const result = await list(isPinned === null ? false : isPinned, cursor);
+    return { data: [...pinned, ...(result.data || [])].map(thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
       updatedAt: thread.updatedAt, source: typeof thread.source === "string" ? thread.source : "unknown",
-      status: thread.status?.type || "notLoaded" })), nextCursor: result.nextCursor || null };
+      status: thread.status?.type || "notLoaded", archived, isPinned: thread.isPinned === true })), nextCursor: result.nextCursor || null };
   }
-  async function resume(id, threadId) {
+  async function checkedThread(entry, threadId) {
+    if (typeof threadId !== "string" || !threadId.trim()) throw new Error("无效的历史会话。");
+    const detail = await request(entry, "thread/read", { threadId, includeTurns: false });
+    if (detail.thread?.cwd !== projectCwd(entry)) throw new Error("只能整理当前项目的历史会话。");
+    return detail.thread;
+  }
+  function assertThreadIdle(threadId) {
+    if ([...sessions.values()].some(other => other.threadId === threadId && other.busy))
+      throw new Error("该会话正在运行，请等待当前回合结束。");
+  }
+  async function renameThread(id, threadId, name) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    if (typeof name !== "string" || !name.trim()) throw new Error("会话名称不能为空。");
+    await checkedThread(entry, threadId);
+    await request(entry, "thread/name/set", { threadId, name: name.trim() });
+  }
+  async function pinThread(id, threadId, isPinned) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    if (typeof isPinned !== "boolean") throw new Error("无效的置顶状态。");
+    await checkedThread(entry, threadId);
+    await request(entry, "thread/metadata/update", { threadId, isPinned });
+  }
+  async function forkThread(id, threadId) {
+    const entry = ready(id);
+    await checkedThread(entry, threadId);
+    assertThreadIdle(threadId);
+    const result = await request(entry, "thread/fork", { threadId });
+    if (!result.thread?.id) throw new Error("App Server 未返回分支会话 ID。");
+    return resume(id, result.thread.id);
+  }
+  async function archiveThread(id, threadId) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    await checkedThread(entry, threadId);
+    assertThreadIdle(threadId);
+    await request(entry, "thread/archive", { threadId });
+    for (const [sessionId, current] of sessions) if (current.threadId === threadId) {
+      current.archived = true; publish(sessionId);
+    }
+  }
+  async function unarchiveThread(id, threadId) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    await checkedThread(entry, threadId);
+    await request(entry, "thread/unarchive", { threadId });
+    for (const [sessionId, current] of sessions) if (current.threadId === threadId) {
+      current.archived = false; publish(sessionId);
+      if (!current.busy) await resume(sessionId, threadId, true);
+    }
+  }
+  async function listCapabilities(id, forceRefresh = false) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    const result = { skills: [], apps: [], mcp: [], errors: {} };
+    try {
+      const response = await request(entry, "skills/list", { cwds: [projectCwd(entry)], forceReload: Boolean(forceRefresh) });
+      const group = (response.data || []).find(value => value.cwd === projectCwd(entry));
+      result.skills = (group?.skills || []).filter(value => value?.name && value?.path).map(value => ({
+        name: value.name, path: value.path, description: value.description || "", enabled: value.enabled !== false,
+        scope: value.scope || ""
+      }));
+      if (group?.errors?.length) result.errors.skills = group.errors.map(value => value.message || String(value)).join("；");
+    } catch (error) { result.errors.skills = error.message; }
+    try {
+      const installed = await request(entry, "app/installed", { threadId: entry.threadId, forceRefresh: Boolean(forceRefresh) });
+      const states = new Map((installed.apps || []).map(value => [value.id, value]));
+      let cursor = null;
+      const seen = new Set();
+      do {
+        const response = await request(entry, "app/list", { threadId: entry.threadId, cursor, limit: 100, forceRefetch: Boolean(forceRefresh) });
+        result.apps.push(...(response.data || []).filter(value => value?.id && value?.name).map(value => ({
+          id: value.id, name: value.name, description: value.description || "",
+          accessible: value.isAccessible === true, enabled: value.isEnabled !== false && states.get(value.id)?.enabled === true,
+          callable: states.get(value.id)?.callable === true
+        })));
+        cursor = response.nextCursor || null;
+        if (!cursor || seen.has(cursor)) break;
+        seen.add(cursor);
+      } while (true);
+    } catch (error) { result.errors.apps = error.message; }
+    try {
+      let cursor = null;
+      const seen = new Set();
+      do {
+        const response = await request(entry, "mcpServerStatus/list", { threadId: entry.threadId, cursor, limit: 100, detail: "toolsAndAuthOnly" });
+        result.mcp.push(...(response.data || []).filter(value => value?.name).map(value => ({
+          name: value.name, status: value.runtimeStatus || "notStarted", authStatus: value.authStatus || "unknown",
+          toolsError: value.toolsError || null,
+          tools: Object.entries(value.tools || {}).map(([key, tool]) => ({ name: tool?.name || key,
+            description: tool?.description || "" }))
+        })));
+        cursor = response.nextCursor || null;
+        if (!cursor || seen.has(cursor)) break;
+        seen.add(cursor);
+      } while (true);
+    } catch (error) { result.errors.mcp = error.message; }
+    return result;
+  }
+  async function resume(id, threadId, force = false) {
     const entry = ready(id);
     if (typeof threadId !== "string" || !threadId.trim()) throw new Error("无效的历史会话。");
     if ([...sessions.entries()].some(([otherId, other]) => otherId !== id && other.threadId === threadId)) throw new Error("该历史会话已在其他窗口打开。");
-    if (threadId === entry.threadId) return snapshot(id);
-    const detail = await request(entry, "thread/read", { threadId, includeTurns: false });
-    if (detail.thread?.cwd !== projectCwd(entry)) throw new Error("只能恢复当前项目的历史会话。");
+    if (threadId === entry.threadId && !force) return snapshot(id);
+    await checkedThread(entry, threadId);
     entry.pendingThreadId = threadId;
     entry.pendingTokenUsage = null;
     let result;
@@ -653,6 +986,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
+    entry.archived = false;
+    entry.threadStatus = result.thread.status || null;
+    loadDiagnostics(entry);
+    entry.goal = null; entry.goalLoading = false; entry.goalError = null; entry.goalRevision += 1;
+    entry.compacting = false; entry.compactionStatus = null;
     entry.model = result.thread.model || entry.session.codexAppServerModel || entry.session.codexModel || null;
     entry.effort = compatibleEffort(entry, sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerEffort || entry.session.codexAppServerEffort);
     entry.tokenUsage = null; entry.tokenUpdatedAt = null;
@@ -665,9 +1003,12 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const lastTurn = result.thread.turns?.at(-1);
     entry.busy = lastTurn?.status === "inProgress";
     entry.turnId = entry.busy ? lastTurn.id : null;
+    entry.turnStatus = lastTurn?.status || null;
+    entry.effectiveModel = null;
     entry.mode = "default";
     entry.pendingPlan = null;
     entry.error = null;
+    entry.errorDetails = null;
     entry.approvals.clear();
     entry.questions.clear();
     entry.allowedFiles.clear();
@@ -676,8 +1017,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       || entry.items.filter(item => item.type === "userMessage" && item.text?.trim()).at(-1));
     entry.status = entry.busy ? "running" : "completed";
     broadcastStatus(id, entry, true);
-    if (previousThreadId) void request(entry, "thread/unsubscribe", { threadId: previousThreadId }).catch(() => {});
+    if (previousThreadId && previousThreadId !== entry.threadId) void request(entry, "thread/unsubscribe", { threadId: previousThreadId }).catch(() => {});
     publish(id);
+    void refreshGoal(id, entry);
     return snapshot(id);
   }
   async function newThread(id) {
@@ -687,6 +1029,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
+    entry.archived = false;
+    entry.threadStatus = result.thread.status || null;
+    loadDiagnostics(entry);
+    entry.goal = null; entry.goalLoading = false; entry.goalError = null; entry.goalRevision += 1;
+    entry.compacting = false; entry.compactionStatus = null;
     entry.model = sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerModel || result.thread.model || entry.session.codexAppServerModel || entry.session.codexModel || null;
     entry.effort = compatibleEffort(entry, sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerEffort || entry.session.codexAppServerEffort);
     entry.tokenUsage = null; entry.tokenUpdatedAt = null;
@@ -697,6 +1044,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.pendingPlan = null;
     entry.items = [];
     entry.error = null;
+    entry.errorDetails = null;
+    entry.turnStatus = null;
+    entry.effectiveModel = null;
     entry.approvals.clear();
     entry.questions.clear();
     entry.allowedFiles.clear();
@@ -705,6 +1055,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     broadcastStatus(id, entry, true);
     if (previousThreadId) void request(entry, "thread/unsubscribe", { threadId: previousThreadId }).catch(() => {});
     publish(id);
+    void refreshGoal(id, entry);
     return snapshot(id);
   }
   function setMode(id, mode) {
@@ -861,12 +1212,26 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       await sshFileSystem.remove(entry.session.id, path.posix.dirname(filePath)).catch(() => {});
     }));
   }
-  async function submit(id, text, filePaths = []) {
+  async function submit(id, text, filePaths = [], references = []) {
     const entry = sessions.get(id);
-    if (!entry?.threadId || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
-      || (!text.trim() && filePaths.length === 0)) throw new Error("Codex 会话未就绪或正在运行。");
+    const expectedThreadId = entry?.threadId;
+    if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
+    if (!entry?.threadId || entry.archived || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
+      || (!text.trim() && filePaths.length === 0) || !Array.isArray(references) || references.length > 10)
+      throw new Error("Codex 会话未就绪或正在运行。");
+    if (entry.compacting) throw new Error("会话正在压缩，请等待完成。");
     if (entry.busy && !entry.turnId) throw new Error("当前回合尚未就绪，请稍后重试。");
     if (filePaths.some(filePath => !entry.allowedFiles.has(filePath))) throw new Error("只能发送通过文件选择器附加的文件。");
+    const activeReferences = references.filter(value => value && typeof value.token === "string" && text.includes(value.token));
+    const capabilities = activeReferences.length ? await listCapabilities(id) : null;
+    const referenceInput = activeReferences.map(value => {
+      if (value.kind === "skill" && capabilities.skills.some(skill => skill.enabled && skill.name === value.name && skill.path === value.path))
+        return { type: "skill", name: value.name, path: value.path };
+      if (value.kind === "app" && capabilities.apps.some(app => app.callable && app.accessible && app.enabled && app.name === value.name && `app://${app.id}` === value.path))
+        return { type: "mention", name: value.name, path: value.path };
+      throw new Error("所选能力已不可用，请刷新列表后重新选择。");
+    });
+    if (sessions.get(id) !== entry || entry.threadId !== expectedThreadId) throw new Error("会话已切换，请重新发送消息。");
     entry.uploading = true;
     const uploaded = [];
     let files;
@@ -885,6 +1250,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       }
       if (!entry.busy && !entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
       entry.error = null;
+      entry.errorDetails = null;
       startingTurn = !entry.busy;
       if (startingTurn) {
         entry.pendingPlan = null;
@@ -901,7 +1267,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.activitySummary = activitySummary(text.trim() || entry.items.at(-1).text);
       broadcastStatus(id, entry, true);
       try {
-        const input = [...(messageText ? [{ type: "text", text: messageText }] : []),
+        const input = [...(messageText ? [{ type: "text", text: messageText }] : []), ...referenceInput,
           ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
         turnRequestSent = true;
         let result;
@@ -978,7 +1344,23 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     publish(id);
   }
   function shutdown() { for (const id of sessions.keys()) close(id); }
-  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
+  function accountEntry(id) {
+    const entry = sessions.get(id);
+    if (!entry || (entry.session.codexBackend || "openai") !== "openai"
+      || (entry.session.agentProvider && entry.session.agentProvider !== "codex")) throw new Error("此会话不使用 OpenAI Codex 账号。");
+    return entry;
+  }
+  async function readAccount(id) { return accountEntry(id).accountController.refresh(); }
+  async function startLogin(id, type) { return accountEntry(id).accountController.startLogin(type); }
+  async function cancelLogin(id) { return accountEntry(id).accountController.cancelLogin(); }
+  async function logout(id) {
+    const entry = accountEntry(id);
+    if (entry.busy) throw new Error("请等待当前回复完成后登出。");
+    return entry.accountController.logout();
+  }
+  async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
+  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown,
+    readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };
