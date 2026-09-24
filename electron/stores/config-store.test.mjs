@@ -22,13 +22,15 @@ afterEach(() => {
 });
 
 describe("config-store", () => {
-  it("persists the Codex App Server switch", () => {
+  it("reads the old Codex App Server switch only for template migration", () => {
     const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ codexAppServerEnabled: false }));
     const store = createConfigStore({ configFile });
-    store.updateConfig({ codexAppServerEnabled: false });
-    const reopened = createConfigStore({ configFile });
-    reopened.loadConfig();
-    expect(reopened.getConfig().codexAppServerEnabled).toBe(false);
+    store.loadConfig();
+    expect(store.getLegacyCodexAppServerEnabled()).toBe(false);
+    expect(store.getConfig()).not.toHaveProperty("codexAppServerEnabled");
+    store.updateConfig({ autoRestore: false });
+    expect(JSON.parse(fs.readFileSync(configFile, "utf-8"))).not.toHaveProperty("codexAppServerEnabled");
   });
   it("defaults debugMode to false when config file is missing", () => {
     const store = createConfigStore({ configFile: createTempConfigPath() });
@@ -37,7 +39,6 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       defaultWindowsShell: "cmd",
-      codexAppServerEnabled: true,
       autoRestore: true,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
@@ -189,7 +190,6 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       defaultWindowsShell: "cmd",
-      codexAppServerEnabled: true,
       autoRestore: false,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,

@@ -278,7 +278,6 @@ function createAgentSessionLauncher({
   miniMaxService,
   codexModelBridgeModule,
   codexAppServerSessionService,
-  configStore,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
@@ -287,7 +286,7 @@ function createAgentSessionLauncher({
 }) {
   const switchingSessions = new Map();
   const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex" && session.type !== "ssh"
-    && configStore?.getConfig().codexAppServerEnabled === true;
+    && session.codexAppServerEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
     return { ...session, cwd: getHomeDirectory() };
@@ -653,6 +652,7 @@ function createAgentSessionLauncher({
       codexBackend: provider === "codex" ? session.codexBackend : undefined,
       codexModel: provider === "codex" ? session.codexModel : undefined,
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
+      codexAppServerEnabled: provider === "codex" ? session.codexAppServerEnabled : undefined,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,

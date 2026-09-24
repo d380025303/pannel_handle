@@ -7940,25 +7940,84 @@ button.agent-usage-status[aria-expanded="true"] {
 @keyframes idea-spin {
   to { transform: rotate(360deg); }
 }
-.codex-app-server-session { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--text-primary, #e7edf5); }
-.codex-app-server-messages { flex: 1; overflow: auto; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
-.codex-app-server-message, .codex-app-server-event, .codex-app-server-approval { border: 1px solid var(--border-color, #39485c); border-radius: 10px; padding: 12px 16px; max-width: 850px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.codex-app-server-message.userMessage { align-self: flex-end; background: var(--surface-secondary, #243246); }
-.codex-app-server-message p { margin: 8px 0 0; }
-.codex-app-server-event pre, .codex-app-server-approval pre { overflow: auto; white-space: pre-wrap; }
-.codex-app-server-approval { border-color: #bf8f39; }
-.codex-app-server-approval button, .codex-app-server-composer button { margin: 4px; padding: 7px 14px; }
-.codex-app-server-composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border-color, #39485c); }
-.codex-app-server-composer textarea { flex: 1; min-height: 70px; resize: vertical; }
-.codex-app-server-error { color: #e66; }
-.codex-app-server-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-color, #39485c); }
-.codex-app-server-toolbar label { margin-left: auto; }
-.codex-app-server-toolbar select { margin-left: 6px; }
-.codex-app-server-history { max-height: 220px; overflow: auto; padding: 10px 12px; border-bottom: 1px solid var(--border-color, #39485c); display: flex; flex-direction: column; gap: 6px; }
-.codex-app-server-history > button { display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 8px; }
-.codex-app-server-history > button strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.codex-app-server-history > button span { white-space: nowrap; color: var(--text-secondary); }
-.codex-app-server-composer { flex-wrap: wrap; }
-.codex-app-server-attachments { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
-.codex-app-server-attachments > span { border: 1px solid var(--border-color, #39485c); border-radius: 6px; padding: 3px 6px; }
-.codex-app-server-attachments button { margin: 0; padding: 0 3px; }
+.codex-app-server-session { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--color-text); background: var(--color-bg-app); }
+.codex-app-server-session button, .codex-app-server-session select, .codex-app-server-session textarea { font: inherit; }
+.codex-app-server-session button { cursor: pointer; }
+.codex-app-server-session button:disabled { cursor: not-allowed; opacity: .45; }
+.codex-app-server-session button:focus-visible, .codex-app-server-session select:focus-visible, .codex-app-server-session textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.codex-app-server-empty-icon { display: grid; place-items: center; color: var(--color-info-text); background: var(--color-info-bg); border: 1px solid var(--color-border-strong); }
+.codex-app-server-mode { display: flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
+.codex-app-server-mode select { min-width: 68px; min-height: 30px; padding: 4px 6px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); font-size: 12px; cursor: pointer; }
+.codex-app-server-history { max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-app); display: flex; flex-direction: column; gap: 6px; }
+.codex-app-server-history > p { margin: 8px 0; color: var(--color-text-muted); font-size: 12px; }
+.codex-app-server-history > button { display: flex; justify-content: space-between; gap: 16px; min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; }
+.codex-app-server-history > button:hover:not(:disabled) { background: var(--color-bg-control-hover); }
+.codex-app-server-history > button strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.codex-app-server-history > button span { white-space: nowrap; color: var(--color-text-muted); font-size: 11px; }
+.codex-app-server-messages { flex: 1; min-height: 0; overflow: auto; padding: 28px max(24px, calc((100% - 900px) / 2)); display: flex; flex-direction: column; gap: 16px; }
+.codex-app-server-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-height: 280px; text-align: center; }
+.codex-app-server-empty-icon { width: 58px; height: 58px; border-radius: 18px; box-shadow: 0 10px 32px rgba(0, 0, 0, .1); }
+.codex-app-server-empty-icon svg { width: 27px; height: 27px; }
+.codex-app-server-empty h2 { margin: 20px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.codex-app-server-empty p { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; }
+.codex-app-server-empty-hint { margin-top: 24px; padding: 7px 12px; border: 1px solid var(--color-border); border-radius: 20px; color: var(--color-text-muted); background: var(--color-bg-panel); font-size: 11px; }
+.codex-app-server-message, .codex-app-server-event, .codex-app-server-approval { max-width: 100%; border: 1px solid var(--color-border); border-radius: 12px; padding: 14px 16px; background: var(--color-bg-panel); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.codex-app-server-message { align-self: stretch; }
+.codex-app-server-message > strong { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
+.codex-app-server-message.userMessage { align-self: flex-end; max-width: min(85%, 720px); border-color: var(--color-border-strong); background: var(--color-bg-selection); }
+.codex-app-server-message.userMessage > strong { color: var(--color-text-secondary); }
+.codex-app-server-message p { margin: 0; }
+.codex-app-server-markdown { white-space: normal; }
+.codex-app-server-markdown > :first-child { margin-top: 0; }
+.codex-app-server-markdown > :last-child { margin-bottom: 0; }
+.codex-app-server-markdown pre, .codex-app-server-event pre, .codex-app-server-approval pre { max-width: 100%; overflow: auto; padding: 12px; border-radius: 7px; color: var(--color-text); background: var(--color-bg-code); font-size: 12px; line-height: 1.5; }
+.codex-app-server-message.turnPlan ol { margin: 8px 0 0; padding-left: 22px; }
+.codex-app-server-message.turnPlan li { margin: 4px 0; }
+.codex-app-server-message.turnPlan li span { margin-left: 8px; color: var(--color-text-muted); }
+.codex-app-server-event { padding: 9px 13px; background: var(--color-bg-panel); }
+.codex-app-server-event summary { cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 12px; list-style: none; }
+.codex-app-server-event summary::-webkit-details-marker { display: none; }
+.codex-app-server-event summary::before { content: "›"; color: var(--color-text-muted); font-size: 18px; line-height: 1; transition: transform .15s; }
+.codex-app-server-event[open] summary::before { transform: rotate(90deg); }
+.codex-app-server-event summary span { margin-left: auto; color: var(--color-text-muted); }
+.codex-app-server-event[open] summary { margin-bottom: 10px; }
+.codex-app-server-command + .codex-app-server-command { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+.codex-app-server-command-heading { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; color: var(--color-text-secondary); font-size: 12px; }
+.codex-app-server-command-heading span { color: var(--color-text-muted); }
+.codex-app-server-command pre { margin: 6px 0 0; }
+.codex-app-server-approval { border-color: var(--color-warning-text); background: var(--color-warning-bg); }
+.codex-app-server-approval > strong { display: block; margin-bottom: 8px; }
+.codex-app-server-approval > div, .codex-app-server-plan-confirm > div { display: flex; gap: 8px; justify-content: flex-end; }
+.codex-app-server-approval button, .codex-app-server-plan-confirm button { padding: 7px 13px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); }
+.codex-app-server-approval button:hover, .codex-app-server-plan-confirm button:hover { background: var(--color-bg-control-hover); }
+.codex-app-server-plan-confirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.codex-app-server-plan-confirm p { margin: 0 0 10px; color: var(--color-text-secondary); }
+.codex-app-server-plan-confirm button.primary { border-color: var(--color-success); background: var(--color-success-bg); }
+.codex-app-server-working { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--color-text-muted); font-size: 12px; }
+.codex-app-server-working svg { width: 15px; height: 15px; animation: idea-spin 1s linear infinite; }
+.codex-app-server-error { margin: 0; padding: 10px 12px; border: 1px solid var(--color-danger); border-radius: 8px; color: var(--color-danger-text); background: var(--color-danger-bg); font-size: 12px; }
+.codex-app-server-composer { display: flex; flex-direction: column; gap: 8px; padding: 14px max(24px, calc((100% - 900px) / 2)) 16px; border-top: 1px solid var(--color-border); background: var(--color-bg-panel); }
+.codex-app-server-composer textarea { width: 100%; min-height: 78px; max-height: 180px; resize: vertical; padding: 12px 14px; border: 1px solid var(--color-border-strong); border-radius: 10px; outline: none; color: var(--color-text); background: var(--color-bg-app); font-size: 13px; line-height: 1.5; }
+.codex-app-server-composer textarea::placeholder { color: var(--color-text-subtle); }
+.codex-app-server-composer textarea:focus { border-color: var(--color-accent); }
+.codex-app-server-composer textarea:disabled { opacity: .65; }
+.codex-app-server-composer-footer, .codex-app-server-composer-tools { display: flex; align-items: center; gap: 12px; }
+.codex-app-server-composer-footer { justify-content: space-between; gap: 8px; }
+.codex-app-server-composer-tools { min-width: 0; flex-wrap: wrap; gap: 6px 10px; }
+.codex-app-server-composer-tools > button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 6px; border: 0; border-radius: 6px; color: var(--color-text-secondary); background: none; font-size: 12px; white-space: nowrap; }
+.codex-app-server-composer-tools > button:hover:not(:disabled), .codex-app-server-composer-tools > button.is-active { color: var(--color-text-strong); background: var(--color-bg-control-hover); }
+.codex-app-server-composer-tools > span { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-subtle); font-size: 11px; }
+.codex-app-server-composer-tools svg { width: 14px; height: 14px; }
+.codex-app-server-send { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 78px; min-height: 32px; padding: 6px 12px; border: 1px solid var(--color-accent); border-radius: 8px; color: #fff; background: var(--color-accent); font-size: 12px; font-weight: 600; }
+.codex-app-server-send:hover:not(:disabled) { filter: brightness(1.13); }
+.codex-app-server-send svg { width: 14px; height: 14px; }
+.codex-app-server-attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+.codex-app-server-attachments > span { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 4px 6px 4px 9px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text-secondary); background: var(--color-bg-control); font-size: 11px; }
+.codex-app-server-attachments button { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; color: var(--color-text-muted); background: transparent; }
+.codex-app-server-attachments button:hover:not(:disabled) { color: var(--color-text); background: var(--color-bg-control-hover); }
+.codex-app-server-attachments svg { width: 12px; height: 12px; }
+@media (max-width: 760px) {
+  .codex-app-server-messages { padding: 20px 16px; }
+  .codex-app-server-composer { padding: 12px 16px; }
+  .codex-app-server-composer-tools > span { display: none; }
+}

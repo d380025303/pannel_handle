@@ -154,7 +154,8 @@ if (!gotSingleInstanceLock) {
       safeStorage,
       onChanged: () => postgresBackupService?.schedule(),
       templateUsageStore,
-      launchTemplateStore
+      launchTemplateStore,
+      getLegacyCodexAppServerEnabled: () => configStore.getLegacyCodexAppServerEnabled()
     });
     configStore = createConfigStore({
       configFile: path.join(app.getPath("userData"), "config.json"), dataStore: businessDataStore,
@@ -398,7 +399,6 @@ if (!gotSingleInstanceLock) {
     agentSessionLauncher = createAgentSessionLauncher({
       terminalManager,
       codexAppServerSessionService,
-      configStore,
       sessionStore,
       hookConfigManager,
       remoteHookConfigService,

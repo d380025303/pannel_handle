@@ -454,8 +454,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [agentConversation, remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment, codexAppServerEnabled);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -1042,7 +1042,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           defaultWindowsShell={terminalSessions.defaultWindowsShell}
           onDefaultWindowsShellChange={terminalSessions.changeDefaultWindowsShell}
           autoRestore={terminalSessions.autoRestore}
-          codexAppServerEnabled={terminalSessions.codexAppServerEnabled}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           debugMode={debugMode}
           screenshotEnabled={screenshotEnabled}
@@ -1051,7 +1050,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
-          onToggleCodexAppServer={terminalSessions.toggleCodexAppServer}
           onToggleAutoWorkBuddyCheckin={handleToggleAutoWorkBuddyCheckin}
           onToggleDebugMode={handleToggleDebugMode}
           onScreenshotEnabledChange={handleScreenshotEnabledChange}

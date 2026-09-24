@@ -6,6 +6,8 @@ import { I18nProvider } from "../../i18n";
 import type { TerminalSession } from "../../vite-env";
 import { EditSessionModal } from "./EditSessionModal";
 
+vi.mock("./CodexBackendFields", () => ({ CodexBackendFields: () => null }));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -24,6 +26,16 @@ const session: TerminalSession = {
 };
 
 describe("EditSessionModal", () => {
+  it("saves the edited App Server setting", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", codexAppServerEnabled: false }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    expect(toggle).toHaveProperty("checked", false);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0].at(-1)).toBe(true);
+  });
   it("summarizes configured optional groups and preserves edited values", async () => {
     const onSave = vi.fn(async () => undefined);
     Object.defineProperty(window, "environmentApi", {

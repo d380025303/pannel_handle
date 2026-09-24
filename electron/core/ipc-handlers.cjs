@@ -17,8 +17,8 @@ function getErrorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
-function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
-  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
+function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
 function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService }) {
@@ -54,6 +54,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
     ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
+    ipcMain.handle("codex-app-server:dismiss-plan", (_event, id, itemId) => codexAppServerSessionService.dismissPlan(String(id || ""), itemId));
+    ipcMain.handle("codex-app-server:execute-plan", (_event, id, itemId) => codexAppServerSessionService.executePlan(String(id || ""), itemId));
     ipcMain.handle("codex-app-server:choose-files", async (event, id) => {
       const ownerWindow = windowManager.getWindowFromEvent(event);
       const result = await dialog.showOpenDialog(ownerWindow, { properties: ["openFile", "multiSelections"] });
@@ -61,6 +63,15 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
       codexAppServerSessionService.allowFiles(String(id || ""), filePaths);
       return filePaths;
     });
+    ipcMain.handle("codex-app-server:paste-image", async (_event, id) => {
+      const sessionId = String(id || "");
+      codexAppServerSessionService.snapshot(sessionId);
+      const result = await clipboardImageService.pasteImageToSession(sessionId);
+      if (result.status === "saved") codexAppServerSessionService.allowPastedImage(sessionId, result.path);
+      return result;
+    });
+    ipcMain.handle("codex-app-server:discard-image", (_event, id, filePath) =>
+      codexAppServerSessionService.discardPastedImage(String(id || ""), filePath));
     ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths) => codexAppServerSessionService.submit(String(id || ""), text, filePaths));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, approved === true));

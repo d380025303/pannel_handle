@@ -115,26 +115,26 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
-  it("uses App Server for new local Codex sessions only while the global setting is enabled", async () => {
-    let enabled = true;
+  it("uses each local Codex template's App Server setting", async () => {
     const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
     const mocks = createMocks({
-      codexAppServerSessionService,
-      configStore: { getConfig: () => ({ codexAppServerEnabled: enabled }) }
+      codexAppServerSessionService
     });
     const first = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
     expect(first).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     expect(codexAppServerSessionService.start).toHaveBeenCalledWith(first, expect.any(Object));
-    enabled = false;
-    const second = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
+    const second = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false });
     expect(second.runtimeMode).toBeUndefined();
     expect(second.deferTerminalStart).toBeUndefined();
     expect(first.runtimeMode).toBe("app-server");
+    const savedTemplate = { id: "saved-1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false };
+    const launched = await mocks.launcher.launchSession(savedTemplate);
+    expect(launched.runtimeMode).toBeUndefined();
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(1);
   });
   it("rejects a Windows Codex shim in WSL App Server mode", async () => {
     const mocks = createMocks({
       codexAppServerSessionService: { start: vi.fn() },
-      configStore: { getConfig: () => ({ codexAppServerEnabled: true }) },
       spawnSync: vi.fn((_command, args) => args?.at(-1)?.includes("resolved=$(command -v codex)")
         ? { status: 126 } : { status: 0, stdout: "found" })
     });

@@ -36,7 +36,7 @@ function normalizeTags(tags) {
   }, []);
 }
 
-function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore, dataStore, onChanged = () => {} }) {
+function createSessionStore({ environmentService, sessionsFile, getDefaultShell, getWslShell, safeStorage, templateUsageStore, launchTemplateStore, dataStore, getLegacyCodexAppServerEnabled = () => true, onChanged = () => {} }) {
   let librarySessions = [];
   let nextSessionId = 1;
 
@@ -132,6 +132,9 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
+    const codexAppServerEnabled = agentProvider === "codex" && template.type !== "ssh"
+      ? template.codexAppServerEnabled !== false
+      : undefined;
     return {
       ...(template.environmentProfileId ? { environmentProfileId: String(template.environmentProfileId) } : {}),
       ...(template.environmentOverrides ? { environmentOverrides: normalizeEntries(template.environmentOverrides, template.type === "windows" || (template.type === "ssh" && template.agentProvider && template.agentLocation === "local")) } : {}),
@@ -151,6 +154,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexBackend,
       codexModel,
       codexExperimentalAcknowledged,
+      codexAppServerEnabled,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -208,10 +212,18 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   }
 
   function loadLibrary() {
-    librarySessions = loadSessions().map(normalizeTemplate);
+    const saved = loadSessions();
+    const legacyEnabled = getLegacyCodexAppServerEnabled();
+    const needsMigration = saved.some(template => template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.codexAppServerEnabled !== "boolean");
+    librarySessions = saved.map(template => normalizeTemplate({
+      ...template,
+      ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.codexAppServerEnabled !== "boolean"
+        ? { codexAppServerEnabled: legacyEnabled } : {})
+    }));
     for (const session of librarySessions) {
       bumpTemplateIdCounter(session.id);
     }
+    if (needsMigration) saveLibrary();
     return librarySessions;
   }
 

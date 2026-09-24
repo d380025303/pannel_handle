@@ -18,9 +18,9 @@ function normalizeWindowsShell(value) {
 }
 
 function createConfigStore({ configFile, dataStore }) {
+  let legacyCodexAppServerEnabled = true;
   let config = {
     defaultWindowsShell: "cmd",
-    codexAppServerEnabled: true,
     autoRestore: true,
     autoWorkBuddyCheckin: true,
     autoCollapseFileChains: true,
@@ -37,7 +37,6 @@ function createConfigStore({ configFile, dataStore }) {
   function serializeConfig() {
     return {
       defaultWindowsShell: config.defaultWindowsShell,
-      codexAppServerEnabled: config.codexAppServerEnabled,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
@@ -56,9 +55,9 @@ function createConfigStore({ configFile, dataStore }) {
     try {
       const parsed = readJson(dataStore, configFile);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        legacyCodexAppServerEnabled = typeof parsed.codexAppServerEnabled === "boolean" ? parsed.codexAppServerEnabled : true;
         config = {
           defaultWindowsShell: normalizeWindowsShell(parsed.defaultWindowsShell),
-          codexAppServerEnabled: typeof parsed.codexAppServerEnabled === "boolean" ? parsed.codexAppServerEnabled : true,
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
@@ -95,7 +94,6 @@ function createConfigStore({ configFile, dataStore }) {
   function getConfig() {
     return {
       defaultWindowsShell: config.defaultWindowsShell,
-      codexAppServerEnabled: config.codexAppServerEnabled,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
@@ -114,9 +112,6 @@ function createConfigStore({ configFile, dataStore }) {
     if (partial && typeof partial === "object") {
       if (Object.hasOwn(partial, "defaultWindowsShell")) {
         config.defaultWindowsShell = normalizeWindowsShell(partial.defaultWindowsShell);
-      }
-      if (typeof partial.codexAppServerEnabled === "boolean") {
-        config.codexAppServerEnabled = partial.codexAppServerEnabled;
       }
       if (typeof partial.autoRestore === "boolean") {
         config.autoRestore = partial.autoRestore;
@@ -162,6 +157,7 @@ function createConfigStore({ configFile, dataStore }) {
     loadConfig,
     saveConfig,
     getConfig,
+    getLegacyCodexAppServerEnabled: () => legacyCodexAppServerEnabled,
     updateConfig
   };
 }

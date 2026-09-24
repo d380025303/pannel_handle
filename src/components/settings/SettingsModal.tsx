@@ -17,7 +17,6 @@ type SettingsModalProps = {
   defaultWindowsShell: WindowsShell;
   onDefaultWindowsShellChange: (value: WindowsShell) => Promise<void>;
   autoRestore: boolean;
-  codexAppServerEnabled: boolean;
   autoWorkBuddyCheckin: boolean;
   debugMode: boolean;
   screenshotEnabled: boolean;
@@ -26,7 +25,6 @@ type SettingsModalProps = {
   locale: Locale;
   themes: AppTheme[];
   onToggleAutoRestore: () => void;
-  onToggleCodexAppServer: () => void;
   onToggleAutoWorkBuddyCheckin: () => void;
   onToggleDebugMode: () => void;
   onScreenshotEnabledChange: (enabled: boolean) => Promise<void>;
@@ -42,7 +40,6 @@ export function SettingsModal({
   defaultWindowsShell,
   onDefaultWindowsShellChange,
   autoRestore,
-  codexAppServerEnabled,
   autoWorkBuddyCheckin,
   debugMode,
   screenshotEnabled,
@@ -51,7 +48,6 @@ export function SettingsModal({
   locale,
   themes,
   onToggleAutoRestore,
-  onToggleCodexAppServer,
   onToggleAutoWorkBuddyCheckin,
   onToggleDebugMode,
   onScreenshotEnabledChange,
@@ -320,13 +316,6 @@ export function SettingsModal({
                 </label>
                 {shellError && <p className="settings-result error" role="alert">{shellError}</p>}
                 <div className="settings-toggle-list">
-                  <label className="settings-toggle-row">
-                    <span><strong>{t("settings.codexAppServer")}</strong><small>{t("settings.codexAppServerHint")}</small></span>
-                    <span className="auto-restore-label">
-                      <input type="checkbox" className="auto-restore-checkbox" checked={codexAppServerEnabled} onChange={onToggleCodexAppServer} />
-                      <span className="auto-restore-track" />
-                    </span>
-                  </label>
                   <label className="settings-toggle-row">
                     <span><strong>{t("settings.autoRestore")}</strong></span>
                     <span className="auto-restore-label">

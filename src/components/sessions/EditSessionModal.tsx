@@ -17,7 +17,7 @@ import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -31,6 +31,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [agentLocation, setAgentLocation] = useState<AgentLocation>(session.agentLocation || "remote");
   const [localAgentCwd, setLocalAgentCwd] = useState(session.localAgentCwd || "");
   const [codexBackend, setCodexBackend] = useState<CodexBackend>(session.codexBackend || "openai");
+  const [codexAppServerEnabled, setCodexAppServerEnabled] = useState(session.codexAppServerEnabled !== false);
   const [codexModel, setCodexModel] = useState<string | undefined>(session.codexModel);
   const [codexReady, setCodexReady] = useState(true);
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(session.codexExperimentalAcknowledged === true);
@@ -74,7 +75,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         isSsh ? { host: sshHost.trim(), username: sshUsername.trim() || undefined, port: Number(sshPort) || 22, identityFile: sshIdentityFile.trim() || undefined, secret: clearSshSecret ? undefined : sshSecret || undefined, clearSecret: clearSshSecret, remark: sshRemark.trim() || undefined, remotePlatform } : undefined,
         tags,
         !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
-        environment
+        environment,
+        !isSsh && agentProvider === "codex" ? codexAppServerEnabled : undefined
       );
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));
@@ -108,6 +110,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     <SessionFormSection title={t("session.agentCli")}>
       <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); }} />
       {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
+      {agentProvider === "codex" && !isSsh && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codexAppServerEnabled} onChange={event => setCodexAppServerEnabled(event.target.checked)} /><span className="settings-help">{t("session.codexAppServerHint")}</span></label>}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
       {agentProvider && !editCwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}

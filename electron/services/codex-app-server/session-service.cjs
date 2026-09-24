@@ -3,6 +3,7 @@ const readline = require("node:readline");
 const fs = require("node:fs");
 const path = require("node:path");
 const { mergeEnvironment } = require("../environment/index.cjs");
+const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 
 function quoteBash(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function isPowerShell(shell) { return /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell); }
@@ -45,13 +46,15 @@ function historyItems(thread) {
   return (thread?.turns || []).flatMap(turn => turn.items || []).map(displayItem).filter(item => item?.id);
 }
 
-function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, spawnProcess = spawn, spawnSyncProcess = spawnSync }) {
+function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, spawnProcess = spawn, spawnSyncProcess = spawnSync,
+  removePastedImage = (entry, filePath) => fs.promises.rm(entry.session.type === "wsl"
+    ? toWslHostPath(entry.session.wslDistro, filePath) : filePath, { force: true }) }) {
   const sessions = new Map();
 
   function snapshot(id) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
-    return { threadId: entry.threadId, mode: entry.mode, busy: entry.busy, error: entry.error,
+    return { threadId: entry.threadId, mode: entry.mode, busy: entry.busy, error: entry.error, pendingPlan: entry.pendingPlan,
       items: [...entry.items], approvals: [...entry.approvals.values()].map(({ requestId, method, params }) => ({ requestId, method, params })) };
   }
   function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
@@ -72,6 +75,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry) return;
     sessions.delete(id);
+    void releasePastedImages(id, entry);
     entry.child.kill();
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
     entry.pending.clear();
@@ -112,9 +116,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         if (index < 0) entry.items.push(item); else entry.items[index] = item;
       }
     }
-    if (message.method === "item/agentMessage/delta") {
+    if (message.method === "item/agentMessage/delta" || message.method === "item/plan/delta") {
       const item = entry.items.find(value => value.id === params.itemId);
       if (item) item.text = (item.text || "") + (params.delta || "");
+    }
+    if (message.method === "turn/plan/updated" && params.turnId) {
+      const item = { id: `turn-plan-${params.turnId}`, type: "turnPlan", explanation: params.explanation,
+        plan: Array.isArray(params.plan) ? params.plan : [] };
+      const index = entry.items.findIndex(value => value.id === item.id);
+      if (index < 0) entry.items.push(item); else entry.items[index] = item;
     }
     if (message.method === "item/commandExecution/outputDelta") {
       const item = entry.items.find(value => value.id === params.itemId);
@@ -122,6 +132,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.method === "error") entry.error = params.error?.message || "Codex 运行失败。";
     if (message.method === "turn/completed") {
+      if (entry.activeTurnMode === "plan" && params.turn?.status === "completed") {
+        const plan = entry.items.slice(entry.activeTurnStartIndex).filter(item =>
+          (item.type === "plan" && item.text?.trim())
+          || (item.type === "agentMessage" && /<proposed_plan>[\s\S]*?<\/proposed_plan>/i.test(item.text || ""))).at(-1);
+        if (plan) entry.pendingPlan = { itemId: plan.id };
+      }
+      entry.activeTurnMode = null;
       entry.busy = false; entry.turnId = null;
       terminalManager.broadcastAgentStatus({ id, provider: "codex", status: params.turn?.status === "completed" ? "completed" : "failed", eventName: "AppServerTurn" });
     }
@@ -134,8 +151,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const invocation = buildInvocation(session, runtime, environment);
     const child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
       windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-    const entry = { child, session, nextId: 0, pending: new Map(), approvals: new Map(), allowedFiles: new Set(), threadId: null,
-      turnId: null, mode: "default", model: session.codexModel || null, busy: false, error: null, items: [] };
+    const entry = { child, session, nextId: 0, pending: new Map(), approvals: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
+      turnId: null, mode: "default", model: session.codexModel || null, busy: false, error: null, items: [],
+      pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0 };
     sessions.set(id, entry);
     const lines = readline.createInterface({ input: child.stdout });
     child.stderr.resume();
@@ -177,6 +195,27 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     for (const filePath of filePaths) entry.allowedFiles.add(filePath);
   }
+  function allowPastedImage(id, filePath) {
+    const entry = sessions.get(id);
+    if (!entry || typeof filePath !== "string" || !filePath) throw new Error("Codex App Server 会话不存在。");
+    entry.pastedImages.add(filePath);
+    entry.allowedFiles.add(filePath);
+  }
+  async function discardPastedImage(id, filePath) {
+    const entry = sessions.get(id);
+    if (!entry?.pastedImages.has(filePath)) return;
+    entry.pastedImages.delete(filePath);
+    entry.allowedFiles.delete(filePath);
+    try { await removePastedImage(entry, filePath); }
+    catch (error) { entry.pastedImages.add(filePath); entry.allowedFiles.add(filePath); throw error; }
+  }
+  async function releasePastedImages(id, entry) {
+    await Promise.all([...entry.pastedImages].map(async filePath => {
+      entry.pastedImages.delete(filePath);
+      entry.allowedFiles.delete(filePath);
+      await removePastedImage(entry, filePath).catch(() => {});
+    }));
+  }
   async function listHistory(id, cursor = null) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
@@ -194,6 +233,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const detail = await request(entry, "thread/read", { threadId, includeTurns: false });
     if (detail.thread?.cwd !== entry.session.cwd) throw new Error("只能恢复当前项目的历史会话。");
     const result = await request(entry, "thread/resume", { threadId, cwd: entry.session.cwd });
+    await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
     entry.model = result.thread.model || entry.session.codexModel || null;
@@ -202,6 +242,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.busy = lastTurn?.status === "inProgress";
     entry.turnId = entry.busy ? lastTurn.id : null;
     entry.mode = "default";
+    entry.pendingPlan = null;
     entry.error = null;
     entry.approvals.clear();
     entry.allowedFiles.clear();
@@ -213,10 +254,12 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = ready(id);
     const result = await request(entry, "thread/start", { cwd: entry.session.cwd, approvalPolicy: "on-request",
       sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+    await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
     entry.model = result.thread.model || entry.session.codexModel || null;
     entry.mode = "default";
+    entry.pendingPlan = null;
     entry.items = [];
     entry.error = null;
     entry.approvals.clear();
@@ -229,10 +272,36 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = ready(id);
     if (mode !== "plan" && mode !== "default") throw new Error("无效的 Codex 模式。");
     entry.mode = mode;
+    entry.pendingPlan = null;
     publish(id);
     return snapshot(id);
   }
+  function dismissPlan(id, itemId) {
+    const entry = sessions.get(id);
+    if (!entry?.pendingPlan || entry.pendingPlan.itemId !== itemId) throw new Error("计划确认已失效。");
+    entry.pendingPlan = null;
+    publish(id);
+    return snapshot(id);
+  }
+  async function executePlan(id, itemId) {
+    const entry = ready(id);
+    if (entry.mode !== "plan" || !entry.pendingPlan || entry.pendingPlan.itemId !== itemId)
+      throw new Error("计划确认已失效。");
+    entry.pendingPlan = null;
+    entry.mode = "default";
+    publish(id);
+    try { await submit(id, "按上述计划执行。"); }
+    catch (error) {
+      if (!entry.busy && sessions.get(id) === entry) {
+        entry.mode = "plan";
+        entry.pendingPlan = { itemId };
+        publish(id);
+      }
+      throw error;
+    }
+  }
   function fileInput(entry, filePath) {
+    if (entry.pastedImages.has(filePath)) return { path: filePath, image: true };
     if (typeof filePath !== "string" || !path.win32.isAbsolute(filePath)) throw new Error("只能附加本地绝对路径文件。");
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("只能附加文件。");
@@ -261,6 +330,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (!entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
     entry.error = null;
+    entry.pendingPlan = null;
+    entry.activeTurnMode = entry.mode;
+    entry.activeTurnStartIndex = entry.items.length;
     entry.busy = true;
     entry.items.push({ id: `local-${Date.now()}`, type: "userMessage",
       text: messageText || files.filter(file => file.image).map(file => `[图片：${path.basename(file.path)}]`).join("\n") });
@@ -275,9 +347,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           : { type: "workspaceWrite", writableRoots: [entry.session.cwd], networkAccess: false },
         collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
       for (const filePath of filePaths) entry.allowedFiles.delete(filePath);
+      for (const filePath of filePaths) entry.pastedImages.delete(filePath);
       if (entry.busy) entry.turnId = result.turn?.id || entry.turnId;
     }
-    catch (error) { entry.busy = false; entry.error = error.message; publish(id); throw error; }
+    catch (error) { entry.busy = false; entry.activeTurnMode = null; entry.error = error.message; publish(id); throw error; }
   }
   async function interrupt(id) {
     const entry = sessions.get(id);
@@ -295,7 +368,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     publish(id);
   }
   function shutdown() { for (const id of sessions.keys()) close(id); }
-  return { start, snapshot, allowFiles, listHistory, resume, newThread, setMode, submit, interrupt, resolveApproval, close, shutdown };
+  return { start, snapshot, allowFiles, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, dismissPlan, executePlan, submit, interrupt, resolveApproval, close, shutdown };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };

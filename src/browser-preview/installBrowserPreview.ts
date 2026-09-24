@@ -75,7 +75,6 @@ const savedSessions: TerminalSession[] = [
 
 const initialConfig: AppConfig = {
   defaultWindowsShell: "pwsh",
-  codexAppServerEnabled: true,
   autoRestore: true,
   autoWorkBuddyCheckin: true,
   autoCollapseFileChains: true,
@@ -422,12 +421,16 @@ export function installBrowserPreview() {
       onProgress: () => () => undefined
     } satisfies Window["projectAssistantApi"],
     codexAppServerApi: {
-      snapshot: async () => ({ threadId: "preview-thread", mode: "default", busy: false, error: null, items: [], approvals: [] }),
+      snapshot: async () => ({ threadId: "preview-thread", mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listHistory: async () => ({ data: [], nextCursor: null }),
-      resume: async (_id, threadId) => ({ threadId, mode: "default", busy: false, error: null, items: [], approvals: [] }),
-      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", busy: false, error: null, items: [], approvals: [] }),
-      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, busy: false, error: null, items: [], approvals: [] }),
+      resume: async (_id, threadId) => ({ threadId, mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      dismissPlan: async () => ({ threadId: "preview-thread", mode: "plan", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      executePlan: async () => undefined,
       chooseFiles: async () => [],
+      pasteImage: async () => ({ status: "no_image" }),
+      discardImage: async () => undefined,
       submit: async () => undefined,
       interrupt: async () => undefined,
       resolveApproval: async () => undefined,

@@ -43,6 +43,40 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it.each([true, false])("migrates old Codex templates using the legacy setting %s once", (enabled) => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex" },
+      { id: "2", type: "wsl", cwd: "/work", agentProvider: "codex", codexAppServerEnabled: !enabled },
+      { id: "3", type: "ssh", cwd: "/work", agentProvider: "codex", sshConfig: { host: "example.com" } }
+    ]));
+    const store = createSessionStore({
+      sessionsFile, getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe",
+      safeStorage: createSafeStorageMock(), getLegacyCodexAppServerEnabled: () => enabled
+    });
+    store.loadLibrary();
+    expect(store.getTemplate("1").codexAppServerEnabled).toBe(enabled);
+    expect(store.getTemplate("2").codexAppServerEnabled).toBe(!enabled);
+    expect(store.getTemplate("3").codexAppServerEnabled).toBeUndefined();
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEnabled).toBe(enabled);
+    const reopened = createStore(sessionsFile);
+    reopened.loadLibrary();
+    expect(reopened.getTemplate("1").codexAppServerEnabled).toBe(enabled);
+  });
+
+  it("preserves each Codex template mode through edits, duplication, export, and import", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex", codexAppServerEnabled: false });
+    store.updateLibrary("1", { title: "Updated" });
+    expect(store.getTemplate("1").codexAppServerEnabled).toBe(false);
+    expect(store.duplicateInLibrary("1").codexAppServerEnabled).toBe(false);
+    const exported = store.exportLibrary();
+    expect(exported[0].codexAppServerEnabled).toBe(false);
+    store.importLibrary([exported[0]]);
+    expect(store.getLibrary().at(-1).codexAppServerEnabled).toBe(false);
+  });
+
   it("persists valid Codex backend metadata when loading saved sessions", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{

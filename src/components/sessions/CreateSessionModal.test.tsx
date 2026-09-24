@@ -5,12 +5,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import { CreateSessionModal } from "./CreateSessionModal";
 
+vi.mock("./CodexBackendFields", () => ({ CodexBackendFields: () => null }));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
 describe("CreateSessionModal structure", () => {
+  it("sets App Server per new local Codex template", async () => {
+    const onCreate = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    expect(toggle).toHaveProperty("checked", true);
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ codexAppServerEnabled: false })));
+  });
   it("uses an accessible dialog and keeps optional groups collapsed", () => {
     render(
       <I18nProvider locale="zh-CN">
