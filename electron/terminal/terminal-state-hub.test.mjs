@@ -12,6 +12,7 @@ describe("terminal state hub", () => {
     expect(snapshot.ansi).toContain("world");
     expect(snapshot.seq).toBe(2);
     expect(hub.getDeltas("run-1", 1)).toEqual([{ seq: 2, data: "world" }]);
+    expect(await hub.getText("run-1", 2)).toContain("world");
     hub.shutdown();
   });
 

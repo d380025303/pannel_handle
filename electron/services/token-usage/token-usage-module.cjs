@@ -68,6 +68,7 @@ function createTokenUsageModule({
   return {
     disconnect,
     handleHook,
+    getDashboard: options => statsStore.getDashboard(options),
     shutdown
   };
 }

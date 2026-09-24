@@ -8,12 +8,34 @@ export type TranslationKey =
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
   | "app.openTerminal"
+  | "projectAssistant.title"
+  | "projectAssistant.open"
+  | "projectAssistant.newConversation"
+  | "projectAssistant.description"
+  | "projectAssistant.empty"
+  | "projectAssistant.you"
+  | "projectAssistant.application"
+  | "projectAssistant.thinking"
+  | "projectAssistant.confirm"
+  | "projectAssistant.reject"
+  | "projectAssistant.execute"
+  | "projectAssistant.placeholder"
+  | "projectAssistant.stop"
+  | "projectAssistant.send"
+  | "projectAssistant.codexSessions"
+  | "projectAssistant.selectCodexSession"
+  | "projectAssistant.noCodexSessions"
+  | "projectAssistant.switchMode"
+  | "projectAssistant.questionHint"
+  | "projectAssistant.codexPlaceholder"
+  | "projectAssistant.sendToCodex"
+  | "projectAssistant.statusUnknown"
   | "sessionOverview.title"
   | "sessionOverview.openOverview"
   | "sessionOverview.description"
   | "sessionOverview.empty"
   | "sessionOverview.emptyHint"
-  | "sessionOverview.openSession"
+  | "sessionOverview.selectSession"
   | "sessionOverview.open"
   | "sessionOverview.connecting"
   | "sessionOverview.connected"
@@ -954,12 +976,34 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
     "app.openTerminal": "打开终端",
+    "projectAssistant.title": "项目助手",
+    "projectAssistant.open": "打开项目助手",
+    "projectAssistant.newConversation": "新对话",
+    "projectAssistant.description": "查看并操控运行中的 Codex 对话，也可查询本机会话、模板和用量。",
+    "projectAssistant.empty": "试试：“当前 Codex 在做什么？”或“让当前 Codex 继续检查”。",
+    "projectAssistant.you": "你",
+    "projectAssistant.application": "应用",
+    "projectAssistant.thinking": "正在查询并思考…",
+    "projectAssistant.confirm": "等待确认",
+    "projectAssistant.reject": "拒绝",
+    "projectAssistant.execute": "确认执行",
+    "projectAssistant.placeholder": "询问 Codex 进展，或描述希望它执行的操作",
+    "projectAssistant.stop": "停止生成",
+    "projectAssistant.send": "发送消息",
+    "projectAssistant.codexSessions": "Codex 实时对话",
+    "projectAssistant.selectCodexSession": "选择 Codex 会话",
+    "projectAssistant.noCodexSessions": "暂无运行中的 Codex 会话",
+    "projectAssistant.switchMode": "切换 Plan / 默认模式",
+    "projectAssistant.questionHint": "Codex 提问时，点击上方终端，用键盘选择或输入答案。",
+    "projectAssistant.codexPlaceholder": "向当前 Codex 会话输入内容",
+    "projectAssistant.sendToCodex": "发送给 Codex",
+    "projectAssistant.statusUnknown": "状态未知",
     "sessionOverview.title": "实例总览",
     "sessionOverview.openOverview": "打开实例总览",
     "sessionOverview.description": "当前打开 {count} 个终端实例",
     "sessionOverview.empty": "暂无终端实例",
     "sessionOverview.emptyHint": "创建或启动会话后，实例会显示在这里。",
-    "sessionOverview.openSession": "打开终端：{name}",
+    "sessionOverview.selectSession": "选择实例：{name}",
     "sessionOverview.open": "会话已打开",
     "sessionOverview.connecting": "SSH 连接中",
     "sessionOverview.connected": "SSH 已连接",
@@ -1892,12 +1936,34 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
     "app.openTerminal": "Open terminal",
+    "projectAssistant.title": "Project Assistant",
+    "projectAssistant.open": "Open project assistant",
+    "projectAssistant.newConversation": "New conversation",
+    "projectAssistant.description": "View and control running Codex conversations, or ask about local sessions, templates, and usage.",
+    "projectAssistant.empty": "Try “What is Codex doing?” or “Ask Codex to continue checking.”",
+    "projectAssistant.you": "You",
+    "projectAssistant.application": "App",
+    "projectAssistant.thinking": "Reading local data and thinking…",
+    "projectAssistant.confirm": "Awaiting confirmation",
+    "projectAssistant.reject": "Decline",
+    "projectAssistant.execute": "Confirm and run",
+    "projectAssistant.placeholder": "Ask about Codex progress or describe an action",
+    "projectAssistant.stop": "Stop generating",
+    "projectAssistant.send": "Send message",
+    "projectAssistant.codexSessions": "Live Codex conversation",
+    "projectAssistant.selectCodexSession": "Select Codex session",
+    "projectAssistant.noCodexSessions": "No running Codex sessions",
+    "projectAssistant.switchMode": "Switch Plan / Default mode",
+    "projectAssistant.questionHint": "When Codex asks a question, click the terminal above and answer with the keyboard.",
+    "projectAssistant.codexPlaceholder": "Enter text for the current Codex session",
+    "projectAssistant.sendToCodex": "Send to Codex",
+    "projectAssistant.statusUnknown": "Status unknown",
     "sessionOverview.title": "Instance overview",
     "sessionOverview.openOverview": "Open instance overview",
     "sessionOverview.description": "{count} terminal instances open",
     "sessionOverview.empty": "No terminal instances",
     "sessionOverview.emptyHint": "Create or launch a session to see it here.",
-    "sessionOverview.openSession": "Open terminal: {name}",
+    "sessionOverview.selectSession": "Select instance: {name}",
     "sessionOverview.open": "Session open",
     "sessionOverview.connecting": "SSH connecting",
     "sessionOverview.connected": "SSH connected",

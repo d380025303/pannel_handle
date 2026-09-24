@@ -93,6 +93,22 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     return states.get(id)?.seq || 0;
   }
 
+  async function getText(id, maxLines = 80) {
+    const state = states.get(id);
+    if (!state) return "";
+    await state.pending;
+    const buffer = state.terminal.buffer.active;
+    let end = buffer.length - 1;
+    while (end >= 0 && !buffer.getLine(end)?.translateToString(true).trim()) end -= 1;
+    if (end < 0) return "";
+    const count = Math.min(Math.max(1, maxLines), 200, end + 1);
+    const lines = [];
+    for (let index = end - count + 1; index <= end; index += 1) {
+      lines.push(buffer.getLine(index)?.translateToString(true) || "");
+    }
+    return lines.join("\n").trim().slice(-12000);
+  }
+
   function remove(id) {
     const state = states.get(id);
     if (state) state.terminal.dispose();
@@ -104,7 +120,7 @@ function createTerminalStateHub({ scrollback = DEFAULT_SCROLLBACK, maxDeltaBytes
     states.clear();
   }
 
-  return { start, ensure, write, resize, getSnapshot, getDeltas, getSequence, remove, shutdown };
+  return { start, ensure, write, resize, getSnapshot, getDeltas, getSequence, getText, remove, shutdown };
 }
 
 module.exports = {

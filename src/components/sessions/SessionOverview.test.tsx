@@ -26,10 +26,10 @@ const ssh: TerminalSession = {
   sshConnectionState: "reconnecting"
 };
 
-function renderOverview(sessions: TerminalSession[], statuses: Record<string, AgentStatusPayload> = {}, onSelectSession = vi.fn()) {
+function renderOverview(sessions: TerminalSession[], statuses: Record<string, AgentStatusPayload> = {}, onSelectSession = vi.fn(), selectedSessionId?: string) {
   return render(
     <I18nProvider locale="zh-CN">
-      <SessionOverview sessions={sessions} agentStatusesBySessionId={statuses} onSelectSession={onSelectSession} />
+      <SessionOverview sessions={sessions} selectedSessionId={selectedSessionId} agentStatusesBySessionId={statuses} onSelectSession={onSelectSession} />
     </I18nProvider>
   );
 }
@@ -37,35 +37,39 @@ function renderOverview(sessions: TerminalSession[], statuses: Record<string, Ag
 describe("SessionOverview", () => {
   afterEach(cleanup);
 
-  it("keeps connection state separate from Agent state and opens the selected terminal", () => {
+  it("keeps connection state separate from Agent state and selects a card in the overview", () => {
     const onSelectSession = vi.fn();
     const status: AgentStatusPayload = { id: "ssh", provider: "codex", status: "waiting_for_permission", eventName: "PermissionRequest", timestamp: 1, activitySummary: "等待确认部署命令" };
-    renderOverview([local, ssh], { ssh: status }, onSelectSession);
+    const { rerender } = renderOverview([local, ssh], { ssh: status }, onSelectSession, "local");
 
-    expect(screen.getByRole("button", { name: "打开终端：Local terminal" }).textContent).toContain("会话已打开");
-    expect(screen.getByRole("button", { name: "打开终端：Local terminal" }).textContent).toContain("暂无活动摘要");
-    const remoteCard = screen.getByRole("button", { name: "打开终端：Remote terminal" });
+    expect(screen.getByRole("button", { name: "选择实例：Local terminal" }).textContent).toContain("会话已打开");
+    expect(screen.getByRole("button", { name: "选择实例：Local terminal" }).textContent).toContain("暂无活动摘要");
+    expect(screen.getByRole("button", { name: "选择实例：Local terminal" }).getAttribute("aria-pressed")).toBe("true");
+    const remoteCard = screen.getByRole("button", { name: "选择实例：Remote terminal" });
+    expect(remoteCard.getAttribute("aria-pressed")).toBe("false");
     expect(remoteCard.textContent).toContain("SSH 重连中");
     expect(remoteCard.textContent).toContain("Codex 等待确认");
     expect(remoteCard.textContent).toContain("等待确认部署命令");
 
     fireEvent.click(remoteCard);
     expect(onSelectSession).toHaveBeenCalledWith("ssh");
-    expect(screen.queryByRole("button", { name: "返回终端" })).toBeNull();
+    rerender(<I18nProvider locale="zh-CN"><SessionOverview sessions={[local, ssh]} selectedSessionId="ssh" agentStatusesBySessionId={{ ssh: status }} onSelectSession={onSelectSession} /></I18nProvider>);
+    expect(screen.getByRole("button", { name: "选择实例：Remote terminal" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "实例总览" })).toBeTruthy();
   });
 
   it("updates stopped and running states from the current data and shows an empty state", () => {
     const { rerender } = renderOverview([ssh], {
       ssh: { id: "ssh", provider: "codex", status: "running", eventName: "Start", timestamp: 1, activitySummary: "执行测试" }
     });
-    expect(screen.getByRole("button", { name: "打开终端：Remote terminal" }).textContent).toContain("Codex 运行中");
+    expect(screen.getByRole("button", { name: "选择实例：Remote terminal" }).textContent).toContain("Codex 运行中");
 
     rerender(
       <I18nProvider locale="zh-CN">
         <SessionOverview sessions={[{ ...ssh, sshConnectionState: "disconnected" }]} agentStatusesBySessionId={{ ssh: { id: "ssh", provider: "codex", status: "ended", eventName: "End", timestamp: 2 } }} onSelectSession={() => undefined} />
       </I18nProvider>
     );
-    const card = screen.getByRole("button", { name: "打开终端：Remote terminal" });
+    const card = screen.getByRole("button", { name: "选择实例：Remote terminal" });
     expect(card.textContent).toContain("SSH 已断开");
     expect(card.textContent).toContain("Codex 已结束");
     expect(card.textContent).toContain("暂无活动摘要");

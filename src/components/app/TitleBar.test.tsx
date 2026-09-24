@@ -34,6 +34,15 @@ function createMobileAccessState(activeDevice: MobileAccessState["activeDevice"]
 describe("TitleBar mobile access layout", () => {
   afterEach(cleanup);
 
+  it("opens the project assistant from a distinct titlebar button", () => {
+    const onOpenProjectAssistant = vi.fn();
+    render(<TitleBar isMaximized={false} mobileAccessState={null} onOpenSettings={() => undefined}
+      onOpenPicker={() => undefined} onOpenCreate={() => undefined} onOpenProjectAssistant={onOpenProjectAssistant} />);
+    fireEvent.click(screen.getByRole("button", { name: "打开项目助手" }));
+    expect(onOpenProjectAssistant).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: /快速.*Agent/i })).toBeTruthy();
+  });
+
   it("keeps every titlebar region on the explicit four-column row", () => {
     const { container } = render(
       <TitleBar

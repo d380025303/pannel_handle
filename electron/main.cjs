@@ -30,6 +30,8 @@ const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cj
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
+const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
+const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
@@ -104,6 +106,8 @@ let terminalStateHub = null;
 let agentConversationManager = null;
 let agentConversationHistoryService = null;
 let ideaModule = null;
+let projectAssistantService = null;
+let codexSessionControl = null;
 
 registerRemoteFileScheme(protocol);
 
@@ -403,6 +407,22 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       agentSessionLauncher
     });
+    codexSessionControl = createCodexSessionControl({
+      terminalManager,
+      stateHub: terminalStateHub,
+      conversationManager: agentConversationManager
+    });
+    projectAssistantService = createProjectAssistantService({
+      userData: app.getPath("userData"),
+      broadcast: windowManager.broadcast,
+      dependencies: {
+        terminalManager, sessionStore, launchTemplateStore, launchTemplateService,
+        agentSessionLauncher, tokenUsageModule,
+        disconnectFileSession: remoteFilesModule.disconnectSession,
+        remoteSystemService,
+        codexSessionControl
+      }
+    });
     mobileRemoteService = createMobileRemoteService({
       terminalManager,
       agentSessionLauncher,
@@ -487,7 +507,9 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       projectSearchService,
       remoteAgentBridgeService,
-      postgresBackupService
+      postgresBackupService,
+      projectAssistantService,
+      codexSessionControl
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
@@ -532,6 +554,7 @@ app.on("window-all-closed", () => {
     void ideaModule.shutdown();
   }
   tokenUsageModule?.shutdown();
+  projectAssistantService?.shutdown();
   if (postgresBackupService) void postgresBackupService.shutdown();
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();

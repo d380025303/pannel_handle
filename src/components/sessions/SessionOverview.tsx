@@ -5,15 +5,16 @@ import type { AgentStatusPayload, TerminalSession } from "../../vite-env";
 
 type SessionOverviewProps = {
   sessions: TerminalSession[];
+  selectedSessionId?: string;
   agentStatusesBySessionId: Record<string, AgentStatusPayload>;
   onSelectSession: (id: string) => void;
 };
 
-export function SessionOverview({ sessions, agentStatusesBySessionId, onSelectSession }: SessionOverviewProps) {
+export function SessionOverview({ sessions, selectedSessionId, agentStatusesBySessionId, onSelectSession }: SessionOverviewProps) {
   const { t } = useI18n();
 
   return (
-    <main className="session-overview-page">
+    <section className="session-overview-page" aria-label={t("sessionOverview.title")}>
       <header className="session-overview-header">
         <span className="session-overview-icon"><LayoutGrid aria-hidden="true" /></span>
         <div>
@@ -51,7 +52,7 @@ export function SessionOverview({ sessions, agentStatusesBySessionId, onSelectSe
               : session.agentProvider ? t("sessionOverview.noAgentStatus") : t("sessionOverview.noAgent");
 
             return (
-              <button className="session-overview-card" key={session.id} type="button" onClick={() => onSelectSession(session.id)} aria-label={t("sessionOverview.openSession", { name: session.title })}>
+              <button className={`session-overview-card${session.id === selectedSessionId ? " selected" : ""}`} key={session.id} type="button" onClick={() => onSelectSession(session.id)} aria-label={t("sessionOverview.selectSession", { name: session.title })} aria-pressed={session.id === selectedSessionId}>
                 <span className="session-overview-card-top">
                   <span className="session-overview-card-icon">{session.type === "ssh" ? <Server aria-hidden="true" /> : <Terminal aria-hidden="true" />}</span>
                   <span className="session-overview-card-title"><strong title={session.title}>{session.title}</strong><small>{typeLabel}</small></span>
@@ -68,6 +69,6 @@ export function SessionOverview({ sessions, agentStatusesBySessionId, onSelectSe
           })}
         </div>
       )}
-    </main>
+    </section>
   );
 }

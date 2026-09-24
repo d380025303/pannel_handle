@@ -1,5 +1,6 @@
 import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
@@ -10,6 +11,7 @@ import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
+import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
@@ -104,6 +106,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showSessionOverview, setShowSessionOverview] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
+  const [showProjectAssistant, setShowProjectAssistant] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
@@ -168,7 +171,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const activeTheme = getAppTheme(themeId);
   const terminalInstances = useTerminalInstances({
     activeId: terminalSessions.activeId,
-    isVisible: workspaceTab === "terminal",
+    isVisible: workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
     terminalTheme: activeTheme.terminal,
     sessions: terminalSessions.sessions
   });
@@ -383,6 +386,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       setShowSessionOverview(false);
       setShowSkills(false);
       setShowMcp(false);
+      setShowProjectAssistant(false);
       setMcpDirty(false);
       setWorkspaceTab("terminal");
     } catch (err: any) {
@@ -586,7 +590,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : showSessionOverview ? t("sessionOverview.title") : terminalSessions.activeSession?.title}
+          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : showSessionOverview ? t("sessionOverview.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
@@ -601,6 +605,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
+            setShowProjectAssistant(false);
             setWorkspaceTab("terminal");
           }}
           onOpenSessionOverview={() => {
@@ -609,6 +614,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowSkills(false);
             setShowMcp(false);
             setShowSessionOverview(true);
+            setShowProjectAssistant(false);
+            setWorkspaceTab("terminal");
           }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -616,6 +623,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowSkills(false);
             setShowMcp(false);
             setShowTokenStats(true);
+            setShowProjectAssistant(false);
           }}
           onOpenSkills={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -623,12 +631,22 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowTokenStats(false);
             setShowMcp(false);
             setShowSkills(true);
+            setShowProjectAssistant(false);
           }}
           onOpenMcp={() => {
             setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
+            setShowProjectAssistant(false);
+          }}
+          onOpenProjectAssistant={() => {
+            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
+            setShowSessionOverview(false);
+            setShowTokenStats(false);
+            setShowSkills(false);
+            setShowMcp(false);
+            setShowProjectAssistant(true);
           }}
         />
         {terminalSessions.startupError && (
@@ -657,18 +675,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         )}
 
         {showTokenStats && <AgentTokenStatsDashboard />}
-        {showSessionOverview && (
-          <SessionOverview
-            sessions={terminalSessions.sessions}
-            agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
-            onSelectSession={(id) => {
-              handleSelectSession(id);
-              setWorkspaceTab("terminal");
-              setShowSessionOverview(false);
-            }}
-          />
-        )}
         {showSkills && <SkillsManager />}
+        {showProjectAssistant && <ProjectAssistantPage initialSessionId={terminalSessions.activeSession?.agentProvider === "codex" ? terminalSessions.activeSession.id : undefined} />}
         {showMcp && (
           <McpManager
             session={terminalSessions.activeSession}
@@ -676,8 +684,18 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSessionOverview || showSkills || showMcp ? "none" : undefined }}>
-          <SessionSidebar
+        <main className={`app-shell${showSessionOverview ? " overview-mode" : ""}${showSessionOverview && terminalSessions.sessions.length === 0 ? " overview-empty-mode" : ""}`} style={{ gridTemplateColumns: showSessionOverview ? undefined : appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant ? "none" : undefined, "--overview-tools-width": `${liveRightToolsWidth}px` } as CSSProperties}>
+          {showSessionOverview ? (
+            <SessionOverview
+              sessions={terminalSessions.sessions}
+              selectedSessionId={terminalSessions.activeId}
+              agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
+              onSelectSession={(id) => {
+                handleSelectSession(id);
+                setWorkspaceTab("terminal");
+              }}
+            />
+          ) : <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
             showInstanceIds={debugMode}
@@ -689,9 +707,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onReconnectSession={terminalSessions.reconnectSession}
             onCloseSession={handleCloseSession}
             onReorder={terminalSessions.reorderRunningSessions}
-          />
+          />}
 
-          <div className="splitter" onMouseDown={handleSplitterMouseDown} />
+          <div className={`splitter${showSessionOverview ? " overview-divider" : ""}`} onMouseDown={showSessionOverview ? undefined : handleSplitterMouseDown} />
 
           <div className="workspace-area">
             <div className="workspace-tabs" role="tablist" aria-label={t("tabs.workspace")}>

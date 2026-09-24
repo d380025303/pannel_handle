@@ -17,6 +17,11 @@ function createAgentConversationManager({ broadcast }) {
     };
   }
 
+  function getTurn(sessionId) {
+    const turn = turns.get(sessionId);
+    return turn ? { ...turn, messages: turn.messages.map(message => ({ ...message })) } : null;
+  }
+
   function sendSnapshot() {
     broadcast("agent-conversation:snapshot", getSnapshot());
   }
@@ -98,6 +103,7 @@ function createAgentConversationManager({ broadcast }) {
     completeTurn,
     clearSession,
     getSnapshot,
+    getTurn,
     shutdown
   };
 }

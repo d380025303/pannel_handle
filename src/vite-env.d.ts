@@ -931,6 +931,40 @@ export type RemoteAgentApi = {
   onApprovalResolved: (callback: (payload: { id: string; decision: RemoteAgentApprovalDecision }) => void) => () => void;
 };
 
+export type ProjectAssistantMessage = { role: "user" | "assistant" | "system"; text: string; at: number };
+export type ProjectAssistantAction = {
+  action: "create_session" | "launch_saved_session" | "launch_template" | "rename_session" | "close_session" | "send_codex_input" | "switch_codex_mode";
+  input: { id?: string; title?: string };
+  label: string;
+  createdAt: number;
+};
+export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };
+export type ProjectAssistantCodexScreen = { sessionId: string; ansi: string; seq: number; cols: number; rows: number; owner: string };
+export type ProjectAssistantCodexDelta = { seq: number; data: string };
+export type ProjectAssistantSnapshot = {
+  threadId: string | null;
+  messages: ProjectAssistantMessage[];
+  pendingAction: ProjectAssistantAction | null;
+  busy: boolean;
+  error: string | null;
+};
+export type ProjectAssistantApi = {
+  getSnapshot: () => Promise<ProjectAssistantSnapshot>;
+  start: () => Promise<void>;
+  newConversation: () => Promise<ProjectAssistantSnapshot>;
+  send: (text: string, sessionId?: string | null) => Promise<ProjectAssistantSnapshot>;
+  resolve: (approved: boolean) => Promise<{ approved: boolean; result?: unknown }>;
+  stop: () => Promise<void>;
+  listCodexSessions: () => Promise<ProjectAssistantCodexSession[]>;
+  getCodexScreen: (sessionId: string) => Promise<ProjectAssistantCodexScreen>;
+  getCodexDeltas: (sessionId: string, afterSeq: number) => Promise<ProjectAssistantCodexDelta[] | null>;
+  writeCodex: (sessionId: string, data: string) => Promise<void>;
+  submitCodex: (sessionId: string, text: string) => Promise<void>;
+  switchCodexMode: (sessionId: string) => Promise<void>;
+  onChanged: (callback: (snapshot: ProjectAssistantSnapshot) => void) => () => void;
+  onProgress: (callback: (payload: { text: string }) => void) => () => void;
+};
+
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
   createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
@@ -1250,6 +1284,7 @@ export type IdeaBridgeApi = {
 
 declare global {
   interface Window {
+    projectAssistantApi: ProjectAssistantApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     screenshotApi: ScreenshotApi;
