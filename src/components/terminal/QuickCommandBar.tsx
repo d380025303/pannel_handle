@@ -11,11 +11,13 @@ type QuickCommandBarProps = {
   onAddQuickCommand: (command: string, mode: QuickCommand["mode"]) => void | Promise<void>;
   onRemoveQuickCommand: (id: string) => void | Promise<void>;
   onTogglePinned: (id: string) => void | Promise<void>;
+  onExecuteCommand?: (command: QuickCommand) => boolean | Promise<boolean>;
+  autoEnterDisabled?: boolean;
 };
 
 const MAX_PINNED_COMMANDS = 3;
 
-export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal, onAddQuickCommand, onRemoveQuickCommand, onTogglePinned }: QuickCommandBarProps) {
+export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTerminal, onAddQuickCommand, onRemoveQuickCommand, onTogglePinned, onExecuteCommand, autoEnterDisabled = false }: QuickCommandBarProps) {
   const { t } = useI18n();
   const [addInput, setAddInput] = useState("");
   const [open, setOpen] = useState(false);
@@ -84,6 +86,14 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
   if (!activeSessionId) return null;
 
   const executeCommand = (command: QuickCommand) => {
+    if (onExecuteCommand) {
+      void Promise.resolve(onExecuteCommand(command)).then(applied => {
+        if (!applied) return;
+        if (command.mode === "one-time") void onRemoveQuickCommand(command.id);
+        closePopover();
+      }).catch(() => {});
+      return;
+    }
     const mode = command.mode || "write";
     window.terminalApi.write(activeSessionId, mode === "auto-enter" ? `${command.command}\r` : command.command);
     if (mode === "one-time") void onRemoveQuickCommand(command.id);
@@ -111,6 +121,7 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
           key={command.id}
           className={`quick-command-btn quick-command-direct slot-${index + 1}${command.pinned ? " pinned" : ""}`}
           type="button"
+          disabled={autoEnterDisabled && command.mode === "auto-enter"}
           title={command.command}
           onClick={() => executeCommand(command)}
         >
@@ -145,7 +156,7 @@ export function QuickCommandBar({ quickCommands, activeSessionId, onFocusTermina
                 const pinTitle = command.pinned ? t("quickCommand.unpin") : pinDisabled ? t("quickCommand.pinLimit") : t("quickCommand.pin");
                 return (
                   <div className={`quick-command-card ${command.pinned ? "pinned" : ""}`} key={command.id}>
-                    <button className="quick-command-card-run" type="button" title={command.command} onClick={() => executeCommand(command)}>
+                    <button className="quick-command-card-run" type="button" title={command.command} disabled={autoEnterDisabled && command.mode === "auto-enter"} onClick={() => executeCommand(command)}>
                       <Play aria-hidden="true" />
                       <span>
                         <strong>{command.command}</strong>

@@ -30,6 +30,16 @@ const snapshot = {
 afterEach(cleanup);
 
 describe("AgentTokenLiveStatus", () => {
+  it("omits transcript details and an unavailable output rate for App Server", () => {
+    render(<I18nProvider locale="zh-CN"><AgentTokenLiveStatus source="app-server"
+      state={{ status: "ready", snapshot: { ...snapshot, outputRateAvailable: false } }} /></I18nProvider>);
+    expect(screen.queryByText("37.5 tok/s")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Codex 实时 Token" }));
+    expect(screen.getByText("会话累计输入")).toBeTruthy();
+    expect(screen.queryByText("基于 transcript 保守识别")).toBeNull();
+    expect(screen.queryByText("技能使用")).toBeNull();
+  });
+
   it("renders compact live totals and opens session details", () => {
     render(
       <I18nProvider locale="zh-CN">

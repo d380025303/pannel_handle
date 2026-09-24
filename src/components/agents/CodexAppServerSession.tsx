@@ -1,79 +1,267 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Clock3, History, LoaderCircle, Paperclip, Plus, Sparkles, Square, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot } from "../../vite-env";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { ArrowUp, Ellipsis, FileText, History, Image as ImageIcon, Paperclip, Plus, Sparkles, Square, X } from "lucide-react";
+import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 
-const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
+const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
+const permissionLabels: Record<CodexExecutionPermission, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
+const permissionDescriptions: Record<CodexExecutionPermission, string> = {
+  readOnly: "可检查文件，不能修改或申请扩权",
+  askApproval: "可修改工作区，越界操作先确认",
+  fullAccess: "可访问文件与网络，不再请求批准"
+};
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const statusLabels: Record<string, string> = { completed: "已完成", inProgress: "进行中", pending: "待处理", failed: "失败", declined: "已拒绝" };
 const statusLabel = (status?: string) => statusLabels[status || ""] || status || "进行中";
 type SessionItem = CodexAppServerSnapshot["items"][number];
-type DisplayItem = { kind: "item"; item: SessionItem } | { kind: "commands"; items: SessionItem[] };
+type DisplayItem = { kind: "item"; item: SessionItem } | { kind: "tools"; items: SessionItem[] };
+type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
+const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 
-function groupCommands(items: SessionItem[]): DisplayItem[] {
+function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled }: {
+  sessionId: string; file: { path: string; name: string }; onPreview: () => void;
+  onRemove?: () => void; disabled?: boolean;
+}) {
+  const [thumbnail, setThumbnail] = useState("");
+  useEffect(() => {
+    if (!imageFile(file.name)) return;
+    let active = true;
+    void window.codexAppServerApi.previewAttachment(sessionId, file.path).then(result => {
+      if (active && result.kind === "image") setThumbnail(result.dataUrl);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [sessionId, file.path, file.name]);
+  return <div className="codex-app-server-attachment-tile">
+    <button type="button" className="codex-app-server-attachment-open" title={file.name} aria-label={`预览 ${file.name}`} onClick={onPreview}>
+      {thumbnail ? <img src={thumbnail} alt="" /> : imageFile(file.name) ? <ImageIcon aria-hidden="true" /> : <FileText aria-hidden="true" />}
+      <span>{file.name}</span>
+    </button>
+    {onRemove && <button type="button" className="codex-app-server-attachment-remove" disabled={disabled} aria-label={`移除 ${file.name}`} onClick={onRemove}><X aria-hidden="true" /></button>}
+  </div>;
+}
+
+function QuestionCard({ sessionId, request }: { sessionId: string; request: CodexQuestionRequest }) {
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const questions = request.params.questions || [];
+  async function answer() {
+    if (sending || request.submitting) return;
+    const answers: Record<string, CodexQuestionAnswer> = {};
+    for (const question of questions) {
+      const choice = choices[question.id];
+      const note = notes[question.id]?.trim();
+      if (!choice && !note) { setError(`请回答「${question.header || question.question}」。`); return; }
+      if (question.options?.length && !choice && !question.isOther) {
+        setError(`请选择「${question.header || question.question}」的选项。`); return;
+      }
+      answers[question.id] = { answers: [...(choice ? [choice] : []), ...(note ? [`user_note: ${note}`] : [])] };
+    }
+    setSending(true); setError("");
+    try { await window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers); }
+    catch (cause) { setError(message(cause)); }
+    finally { setSending(false); }
+  }
+  return <article className="codex-app-server-question" aria-label="Codex 提问">
+    <strong>Codex 提问</strong>
+    {questions.map(question => <fieldset key={question.id}>
+      <legend><span>{question.header}</span>{question.question}</legend>
+      {question.options?.map(option => <label className="codex-app-server-question-option" key={option.label}>
+        <input type="radio" name={`question-${request.requestId}-${question.id}`} value={option.label}
+          checked={choices[question.id] === option.label} disabled={sending || request.submitting}
+          onChange={() => { setChoices(current => ({ ...current, [question.id]: option.label })); setError(""); }} />
+        <span><strong>{option.label}</strong><small>{option.description}</small></span>
+      </label>)}
+      <label className="codex-app-server-question-note">
+        <span>{question.options?.length ? "补充说明或自定义回答" : "回答"}</span>
+        {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
+          onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value })); setError(""); }} />
+          : <textarea value={notes[question.id] || ""} disabled={sending || request.submitting}
+            onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value })); setError(""); }} />}
+      </label>
+    </fieldset>)}
+    {error && <p role="alert">{error}</p>}
+    <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
+      {sending || request.submitting ? "正在提交…" : "提交回答"}
+    </button>
+  </article>;
+}
+
+function groupTools(items: SessionItem[]): DisplayItem[] {
   const result: DisplayItem[] = [];
-  for (const item of items) {
+  const isTool = (item: SessionItem) => item.type === "commandExecution" || item.type === "fileChange";
+  const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer"].includes(item.type);
+  const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
+  const hasFollowingTool = (index: number, first: SessionItem) => {
+    for (const next of items.slice(index + 1)) {
+      if (isHidden(next)) continue;
+      if (!sameTurn(first, next)) return false;
+      if (isTool(next)) return true;
+      if (next.type !== "agentMessage") return false;
+    }
+    return false;
+  };
+  for (const [index, item] of items.entries()) {
+    if (isHidden(item)) continue;
     const previous = result.at(-1);
-    if (item.type === "commandExecution") {
-      if (previous?.kind === "commands") previous.items.push(item);
-      else result.push({ kind: "commands", items: [item] });
-    } else result.push({ kind: "item", item });
+    if (isTool(item)) {
+      if (previous?.kind === "tools" && sameTurn(previous.items[0], item)) previous.items.push(item);
+      else result.push({ kind: "tools", items: [item] });
+    } else if (item.type === "agentMessage" && previous?.kind === "tools" && sameTurn(previous.items[0], item)
+      && hasFollowingTool(index, previous.items[0])) previous.items.push(item);
+    else result.push({ kind: "item", item });
   }
   return result;
 }
 
-function commandGroupStatus(items: SessionItem[]) {
+function ToolGroup({ items, onLinkClick }: { items: SessionItem[]; onLinkClick?: (href: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const calls = items.filter(item => item.type === "commandExecution" || item.type === "fileChange");
+  return <section className="codex-app-server-event">
+    <button type="button" className="codex-app-server-event-summary" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+      <strong>工具调用 · {calls.length} 项</strong><span>{toolGroupStatus(calls)}</span>
+    </button>
+    {items.map(item => item.type === "agentMessage" ? <article className="codex-app-server-message agentMessage codex-app-server-progress" key={item.id}>
+      {item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} />}
+    </article> : expanded && <div className="codex-app-server-tool" key={item.id}>
+      <div className="codex-app-server-tool-heading"><strong>{item.type === "commandExecution" ? "执行命令" : "修改文件"}</strong><span>{statusLabel(item.status)}</span></div>
+      {item.type === "commandExecution" ? <><pre>{item.command}</pre>{item.output && <pre>{item.output}</pre>}</>
+        : <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
+    </div>)}
+  </section>;
+}
+
+function toolGroupStatus(items: SessionItem[]) {
   if (items.every(item => item.status === "completed")) return "已完成";
   if (items.some(item => item.status === "inProgress" || item.status === "pending" || !item.status)) return "进行中";
   if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
   return "进行中";
 }
 
-export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
+export type CodexAppServerSessionHandle = { applyQuickCommand: (command: QuickCommand) => Promise<boolean> };
+
+type CodexAppServerSessionProps = {
+  sessionId: string;
+  draft: string;
+  setDraft: Dispatch<SetStateAction<string>>;
+  onLinkClick?: (href: string) => void;
+};
+
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, draft, setDraft, onLinkClick }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
-  const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [previewFile, setPreviewFile] = useState<{ path: string; name: string } | null>(null);
+  const [preview, setPreview] = useState<AttachmentPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
   const [pastingImage, setPastingImage] = useState(false);
   const [sending, setSending] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
+  const [changingPermission, setChangingPermission] = useState(false);
   const [resolvingPlan, setResolvingPlan] = useState(false);
   const [history, setHistory] = useState<CodexAppServerHistory[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyError, setHistoryError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [resumingHistory, setResumingHistory] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const historyRequestRef = useRef(0);
   const currentSessionRef = useRef(sessionId);
+  const loadedSessionIdRef = useRef<string | null>(null);
   const pastedImagesRef = useRef(new Set<string>());
   const pastingRef = useRef(false);
   const changingModeRef = useRef(false);
+  const changingPermissionRef = useRef(false);
   const resolvingPlanRef = useRef(false);
   currentSessionRef.current = sessionId;
 
+  useImperativeHandle(ref, () => ({
+    async applyQuickCommand(command) {
+      if (loadedSessionIdRef.current !== sessionId || !snapshot.threadId) return false;
+      if (command.mode !== "auto-enter") {
+        setDraft(current => current + command.command);
+        textareaRef.current?.focus();
+        return true;
+      }
+      if (snapshot.busy || sending || pastingImage) return false;
+      setSending(true); setError("");
+      try {
+        await window.codexAppServerApi.submit(sessionId, command.command, []);
+        return true;
+      } catch (cause) {
+        if (currentSessionRef.current === sessionId) setError(message(cause));
+        return false;
+      } finally {
+        if (currentSessionRef.current === sessionId) setSending(false);
+      }
+    }
+  }));
+
   useEffect(() => {
     let active = true;
+    let receivedChange = false;
+    loadedSessionIdRef.current = null;
     setSnapshot(empty);
     setError("");
-    setDraft("");
     setAttachments([]);
+    setPreviewFile(null);
     setSending(false);
     setChangingMode(false);
+    setChangingPermission(false);
     setResolvingPlan(false);
     changingModeRef.current = false;
+    changingPermissionRef.current = false;
     resolvingPlanRef.current = false;
     pastedImagesRef.current.clear();
     setHistory([]);
     setHistoryCursor(null);
     setHistoryOpen(false);
+    setMenuOpen(false);
+    setHistoryQuery("");
+    setHistoryError("");
     setLoadingHistory(false);
-    void window.codexAppServerApi.snapshot(sessionId).then(value => { if (active) setSnapshot(value); })
+    setResumingHistory(false);
+    historyRequestRef.current += 1;
+    void window.codexAppServerApi.snapshot(sessionId).then(value => { if (active && !receivedChange) { loadedSessionIdRef.current = sessionId; setSnapshot(value); } })
       .catch(cause => { if (active) setError(message(cause)); });
     const off = window.codexAppServerApi.onChanged(payload => {
-      if (active && payload.id === sessionId) setSnapshot(payload.snapshot);
+      if (active && payload.id === sessionId) { receivedChange = true; loadedSessionIdRef.current = sessionId; setSnapshot(payload.snapshot); }
     });
     return () => { active = false; off(); };
   }, [sessionId]);
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [snapshot.items.length, snapshot.approvals.length]);
+  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [snapshot.items.length, snapshot.approvals.length, snapshot.questions?.length]);
+  useEffect(() => {
+    if (!previewFile) return;
+    let active = true;
+    setPreview(null); setPreviewError("");
+    void window.codexAppServerApi.previewAttachment(sessionId, previewFile.path).then(result => {
+      if (active) setPreview(result);
+    }).catch(cause => { if (active) setPreviewError(message(cause)); });
+    return () => { active = false; };
+  }, [sessionId, previewFile]);
+  useEffect(() => {
+    if (!historyOpen) return;
+    const timer = window.setTimeout(() => void loadHistory(null, historyQuery), historyQuery.trim() ? 150 : 0);
+    return () => { window.clearTimeout(timer); historyRequestRef.current += 1; };
+  }, [historyOpen, historyQuery, sessionId]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node) && !menuButtonRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [menuOpen]);
 
   async function submit() {
     const text = draft.trim();
@@ -81,24 +269,46 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
     setSending(true);
     setDraft(""); setError("");
     try { await window.codexAppServerApi.submit(sessionId, text, attachments); if (currentSessionRef.current === sessionId) { setAttachments([]); pastedImagesRef.current.clear(); } }
-    catch (cause) { if (currentSessionRef.current === sessionId) { setDraft(text); setError(message(cause)); } }
+    catch (cause) {
+      setDraft(current => current || text);
+      if (currentSessionRef.current === sessionId) setError(message(cause));
+    }
     finally { if (currentSessionRef.current === sessionId) setSending(false); }
   }
-  async function loadHistory(cursor?: string | null) {
-    setLoadingHistory(true); setError("");
+  async function loadHistory(cursor: string | null = null, query = "") {
+    const requestId = ++historyRequestRef.current;
+    const searching = Boolean(query.trim());
+    setLoadingHistory(true); setHistoryError("");
+    if (!cursor) { setHistory([]); setHistoryCursor(null); }
     try {
-      const page = await window.codexAppServerApi.listHistory(sessionId, cursor);
-      if (currentSessionRef.current !== sessionId) return;
-      setHistory(current => cursor ? [...current, ...page.data] : page.data);
-      setHistoryCursor(page.nextCursor);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
-    finally { if (currentSessionRef.current === sessionId) setLoadingHistory(false); }
+      const seenCursors = new Set<string>();
+      let nextCursor = cursor;
+      do {
+        const page = await window.codexAppServerApi.listHistory(sessionId, nextCursor);
+        if (currentSessionRef.current !== sessionId || historyRequestRef.current !== requestId) return;
+        const append = Boolean(nextCursor);
+        setHistory(current => append ? [...current, ...page.data] : page.data);
+        setHistoryCursor(page.nextCursor);
+        nextCursor = page.nextCursor;
+        if (!searching || !nextCursor || seenCursors.has(nextCursor)) break;
+        seenCursors.add(nextCursor);
+      } while (true);
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) setHistoryError(message(cause));
+    } finally {
+      if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) setLoadingHistory(false);
+    }
+  }
+  function closeHistory() {
+    setHistoryOpen(false);
+    menuButtonRef.current?.focus();
   }
   async function selectHistory(threadId: string) {
-    setError("");
+    setResumingHistory(true); setHistoryError("");
     try { const value = await window.codexAppServerApi.resume(sessionId, threadId);
-      if (currentSessionRef.current === sessionId) { setSnapshot(value); setHistoryOpen(false); setAttachments([]); pastedImagesRef.current.clear(); setDraft(""); } }
-    catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      if (currentSessionRef.current === sessionId) { setSnapshot(value); closeHistory(); setAttachments([]); pastedImagesRef.current.clear(); setDraft(""); } }
+    catch (cause) { if (currentSessionRef.current === sessionId) setHistoryError(message(cause)); }
+    finally { if (currentSessionRef.current === sessionId) setResumingHistory(false); }
   }
   async function addFiles() {
     setError("");
@@ -153,6 +363,23 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
       }
     }
   }
+  async function changePermission(permission: CodexExecutionPermission) {
+    if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission) return;
+    changingPermissionRef.current = true;
+    setChangingPermission(true);
+    setError("");
+    try {
+      const value = await window.codexAppServerApi.setExecutionPermission(sessionId, permission);
+      if (currentSessionRef.current === sessionId) setSnapshot(value);
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId) setError(message(cause));
+    } finally {
+      if (currentSessionRef.current === sessionId) {
+        changingPermissionRef.current = false;
+        setChangingPermission(false);
+      }
+    }
+  }
   async function resolvePlan(itemId: string, execute: boolean) {
     if (resolvingPlanRef.current || snapshot.busy || snapshot.pendingPlan?.itemId !== itemId) return;
     resolvingPlanRef.current = true;
@@ -173,25 +400,24 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
     }
   }
 
+  const normalizedHistoryQuery = historyQuery.trim().toLocaleLowerCase();
+  const visibleHistory = normalizedHistoryQuery
+    ? history.filter(thread => `${thread.title} ${thread.id}`.toLocaleLowerCase().includes(normalizedHistoryQuery))
+    : history;
+
   return <section className="codex-app-server-session" aria-label="Codex App Server">
     <div className="codex-app-server-messages" aria-live="polite">
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，Codex 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
-      {groupCommands(snapshot.items).map(entry => {
-        if (entry.kind === "commands") {
-          const commands = entry.items;
-          return <details className="codex-app-server-event" key={commands[0].id}>
-            <summary><strong>{commands.length === 1 ? "执行命令" : `执行 ${commands.length} 条命令`}</strong>
-              <span>{commands.length === 1 ? statusLabel(commands[0].status) : commandGroupStatus(commands)}</span></summary>
-            {commands.map((command, index) => <div className="codex-app-server-command" key={command.id}>
-              {commands.length > 1 && <div className="codex-app-server-command-heading"><strong>命令 {index + 1}</strong><span>{statusLabel(command.status)}</span></div>}
-              <pre>{command.command}</pre>{command.output && <pre>{command.output}</pre>}
-            </div>)}
-          </details>;
+      {groupTools(snapshot.items).map(entry => {
+        if (entry.kind === "tools") {
+          return <ToolGroup key={entry.items[0].id} items={entry.items} onLinkClick={onLinkClick} />;
         }
         const item = entry.item;
         if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
-          <strong>{item.type === "userMessage" ? "你" : item.type === "plan" ? "计划" : "Codex"}</strong>
-          {item.type === "userMessage" ? <p>{item.text || ""}</p> : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks />}
+          {item.type === "plan" && <strong>计划</strong>}
+          {item.type === "userMessage" ? <>{item.text && <p>{item.text}</p>}{Boolean(item.attachments?.length) &&
+            <div className="codex-app-server-attachments">{item.attachments?.map(file => <AttachmentTile key={file.path} sessionId={sessionId} file={file} onPreview={() => setPreviewFile(file)} />)}</div>}</>
+            : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} />}
           {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
             <p>计划已完成。确认后将在当前会话中执行。</p>
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>暂不执行</button>
@@ -203,10 +429,16 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
           {item.explanation && <p>{item.explanation}</p>}
           <ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
         </article>;
-        if (item.type === "fileChange") return <details className="codex-app-server-event" key={item.id}>
-          <summary><strong>修改文件</strong><span>{statusLabel(item.status)}</span></summary>
-          <pre>{JSON.stringify(item.changes, null, 2)}</pre>
-        </details>;
+        if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label="已回答的 Codex 提问">
+          <strong>Codex 提问与回答{item.status === "submitted" ? " · 正在确认" : item.status === "failed" ? " · 轮次失败" : ""}</strong>
+          {item.questions?.map(question => <div className="codex-app-server-answered-question" key={question.id}>
+            {question.header && <small>{question.header}</small>}
+            <p className="codex-app-server-answered-prompt">{question.question}</p>
+            {question.answers.map((answer, index) => <p key={index} className="codex-app-server-answered-answer">
+              {answer.startsWith("user_note: ") ? `补充说明：${answer.slice(11)}` : answer}
+            </p>)}
+          </div>)}
+        </article>;
         return null;
       })}
       {snapshot.approvals.map(approval => <article className="codex-app-server-approval" key={approval.requestId}>
@@ -221,23 +453,16 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
         <div><button type="button" onClick={() => void resolve(approval.requestId, false)}>拒绝</button>
           <button type="button" onClick={() => void resolve(approval.requestId, true)}>批准一次</button></div>
       </article>)}
-      {snapshot.busy && <p className="codex-app-server-working"><LoaderCircle aria-hidden="true" />Codex 正在运行…</p>}
+      {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
+        .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question} />)}
       {(snapshot.error || error) && <p className="codex-app-server-error" role="alert">{error || snapshot.error}</p>}
       <div ref={endRef} />
     </div>
     <form className="codex-app-server-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      {historyOpen && <div className="codex-app-server-history" aria-label="历史会话">
-        {history.length === 0 && !loadingHistory && !error && <p>当前项目没有历史会话。</p>}
-        {history.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || sending || pastingImage || thread.id === snapshot.threadId} onClick={() => void selectHistory(thread.id)}>
-          <strong>{thread.title}</strong><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
-        </button>)}
-        {historyCursor && <button type="button" disabled={loadingHistory} onClick={() => void loadHistory(historyCursor)}>加载更多</button>}
-        {loadingHistory && <p>正在加载历史会话…</p>}
-      </div>}
-      {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <span key={filePath} title={filePath}>
-        {filePath.split(/[\\/]/).pop()} <button type="button" disabled={snapshot.busy || sending || pastingImage} aria-label={`移除 ${filePath.split(/[\\/]/).pop()}`} onClick={() => void removeAttachment(filePath)}><X aria-hidden="true" /></button>
-      </span>)}</div>}
-      <textarea value={draft} onChange={event => setDraft(event.target.value)} onPaste={event => {
+      {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <AttachmentTile key={filePath} sessionId={sessionId}
+        file={{ path: filePath, name: fileName(filePath) }} onPreview={() => setPreviewFile({ path: filePath, name: fileName(filePath) })}
+        onRemove={() => void removeAttachment(filePath)} disabled={snapshot.busy || sending || pastingImage} />)}</div>}
+      <div className={`codex-app-server-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={snapshot.mode}><textarea ref={textareaRef} value={draft} onChange={event => setDraft(event.target.value)} onPaste={event => {
         if (!Array.from(event.clipboardData.items).some(item => item.type.startsWith("image/"))) return;
         event.preventDefault();
         void pasteImage();
@@ -249,18 +474,76 @@ export function CodexAppServerSession({ sessionId }: { sessionId: string }) {
         }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
       }} placeholder="向 Codex 发送消息" disabled={!snapshot.threadId || snapshot.busy} />
-      <div className="codex-app-server-composer-footer"><div className="codex-app-server-composer-tools">
-        <button type="button" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={() => void window.codexAppServerApi.newThread(sessionId)
-          .then(value => { if (currentSessionRef.current === sessionId) { setSnapshot(value); setDraft(""); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); } })
-          .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); })}><Plus aria-hidden="true" />新对话</button>
-        <button type="button" className={historyOpen ? "is-active" : undefined} aria-expanded={historyOpen} disabled={!snapshot.threadId || snapshot.busy} onClick={() => { const next = !historyOpen; setHistoryOpen(next); if (next) void loadHistory(); }}><History aria-hidden="true" />历史会话</button>
-        <label className="codex-app-server-mode">模式 <select value={snapshot.mode} disabled={!snapshot.threadId || snapshot.busy || changingMode} onChange={event => void changeMode(event.target.value as "default" | "plan")}>
-          <option value="default">Exec</option><option value="plan">Plan</option>
-        </select></label>
-        <button type="button" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage || attachments.length >= 10} onClick={() => void addFiles()}><Paperclip aria-hidden="true" />附加文件</button>
-        <span><Clock3 aria-hidden="true" />Enter 发送 · Shift+Enter 换行</span></div>
-      {snapshot.busy ? <button type="button" className="codex-app-server-send" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" />停止</button>
-        : <button type="submit" className="codex-app-server-send" disabled={!snapshot.threadId || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" />发送</button>}</div>
+        <div className="codex-app-server-input-actions">
+          <div className="codex-app-server-menu-anchor">
+            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={!snapshot.threadId} onClick={() => setMenuOpen(open => !open)}><Ellipsis aria-hidden="true" /></button>
+            {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
+              if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
+              if (event.key === "Tab") setMenuOpen(false);
+              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+              event.preventDefault();
+              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+              const index = items.indexOf(document.activeElement as HTMLButtonElement);
+              items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+            }}>
+              <button type="button" role="menuitem" disabled={snapshot.busy} onClick={() => { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }}><History aria-hidden="true" />历史会话</button>
+              <span className="codex-app-server-menu-label">模式</span>
+              <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "default"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("default"); }}>Exec</button>
+              <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
+              <span className="codex-app-server-menu-label">执行权限（下一轮生效）</span>
+              {(["readOnly", "askApproval", "fullAccess"] as const).map(permission => <button key={permission} type="button"
+                role="menuitemradio" aria-label={permissionLabels[permission]} aria-checked={snapshot.executionPermission === permission}
+                disabled={snapshot.busy || changingPermission} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
+                <span className="codex-app-server-permission-option"><strong>{permissionLabels[permission]}</strong><small>{permissionDescriptions[permission]}</small></span>
+              </button>)}
+              <button type="button" role="menuitem" disabled={snapshot.busy || sending || pastingImage || attachments.length >= 10} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
+            </div>}
+          </div>
+          <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>执行权限：{permissionLabels[snapshot.executionPermission] || "需要确认"}</span>
+          <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行</span>
+          <div className="codex-app-server-input-primary">
+            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={() => void window.codexAppServerApi.newThread(sessionId)
+              .then(value => { if (currentSessionRef.current === sessionId) { setSnapshot(value); setDraft(""); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); } })
+              .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); })}><Plus aria-hidden="true" /></button>
+            {snapshot.busy ? <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>
+              : <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
+          </div>
+        </div>
+      </div>
     </form>
+    {historyOpen && <div className="modal-overlay codex-app-server-history-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeHistory(); }}>
+      <div className="modal-dialog codex-app-server-history-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-app-server-history-title" onKeyDown={event => {
+        if (event.key === "Escape") { event.stopPropagation(); closeHistory(); return; }
+        if (event.key !== "Tab") return;
+        const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)"));
+        if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0]?.focus(); }
+      }}>
+        <div className="codex-app-server-history-header"><h2 id="codex-app-server-history-title">历史会话</h2>
+          <button type="button" aria-label="关闭历史会话" onClick={closeHistory}><X aria-hidden="true" /></button></div>
+        <div className="codex-app-server-history-search"><input autoFocus type="search" aria-label="搜索历史会话" placeholder="搜索标题或会话 ID" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} /></div>
+        <div className="codex-app-server-history" aria-label="历史会话列表">
+          {visibleHistory.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || sending || pastingImage || resumingHistory || thread.id === snapshot.threadId} onClick={() => void selectHistory(thread.id)}>
+            <strong>{thread.title}</strong><small>会话 ID：{thread.id}</small><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
+          </button>)}
+          {visibleHistory.length === 0 && !loadingHistory && !historyError && <p>{normalizedHistoryQuery ? "没有匹配的历史会话。" : "当前项目没有历史会话。"}</p>}
+          {historyError && <p className="codex-app-server-history-error" role="alert">{historyError}</p>}
+          {loadingHistory && <p>正在加载历史会话…</p>}
+          {!normalizedHistoryQuery && historyCursor && <button type="button" disabled={loadingHistory} onClick={() => void loadHistory(historyCursor)}>加载更多</button>}
+        </div>
+      </div>
+    </div>}
+    {previewFile && <div className="modal-overlay codex-app-server-preview-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewFile(null); }}>
+      <div className="modal-dialog codex-app-server-preview-dialog" role="dialog" aria-modal="true" aria-label={`预览 ${previewFile.name}`} onKeyDown={event => { if (event.key === "Escape") setPreviewFile(null); }}>
+        <div className="codex-app-server-preview-header"><strong>{previewFile.name}</strong><button type="button" aria-label="关闭预览" onClick={() => setPreviewFile(null)}><X aria-hidden="true" /></button></div>
+        <div className="codex-app-server-preview-content">
+          {previewError ? <p role="alert">无法预览：{previewError}</p> : !preview ? <p>正在加载预览…</p>
+            : preview.kind === "image" ? <img src={preview.dataUrl} alt={previewFile.name} />
+            : preview.kind === "text" ? <pre>{preview.text}</pre>
+            : preview.kind === "too_large" ? <p>文件过大，无法预览（上限 {Math.round(preview.limit / 1024 / 1024)} MB）。</p>
+            : <p>此文件格式暂不支持预览。</p>}
+        </div>
+      </div>
+    </div>}
   </section>;
-}
+});

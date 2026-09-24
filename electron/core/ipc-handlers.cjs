@@ -54,6 +54,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
     ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
+    ipcMain.handle("codex-app-server:execution-permission", (_event, id, permission) =>
+      codexAppServerSessionService.setExecutionPermission(String(id || ""), permission));
     ipcMain.handle("codex-app-server:dismiss-plan", (_event, id, itemId) => codexAppServerSessionService.dismissPlan(String(id || ""), itemId));
     ipcMain.handle("codex-app-server:execute-plan", (_event, id, itemId) => codexAppServerSessionService.executePlan(String(id || ""), itemId));
     ipcMain.handle("codex-app-server:choose-files", async (event, id) => {
@@ -63,6 +65,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
       codexAppServerSessionService.allowFiles(String(id || ""), filePaths);
       return filePaths;
     });
+    ipcMain.handle("codex-app-server:preview-attachment", (_event, id, filePath) =>
+      codexAppServerSessionService.previewAttachment(String(id || ""), filePath));
     ipcMain.handle("codex-app-server:paste-image", async (_event, id) => {
       const sessionId = String(id || "");
       codexAppServerSessionService.snapshot(sessionId);
@@ -75,6 +79,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths) => codexAppServerSessionService.submit(String(id || ""), text, filePaths));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, approved === true));
+    ipcMain.handle("codex-app-server:answer-question", (_event, id, requestId, answers) =>
+      codexAppServerSessionService.answerQuestion(String(id || ""), requestId, answers));
   }
   if (postgresBackupService) {
     ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());

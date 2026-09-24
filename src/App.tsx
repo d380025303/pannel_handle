@@ -11,7 +11,7 @@ import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
-import { CodexAppServerSession } from "./components/agents/CodexAppServerSession";
+import { CodexAppServerSession, type CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
 import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
@@ -28,6 +28,7 @@ import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
 import { FileTransferPanel } from "./components/remote/FileTransferPanel";
 import { RemoteFilePanel, type RemoteFilePanelNavigationState, type RemotePreviewTabSummary } from "./components/remote/RemoteFilePanel";
+import { resolveCodexFileLink } from "./utils/codexFileLink";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
@@ -36,6 +37,7 @@ import { McpManager } from "./components/mcp/McpManager";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
 import { useAgentUsage } from "./hooks/useAgentUsage";
 import { useAgentTokenLive } from "./hooks/useAgentTokenLive";
+import { useCodexAppServerFooter } from "./hooks/useCodexAppServerFooter";
 import { useAgentConversation } from "./hooks/useAgentConversation";
 import { useRightToolsResize } from "./hooks/useRightToolsResize";
 import { useSidebarResize } from "./hooks/useSidebarResize";
@@ -128,16 +130,20 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [projectSearchMode, setProjectSearchMode] = useState<ProjectSearchMode | null>(null);
   const [projectSearchRoot, setProjectSearchRoot] = useState(".");
   const [filePanelPath, setFilePanelPath] = useState<{ sessionId: string; path: string } | null>(null);
-  const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; requestId: number } | null>(null);
+  const [fileOpenRequest, setFileOpenRequest] = useState<{ sessionId: string; path: string; line?: number; requestId: number } | null>(null);
+  const [appServerLinkError, setAppServerLinkError] = useState<string | null>(null);
   const [fileTransfers, setFileTransfers] = useState<FileTransferTask[]>([]);
   const [gitSummary, setGitSummary] = useState<{ sessionId: string; changes: number; conflicts: number } | null>(null);
   const [showCloseGuard, setShowCloseGuard] = useState(false);
   const [mobileAccessState, setMobileAccessState] = useState<MobileAccessState | null>(null);
+  const [appServerDrafts, setAppServerDrafts] = useState<Record<string, string>>({});
   const fileOpenRequestIdRef = useRef(0);
   const closePreviewRequestIdRef = useRef(0);
   const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
   const saveMcpRef = useRef<(() => Promise<boolean>) | null>(null);
   const lastBlockingOverlaySignatureRef = useRef("");
+  const appServerSessionRef = useRef<CodexAppServerSessionHandle>(null);
+  const appServerSessionIdsRef = useRef(new Set<string>());
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
   const filePanelNavigationBySessionRef = useRef(new Map<string, RemoteFilePanelNavigationState>());
   const workspaceTabRef = useRef<WorkspaceTab>("terminal");
@@ -158,19 +164,21 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     }
   );
   const terminalSessions = useTerminalSessions();
+  appServerSessionIdsRef.current = new Set(terminalSessions.sessions.map((session) => session.id));
   const { rightTool, setRightTool } = useSessionRightTool(
     terminalSessions.activeId,
     terminalSessions.sessions.map((session) => session.id)
   );
   const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
-  const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession);
+  const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession?.runtimeMode === "app-server" ? undefined : terminalSessions.activeSession);
   const remoteSystemMetrics = useRemoteSystemMetrics(
     terminalSessions.activeSession,
     terminalSessions.sessions.map((session) => session.id)
   );
   const activeTheme = getAppTheme(themeId);
   const isAppServerSession = terminalSessions.activeSession?.runtimeMode === "app-server";
+  const appServerFooter = useCodexAppServerFooter(isAppServerSession ? terminalSessions.activeId : undefined);
   const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
@@ -250,6 +258,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     for (const sessionId of filePanelNavigationBySessionRef.current.keys()) {
       if (!runningSessionIds.has(sessionId)) filePanelNavigationBySessionRef.current.delete(sessionId);
     }
+    setAppServerDrafts(current => {
+      const entries = Object.entries(current).filter(([sessionId]) => runningSessionIds.has(sessionId));
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
   }, [terminalSessions.sessions]);
 
   useEffect(() => {
@@ -472,6 +484,25 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       requestId: fileOpenRequestIdRef.current
     });
   }, [terminalSessions.activeSession]);
+
+  const handleAppServerLink = useCallback((href: string) => {
+    const session = terminalSessions.activeSession;
+    if (!session) return;
+    setAppServerLinkError(null);
+    const target = resolveCodexFileLink(session.cwd, href);
+    if (target.kind === "ignore") return;
+    if (target.kind === "external") {
+      void window.externalLinkApi.open(target.url).catch((error: unknown) => setAppServerLinkError(error instanceof Error ? error.message : String(error)));
+      return;
+    }
+    if (target.kind === "error") {
+      setAppServerLinkError(target.message);
+      return;
+    }
+    setRightTool("files");
+    fileOpenRequestIdRef.current += 1;
+    setFileOpenRequest({ sessionId: session.id, path: target.path, line: target.line, requestId: fileOpenRequestIdRef.current });
+  }, [setRightTool, terminalSessions.activeSession]);
 
   const handleFileOpenRequestHandled = useCallback((requestId: number) => {
     setFileOpenRequest((current) => current?.requestId === requestId ? null : current);
@@ -793,7 +824,27 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
                 />
-                {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession sessionId={terminalSessions.activeSession.id} />}
+                {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
+                  ref={appServerSessionRef}
+                  sessionId={terminalSessions.activeSession.id}
+                  onLinkClick={handleAppServerLink}
+                  draft={appServerDrafts[terminalSessions.activeSession.id] ?? ""}
+                  setDraft={value => {
+                    const sessionId = terminalSessions.activeSession!.id;
+                    setAppServerDrafts(current => {
+                      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
+                      const nextDraft = typeof value === "function" ? value(current[sessionId] ?? "") : value;
+                      if (nextDraft === (current[sessionId] ?? "")) return current;
+                      if (!nextDraft) {
+                        const next = { ...current };
+                        delete next[sessionId];
+                        return next;
+                      }
+                      return { ...current, [sessionId]: nextDraft };
+                    });
+                  }}
+                />}
+                {isAppServerSession && appServerLinkError && <p role="alert" className="codex-app-server-error">{appServerLinkError}</p>}
                 {!isAppServerSession && <TerminalComposer
                   session={terminalSessions.activeSession}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
@@ -826,10 +877,25 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   </footer>
                 )}
                 {isAppServerSession && <footer className="terminal-footer">
+                  <QuickCommandBar
+                    quickCommands={terminalSessions.quickCommandsForActiveSession}
+                    activeSessionId={terminalSessions.activeId}
+                    onFocusTerminal={() => {}}
+                    onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
+                    onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
+                    onTogglePinned={terminalSessions.toggleQuickCommandPinnedForActiveSession}
+                    onExecuteCommand={command => appServerSessionRef.current?.applyQuickCommand(command) ?? false}
+                    autoEnterDisabled={!appServerFooter.canSubmit}
+                  />
                   <div className="terminal-status-cluster">
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                     <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
-                    <AgentTokenLiveStatus state={agentTokenLive} />
+                    <AgentTokenLiveStatus state={appServerFooter.tokenState} source="app-server" />
+                    <AgentUsageStatus
+                      state={agentUsage.state}
+                      onRefresh={agentUsage.refresh}
+                      onConsumeResetCredit={agentUsage.consumeResetCredit}
+                    />
                   </div>
                 </footer>}
               </div>

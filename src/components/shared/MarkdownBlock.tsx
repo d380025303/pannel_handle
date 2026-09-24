@@ -11,6 +11,7 @@ export function MarkdownBlock({ content, className, externalLinks = false, onLin
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
+        urlTransform={(url) => /^(?:https?:\/\/|file:\/\/|mailto:)/i.test(url) || !/^[a-z][a-z\d+.-]*:/i.test(url) || /^[a-z]:[\\/]/i.test(url) ? url : ""}
         components={externalLinks || onLinkClick ? {
           a: ({ href, children, ...props }) => (
             <a

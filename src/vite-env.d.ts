@@ -887,6 +887,7 @@ export type AgentTokenLiveSnapshot = {
   capabilities: AgentCapabilityUsage;
   turnOutputTokens: number;
   outputTokensPerSecond: number;
+  outputRateAvailable?: boolean;
   models: string[];
   updatedAt: number;
 };
@@ -941,15 +942,34 @@ export type ProjectAssistantAction = {
   createdAt: number;
 };
 
+export type CodexExecutionPermission = "readOnly" | "askApproval" | "fullAccess";
+export type CodexQuestionAnswer = { answers: string[] };
+export type CodexQuestionRequest = { requestId: number | string; submitting: boolean; params: {
+  threadId: string; turnId: string; itemId?: string; isBlocking?: boolean; autoResolutionMs?: number | null;
+  questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean;
+    options?: Array<{ label: string; description: string }> | null }>;
+} };
+
 export type CodexAppServerSnapshot = {
   threadId: string | null;
+  model?: string | null;
+  tokenUsage?: { total: AgentTokenTotals; last: AgentTokenTotals; modelContextWindow: number | null } | null;
+  tokenUpdatedAt?: number | null;
+  turnOutputTokens?: number;
+  outputTokensPerSecond?: number;
+  outputRateAvailable?: boolean;
   mode: "default" | "plan";
+  executionPermission: CodexExecutionPermission;
   busy: boolean;
   error: string | null;
   pendingPlan: { itemId: string } | null;
-  items: Array<{ id: string; type: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
+  items: Array<{ id: string; type: string; turnId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
+    attachments?: Array<{ path: string; name: string }>;
+    afterItemId?: string | null;
+    questions?: Array<{ id: string; header: string; question: string; answers: string[] }>;
     explanation?: string | null; plan?: Array<{ step: string; status: "pending" | "inProgress" | "completed" }> }>;
   approvals: Array<{ requestId: number; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown } }>;
+  questions?: CodexQuestionRequest[];
 };
 
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string };
@@ -960,14 +980,18 @@ export type CodexAppServerApi = {
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
   setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
+  setExecutionPermission: (id: string, permission: CodexExecutionPermission) => Promise<CodexAppServerSnapshot>;
   dismissPlan: (id: string, itemId: string) => Promise<CodexAppServerSnapshot>;
   executePlan: (id: string, itemId: string) => Promise<void>;
   chooseFiles: (id: string) => Promise<string[]>;
+  previewAttachment: (id: string, filePath: string) => Promise<{ kind: "image"; dataUrl: string } | { kind: "text"; text: string }
+    | { kind: "unsupported" } | { kind: "too_large"; size: number; limit: number }>;
   pasteImage: (id: string) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
   discardImage: (id: string, filePath: string) => Promise<void>;
   submit: (id: string, text: string, filePaths?: string[]) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
   resolveApproval: (id: string, requestId: number, approved: boolean) => Promise<void>;
+  answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
 };
 export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };

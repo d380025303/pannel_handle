@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  CodexExecutionPermission,
   FileTransferTask,
   GitRepositorySnapshot,
   McpDocument,
@@ -171,6 +172,7 @@ function createRouterState(defaultModelId: string): { config: OpenRouterConfig; 
 
 export function installBrowserPreview() {
   let sessions: TerminalSession[] = [];
+  let previewExecutionPermission: CodexExecutionPermission = "askApproval";
   let library = copy(savedSessions);
   let config = copy(initialConfig);
   let transfers = copy(initialTransfers);
@@ -421,19 +423,24 @@ export function installBrowserPreview() {
       onProgress: () => () => undefined
     } satisfies Window["projectAssistantApi"],
     codexAppServerApi: {
-      snapshot: async () => ({ threadId: "preview-thread", mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      snapshot: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listHistory: async () => ({ data: [], nextCursor: null }),
-      resume: async (_id, threadId) => ({ threadId, mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
-      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
-      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
-      dismissPlan: async () => ({ threadId: "preview-thread", mode: "plan", busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      resume: async (_id, threadId) => ({ threadId, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setExecutionPermission: async (_id, permission) => { previewExecutionPermission = permission; return {
+        threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission,
+        busy: false, error: null, pendingPlan: null, items: [], approvals: [] }; },
+      dismissPlan: async () => ({ threadId: "preview-thread", mode: "plan", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       executePlan: async () => undefined,
       chooseFiles: async () => [],
+      previewAttachment: async () => ({ kind: "unsupported" }),
       pasteImage: async () => ({ status: "no_image" }),
       discardImage: async () => undefined,
       submit: async () => undefined,
       interrupt: async () => undefined,
       resolveApproval: async () => undefined,
+      answerQuestion: async () => undefined,
       onChanged: () => () => undefined
     } satisfies Window["codexAppServerApi"],
     launchTemplateApi: {

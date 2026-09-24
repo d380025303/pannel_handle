@@ -50,14 +50,17 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   resume: (id, threadId) => ipcRenderer.invoke("codex-app-server:resume", id, threadId),
   newThread: id => ipcRenderer.invoke("codex-app-server:new-thread", id),
   setMode: (id, mode) => ipcRenderer.invoke("codex-app-server:mode", id, mode),
+  setExecutionPermission: (id, permission) => ipcRenderer.invoke("codex-app-server:execution-permission", id, permission),
   dismissPlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:dismiss-plan", id, itemId),
   executePlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:execute-plan", id, itemId),
   chooseFiles: id => ipcRenderer.invoke("codex-app-server:choose-files", id),
+  previewAttachment: (id, filePath) => ipcRenderer.invoke("codex-app-server:preview-attachment", id, filePath),
   pasteImage: id => ipcRenderer.invoke("codex-app-server:paste-image", id),
   discardImage: (id, filePath) => ipcRenderer.invoke("codex-app-server:discard-image", id, filePath),
   submit: (id, text, filePaths) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths),
   interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
   resolveApproval: (id, requestId, approved) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, approved),
+  answerQuestion: (id, requestId, answers) => ipcRenderer.invoke("codex-app-server:answer-question", id, requestId, answers),
   onChanged: callback => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("codex-app-server:changed", listener);

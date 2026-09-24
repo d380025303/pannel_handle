@@ -21,6 +21,8 @@ type RemoteCodeEditorProps = {
   fileName: string;
   languageMode: RemoteCodeLanguageMode;
   viewport: RemoteCodeEditorViewport;
+  jumpTo?: { line: number; requestId: number };
+  onJumpHandled?: (requestId: number) => void;
   onChange: (value: string) => void;
   onLanguageModeChange: (mode: RemoteCodeLanguageMode) => void;
   onSave: () => void;
@@ -76,6 +78,8 @@ export function RemoteCodeEditor({
   fileName,
   languageMode,
   viewport,
+  jumpTo,
+  onJumpHandled,
   onChange,
   onLanguageModeChange,
   onSave,
@@ -89,6 +93,7 @@ export function RemoteCodeEditor({
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onViewportChangeRef = useRef(onViewportChange);
+  const onJumpHandledRef = useRef(onJumpHandled);
   const documentIdRef = useRef(documentId);
   const viewportRef = useRef(viewport);
   const readOnlyRef = useRef(readOnly);
@@ -98,6 +103,7 @@ export function RemoteCodeEditor({
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onViewportChangeRef.current = onViewportChange;
+  onJumpHandledRef.current = onJumpHandled;
   viewportRef.current = viewport;
   readOnlyRef.current = readOnly;
 
@@ -201,6 +207,14 @@ export function RemoteCodeEditor({
     if (!view) return;
     view.dispatch({ effects: editableRef.current.reconfigure(EditorView.editable.of(!readOnly)) });
   }, [readOnly]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !jumpTo) return;
+    const position = view.state.doc.line(Math.min(jumpTo.line, view.state.doc.lines)).from;
+    view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: "center" }) });
+    onJumpHandledRef.current?.(jumpTo.requestId);
+  }, [documentId, jumpTo?.requestId, jumpTo?.line]);
 
   const detectedLanguage = detectLanguage(fileName);
   return (

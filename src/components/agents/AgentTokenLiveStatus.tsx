@@ -61,7 +61,7 @@ function CapabilitySection({ capabilities }: { capabilities: AgentCapabilityUsag
   );
 }
 
-export function AgentTokenLiveStatus({ state }: { state: AgentTokenLiveViewState }) {
+export function AgentTokenLiveStatus({ state, source = "transcript" }: { state: AgentTokenLiveViewState; source?: "transcript" | "app-server" }) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -104,7 +104,7 @@ export function AgentTokenLiveStatus({ state }: { state: AgentTokenLiveViewState
           <>
             <span>↑ {formatTokens(snapshot.tokens.inputTokens, locale)}</span>
             <span>↓ {formatTokens(snapshot.tokens.outputTokens, locale)}</span>
-            <strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong>
+            {(source !== "app-server" || snapshot.outputRateAvailable) && <strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong>}
           </>
         )}
       </button>
@@ -122,11 +122,11 @@ export function AgentTokenLiveStatus({ state }: { state: AgentTokenLiveViewState
                 <span>{t("tokenLive.cachedInput")}</span><strong>{snapshot.tokens.cachedInputTokens.toLocaleString(locale)}</strong>
                 <span>{t("tokenLive.reasoningOutput")}</span><strong>{snapshot.tokens.reasoningOutputTokens.toLocaleString(locale)}</strong>
                 <span>{t("tokenLive.turnOutput")}</span><strong>{snapshot.turnOutputTokens.toLocaleString(locale)}</strong>
-                <span>{t("tokenLive.outputRate")}</span><strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong>
+                {(source !== "app-server" || snapshot.outputRateAvailable) && <><span>{t("tokenLive.outputRate")}</span><strong>{snapshot.outputTokensPerSecond.toLocaleString(locale, { maximumFractionDigits: 1 })} tok/s</strong></>}
                 <span>{t("tokenLive.model")}</span><strong>{snapshot.models.join(", ") || "—"}</strong>
                 <span>{t("tokenLive.updatedAt")}</span><strong>{new Date(snapshot.updatedAt).toLocaleTimeString(locale)}</strong>
               </div>
-              <CapabilitySection capabilities={snapshot.capabilities} />
+              {source === "transcript" && <CapabilitySection capabilities={snapshot.capabilities} />}
             </>
           )}
           <small>{t(stateLabel(snapshot.state))}</small>

@@ -41,4 +41,11 @@ describe("MarkdownBlock", () => {
     expect(fireEvent.click(screen.getByRole("link", { name: "Guide" }))).toBe(false);
     expect(onLinkClick).toHaveBeenCalledWith("docs/guide.md");
   });
+
+  it("passes local file URLs to a controlled click handler", () => {
+    const onLinkClick = vi.fn();
+    render(<MarkdownBlock content="[Source](file:///C:/repo/src/App.tsx#L12)" onLinkClick={onLinkClick} />);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Source" }))).toBe(false);
+    expect(onLinkClick).toHaveBeenCalledWith("file:///C:/repo/src/App.tsx#L12");
+  });
 });

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
 import { INPUT_INTERRUPTION_END_EVENT, INPUT_INTERRUPTION_START_EVENT } from "../../hooks/inputRecovery";
 import { RemoteFilePanel } from "./RemoteFilePanel";
 import type { RemoteFileApi, TerminalSession } from "../../vite-env";
@@ -13,6 +14,47 @@ describe("RemoteFilePanel file activation", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    Reflect.deleteProperty(Range.prototype, "getClientRects");
+  });
+
+  it("opens a requested source file and selects its requested line", async () => {
+    Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => [] });
+    const previewFile = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      return { kind: "text" as const, path: filePath, content: "one\ntwo\nthree" };
+    });
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async () => [{ name: "notes.txt", path: filePath, type: "file", size: 13, modifiedAt: 0 }]),
+      previewFile,
+      onDownloadProgress: vi.fn(() => () => undefined),
+      watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true),
+      onChanged: vi.fn(() => () => undefined),
+      onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const session: TerminalSession = { id: "session-1", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" };
+    const previewHost = document.createElement("div");
+    document.body.append(previewHost);
+    const onActivePreviewTabChange = vi.fn();
+    const onOpenRequestHandled = vi.fn();
+    const onPreviewTabsChange = vi.fn();
+    const props = { session, previewHost, onActivePreviewTabChange, onOpenRequestHandled, onPreviewTabsChange };
+    const request = { sessionId: session.id, path: filePath, line: 3, requestId: 1 };
+    const view = render(<RemoteFilePanel {...props} />);
+    await screen.findByTitle(filePath);
+    view.rerender(<RemoteFilePanel {...props} openRequest={request} />);
+    await waitFor(() => expect(onOpenRequestHandled).toHaveBeenCalledWith(1));
+    expect(previewFile).toHaveBeenCalledWith(session.id, filePath);
+    expect(onActivePreviewTabChange).toHaveBeenCalledWith(`${session.id}:${filePath}`);
+    await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([expect.objectContaining({ path: filePath, status: "ready" })]));
+    view.rerender(<RemoteFilePanel {...props} openRequest={request} activePreviewTabId={`${session.id}:${filePath}`} />);
+    await waitFor(() => {
+      const host = previewHost.querySelector<HTMLElement>(".cm-editor");
+      const editor = host && EditorView.findFromDOM(host);
+      expect(editor?.state.selection.main.head).toBe(8);
+    });
+    previewHost.remove();
   });
 
   it("reactivates an already selected file without reloading its preview", async () => {

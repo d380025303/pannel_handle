@@ -15,7 +15,7 @@ type RemoteFilePanelProps = {
   session?: TerminalSession;
   rememberedNavigationState?: RemoteFilePanelNavigationState;
   onNavigationStateChange?: (sessionId: string, state: RemoteFilePanelNavigationState) => void;
-  openRequest?: { sessionId: string; path: string; requestId: number } | null;
+  openRequest?: { sessionId: string; path: string; line?: number; requestId: number } | null;
   closePreviewRequest?: { tabId: string; requestId: number } | null;
   previewHost?: HTMLElement | null;
   activePreviewTabId?: string | null;
@@ -299,6 +299,7 @@ export function RemoteFilePanel({
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
   const [deleteDialogEntry, setDeleteDialogEntry] = useState<RemoteFileEntry | null>(null);
   const [fileSort, setFileSort] = useState(session?.fileSort ?? { key: "name" as const, direction: "asc" as const });
+  const [lineJump, setLineJump] = useState<{ path: string; line: number; requestId: number } | null>(null);
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [pathHistoryIndex, setPathHistoryIndex] = useState(-1);
   const [inlineEdit, setInlineEdit] = useState<InlineEditState>(null);
@@ -1066,7 +1067,7 @@ export function RemoteFilePanel({
       if (openRequestAttemptRef.current !== attemptId || !nextEntries) {
         return;
       }
-      const entry = nextEntries?.find((item) => item.path === openRequest.path) || {
+      const entry = nextEntries?.find((item) => sameTreePath(item.path, openRequest.path)) || {
         name: baseName(openRequest.path),
         path: openRequest.path,
         type: "file" as const,
@@ -1074,6 +1075,10 @@ export function RemoteFilePanel({
         modifiedAt: 0
       };
       await handleOpenEntry(entry, true);
+      if (openRequest.line) {
+        updatePreviewTab(getPreviewTabId(sessionId, entry.path), (tab) => ({ ...tab, viewMode: "edit" }));
+        setLineJump({ path: entry.path, line: openRequest.line, requestId });
+      } else setLineJump(null);
       if (openRequestAttemptRef.current === attemptId) {
         completed = true;
         onOpenRequestHandled?.(requestId);
@@ -1089,7 +1094,7 @@ export function RemoteFilePanel({
         handledOpenRequestRef.current = 0;
       }
     };
-  }, [handleOpenEntry, loadDirectory, navigationRoot, onOpenRequestHandled, openRequest, sessionId]);
+  }, [handleOpenEntry, loadDirectory, navigationRoot, onOpenRequestHandled, openRequest, sessionId, updatePreviewTab]);
 
   const findCachedParentPath = useCallback((entryPath: string) => (
     Object.entries(directoriesRef.current).find(([, directory]) => (
@@ -2198,6 +2203,8 @@ export function RemoteFilePanel({
                       fileName={activePreview.fileName}
                       languageMode={activePreviewTab.languageMode}
                       viewport={activePreviewTab.editorViewport}
+                      jumpTo={lineJump && sameTreePath(lineJump.path, activePreview.path) ? lineJump : undefined}
+                      onJumpHandled={(requestId) => setLineJump(current => current?.requestId === requestId ? null : current)}
                       onChange={(nextContent) => {
                         updatePreviewTab(activePreviewTab.id, (tab) => ({
                           ...tab,

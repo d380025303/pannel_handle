@@ -73,6 +73,18 @@ describe("QuickCommandBar", () => {
     expect(removeQuickCommand).toHaveBeenCalledWith("third");
   });
 
+  it("routes App Server commands without writing to the terminal", async () => {
+    const execute = vi.fn().mockResolvedValue(true);
+    render(<I18nProvider locale="zh-CN"><QuickCommandBar quickCommands={commands} activeSessionId="session-1"
+      onFocusTerminal={focusTerminal} onAddQuickCommand={addQuickCommand} onRemoveQuickCommand={removeQuickCommand}
+      onTogglePinned={togglePinned} onExecuteCommand={execute} autoEnterDisabled /></I18nProvider>);
+    expect((screen.getByRole("button", { name: "pinned command" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "third command" }));
+    expect(execute).toHaveBeenCalledWith(commands[2]);
+    await vi.waitFor(() => expect(removeQuickCommand).toHaveBeenCalledWith("third"));
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it("opens all commands and enforces the three-pin limit", () => {
     renderBar([
       { ...commands[0], pinned: true },

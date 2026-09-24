@@ -33,6 +33,7 @@ const { createAgentConversationHistoryService } = require("./services/conversati
 const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
+const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
@@ -110,6 +111,7 @@ let ideaModule = null;
 let projectAssistantService = null;
 let codexSessionControl = null;
 let codexAppServerSessionService = null;
+let questionAnswerStore = null;
 
 registerRemoteFileScheme(protocol);
 
@@ -255,10 +257,12 @@ if (!gotSingleInstanceLock) {
         }
       }
     });
+    questionAnswerStore = createQuestionAnswerStore({ userData: app.getPath("userData") });
     codexAppServerSessionService = createCodexAppServerSessionService({
       environmentService,
       terminalManager,
-      broadcast: windowManager.broadcast
+      broadcast: windowManager.broadcast,
+      questionAnswerStore
     });
     agentNotificationManager = createAgentNotificationManager({
       Notification,
@@ -602,6 +606,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  questionAnswerStore?.close();
   businessDataStore?.close();
   if (modelCatalogDir) {
     const target = path.resolve(modelCatalogDir);
