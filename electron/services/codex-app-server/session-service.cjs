@@ -905,7 +905,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     if (typeof isPinned !== "boolean") throw new Error("无效的置顶状态。");
     await checkedThread(entry, threadId);
-    await request(entry, "thread/metadata/update", { threadId, isPinned });
+    const result = await request(entry, "thread/metadata/update", { threadId, isPinned });
+    if (result?.thread?.id !== threadId || result.thread.isPinned !== isPinned)
+      throw new Error("App Server 未确认会话置顶状态，请重试。");
+    return { isPinned: result.thread.isPinned };
   }
   async function forkThread(id, threadId) {
     const entry = ready(id);

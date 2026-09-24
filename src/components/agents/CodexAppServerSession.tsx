@@ -635,7 +635,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setHistoryMutation(threadId); setHistoryError("");
     try {
       if (action === "rename") await window.codexAppServerApi.renameThread(sessionId, threadId, String(value));
-      if (action === "pin") await window.codexAppServerApi.pinThread(sessionId, threadId, Boolean(value));
+      if (action === "pin") {
+        const result = await window.codexAppServerApi.pinThread(sessionId, threadId, Boolean(value));
+        if (currentSessionRef.current === sessionId) {
+          historyRequestRef.current += 1;
+          setLoadingHistory(false);
+          setHistoryCursor(null);
+          setHistory(current => current.map(item => item.id === threadId ? { ...item, isPinned: result.isPinned } : item));
+        }
+        return;
+      }
       if (action === "archive") await window.codexAppServerApi.archiveThread(sessionId, threadId);
       if (action === "unarchive") await window.codexAppServerApi.unarchiveThread(sessionId, threadId);
       if (action === "fork") {

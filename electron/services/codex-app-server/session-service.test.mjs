@@ -688,6 +688,7 @@ describe("Codex App Server session", () => {
     const child = fakeProcess(received, request => {
       if (request.method === "thread/read") return { thread: { id: request.params.threadId,
         cwd: request.params.threadId === "other-project" ? "C:\\other" : "C:\\project" } };
+      if (request.method === "thread/metadata/update") return { thread: { id: request.params.threadId, isPinned: request.params.isPinned } };
       if (request.method === "thread/fork") return { thread: { id: "branch-1", forkedFromId: request.params.threadId } };
       if (request.method === "thread/resume") return { thread: { id: request.params.threadId, turns: [] } };
       if (request.method === "thread/archive" && failArchive) return { __error: "归档失败" };
@@ -701,7 +702,7 @@ describe("Codex App Server session", () => {
       await expect(service.renameThread("run-1", "other-project", "错误目标")).rejects.toThrow("当前项目");
       expect(received.some(item => item.method === "thread/name/set")).toBe(false);
       await service.renameThread("run-1", "thread-1", " 新名称 ");
-      await service.pinThread("run-1", "thread-1", true);
+      expect(await service.pinThread("run-1", "thread-1", true)).toEqual({ isPinned: true });
       expect(received.find(item => item.method === "thread/name/set").params).toEqual({ threadId: "thread-1", name: "新名称" });
       expect(received.find(item => item.method === "thread/metadata/update").params).toEqual({ threadId: "thread-1", isPinned: true });
       expect((await service.listHistory("run-1", null, true)).data[0]).toMatchObject({ archived: true, isPinned: true });
@@ -718,6 +719,22 @@ describe("Codex App Server session", () => {
       expect(service.snapshot("run-1").archived).toBe(false);
       expect(received.some(item => item.method === "thread/unarchive")).toBe(true);
       expect(received.filter(item => item.method === "thread/resume" && item.params.threadId === "branch-1")).toHaveLength(2);
+    } finally { service.close("run-1"); }
+  });
+
+  it("rejects pin updates that the App Server does not confirm", async () => {
+    let metadata = { thread: { id: "other-thread", isPinned: true } };
+    const child = fakeProcess([], request => {
+      if (request.method === "thread/read") return { thread: { id: request.params.threadId, cwd: "C:\\project" } };
+      if (request.method === "thread/metadata/update") return metadata;
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await expect(service.pinThread("run-1", "thread-1", true)).rejects.toThrow("未确认会话置顶状态");
+      metadata = { thread: { id: "thread-1", isPinned: false } };
+      await expect(service.pinThread("run-1", "thread-1", true)).rejects.toThrow("未确认会话置顶状态");
     } finally { service.close("run-1"); }
   });
 

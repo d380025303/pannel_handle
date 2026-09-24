@@ -442,7 +442,7 @@ export function installBrowserPreview() {
       resume: async (_id, threadId) => ({ threadId, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       renameThread: async () => undefined,
-      pinThread: async () => undefined,
+      pinThread: async (_id, _threadId, isPinned) => ({ isPinned }),
       forkThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       archiveThread: async () => undefined,
       unarchiveThread: async () => undefined,

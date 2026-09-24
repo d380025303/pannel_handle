@@ -26,7 +26,7 @@ describe("CodexAppServerSession", () => {
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
   const listHistory = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
   const renameThread = vi.fn().mockResolvedValue(undefined);
-  const pinThread = vi.fn().mockResolvedValue(undefined);
+  const pinThread = vi.fn().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned }));
   const forkThread = vi.fn().mockResolvedValue({ threadId: "branch-1", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const archiveThread = vi.fn().mockResolvedValue(undefined);
   const unarchiveThread = vi.fn().mockResolvedValue(undefined);
@@ -63,7 +63,7 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockClear(); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "projectSearchApi", { configurable: true, value: { searchWorkspaceEntries } });
     Object.defineProperty(window, "codexVersionApi", { configurable: true, value: {
       check: vi.fn().mockResolvedValue({ status: "current", currentVersion: "1.0.0", latestVersion: "1.0.0", restartRequired: false }),
@@ -606,6 +606,49 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("button", { name: "分叉" }));
     await waitFor(() => expect(forkThread).toHaveBeenCalledWith("run-1", "old-1"));
     expect(screen.queryByRole("dialog", { name: "历史会话" })).toBeNull();
+  });
+
+  it("updates pin state and order immediately, then reads the persisted state when reopened", async () => {
+    let pinned = false;
+    listHistory.mockImplementation(async () => ({ data: [
+      { id: "recent", title: "较新会话", updatedAt: 200, source: "cli", status: "notLoaded", isPinned: false },
+      { id: "older", title: "较早会话", updatedAt: 100, source: "cli", status: "notLoaded", isPinned: pinned }
+    ], nextCursor: null }));
+    pinThread.mockImplementation(async (_id, _threadId, isPinned) => { pinned = isPinned; return { isPinned }; });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    await screen.findByText("会话 ID：older");
+    const titles = () => Array.from(document.querySelectorAll(".codex-app-server-history-select strong"), item => item.textContent);
+    expect(titles()).toEqual(["较新会话", "较早会话"]);
+    fireEvent.click(screen.getAllByRole("button", { name: "置顶" }).at(-1)!);
+    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    expect(screen.getByRole("button", { name: "取消置顶" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消置顶" }));
+    await waitFor(() => expect(titles()).toEqual(["较新会话", "较早会话"]));
+    fireEvent.click(screen.getAllByRole("button", { name: "置顶" }).at(-1)!);
+    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    fireEvent.click(screen.getByRole("button", { name: "关闭历史会话" }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    expect(listHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the previous pin state and shows the request error", async () => {
+    listHistory.mockResolvedValue({ data: [{ id: "old-1", title: "旧任务", updatedAt: 123,
+      source: "cli", status: "notLoaded", isPinned: false }], nextCursor: null });
+    pinThread.mockRejectedValueOnce(new Error("置顶状态未确认"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    await screen.findByText("会话 ID：old-1");
+    fireEvent.click(screen.getByRole("button", { name: "置顶" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "置顶状态未确认");
+    expect(screen.getByRole("button", { name: "置顶" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "取消置顶" })).toBeNull();
   });
 
   it("keeps the current archived thread visible but prevents sending", async () => {
