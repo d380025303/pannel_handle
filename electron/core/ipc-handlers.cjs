@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -47,6 +47,23 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("project-assistant:codex-write", (_event, sessionId, data) => codexSessionControl.write(sessionId, data));
     ipcMain.handle("project-assistant:codex-submit", (_event, sessionId, text) => codexSessionControl.submit(sessionId, text));
     ipcMain.handle("project-assistant:codex-mode", (_event, sessionId) => codexSessionControl.switchMode(sessionId));
+  }
+  if (codexAppServerSessionService) {
+    ipcMain.handle("codex-app-server:snapshot", (_event, id) => codexAppServerSessionService.snapshot(String(id || "")));
+    ipcMain.handle("codex-app-server:history", (_event, id, cursor) => codexAppServerSessionService.listHistory(String(id || ""), cursor));
+    ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
+    ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
+    ipcMain.handle("codex-app-server:choose-files", async (event, id) => {
+      const ownerWindow = windowManager.getWindowFromEvent(event);
+      const result = await dialog.showOpenDialog(ownerWindow, { properties: ["openFile", "multiSelections"] });
+      const filePaths = result.canceled ? [] : result.filePaths.slice(0, 10);
+      codexAppServerSessionService.allowFiles(String(id || ""), filePaths);
+      return filePaths;
+    });
+    ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths) => codexAppServerSessionService.submit(String(id || ""), text, filePaths));
+    ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
+    ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, approved === true));
   }
   if (postgresBackupService) {
     ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());

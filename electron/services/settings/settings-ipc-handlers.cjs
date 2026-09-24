@@ -79,6 +79,9 @@ function registerSettingsIpcHandlers({
     if (partial && typeof partial.autoRestore === "boolean") {
       updates.autoRestore = partial.autoRestore;
     }
+    if (partial && typeof partial.codexAppServerEnabled === "boolean") {
+      updates.codexAppServerEnabled = partial.codexAppServerEnabled;
+    }
     if (partial && typeof partial.autoWorkBuddyCheckin === "boolean") {
       updates.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
     }

@@ -115,6 +115,8 @@ export type TranslationKey =
   | "settings.open"
   | "settings.generalTitle"
   | "settings.autoRestore"
+  | "settings.codexAppServer"
+  | "settings.codexAppServerHint"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1083,6 +1085,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "打开设置",
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
+    "settings.codexAppServer": "Codex 使用 App Server",
+    "settings.codexAppServerHint": "适用于之后启动的 Windows 与 WSL Codex 会话。",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2043,6 +2047,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.open": "Open settings",
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
+    "settings.codexAppServer": "Use App Server for Codex",
+    "settings.codexAppServerHint": "Applies to newly started Windows and WSL Codex sessions.",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

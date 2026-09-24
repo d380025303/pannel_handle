@@ -29,6 +29,7 @@ export function useTerminalSessions() {
   const [pickerManual, setPickerManual] = useState(false);
   const [defaultWindowsShell, setDefaultWindowsShell] = useState<WindowsShell>("cmd");
   const [autoRestore, setAutoRestore] = useState<boolean>(true);
+  const [codexAppServerEnabled, setCodexAppServerEnabled] = useState(true);
   const [agentStatusesBySessionId, setAgentStatusesBySessionId] = useState<Record<string, AgentStatusPayload>>({});
   const [dismissedAgentWarningsBySessionId, setDismissedAgentWarningsBySessionId] = useState<Record<string, number>>({});
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export function useTerminalSessions() {
       if (isDisposed) return;
 
       setAutoRestore(config.autoRestore);
+      setCodexAppServerEnabled(config.codexAppServerEnabled !== false);
       setDefaultWindowsShell(config.defaultWindowsShell || "cmd");
       setLibrarySessions(saved);
       setLaunchTemplates(savedLaunchTemplates);
@@ -365,6 +367,12 @@ export function useTerminalSessions() {
     setAutoRestore(next);
   }, []);
 
+  const toggleCodexAppServer = useCallback(async () => {
+    const next = !codexAppServerEnabled;
+    await window.terminalApi.setConfig({ codexAppServerEnabled: next });
+    setCodexAppServerEnabled(next);
+  }, [codexAppServerEnabled]);
+
   return {
     sessions,
     activeId,
@@ -406,6 +414,8 @@ export function useTerminalSessions() {
     changeDefaultWindowsShell,
     autoRestore,
     toggleAutoRestore,
+    codexAppServerEnabled,
+    toggleCodexAppServer,
     addQuickCommandToActiveSession,
     removeQuickCommandFromActiveSession,
     toggleQuickCommandPinnedForActiveSession,

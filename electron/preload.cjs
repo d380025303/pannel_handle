@@ -44,6 +44,23 @@ contextBridge.exposeInMainWorld("projectAssistantApi", {
   }
 });
 
+contextBridge.exposeInMainWorld("codexAppServerApi", {
+  snapshot: id => ipcRenderer.invoke("codex-app-server:snapshot", id),
+  listHistory: (id, cursor) => ipcRenderer.invoke("codex-app-server:history", id, cursor),
+  resume: (id, threadId) => ipcRenderer.invoke("codex-app-server:resume", id, threadId),
+  newThread: id => ipcRenderer.invoke("codex-app-server:new-thread", id),
+  setMode: (id, mode) => ipcRenderer.invoke("codex-app-server:mode", id, mode),
+  chooseFiles: id => ipcRenderer.invoke("codex-app-server:choose-files", id),
+  submit: (id, text, filePaths) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths),
+  interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
+  resolveApproval: (id, requestId, approved) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, approved),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("codex-app-server:changed", listener);
+    return () => ipcRenderer.removeListener("codex-app-server:changed", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("terminalApi", {
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   createSession: (options) => ipcRenderer.invoke("sessions:create", options),

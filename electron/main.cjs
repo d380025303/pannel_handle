@@ -32,6 +32,7 @@ const { createPostgresBackupService } = require("./services/postgres-backup/post
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
 const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
+const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
@@ -108,6 +109,7 @@ let agentConversationHistoryService = null;
 let ideaModule = null;
 let projectAssistantService = null;
 let codexSessionControl = null;
+let codexAppServerSessionService = null;
 
 registerRemoteFileScheme(protocol);
 
@@ -227,6 +229,7 @@ if (!gotSingleInstanceLock) {
         }
       },
       onSessionClosed: (id) => {
+        codexAppServerSessionService?.close(id);
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
         }
@@ -250,6 +253,11 @@ if (!gotSingleInstanceLock) {
           codexModelBridgeModule.disconnect(id);
         }
       }
+    });
+    codexAppServerSessionService = createCodexAppServerSessionService({
+      environmentService,
+      terminalManager,
+      broadcast: windowManager.broadcast
     });
     agentNotificationManager = createAgentNotificationManager({
       Notification,
@@ -389,6 +397,8 @@ if (!gotSingleInstanceLock) {
     });
     agentSessionLauncher = createAgentSessionLauncher({
       terminalManager,
+      codexAppServerSessionService,
+      configStore,
       sessionStore,
       hookConfigManager,
       remoteHookConfigService,
@@ -509,7 +519,8 @@ if (!gotSingleInstanceLock) {
       remoteAgentBridgeService,
       postgresBackupService,
       projectAssistantService,
-      codexSessionControl
+      codexSessionControl,
+      codexAppServerSessionService
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
@@ -546,6 +557,7 @@ app.on("window-all-closed", () => {
     void remoteAgentBridgeService.shutdown();
   }
   settingsModule?.shutdown();
+  codexAppServerSessionService?.shutdown();
   screenshotModule?.shutdown();
   if (codexModelBridgeModule) {
     void codexModelBridgeModule.shutdown();

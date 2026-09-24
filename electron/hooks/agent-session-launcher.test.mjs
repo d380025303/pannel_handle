@@ -115,6 +115,33 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
+  it("uses App Server for new local Codex sessions only while the global setting is enabled", async () => {
+    let enabled = true;
+    const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
+    const mocks = createMocks({
+      codexAppServerSessionService,
+      configStore: { getConfig: () => ({ codexAppServerEnabled: enabled }) }
+    });
+    const first = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
+    expect(first).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
+    expect(codexAppServerSessionService.start).toHaveBeenCalledWith(first, expect.any(Object));
+    enabled = false;
+    const second = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex" });
+    expect(second.runtimeMode).toBeUndefined();
+    expect(second.deferTerminalStart).toBeUndefined();
+    expect(first.runtimeMode).toBe("app-server");
+  });
+  it("rejects a Windows Codex shim in WSL App Server mode", async () => {
+    const mocks = createMocks({
+      codexAppServerSessionService: { start: vi.fn() },
+      configStore: { getConfig: () => ({ codexAppServerEnabled: true }) },
+      spawnSync: vi.fn((_command, args) => args?.at(-1)?.includes("resolved=$(command -v codex)")
+        ? { status: 126 } : { status: 0, stdout: "found" })
+    });
+    await expect(mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", agentProvider: "codex" }))
+      .rejects.toThrow("Linux Codex CLI");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
   it("duplicates a persisted running session from its saved template", async () => {
     const mocks = createMocks();
     const template = {

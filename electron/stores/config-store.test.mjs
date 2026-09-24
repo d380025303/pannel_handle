@@ -22,6 +22,14 @@ afterEach(() => {
 });
 
 describe("config-store", () => {
+  it("persists the Codex App Server switch", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    store.updateConfig({ codexAppServerEnabled: false });
+    const reopened = createConfigStore({ configFile });
+    reopened.loadConfig();
+    expect(reopened.getConfig().codexAppServerEnabled).toBe(false);
+  });
   it("defaults debugMode to false when config file is missing", () => {
     const store = createConfigStore({ configFile: createTempConfigPath() });
 
@@ -29,6 +37,7 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       defaultWindowsShell: "cmd",
+      codexAppServerEnabled: true,
       autoRestore: true,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
@@ -180,6 +189,7 @@ describe("config-store", () => {
 
     expect(store.getConfig()).toEqual({
       defaultWindowsShell: "cmd",
+      codexAppServerEnabled: true,
       autoRestore: false,
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,

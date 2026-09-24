@@ -277,6 +277,8 @@ function createAgentSessionLauncher({
   naraRouterService,
   miniMaxService,
   codexModelBridgeModule,
+  codexAppServerSessionService,
+  configStore,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
@@ -284,6 +286,8 @@ function createAgentSessionLauncher({
   getHomeDirectory = () => os.homedir()
 }) {
   const switchingSessions = new Map();
+  const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex" && session.type !== "ssh"
+    && configStore?.getConfig().codexAppServerEnabled === true;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
     return { ...session, cwd: getHomeDirectory() };
@@ -330,6 +334,14 @@ function createAgentSessionLauncher({
       : spawnSync("where.exe", [command], { encoding: "utf-8", windowsHide: true });
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
+    }
+    if (session.type === "wsl" && session.agentProvider === "codex" && useAppServer(session)) {
+      const native = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc",
+        "resolved=$(command -v codex) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; codex --version"],
+      { encoding: "utf-8", windowsHide: true, timeout: 10000 });
+      if (native.error || native.status !== 0) {
+        throw new Error("WSL App Server 需要在所选发行版中安装可运行的 Linux Codex CLI；当前检测到 Windows 包装命令或 CLI 无法启动。");
+      }
     }
     if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
     if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
@@ -445,10 +457,32 @@ function createAgentSessionLauncher({
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
+      codexCommand: backend ? buildCodexBackendCommand(session, runtimeConfigForBackend(backend, codeBuddyCodex)) : "codex",
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
       runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
       codexBridgeRegistration: bridgeRegistration
     };
+  }
+
+  function runtimeConfigForBackend(backend, codeBuddyCodex) {
+    return codeBuddyCodex ? { providerId: "codebuddy", providerName: "CodeBuddy", ...backend } : backend;
+  }
+
+  async function launchPreparedLocal(create, target, runtime, removeSavedOnFailure = false) {
+    if (!useAppServer(target)) return createAndBindCodexBridgeRuntime(() => create(runtime), runtime);
+    let session;
+    try {
+      session = create({ ...runtime, deferTerminalStart: true, runtimeMode: "app-server" });
+      await codexAppServerSessionService.start(terminalManager.getSession(session.id), runtime);
+      return bindCodexBridgeRuntime(session, runtime);
+    } catch (error) {
+      if (session) {
+        terminalManager.closeSession(session.id);
+        if (removeSavedOnFailure && session.templateId) terminalManager.deleteSavedSession(session.templateId);
+      }
+      else codexModelBridgeModule?.releaseRegistration(runtime?.codexBridgeRegistration);
+      throw error;
+    }
   }
 
   function bindCodexBridgeRuntime(session, runtime) {
@@ -550,7 +584,7 @@ function createAgentSessionLauncher({
       }
     }
     const runtime = await prepareLocal(request);
-    return createAndBindCodexBridgeRuntime(() => terminalManager.createSession({ ...request, ...runtime }), runtime);
+    return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request, runtime, true);
   }
 
   async function launchSession(template, options = {}) {
@@ -570,7 +604,7 @@ function createAgentSessionLauncher({
         session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
       } else {
         const runtime = await prepareLocal(launchTemplate);
-        session = createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...runtime }), runtime);
+        session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, runtime);
       }
     }
     if (recordUsage) onTemplateLaunched(launchTemplate.id);
@@ -692,11 +726,11 @@ function createAgentSessionLauncher({
       const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
-      const replacement = createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(target, {
+      const replacement = await launchPreparedLocal(options => terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
-        ...runtime
-      }), runtime);
+        ...options
+      }), target, runtime);
       return target.type === "ssh" ? await finishSsh(replacement) : replacement;
     })();
     switchingSessions.set(sessionId, operation);
@@ -725,11 +759,11 @@ function createAgentSessionLauncher({
       const runtime = await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
-      return createAndBindCodexBridgeRuntime(() => terminalManager.launchSession(target, {
+      return launchPreparedLocal(options => terminalManager.launchSession(target, {
         useProvidedTemplate: true,
         templateId: session.templateId,
-        ...runtime
-      }), runtime);
+        ...options
+      }), target, runtime);
     })();
     switchingSessions.set(sessionId, operation);
     try {

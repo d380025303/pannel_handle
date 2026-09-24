@@ -45,6 +45,7 @@ export type TerminalSession = EnvironmentSelection & {
   createdAt: number;
   initialCommand?: string;
   agentProvider?: AgentProvider;
+  runtimeMode?: "terminal" | "app-server";
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
   codexBackend?: CodexBackend;
@@ -98,6 +99,7 @@ export type WindowsShell = "cmd" | "powershell" | "pwsh";
 
 export type AppConfig = {
   defaultWindowsShell: WindowsShell;
+  codexAppServerEnabled: boolean;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
   autoCollapseFileChains: boolean;
@@ -938,6 +940,30 @@ export type ProjectAssistantAction = {
   label: string;
   createdAt: number;
 };
+
+export type CodexAppServerSnapshot = {
+  threadId: string | null;
+  mode: "default" | "plan";
+  busy: boolean;
+  error: string | null;
+  items: Array<{ id: string; type: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown }>;
+  approvals: Array<{ requestId: number; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown } }>;
+};
+
+export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string };
+
+export type CodexAppServerApi = {
+  snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
+  listHistory: (id: string, cursor?: string | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
+  resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
+  newThread: (id: string) => Promise<CodexAppServerSnapshot>;
+  setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
+  chooseFiles: (id: string) => Promise<string[]>;
+  submit: (id: string, text: string, filePaths?: string[]) => Promise<void>;
+  interrupt: (id: string) => Promise<void>;
+  resolveApproval: (id: string, requestId: number, approved: boolean) => Promise<void>;
+  onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
+};
 export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };
 export type ProjectAssistantCodexScreen = { sessionId: string; ansi: string; seq: number; cols: number; rows: number; owner: string };
 export type ProjectAssistantCodexDelta = { seq: number; data: string };
@@ -1285,6 +1311,7 @@ export type IdeaBridgeApi = {
 declare global {
   interface Window {
     projectAssistantApi: ProjectAssistantApi;
+    codexAppServerApi: CodexAppServerApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     screenshotApi: ScreenshotApi;

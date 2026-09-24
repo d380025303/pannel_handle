@@ -11,6 +11,7 @@ import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
+import { CodexAppServerSession } from "./components/agents/CodexAppServerSession";
 import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
@@ -169,9 +170,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     terminalSessions.sessions.map((session) => session.id)
   );
   const activeTheme = getAppTheme(themeId);
+  const isAppServerSession = terminalSessions.activeSession?.runtimeMode === "app-server";
+  const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
   const terminalInstances = useTerminalInstances({
-    activeId: terminalSessions.activeId,
-    isVisible: workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
+    activeId: activeTerminalId,
+    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
     terminalTheme: activeTheme.terminal,
     sessions: terminalSessions.sessions
   });
@@ -782,18 +785,20 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
               <div className="terminal-area" style={{ display: workspaceTab === "terminal" ? undefined : "none" }}>
                 <TerminalPanel
                   sessions={terminalSessions.sessions}
-                  activeId={terminalSessions.activeId}
+                  activeId={activeTerminalId}
+                  isVisible={!isAppServerSession}
                   hostRefs={terminalInstances.terminalHostRefs}
                   onContextMenu={terminalInstances.handleTerminalContextMenu}
                   onWheel={terminalInstances.handleTerminalWheel}
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
                 />
-                <TerminalComposer
+                {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession sessionId={terminalSessions.activeSession.id} />}
+                {!isAppServerSession && <TerminalComposer
                   session={terminalSessions.activeSession}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
-                />
-                {(terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
+                />}
+                {!isAppServerSession && (terminalSessions.activeId != null || remoteSystemMetrics.status !== "hidden") && (
                   <footer className="terminal-footer">
                     <QuickCommandBar
                       quickCommands={terminalSessions.quickCommandsForActiveSession}
@@ -820,6 +825,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     </div>
                   </footer>
                 )}
+                {isAppServerSession && <footer className="terminal-footer">
+                  <div className="terminal-status-cluster">
+                    <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
+                    <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
+                    <AgentTokenLiveStatus state={agentTokenLive} />
+                  </div>
+                </footer>}
               </div>
               <div
                 className="workspace-preview"
@@ -1030,6 +1042,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           defaultWindowsShell={terminalSessions.defaultWindowsShell}
           onDefaultWindowsShellChange={terminalSessions.changeDefaultWindowsShell}
           autoRestore={terminalSessions.autoRestore}
+          codexAppServerEnabled={terminalSessions.codexAppServerEnabled}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
           debugMode={debugMode}
           screenshotEnabled={screenshotEnabled}
@@ -1038,6 +1051,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           locale={locale}
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
+          onToggleCodexAppServer={terminalSessions.toggleCodexAppServer}
           onToggleAutoWorkBuddyCheckin={handleToggleAutoWorkBuddyCheckin}
           onToggleDebugMode={handleToggleDebugMode}
           onScreenshotEnabledChange={handleScreenshotEnabledChange}

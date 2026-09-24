@@ -75,6 +75,7 @@ const savedSessions: TerminalSession[] = [
 
 const initialConfig: AppConfig = {
   defaultWindowsShell: "pwsh",
+  codexAppServerEnabled: true,
   autoRestore: true,
   autoWorkBuddyCheckin: true,
   autoCollapseFileChains: true,
@@ -420,6 +421,18 @@ export function installBrowserPreview() {
       onChanged: () => () => undefined,
       onProgress: () => () => undefined
     } satisfies Window["projectAssistantApi"],
+    codexAppServerApi: {
+      snapshot: async () => ({ threadId: "preview-thread", mode: "default", busy: false, error: null, items: [], approvals: [] }),
+      listHistory: async () => ({ data: [], nextCursor: null }),
+      resume: async (_id, threadId) => ({ threadId, mode: "default", busy: false, error: null, items: [], approvals: [] }),
+      newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", busy: false, error: null, items: [], approvals: [] }),
+      setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, busy: false, error: null, items: [], approvals: [] }),
+      chooseFiles: async () => [],
+      submit: async () => undefined,
+      interrupt: async () => undefined,
+      resolveApproval: async () => undefined,
+      onChanged: () => () => undefined
+    } satisfies Window["codexAppServerApi"],
     launchTemplateApi: {
       list: async () => copy(launchTemplates),
       create: async (input) => { const entry = { id: `preview-launch-${nextId++}`, ...input, createdAt: Date.now(), updatedAt: Date.now() }; launchTemplates = [...launchTemplates, entry]; return copy(entry); },
@@ -543,7 +556,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "codeBuddyCodexApi" | "agentConversationApi" | "projectAssistantApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "codeBuddyCodexApi" | "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

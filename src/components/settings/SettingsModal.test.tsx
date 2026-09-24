@@ -19,6 +19,7 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         defaultWindowsShell="cmd"
         onDefaultWindowsShellChange={vi.fn().mockResolvedValue(undefined)}
         autoRestore
+        codexAppServerEnabled
         autoWorkBuddyCheckin
         debugMode={false}
         screenshotEnabled
@@ -27,6 +28,7 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         locale="zh-CN"
         themes={APP_THEMES}
         onToggleAutoRestore={vi.fn()}
+        onToggleCodexAppServer={vi.fn()}
         onToggleAutoWorkBuddyCheckin={onToggleAutoWorkBuddyCheckin}
         onToggleDebugMode={vi.fn()}
         onScreenshotEnabledChange={vi.fn().mockResolvedValue(undefined)}

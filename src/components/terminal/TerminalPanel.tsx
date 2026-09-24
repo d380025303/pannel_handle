@@ -7,6 +7,7 @@ import { useI18n } from "../../i18n";
 type TerminalPanelProps = {
   sessions: TerminalSession[];
   activeId?: string;
+  isVisible?: boolean;
   hostRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
   onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
   onWheel: (event: WheelEvent<HTMLDivElement>) => void;
@@ -17,6 +18,7 @@ type TerminalPanelProps = {
 export function TerminalPanel({
   sessions,
   activeId,
+  isVisible = true,
   hostRefs,
   onContextMenu,
   onWheel,
@@ -52,7 +54,7 @@ export function TerminalPanel({
   const visibleAuditEvents = useMemo(() => auditEvents.slice(-100), [auditEvents]);
 
   return (
-    <section className="terminal-panel">
+    <section className="terminal-panel" style={{ display: isVisible ? undefined : "none" }}>
       {isLocalRemoteAgent && (
         <button
           className={`remote-agent-audit-toggle${auditOpen ? " active" : ""}`}
@@ -71,7 +73,7 @@ export function TerminalPanel({
         </button>
       )}
       <div className="terminal-hosts-container" onContextMenu={onContextMenu} onWheel={onWheel}>
-        {sessions.map((session) => (
+        {sessions.filter((session) => session.runtimeMode !== "app-server").map((session) => (
           <div
             key={session.id}
             className="terminal-host"

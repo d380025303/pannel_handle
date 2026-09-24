@@ -330,6 +330,7 @@ function createTerminalManager({
       createdAt: session.createdAt,
       initialCommand: session.initialCommand,
       agentProvider: session.agentProvider,
+      runtimeMode: session.runtimeMode,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
       codexBackend: session.codexBackend,
@@ -731,6 +732,7 @@ function createTerminalManager({
       templateId,
       title: getRuntimeTitle(template, Boolean(templateId)),
       agentRuntimeProvider: template.agentProvider,
+      runtimeMode: options.runtimeMode || "terminal",
       ...(template.type === "ssh" ? { sshConnectionState: "connecting", sshReconnectAttempt: 0 } : {}),
       createdAt: Date.now()
     };
