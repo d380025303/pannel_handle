@@ -33,6 +33,8 @@ const { createAgentConversationHistoryService } = require("./services/conversati
 const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
+const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
+const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
@@ -274,7 +276,7 @@ if (!gotSingleInstanceLock) {
     });
     const sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
     const sshFileSystem = createSshFileSystem({ sshSessionRuntime });
-    codexAppServerSessionService = createCodexAppServerSessionService({
+    const codexGraphicalService = createCodexAppServerSessionService({
       environmentService,
       terminalManager,
       broadcast: windowManager.broadcast,
@@ -283,6 +285,10 @@ if (!gotSingleInstanceLock) {
       sshAgentTransport,
       sshFileSystem
     });
+    const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
+      environmentService, terminalManager, broadcast: windowManager.broadcast, sshAgentTransport, sshFileSystem
+    });
+    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager);
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,

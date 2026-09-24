@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   resume: (id, threadId) => ipcRenderer.invoke("codex-app-server:resume", id, threadId),
   newThread: id => ipcRenderer.invoke("codex-app-server:new-thread", id),
   setMode: (id, mode) => ipcRenderer.invoke("codex-app-server:mode", id, mode),
+  setNativeMode: (id, modeId) => ipcRenderer.invoke("codex-app-server:native-mode", id, modeId),
   setExecutionPermission: (id, permission) => ipcRenderer.invoke("codex-app-server:execution-permission", id, permission),
   dismissPlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:dismiss-plan", id, itemId),
   executePlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:execute-plan", id, itemId),

@@ -136,6 +136,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexAppServerEnabled = agentProvider === "codex"
       ? template.codexAppServerEnabled !== false
       : undefined;
+    const codeBuddyAcpEnabled = agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true : undefined;
     const codexExecutionPermission = agentProvider === "codex"
       ? (CODEX_EXECUTION_PERMISSIONS.has(template.codexExecutionPermission) ? template.codexExecutionPermission : "askApproval")
       : undefined;
@@ -159,6 +160,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexModel,
       codexExperimentalAcknowledged,
       codexAppServerEnabled,
+      codeBuddyAcpEnabled,
       codexExecutionPermission,
       type: template.type,
       wslDistro: template.wslDistro,

@@ -149,7 +149,8 @@ describe("CreateSessionModal local SSH bridge", () => {
     await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       selectedShellId: "ssh",
       agentProvider: "codebuddy",
-      agentLocation: "local"
+      agentLocation: "local",
+      codeBuddyAcpEnabled: true
     })));
   });
 

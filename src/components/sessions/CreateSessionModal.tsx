@@ -19,6 +19,7 @@ export type CreateSessionRequest = EnvironmentSelection & {
   initialCommand?: string;
   agentProvider?: AgentProvider;
   codexAppServerEnabled?: boolean;
+  codeBuddyAcpEnabled?: boolean;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
   codexBackend?: CodexBackend;
@@ -47,6 +48,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
   const [localAgentCwd, setLocalAgentCwd] = useState("");
   const [codexBackend, setCodexBackend] = useState<CodexBackend>("openai");
   const [codexAppServerEnabled, setCodexAppServerEnabled] = useState(true);
+  const [codeBuddyAcpEnabled, setCodeBuddyAcpEnabled] = useState(true);
   const [codexModel, setCodexModel] = useState<string>();
   const [codexReady, setCodexReady] = useState(true);
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(false);
@@ -90,6 +92,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
         localAgentCwd: isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
         codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
         codexAppServerEnabled: agentProvider === "codex" ? codexAppServerEnabled : undefined,
+        codeBuddyAcpEnabled: agentProvider === "codebuddy" ? codeBuddyAcpEnabled : undefined,
         codexModel: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) ? codexModel : undefined,
         codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
         tags,
@@ -132,6 +135,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
       <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local"); }} />
       {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
       {agentProvider === "codex" && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codexAppServerEnabled} onChange={event => setCodexAppServerEnabled(event.target.checked)} /><span className="settings-help">{t("session.codexAppServerHint")}</span></label>}
+      {agentProvider === "codebuddy" && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codeBuddyAcpEnabled} onChange={event => setCodeBuddyAcpEnabled(event.target.checked)} /><span className="settings-help">{t("session.codeBuddyAcpHint")}</span></label>}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
       {agentProvider && !cwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}

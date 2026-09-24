@@ -52,6 +52,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
   codexAppServerEnabled?: boolean;
+  codeBuddyAcpEnabled?: boolean;
   codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
@@ -953,6 +954,10 @@ export type CodexQuestionRequest = { requestId: number | string; submitting: boo
 
 export type CodexAppServerSnapshot = {
   threadId: string | null;
+  provider?: "codex" | "codebuddy";
+  nativeMode?: string | null;
+  nativeModes?: Array<{ id: string; name: string; description?: string }>;
+  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   tokenUsage?: { total: AgentTokenTotals; last: AgentTokenTotals; modelContextWindow: number | null } | null;
   tokenUpdatedAt?: number | null;
@@ -969,7 +974,7 @@ export type CodexAppServerSnapshot = {
     afterItemId?: string | null;
     questions?: Array<{ id: string; header: string; question: string; answers: string[] }>;
     explanation?: string | null; plan?: Array<{ step: string; status: "pending" | "inProgress" | "completed" }> }>;
-  approvals: Array<{ requestId: number; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown } }>;
+  approvals: Array<{ requestId: number | string; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown; choices?: Array<{ id: string; label: string }> } }>;
   questions?: CodexQuestionRequest[];
 };
 
@@ -981,6 +986,7 @@ export type CodexAppServerApi = {
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
   setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
+  setNativeMode: (id: string, modeId: string) => Promise<CodexAppServerSnapshot>;
   setExecutionPermission: (id: string, permission: CodexExecutionPermission) => Promise<CodexAppServerSnapshot>;
   dismissPlan: (id: string, itemId: string) => Promise<CodexAppServerSnapshot>;
   executePlan: (id: string, itemId: string) => Promise<void>;
@@ -991,7 +997,7 @@ export type CodexAppServerApi = {
   discardImage: (id: string, filePath: string) => Promise<void>;
   submit: (id: string, text: string, filePaths?: string[]) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
-  resolveApproval: (id: string, requestId: number, approved: boolean) => Promise<void>;
+  resolveApproval: (id: string, requestId: number | string, approved: boolean | string) => Promise<void>;
   answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
 };
@@ -1024,8 +1030,8 @@ export type ProjectAssistantApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; codexAppServerEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; codexAppServerEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; codexAppServerEnabled?: boolean; codeBuddyAcpEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; codexAppServerEnabled?: boolean; codeBuddyAcpEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;

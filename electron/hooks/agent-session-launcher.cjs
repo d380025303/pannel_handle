@@ -295,8 +295,9 @@ function createAgentSessionLauncher({
   getHomeDirectory = () => os.homedir()
 }) {
   const switchingSessions = new Map();
-  const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex"
-    && session.codexAppServerEnabled !== false;
+  const useAppServer = session => Boolean(codexAppServerSessionService) && (
+    (session.agentProvider === "codex" && session.codexAppServerEnabled !== false)
+    || (session.agentProvider === "codebuddy" && session.codeBuddyAcpEnabled === true));
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
     return { ...session, cwd: getHomeDirectory() };
@@ -338,14 +339,15 @@ function createAgentSessionLauncher({
 
   function assertLocalCommand(session) {
     const command = getAgentCommand(session.agentProvider);
-    if (session.type === "wsl" && session.agentProvider === "codex" && useAppServer(session)) {
+    if (session.type === "wsl" && useAppServer(session)) {
+      const agentCommand = session.agentProvider === "codebuddy" ? "codebuddy" : "codex";
       const result = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
-        "resolved=$(command -v codex) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac"],
+        `resolved=$(command -v ${agentCommand}) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac`],
       { encoding: "utf-8", windowsHide: true, timeout: 30000 });
       if (result.error?.code === "ETIMEDOUT") throw new Error(`WSL ${session.wslDistro} 中的 Codex 命令检测超时。`);
       if (result.error) throw new Error(`无法检测 WSL ${session.wslDistro} 中的 Codex 命令：${result.error.message}`);
-      if (result.status === 126) throw new Error(`WSL ${session.wslDistro} 中的 codex 指向 Windows 安装；请在该发行版中安装 Linux Codex CLI。`);
-      if (result.status === 127) throw new Error(`未在 WSL ${session.wslDistro} 的 Bash 登录环境中找到 codex 命令。${getAgentInstallHint("codex")}`);
+      if (result.status === 126) throw new Error(`WSL ${session.wslDistro} 中的 ${agentCommand} 指向 Windows 安装；请在该发行版中安装 Linux ${session.agentProvider === "codex" ? "Codex" : "CodeBuddy"} CLI。`);
+      if (result.status === 127) throw new Error(`未在 WSL ${session.wslDistro} 的 Bash 登录环境中找到 ${agentCommand} 命令。${getAgentInstallHint(session.agentProvider)}`);
       if (result.status !== 0) throw new Error(`检测 WSL ${session.wslDistro} 中的 Codex 命令失败（退出代码 ${result.status ?? "未知"}）：${String(result.stderr || "").trim().slice(-1000)}`);
       return;
     }
@@ -564,13 +566,22 @@ function createAgentSessionLauncher({
       binding = await remoteAgentBridgeService.createBinding(session.id);
       const preCommand = String(session.initialCommand || "").trim();
       if (preCommand) await remoteAgentBridgeService.runConfiguredCommand(session.id, preCommand);
-      await ensureLocalHookAt(binding.workspacePath, "codex");
+      await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
+      const codeBuddyInstructions = session.agentProvider === "codebuddy"
+        ? binding.runtimeInstructions || binding.developerInstructions : undefined;
+      const acpArgs = session.agentProvider === "codebuddy" ? [
+        "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding).replace(/'/g, "''")}'`,
+        "--strict-mcp-config", "--tools", "'Read,Glob,Grep'",
+        ...(codeBuddyInstructions ? ["--append-system-prompt", `\"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}\"`] : [])
+      ].join(" ") : undefined;
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), {
         localBridge: true,
         workspaceCwd: binding.workspacePath,
         shell: getLocalBridgeShell(),
-        codexCommand: buildLocalCodexAppServerCommand(binding),
-        runtimeEnv: { [binding.tokenEnv]: binding.token }
+        codexCommand: session.agentProvider === "codex" ? buildLocalCodexAppServerCommand(binding) : undefined,
+        acpArgs,
+        runtimeEnv: { [binding.tokenEnv]: binding.token,
+          ...(codeBuddyInstructions ? { [CODEBUDDY_REMOTE_INSTRUCTIONS_ENV]: codeBuddyInstructions } : {}) }
       });
       return session;
     } catch (error) {
@@ -708,6 +719,7 @@ function createAgentSessionLauncher({
       codexModel: provider === "codex" ? session.codexModel : undefined,
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
       codexAppServerEnabled: provider === "codex" ? session.codexAppServerEnabled : undefined,
+      codeBuddyAcpEnabled: provider === "codebuddy" ? session.codeBuddyAcpEnabled : undefined,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,

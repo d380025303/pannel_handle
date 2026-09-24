@@ -16,6 +16,7 @@ type CreateSessionOptions = EnvironmentSelection & {
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
   codexAppServerEnabled?: boolean;
+  codeBuddyAcpEnabled?: boolean;
   sshConfig?: SshConfig;
   tags?: string[];
   persist?: boolean;
@@ -131,7 +132,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -147,6 +148,7 @@ export function useTerminalSessions() {
       ...(isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
       ...(agentProvider === "codex" ? { codexAppServerEnabled: codexAppServerEnabled !== false } : {}),
+      ...(agentProvider === "codebuddy" ? { codeBuddyAcpEnabled: codeBuddyAcpEnabled !== false } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
       tags,
@@ -180,7 +182,7 @@ export function useTerminalSessions() {
     }));
   }, [activeAgentWarning]);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, codexAppServerEnabled?: boolean, codeBuddyAcpEnabled?: boolean) => {
     await window.terminalApi.updateSession(id, {
       ...environment,
       title,
@@ -191,6 +193,7 @@ export function useTerminalSessions() {
       localAgentCwd: supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd ?? null : null,
       codexBackend: agentProvider === "codex" ? codexBackend ?? "openai" : null,
       ...(agentProvider === "codex" && typeof codexAppServerEnabled === "boolean" ? { codexAppServerEnabled } : {}),
+      ...(agentProvider === "codebuddy" && typeof codeBuddyAcpEnabled === "boolean" ? { codeBuddyAcpEnabled } : {}),
       codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") ? codexModel ?? null : null,
       ...(typeof codexExperimentalAcknowledged !== "undefined"
         ? { codexExperimentalAcknowledged: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : null }

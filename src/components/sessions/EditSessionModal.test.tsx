@@ -34,7 +34,7 @@ describe("EditSessionModal", () => {
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0].at(-1)).toBe(true);
+    expect(onSave.mock.calls[0].at(-2)).toBe(true);
   });
   it("saves the App Server setting for an SSH remote Codex template", async () => {
     const onSave = vi.fn(async () => undefined);
@@ -45,7 +45,17 @@ describe("EditSessionModal", () => {
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0].at(-1)).toBe(false);
+    expect(onSave.mock.calls[0].at(-2)).toBe(false);
+  });
+  it("keeps an existing CodeBuddy template in terminal mode until enabled", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codebuddy" }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    expect(toggle).toHaveProperty("checked", false);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0].at(-1)).toBe(true);
   });
   it("summarizes configured optional groups and preserves edited values", async () => {
     const onSave = vi.fn(async () => undefined);

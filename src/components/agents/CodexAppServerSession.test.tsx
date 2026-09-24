@@ -24,6 +24,9 @@ describe("CodexAppServerSession", () => {
   const newThread = vi.fn().mockResolvedValue({ threadId: "thread-2", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const resume = vi.fn().mockResolvedValue({ threadId: "old-thread", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const setMode = vi.fn().mockImplementation(async (_id, mode) => ({ threadId: "thread-1", mode, busy: false, error: null, items: [], approvals: [] }));
+  const setNativeMode = vi.fn().mockImplementation(async (_id, modeId) => ({ threadId: "thread-1", provider: "codebuddy", nativeMode: modeId,
+    nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: modeId === "plan" ? "plan" : "default",
+    executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }));
   const setExecutionPermission = vi.fn().mockImplementation(async (_id, executionPermission) => ({
     threadId: "thread-1", mode: "default", executionPermission, busy: false, error: null, items: [], approvals: [] }));
   const chooseFiles = vi.fn().mockResolvedValue([]);
@@ -35,14 +38,27 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); newThread.mockClear(); resume.mockClear(); setMode.mockClear(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); newThread.mockClear(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, listHistory,
-      resume, newThread, setMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      resume, newThread, setMode, setNativeMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
     } });
+  });
+
+  it("shows CodeBuddy modes supplied by ACP and hides Codex permission controls", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",
+      nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      capabilities: { history: false, plan: true, attachments: true, permissions: true } } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "历史会话" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("group", { name: /执行权限/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
+    await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
   });
 
   it("follows streamed plan text and new lines after the reader scrolls up", async () => {

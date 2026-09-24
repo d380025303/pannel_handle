@@ -428,6 +428,7 @@ export function installBrowserPreview() {
       resume: async (_id, threadId) => ({ threadId, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setNativeMode: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setExecutionPermission: async (_id, permission) => { previewExecutionPermission = permission; return {
         threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission,
         busy: false, error: null, pendingPlan: null, items: [], approvals: [] }; },

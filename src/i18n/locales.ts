@@ -117,6 +117,7 @@ export type TranslationKey =
   | "settings.autoRestore"
   | "session.codexAppServer"
   | "session.codexAppServerHint"
+  | "session.codeBuddyAcpHint"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1089,6 +1090,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "启动时自动恢复",
     "session.codexAppServer": "使用 App Server",
     "session.codexAppServerHint": "仅影响此模板之后启动的 Codex 会话。",
+    "session.codeBuddyAcpHint": "使用 CodeBuddy ACP 图形会话；关闭后使用终端。",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2053,6 +2055,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "Auto restore on startup",
     "session.codexAppServer": "Use App Server",
     "session.codexAppServerHint": "Applies to future Codex sessions started from this template.",
+    "session.codeBuddyAcpHint": "Use a CodeBuddy ACP graphical session; turn off to use the terminal.",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

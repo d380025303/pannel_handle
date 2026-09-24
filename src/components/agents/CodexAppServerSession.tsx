@@ -352,7 +352,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
     setAttachments(current => current.filter(value => value !== filePath));
   }
-  async function resolve(requestId: number, approved: boolean) {
+  async function resolve(requestId: number | string, approved: boolean | string) {
     setError("");
     try { await window.codexAppServerApi.resolveApproval(sessionId, requestId, approved); }
     catch (cause) { setError(message(cause)); }
@@ -373,6 +373,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         setChangingMode(false);
       }
     }
+  }
+  async function changeNativeMode(modeId: string) {
+    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode) return;
+    changingModeRef.current = true;
+    setChangingMode(true); setError("");
+    try {
+      const value = await window.codexAppServerApi.setNativeMode(sessionId, modeId);
+      if (currentSessionRef.current === sessionId) setSnapshot(value);
+    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+    finally { changingModeRef.current = false; if (currentSessionRef.current === sessionId) setChangingMode(false); }
   }
   async function changePermission(permission: CodexExecutionPermission) {
     if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission) return;
@@ -416,9 +426,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ? history.filter(thread => `${thread.title} ${thread.id}`.toLocaleLowerCase().includes(normalizedHistoryQuery))
     : history;
 
-  return <section className="codex-app-server-session" aria-label="Codex App Server">
+  const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : "Codex";
+  return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
-      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，Codex 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
+      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
       {groupTools(snapshot.items).map(entry => {
         if (entry.kind === "tools") {
           return <ToolGroup key={entry.items[0].id} items={entry.items} />;
@@ -439,6 +450,11 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <strong>计划进度</strong>
           {item.explanation && <p>{item.explanation}</p>}
           <ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
+          {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
+            <p>计划已完成。确认后将在当前会话中执行。</p>
+            <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>暂不执行</button>
+              <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
+          </div>}
         </article>;
         if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label="已回答的 Codex 提问">
           <strong>Codex 提问与回答{item.status === "submitted" ? " · 正在确认" : item.status === "failed" ? " · 轮次失败" : ""}</strong>
@@ -461,8 +477,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <pre>{approval.params.command || snapshot.items.find(item => item.id === approval.params.itemId)?.command}</pre>}
         {(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes) != null &&
           <pre>{JSON.stringify(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes, null, 2)}</pre>}
-        <div><button type="button" onClick={() => void resolve(approval.requestId, false)}>拒绝</button>
-          <button type="button" onClick={() => void resolve(approval.requestId, true)}>批准一次</button></div>
+        <div>{approval.params.choices?.length ? approval.params.choices.map(choice =>
+          <button type="button" key={choice.id} onClick={() => void resolve(approval.requestId, choice.id)}>{choice.label}</button>) : <>
+          <button type="button" onClick={() => void resolve(approval.requestId, false)}>拒绝</button>
+          <button type="button" onClick={() => void resolve(approval.requestId, true)}>批准一次</button></>}</div>
       </article>)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question} />)}
@@ -484,13 +502,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         event.preventDefault();
         void pasteImage();
       }} onKeyDown={event => {
-        if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) {
+        if (snapshot.provider !== "codebuddy" && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) {
           event.preventDefault();
           void changeMode(snapshot.mode === "plan" ? "default" : "plan");
           return;
         }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
-      }} placeholder="向 Codex 发送消息" disabled={!snapshot.threadId || snapshot.busy} />
+      }} placeholder={`向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.busy} />
         <div className="codex-app-server-input-actions">
           <div className="codex-app-server-menu-anchor">
             <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={!snapshot.threadId} onClick={() => setMenuOpen(open => !open)}><Ellipsis aria-hidden="true" /></button>
@@ -503,28 +521,38 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               const index = items.indexOf(document.activeElement as HTMLButtonElement);
               items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
             }}>
-              <button type="button" role="menuitem" disabled={snapshot.busy} onClick={() => { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }}><History aria-hidden="true" />历史会话</button>
-              <div className="codex-app-server-menu-group" role="group" aria-label="模式">
+              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? "当前 CodeBuddy CLI 不支持历史会话恢复" : undefined} onClick={() => { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }}><History aria-hidden="true" />历史会话</button>
+              {snapshot.provider === "codebuddy" ? <div className="codex-app-server-menu-group" role="group" aria-label="CodeBuddy 模式">
+                <span className="codex-app-server-menu-label" aria-hidden="true">CodeBuddy 模式</span>
+                <div className="codex-app-server-mode-options">
+                  {(snapshot.nativeModes || []).map(mode => <button key={mode.id} type="button" role="menuitemradio"
+                    aria-checked={snapshot.nativeMode === mode.id} title={mode.description} disabled={snapshot.busy || changingMode}
+                    onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeNativeMode(mode.id); }}>{mode.name}</button>)}
+                  {!snapshot.nativeModes?.length && <span>当前 CLI 未提供模式切换</span>}
+                </div>
+              </div> : <div className="codex-app-server-menu-group" role="group" aria-label="模式">
                 <span className="codex-app-server-menu-label" aria-hidden="true">模式</span>
                 <div className="codex-app-server-mode-options">
                   <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "default"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("default"); }}>Exec</button>
-                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
+                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode || snapshot.capabilities?.plan === false} title={snapshot.capabilities?.plan === false ? "当前 CodeBuddy CLI 不支持 Plan 模式" : undefined} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
                 </div>
-              </div>
-              <div className="codex-app-server-menu-group" role="group" aria-label="执行权限（下一轮生效）">
+              </div>}
+              {snapshot.provider !== "codebuddy" && <div className="codex-app-server-menu-group" role="group" aria-label="执行权限（下一轮生效）">
                 <span className="codex-app-server-menu-label" aria-hidden="true">执行权限 <small>下一轮生效</small></span>
                 <div className="codex-app-server-permission-options">
                   {(["readOnly", "askApproval", "fullAccess"] as const).map(permission => <button key={permission} type="button"
                     role="menuitemradio" aria-label={permissionLabels[permission]} aria-checked={snapshot.executionPermission === permission}
-                    disabled={snapshot.busy || changingPermission} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
+                    disabled={snapshot.busy || changingPermission || (snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission))} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
                     <span className="codex-app-server-permission-option"><strong>{permissionLabels[permission]}</strong><small>{permissionDescriptions[permission]}</small></span>
                   </button>)}
                 </div>
-              </div>
+              </div>}
               <button type="button" role="menuitem" disabled={snapshot.busy || sending || pastingImage || attachments.length >= 10} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
           </div>
-          <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>执行权限：{permissionLabels[snapshot.executionPermission] || "需要确认"}</span>
+          <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy"
+            ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}`
+            : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行</span>
           <div className="codex-app-server-input-primary">
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={() => void window.codexAppServerApi.newThread(sessionId)
