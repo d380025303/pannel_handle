@@ -227,7 +227,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   });
 
   ipcMain.handle("sessions:reconnect", (_event, id) => {
-    return terminalManager.reconnectSession(String(id || ""));
+    const sessionId = String(id || "");
+    const session = terminalManager.getSession(sessionId);
+    return session?.runtimeMode === "app-server" && session.type === "ssh"
+      ? codexAppServerSessionService.restart(sessionId)
+      : terminalManager.reconnectSession(sessionId);
   });
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));

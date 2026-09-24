@@ -478,6 +478,53 @@ describe("Codex App Server session", () => {
     } finally { service.close("run-1"); }
   });
 
+  it("syncs a template permission to other instances for their next turn", async () => {
+    const received = [];
+    const children = [fakeProcess(received), fakeProcess(received), fakeProcess(received), fakeProcess(received), fakeProcess(received)];
+    let nextChild = 0;
+    const template = { id: "template-1", codexExecutionPermission: "readOnly" };
+    const sessionStore = { getTemplate: vi.fn(id => id === template.id ? template : undefined),
+      setCodexExecutionPermission: vi.fn((_id, permission) => { template.codexExecutionPermission = permission; }) };
+    const changed = [];
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: (event, value) => {
+        if (event === "codex-app-server:changed") changed.push(value);
+      }, sessionStore, spawnProcess: () => children[nextChild++] });
+    const session = (id, templateId) => ({ id, templateId, type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      await service.start(session("run-1", template.id));
+      await service.start(session("run-2", template.id));
+      await service.start(session("other", "template-2"));
+      await service.start(session("temporary"));
+      expect(service.snapshot("run-1").executionPermission).toBe("readOnly");
+      await service.submit("run-2", "正在执行");
+      const runningTurn = received.filter(item => item.method === "turn/start").at(-1);
+      expect(runningTurn.params.sandboxPolicy.type).toBe("readOnly");
+      service.setExecutionPermission("run-1", "fullAccess");
+      expect(sessionStore.setCodexExecutionPermission).toHaveBeenCalledWith(template.id, "fullAccess");
+      expect(service.snapshot("run-2").executionPermission).toBe("fullAccess");
+      expect(service.snapshot("other").executionPermission).toBe("askApproval");
+      expect(changed.some(value => value.id === "run-2" && value.snapshot.executionPermission === "fullAccess")).toBe(true);
+      await service.start(session("run-3", template.id));
+      expect(service.snapshot("run-3").executionPermission).toBe("fullAccess");
+      expect(service.snapshot("run-2").busy).toBe(true);
+      children[1].stdout.write(`${JSON.stringify({ method: "turn/completed", params: {
+        threadId: "thread-1", turn: { status: "completed" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-2").busy).toBe(false));
+      await service.submit("run-2", "下一轮");
+      expect(received.filter(item => item.method === "turn/start").at(-1).params.sandboxPolicy.type).toBe("dangerFullAccess");
+      service.setExecutionPermission("temporary", "readOnly");
+      expect(sessionStore.setCodexExecutionPermission).toHaveBeenCalledTimes(1);
+      expect(service.snapshot("temporary").executionPermission).toBe("readOnly");
+      sessionStore.setCodexExecutionPermission.mockImplementation(() => { throw new Error("disk full"); });
+      expect(() => service.setExecutionPermission("run-1", "askApproval")).toThrow("disk full");
+      expect(service.snapshot("run-1").executionPermission).toBe("fullAccess");
+      expect(service.snapshot("run-2").executionPermission).toBe("fullAccess");
+    } finally {
+      for (const id of ["run-1", "run-2", "other", "temporary", "run-3"]) service.close(id);
+    }
+  });
+
   it("converts selected Windows paths for WSL and fails before starting a turn when inaccessible", async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-codex-wsl-"));
     const filePath = path.join(directory, "notes.txt");
@@ -610,5 +657,108 @@ describe("Codex App Server session", () => {
     expect(statuses.at(-1)).toMatchObject({ id: "run-1", status: "cleared", activitySummary: undefined });
     expect(statuses.filter(value => value.id === "run-2").at(-1).activitySummary).toBe("另一个任务");
     service.close("run-1"); service.close("run-2");
+  });
+  it("runs remote App Server over SSH and keeps uploaded attachments available in history", async () => {
+    const received = [];
+    let remotePath;
+    const child = fakeProcess(received, request => request.method === "thread/read"
+      ? { thread: { cwd: "/srv/app" } }
+      : request.method === "thread/resume" ? { thread: { id: "history-1", turns: [{ items: [{ id: "history-user", type: "userMessage",
+        content: [{ type: "text", text: `检查\n\n请读取以下附件文件：${JSON.stringify(remotePath)}` }] }] }] } }
+        : undefined);
+    const transport = new EventEmitter();
+    transport.write = data => child.stdin.write(data);
+    transport.close = vi.fn(() => transport.emit("close", 0));
+    child.stdout.on("data", data => transport.emit("stdout", data));
+    const sshAgentTransport = { createStdioTransport: vi.fn(async () => transport) };
+    const stored = new Map();
+    const sshFileSystem = { cwd: vi.fn(async () => "/home/user"), mkdir: vi.fn(async () => {}), chmod: vi.fn(async () => {}),
+      fastPut: vi.fn(async (_id, source, target) => { stored.set(target, fs.readFileSync(source)); }),
+      stat: vi.fn(async (_id, target) => ({ size: stored.get(target).length, isFile: () => true })),
+      get: vi.fn(async (_id, target) => stored.get(target)),
+      remove: vi.fn(async (_id, target) => { stored.delete(target); }) };
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-remote-app-server-"));
+    const localPath = path.join(directory, "notes.txt");
+    fs.writeFileSync(localPath, "remote notes");
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({ FLAG: "enabled" }) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, sshAgentTransport, sshFileSystem });
+    try {
+      await service.start({ id: "ssh-1", type: "ssh", cwd: "/srv/app", initialCommand: "echo ready" });
+      expect(sshAgentTransport.createStdioTransport).toHaveBeenCalledWith("ssh-1", expect.objectContaining({
+        command: expect.stringContaining("codex app-server --stdio") }));
+      expect(sshAgentTransport.createStdioTransport.mock.calls[0][1].command).toContain("export FLAG");
+      service.allowFiles("ssh-1", [localPath]);
+      await service.submit("ssh-1", "检查", [localPath]);
+      remotePath = service.snapshot("ssh-1").items[0].attachments[0].path;
+      expect(remotePath).toMatch(/^\/home\/user\/\.cache\/pannel-handle\/app-server\//);
+      expect(received.find(item => item.method === "turn/start").params.input[0].text).toContain(remotePath);
+      expect(await service.previewAttachment("ssh-1", remotePath)).toEqual({ kind: "text", text: "remote notes" });
+      child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { status: "completed" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("ssh-1").busy).toBe(false));
+      await service.resume("ssh-1", "history-1");
+      expect(service.snapshot("ssh-1").items[0].attachments[0].path).toBe(remotePath);
+      expect(await service.previewAttachment("ssh-1", remotePath)).toEqual({ kind: "text", text: "remote notes" });
+      const pastedPath = "/srv/app/.pannel-handle-images/pasted.png";
+      stored.set(pastedPath, Buffer.from([137, 80, 78, 71]));
+      service.allowPastedImage("ssh-1", pastedPath);
+      expect((await service.previewAttachment("ssh-1", pastedPath)).kind).toBe("image");
+      await service.discardPastedImage("ssh-1", pastedPath);
+      expect(stored.has(pastedPath)).toBe(false);
+      service.close("ssh-1");
+      expect(stored.has(remotePath)).toBe(true);
+    } finally { service.close("ssh-1"); fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+  it("removes partially uploaded remote files when an upload fails", async () => {
+    const child = fakeProcess([]);
+    const transport = new EventEmitter();
+    transport.write = data => child.stdin.write(data);
+    transport.close = () => transport.emit("close", 0);
+    child.stdout.on("data", data => transport.emit("stdout", data));
+    const uploaded = [];
+    const sshFileSystem = { cwd: async () => "/home/user", mkdir: async () => {}, chmod: async () => {},
+      fastPut: vi.fn(async (_id, _source, target) => { uploaded.push(target); throw new Error("disk full"); }),
+      remove: vi.fn(async () => {}) };
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-remote-failed-upload-"));
+    const localPath = path.join(directory, "notes.txt");
+    fs.writeFileSync(localPath, "notes");
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {},
+      sshAgentTransport: { createStdioTransport: async () => transport }, sshFileSystem });
+    try {
+      await service.start({ id: "ssh-1", type: "ssh", cwd: "/srv/app" });
+      service.allowFiles("ssh-1", [localPath]);
+      await expect(service.submit("ssh-1", "检查", [localPath])).rejects.toThrow("disk full");
+      expect(sshFileSystem.remove).toHaveBeenCalledWith("ssh-1", uploaded[0]);
+      expect(service.snapshot("ssh-1").busy).toBe(false);
+    } finally { service.close("ssh-1"); fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+  it("reconnects a remote App Server session and resumes its thread", async () => {
+    const received = [];
+    const transports = [0, 1].map(() => {
+      const child = fakeProcess(received, request => request.method === "thread/resume"
+        ? { thread: { id: "thread-1", model: "test-model", turns: [{ items: [
+          { id: "previous", type: "agentMessage", text: "之前的回复" }
+        ] }] } } : undefined);
+      const transport = new EventEmitter();
+      transport.write = data => child.stdin.write(data);
+      transport.close = () => transport.emit("close", 0);
+      child.stdout.on("data", data => transport.emit("stdout", data));
+      return transport;
+    });
+    const session = { id: "ssh-1", type: "ssh", cwd: "/srv/app" };
+    const terminalManager = { getSession: () => session, listSessions: () => [session],
+      setAppServerConnectionState: vi.fn(), broadcastAgentStatus: () => {} };
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager, broadcast: () => {},
+      sshAgentTransport: { createStdioTransport: vi.fn(async () => transports.shift()) } });
+    try {
+      await service.start(session);
+      await expect(service.restart("ssh-1")).resolves.toEqual(session);
+      expect(received.some(item => item.method === "thread/resume" && item.params.threadId === "thread-1")).toBe(true);
+      expect(service.snapshot("ssh-1").items[0].text).toBe("之前的回复");
+      expect(terminalManager.setAppServerConnectionState.mock.calls.map(call => call[1])).toEqual([
+        "connected", "reconnecting", "connected"
+      ]);
+    } finally { service.close("ssh-1"); }
   });
 });

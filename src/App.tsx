@@ -844,7 +844,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     });
                   }}
                 />}
-                {isAppServerSession && appServerLinkError && <p role="alert" className="codex-app-server-error">{appServerLinkError}</p>}
+                {isAppServerSession && appServerLinkError && <div role="alert" className="codex-app-server-error">
+                  <span>{appServerLinkError}</span>
+                  <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setAppServerLinkError(null)}><X aria-hidden="true" /></button>
+                </div>}
                 {!isAppServerSession && <TerminalComposer
                   session={terminalSessions.activeSession}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}

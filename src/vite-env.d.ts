@@ -52,6 +52,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
   codexAppServerEnabled?: boolean;
+  codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;

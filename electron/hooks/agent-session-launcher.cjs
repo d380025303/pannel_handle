@@ -285,7 +285,8 @@ function createAgentSessionLauncher({
   getHomeDirectory = () => os.homedir()
 }) {
   const switchingSessions = new Map();
-  const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex" && session.type !== "ssh"
+  const useAppServer = session => Boolean(codexAppServerSessionService) && session.agentProvider === "codex"
+    && (session.type !== "ssh" || session.agentLocation !== "local")
     && session.codexAppServerEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
@@ -570,6 +571,9 @@ function createAgentSessionLauncher({
     request = resolveLocalShell(resolveDefaultWorkingDirectory(request));
     validateAgentSession(request);
     if (request.type === "ssh") {
+      if (useAppServer(request)) {
+        return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request, {}, true);
+      }
       const localBridge = request.agentLocation === "local";
       const session = terminalManager.createSession({
         ...request,
@@ -595,12 +599,16 @@ function createAgentSessionLauncher({
     } else {
       validateAgentSession(launchTemplate);
       if (launchTemplate.type === "ssh") {
-        const localBridge = launchTemplate.agentLocation === "local";
-        const pendingSession = terminalManager.launchSession(launchTemplate, {
-          ...launchOptions,
-          ...(localBridge ? { deferTerminalStart: true } : { runtimeInitialCommand: "" })
-        });
-        session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
+        if (useAppServer(launchTemplate)) {
+          session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, {});
+        } else {
+          const localBridge = launchTemplate.agentLocation === "local";
+          const pendingSession = terminalManager.launchSession(launchTemplate, {
+            ...launchOptions,
+            ...(localBridge ? { deferTerminalStart: true } : { runtimeInitialCommand: "" })
+          });
+          session = localBridge ? await finishLocalSsh(pendingSession) : await finishSsh(pendingSession);
+        }
       } else {
         const runtime = await prepareLocal(launchTemplate);
         session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, runtime);
@@ -731,7 +739,7 @@ function createAgentSessionLauncher({
         templateId: session.templateId,
         ...options
       }), target, runtime);
-      return target.type === "ssh" ? await finishSsh(replacement) : replacement;
+      return target.type === "ssh" && !useAppServer(target) ? await finishSsh(replacement) : replacement;
     })();
     switchingSessions.set(sessionId, operation);
     try {

@@ -57,7 +57,7 @@ describe("session-store", () => {
     store.loadLibrary();
     expect(store.getTemplate("1").codexAppServerEnabled).toBe(enabled);
     expect(store.getTemplate("2").codexAppServerEnabled).toBe(!enabled);
-    expect(store.getTemplate("3").codexAppServerEnabled).toBeUndefined();
+    expect(store.getTemplate("3").codexAppServerEnabled).toBe(true);
     expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEnabled).toBe(enabled);
     const reopened = createStore(sessionsFile);
     reopened.loadLibrary();
@@ -75,6 +75,49 @@ describe("session-store", () => {
     expect(exported[0].codexAppServerEnabled).toBe(false);
     store.importLibrary([exported[0]]);
     expect(store.getLibrary().at(-1).codexAppServerEnabled).toBe(false);
+  });
+
+  it("persists execution permission per Codex template through reload, duplication, export, and import", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex" },
+      { id: "2", type: "wsl", cwd: "/work", agentProvider: "codex", codexExecutionPermission: "invalid" },
+      { id: "3", type: "windows", cwd: "C:\\work", agentProvider: "claude", codexExecutionPermission: "fullAccess" },
+      { id: "4", type: "ssh", cwd: "/work", agentProvider: "codex", sshConfig: { host: "example.com" } },
+      { id: "5", type: "ssh", cwd: "/work", agentProvider: "codex", agentLocation: "local", sshConfig: { host: "example.com" } }
+    ]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("1").codexExecutionPermission).toBe("askApproval");
+    expect(store.getTemplate("2").codexExecutionPermission).toBe("askApproval");
+    expect(store.getTemplate("3").codexExecutionPermission).toBeUndefined();
+    expect(store.getTemplate("4").codexExecutionPermission).toBe("askApproval");
+    expect(store.getTemplate("5").codexExecutionPermission).toBeUndefined();
+    expect(() => store.setCodexExecutionPermission("1", "invalid")).toThrow("无效");
+    expect(() => store.setCodexExecutionPermission("3", "fullAccess")).toThrow("不支持");
+    expect(() => store.setCodexExecutionPermission("5", "fullAccess")).toThrow("不支持");
+    store.setCodexExecutionPermission("1", "fullAccess");
+    store.setCodexExecutionPermission("4", "readOnly");
+    expect(store.getTemplate("2").codexExecutionPermission).toBe("askApproval");
+    store.updateLibrary("1", { title: "Updated" });
+    expect(store.duplicateInLibrary("1").codexExecutionPermission).toBe("fullAccess");
+    const exported = store.exportLibrary().find(item => item.id === "1");
+    store.importLibrary([exported]);
+    expect(store.getLibrary().at(-1).codexExecutionPermission).toBe("fullAccess");
+    const reopened = createStore(sessionsFile);
+    reopened.loadLibrary();
+    expect(reopened.getTemplate("1").codexExecutionPermission).toBe("fullAccess");
+  });
+
+  it("keeps the previous permission when template persistence fails", () => {
+    const sessionsFile = createTempSessionsFile();
+    const dataStore = { read: () => [{ id: "1", type: "windows", cwd: "C:\\work", agentProvider: "codex" }],
+      write: () => { throw new Error("disk full"); } };
+    const store = createSessionStore({ sessionsFile, dataStore,
+      getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe" });
+    store.loadLibrary();
+    expect(() => store.setCodexExecutionPermission("1", "readOnly")).toThrow("disk full");
+    expect(store.getTemplate("1").codexExecutionPermission).toBe("askApproval");
   });
 
   it("persists valid Codex backend metadata when loading saved sessions", () => {

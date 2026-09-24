@@ -36,6 +36,17 @@ describe("EditSessionModal", () => {
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0].at(-1)).toBe(true);
   });
+  it("saves the App Server setting for an SSH remote Codex template", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, type: "ssh", cwd: "/srv/app",
+      agentProvider: "codex", agentLocation: "remote", codexAppServerEnabled: true,
+      sshConfig: { host: "example.com" } }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    const toggle = screen.getByRole("checkbox", { name: /使用 App Server/ });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0].at(-1)).toBe(false);
+  });
   it("summarizes configured optional groups and preserves edited values", async () => {
     const onSave = vi.fn(async () => undefined);
     Object.defineProperty(window, "environmentApi", {

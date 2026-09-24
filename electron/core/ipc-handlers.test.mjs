@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 const { registerIpcHandlers, updateSessionFromIpc } = await import("./ipc-handlers.cjs");
 
 describe("session IPC handlers", () => {
+  it("reconnects SSH App Server sessions through the App Server service", async () => {
+    const handlers = new Map();
+    const terminalManager = { getSession: vi.fn(() => ({ id: "ssh-1", type: "ssh", runtimeMode: "app-server" })),
+      reconnectSession: vi.fn() };
+    const codexAppServerSessionService = { restart: vi.fn(async () => ({ id: "ssh-1" })) };
+    registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager, codexAppServerSessionService });
+    await expect(handlers.get("sessions:reconnect")({}, "ssh-1")).resolves.toEqual({ id: "ssh-1" });
+    expect(codexAppServerSessionService.restart).toHaveBeenCalledWith("ssh-1");
+    expect(terminalManager.reconnectSession).not.toHaveBeenCalled();
+  });
   it.each([true, false])("routes terminal size events with mobile service present = %s", (withMobile) => {
     const listeners = new Map();
     const terminalManager = { resize: vi.fn(), getSession: vi.fn(() => ({ id: "run-1" })) };

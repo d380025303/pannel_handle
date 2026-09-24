@@ -735,6 +735,19 @@ describe("terminal-manager", () => {
     expect(reconnected).toMatchObject({ id: session.id, sshConnectionState: "reconnecting" });
     expect(ssh2TerminalFactory).toHaveBeenCalledTimes(2);
   });
+  it("tracks an SSH App Server connection without starting a terminal", () => {
+    const { manager, ssh2TerminalFactory } = createManager();
+    const session = manager.createSession({ type: "ssh", sshConfig: { host: "example.com" },
+      cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote",
+      runtimeMode: "app-server", deferTerminalStart: true });
+    manager.setAppServerConnectionState(session.id, "connected");
+    expect(manager.listSessions()[0]).toMatchObject({ sshConnectionState: "connected", sshReconnectAttempt: 0 });
+    manager.setAppServerConnectionState(session.id, "reconnecting");
+    expect(manager.listSessions()[0]).toMatchObject({ sshConnectionState: "reconnecting", sshReconnectAttempt: 1 });
+    manager.setAppServerConnectionState(session.id, "disconnected");
+    expect(manager.listSessions()[0]).toMatchObject({ sshConnectionState: "disconnected", sshReconnectAttempt: 0 });
+    expect(ssh2TerminalFactory).not.toHaveBeenCalled();
+  });
 
   it("still removes an SSH instance after a normal remote exit", () => {
     const { manager, term } = createManager();

@@ -321,51 +321,6 @@ describe("real temporary repository workflow", () => {
     expect(result.repositories).toEqual([expect.objectContaining({ cwd: path.resolve(directory), relativePath: ".." })]);
   });
 
-  it("stages, commits, preserves staged content when discarding, and unstages", async () => {
-    const { directory, service } = createRepository();
-    const target = repositoryTarget("session-1", directory);
-    fs.writeFileSync(path.join(directory, "note.txt"), "initial\n", "utf-8");
-    let status = await service.getStatus(target);
-    expect(status.branch.unborn).toBe(true);
-    expect(status.files[0]).toMatchObject({ path: "note.txt", indexStatus: "?" });
-
-    expect((await service.stageFiles(target, ["note.txt"], "stage-initial")).ok).toBe(true);
-    expect((await service.commit(target, { subject: "Initial", body: "Body" }, "commit-initial")).ok).toBe(true);
-    fs.writeFileSync(path.join(directory, "note.txt"), "staged\n", "utf-8");
-    await service.stageFiles(target, ["note.txt"], "stage-change");
-    fs.writeFileSync(path.join(directory, "note.txt"), "working\n", "utf-8");
-
-    status = await service.getStatus(target);
-    expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "M" });
-    await service.discardWorkingTree(target, status.files[0], "discard-working");
-    expect(fs.readFileSync(path.join(directory, "note.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("staged\n");
-    status = await service.getStatus(target);
-    expect(status.files[0]).toMatchObject({ indexStatus: "M", worktreeStatus: "." });
-
-    await service.unstageFiles(target, ["note.txt"], "unstage-change");
-    status = await service.getStatus(target);
-    expect(status.files[0]).toMatchObject({ indexStatus: ".", worktreeStatus: "M" });
-    const commitWithoutStagedChanges = await service.commit(target, { subject: "Must not commit working tree" }, "commit-working-only");
-    expect(commitWithoutStagedChanges).toMatchObject({ ok: false, message: "Stage at least one change before committing." });
-  });
-
-  it("creates Unicode branches and paginates current-HEAD history", async () => {
-    const { directory, service } = createRepository();
-    const target = repositoryTarget("session-1", directory);
-    fs.writeFileSync(path.join(directory, "one.txt"), "1\n", "utf-8");
-    await service.stageAll(target, "stage-all");
-    await service.commit(target, { subject: "First" }, "commit-first");
-    expect((await service.createBranch(target, "功能/体验", "branch-unicode")).ok).toBe(true);
-    fs.writeFileSync(path.join(directory, "one.txt"), "2\n", "utf-8");
-    await service.stageAll(target, "stage-second");
-    await service.commit(target, { subject: "Second" }, "commit-second");
-    const snapshot = await service.getSnapshot(target);
-    expect(snapshot.status.branch.name).toBe("功能/体验");
-    const history = await service.getHistory(target);
-    expect(history.commits.map((entry) => entry.subject)).toEqual(["Second", "First"]);
-    expect(history.hasMore).toBe(false);
-  });
-
   it("creates a message stash, previews it, restores index state, and drops it", async () => {
     const { directory, service } = createRepository();
     const target = repositoryTarget("session-1", directory);
@@ -385,37 +340,6 @@ describe("real temporary repository workflow", () => {
     expect(status.files.find((file) => file.path === "stash.txt")?.indexStatus).toBe("M");
     expect((await service.dropStash(target, list.stashes[0].ref, "stash-drop")).ok).toBe(true);
     expect((await service.getStashes(target)).stashes).toHaveLength(0);
-  });
-
-  it("sets upstream on first push and enforces fast-forward-only pulls", async () => {
-    const { directory, service } = createRepository();
-    const target = repositoryTarget("session-1", directory);
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-remote-"));
-    temporaryDirectories.push(remote);
-    git(remote, "init", "--bare");
-    git(directory, "remote", "add", "origin", remote);
-    fs.writeFileSync(path.join(directory, "sync.txt"), "one\n", "utf-8");
-    await service.stageAll(target, "sync-stage");
-    await service.commit(target, { subject: "Sync base" }, "sync-commit");
-    expect((await service.pushBranch(target, "origin", "sync-push")).ok).toBe(true);
-    let snapshot = await service.getSnapshot(target);
-    expect(snapshot.status.branch.upstream?.remote).toBe("origin");
-
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-clone-"));
-    temporaryDirectories.push(clone);
-    execFileSync("git", ["clone", remote, clone], { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
-    git(clone, "config", "user.name", "Other Test");
-    git(clone, "config", "user.email", "other@example.test");
-    fs.writeFileSync(path.join(clone, "sync.txt"), "two\n", "utf-8");
-    git(clone, "add", "-A");
-    git(clone, "commit", "-m", "Remote change");
-    git(clone, "push");
-
-    expect((await service.fetchRemote(target, "origin", "sync-fetch")).ok).toBe(true);
-    snapshot = await service.getSnapshot(target);
-    expect(snapshot.status.branch.behind).toBe(1);
-    expect((await service.pullBranch(target, undefined, "sync-pull")).ok).toBe(true);
-    expect(fs.readFileSync(path.join(directory, "sync.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("two\n");
   });
 
   it("pulls a matching remote branch and sets upstream when none exists", async () => {

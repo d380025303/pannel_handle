@@ -89,7 +89,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
         agentLocation: isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
         localAgentCwd: isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
         codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
-        codexAppServerEnabled: !isSsh && agentProvider === "codex" ? codexAppServerEnabled : undefined,
+        codexAppServerEnabled: agentProvider === "codex" && (!isSsh || agentLocation === "remote") ? codexAppServerEnabled : undefined,
         codexModel: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) ? codexModel : undefined,
         codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
         tags,
@@ -131,7 +131,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
     <SessionFormSection title={t("session.agentCli")}>
       <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local"); }} />
       {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
-      {agentProvider === "codex" && !isSsh && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codexAppServerEnabled} onChange={event => setCodexAppServerEnabled(event.target.checked)} /><span className="settings-help">{t("session.codexAppServerHint")}</span></label>}
+      {agentProvider === "codex" && (!isSsh || agentLocation === "remote") && <label className="modal-field"><span className="modal-label">{t("session.codexAppServer")}</span><input type="checkbox" checked={codexAppServerEnabled} onChange={event => setCodexAppServerEnabled(event.target.checked)} /><span className="settings-help">{t("session.codexAppServerHint")}</span></label>}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
       {agentProvider && !cwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}

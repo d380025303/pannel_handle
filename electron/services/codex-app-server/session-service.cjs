@@ -1,5 +1,8 @@
 const { spawn, spawnSync } = require("node:child_process");
+const { randomUUID, createHash } = require("node:crypto");
+const { EventEmitter } = require("node:events");
 const readline = require("node:readline");
+const { PassThrough } = require("node:stream");
 const fs = require("node:fs");
 const path = require("node:path");
 const { mergeEnvironment } = require("../environment/index.cjs");
@@ -18,6 +21,37 @@ const EXECUTION_PERMISSIONS = {
 
 function quoteBash(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function isPowerShell(shell) { return /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell); }
+
+function buildRemoteCommand(session, environment) {
+  const exports = Object.entries(environment).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(name)) throw new Error(`无效的远端环境变量：${name}`);
+    return `export ${name}=${quoteBash(value)}`;
+  });
+  const before = String(session.initialCommand || "").trim();
+  const script = [...exports, `cd ${quoteBash(session.cwd)}`,
+    ...(before ? [`{ ${before}; } 1>&2`] : []), "exec codex app-server --stdio"].join(" && ");
+  return `bash -lic ${quoteBash(script)}`;
+}
+
+async function createRemoteChild(sshAgentTransport, session, environment) {
+  if (!sshAgentTransport) throw new Error("SSH App Server 通道不可用。");
+  const transport = await sshAgentTransport.createStdioTransport(session.id, {
+    actionName: "Codex App Server connection", command: buildRemoteCommand(session, environment)
+  });
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin.on("data", chunk => transport.write(chunk));
+  transport.on("stdout", chunk => child.stdout.write(chunk));
+  transport.on("stderr", chunk => child.stderr.write(chunk));
+  transport.on("error", error => { child.emit("error", error); transport.close(); });
+  transport.on("close", code => {
+    child.stdin.end(); child.stdout.end(); child.stderr.end(); child.emit("exit", code);
+  });
+  child.kill = () => transport.close();
+  return child;
+}
 
 function buildInvocation(session, runtime, environment) {
   const command = `${runtime.codexCommand || "codex"} app-server`;
@@ -155,10 +189,12 @@ function updateTokenUsage(entry, params) {
   entry.turnOutputTokens = Math.max(0, total.outputTokens - entry.turnOutputBaseline);
 }
 
-function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, questionAnswerStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
-  removePastedImage = (entry, filePath) => fs.promises.rm(entry.session.type === "wsl"
-    ? toWslHostPath(entry.session.wslDistro, filePath) : filePath, { force: true }) }) {
+function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
+  sshAgentTransport = null, sshFileSystem = null, removePastedImage = null }) {
   const sessions = new Map();
+  const removeImage = removePastedImage || ((entry, filePath) => entry.session.type === "ssh"
+    ? sshFileSystem.remove(entry.session.id, filePath)
+    : fs.promises.rm(entry.session.type === "wsl" ? toWslHostPath(entry.session.wslDistro, filePath) : filePath, { force: true }));
 
   function broadcastStatus(id, entry, immediate = false, eventName = "AppServerTurn") {
     if (entry.statusTimer) {
@@ -350,11 +386,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function start(session, runtime = {}) {
     const id = session.id;
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
-    const invocation = buildInvocation(session, runtime, environment);
-    const child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
-      windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    let child;
+    if (session.type === "ssh") child = await createRemoteChild(sshAgentTransport, session, environment);
+    else {
+      const invocation = buildInvocation(session, runtime, environment);
+      child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
+        windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    }
     const entry = { child, session, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
-      turnId: null, mode: "default", executionPermission: "askApproval", model: session.codexModel || null, busy: false, error: null, items: [],
+      turnId: null, mode: "default", executionPermission: sessionStore?.getTemplate(session.templateId)?.codexExecutionPermission || session.codexExecutionPermission || "askApproval", model: session.codexModel || null, busy: false, error: null, items: [],
       pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0,
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
@@ -381,16 +421,42 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.pending.clear(); publish(id);
       entry.status = "exited";
       broadcastStatus(id, entry, true, "AppServerExit");
+      if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(id, "disconnected");
     });
     try {
       await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true } });
       send(entry, { method: "initialized", params: {} });
-      const result = await request(entry, "thread/start", { cwd: session.cwd, approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+      const result = runtime.resumeThreadId
+        ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: session.cwd })
+        : await request(entry, "thread/start", { cwd: session.cwd, approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
       entry.threadId = result.thread.id;
       entry.model = result.thread.model || entry.model;
+      if (runtime.resumeThreadId) {
+        entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
+        const lastTurn = result.thread.turns?.at(-1);
+        entry.busy = lastTurn?.status === "inProgress";
+        entry.turnId = entry.busy ? lastTurn.id : null;
+        entry.status = entry.busy ? "running" : "completed";
+      }
+      if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(id, "connected");
       publish(id);
       return snapshot(id);
     } catch (error) { close(id); throw error; }
+  }
+  async function restart(id) {
+    const entry = sessions.get(id);
+    const session = terminalManager.getSession(id);
+    if (!entry || !session || session.type !== "ssh") throw new Error("SSH App Server 会话不存在。");
+    const threadId = entry.threadId;
+    terminalManager.setAppServerConnectionState?.(id, "reconnecting");
+    close(id);
+    try {
+      await start(session, { resumeThreadId: threadId });
+      return terminalManager.listSessions().find(value => value.id === id);
+    } catch (error) {
+      terminalManager.setAppServerConnectionState?.(id, "disconnected");
+      throw error;
+    }
   }
   function ready(id) {
     const entry = sessions.get(id);
@@ -408,6 +474,21 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const attached = entry.items.some(item => item.type === "userMessage"
       && item.attachments?.some(file => file.path === filePath));
     if (!entry.allowedFiles.has(filePath) && !attached) throw new Error("只能预览当前会话的附件。");
+    if (entry.session.type === "ssh" && filePath.startsWith("/")) {
+      if (!sshFileSystem) throw new Error("SSH 文件服务不可用。");
+      const mime = IMAGE_MIME[path.posix.extname(filePath).toLowerCase()];
+      const limit = mime ? IMAGE_PREVIEW_LIMIT : TEXT_PREVIEW_LIMIT;
+      const stat = await sshFileSystem.stat(id, filePath);
+      if (typeof stat.isFile === "function" && !stat.isFile()) return { kind: "unsupported" };
+      if (stat.size > limit) return { kind: "too_large", size: stat.size, limit };
+      const data = await sshFileSystem.get(id, filePath);
+      const content = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      if (content.length > limit) return { kind: "too_large", size: content.length, limit };
+      if (mime) return { kind: "image", dataUrl: `data:${mime};base64,${content.toString("base64")}` };
+      if (content.subarray(0, 4096).includes(0)) return { kind: "unsupported" };
+      try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(content) }; }
+      catch { return { kind: "unsupported" }; }
+    }
     const hostPath = entry.session.type === "wsl" && filePath.startsWith("/")
       ? toWslHostPath(entry.session.wslDistro, filePath)
       : path.win32.isAbsolute(filePath) ? filePath : null;
@@ -440,14 +521,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry?.pastedImages.has(filePath)) return;
     entry.pastedImages.delete(filePath);
     entry.allowedFiles.delete(filePath);
-    try { await removePastedImage(entry, filePath); }
+    try { await removeImage(entry, filePath); }
     catch (error) { entry.pastedImages.add(filePath); entry.allowedFiles.add(filePath); throw error; }
   }
   async function releasePastedImages(id, entry) {
     await Promise.all([...entry.pastedImages].map(async filePath => {
       entry.pastedImages.delete(filePath);
       entry.allowedFiles.delete(filePath);
-      await removePastedImage(entry, filePath).catch(() => {});
+      await removeImage(entry, filePath).catch(() => {});
     }));
   }
   async function listHistory(id, cursor = null) {
@@ -537,8 +618,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function setExecutionPermission(id, permission) {
     const entry = ready(id);
     if (!Object.hasOwn(EXECUTION_PERMISSIONS, permission)) throw new Error("无效的 Codex 执行权限。");
-    entry.executionPermission = permission;
-    publish(id);
+    const templateId = entry.session.templateId;
+    const template = templateId && sessionStore?.getTemplate(templateId);
+    if (template) sessionStore.setCodexExecutionPermission(templateId, permission);
+    for (const [sessionId, current] of sessions) {
+      if (sessionId !== id && (!template || current.session.templateId !== templateId)) continue;
+      current.executionPermission = permission;
+      publish(sessionId);
+    }
     return snapshot(id);
   }
   function dismissPlan(id, itemId) {
@@ -579,50 +666,98 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const checked = spawnSyncProcess("wsl.exe", ["-d", distro, "--", "test", "-f", targetPath], { windowsHide: true, timeout: 10000 });
       if (checked.status !== 0) throw new Error(`WSL 无法访问文件：${filePath}`);
     }
-    return { path: targetPath, image: /\.(png|jpe?g|gif|webp|bmp)$/i.test(filePath) };
+    return { path: targetPath, image: /\.(png|jpe?g|gif|webp|bmp)$/i.test(filePath),
+      ...(entry.session.type === "ssh" ? { localPath: filePath } : {}) };
+  }
+  async function prepareRemoteFiles(entry, files, uploaded) {
+    if (entry.session.type !== "ssh" || !files.some(file => file.localPath)) return files;
+    if (!sshFileSystem) throw new Error("SSH 文件服务不可用。");
+    const home = await sshFileSystem.cwd(entry.session.id);
+    if (typeof home !== "string" || !home.startsWith("/")) throw new Error("无法确定远端用户目录。");
+    const threadKey = createHash("sha256").update(entry.threadId).digest("hex").slice(0, 24);
+    const directory = path.posix.join(home, ".cache", "pannel-handle", "app-server", threadKey);
+    await sshFileSystem.mkdir(entry.session.id, directory, true);
+    await sshFileSystem.chmod(entry.session.id, directory, 0o700);
+    const prepared = [];
+    for (const file of files) {
+      if (!file.localPath) { prepared.push(file); continue; }
+      const fileDirectory = path.posix.join(directory, randomUUID());
+      const remotePath = path.posix.join(fileDirectory, path.win32.basename(file.localPath));
+      uploaded.push(remotePath);
+      await sshFileSystem.mkdir(entry.session.id, fileDirectory, true);
+      await sshFileSystem.chmod(entry.session.id, fileDirectory, 0o700);
+      await sshFileSystem.fastPut(entry.session.id, file.localPath, remotePath);
+      await sshFileSystem.chmod(entry.session.id, remotePath, 0o600);
+      if (sessions.get(entry.session.id) !== entry) throw new Error("会话已关闭。");
+      prepared.push({ path: remotePath, image: file.image });
+    }
+    return prepared;
+  }
+  async function removeUploadedFiles(entry, uploaded) {
+    if (!sshFileSystem || !uploaded.length) return;
+    await Promise.all(uploaded.map(async filePath => {
+      await sshFileSystem.remove(entry.session.id, filePath).catch(() => {});
+      await sshFileSystem.remove(entry.session.id, path.posix.dirname(filePath)).catch(() => {});
+    }));
   }
   async function submit(id, text, filePaths = []) {
     const entry = sessions.get(id);
-    if (!entry?.threadId || entry.busy || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
+    if (!entry?.threadId || entry.busy || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
       || (!text.trim() && filePaths.length === 0)) throw new Error("Codex 会话未就绪或正在运行。");
     if (filePaths.some(filePath => !entry.allowedFiles.has(filePath))) throw new Error("只能发送通过文件选择器附加的文件。");
-    const files = filePaths.map(filePath => fileInput(entry, filePath));
-    const fileReferences = files.filter(file => !file.image).map(file => JSON.stringify(file.path));
-    const messageText = [text.trim(), ...(fileReferences.length ? [`请读取以下附件文件：${fileReferences.join("、")}`] : [])].filter(Boolean).join("\n\n");
-    if (!entry.model) {
-      const models = await request(entry, "model/list", {});
-      entry.model = models.data?.find(model => model.isDefault)?.id || models.data?.[0]?.id;
-    }
-    if (!entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
-    entry.error = null;
-    entry.pendingPlan = null;
-    entry.activeTurnMode = entry.mode;
-    entry.activeTurnStartIndex = entry.items.length;
-    entry.busy = true;
-    entry.items.push({ id: `local-${Date.now()}`, type: "userMessage",
-      text: text.trim(), attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })) });
-    entry.pendingUserAttachments = files.map(file => ({ path: file.path, name: path.basename(file.path) }));
-    publish(id);
-    entry.status = "running";
-    entry.activitySummary = activitySummary(text.trim() || entry.items.at(-1).text);
-    broadcastStatus(id, entry, true);
+    entry.uploading = true;
+    const uploaded = [];
+    let files;
+    try { files = await prepareRemoteFiles(entry, filePaths.map(filePath => fileInput(entry, filePath)), uploaded); }
+    catch (error) { entry.uploading = false; await removeUploadedFiles(entry, uploaded); throw error; }
+    let turnRequestSent = false;
     try {
-      const input = [...(messageText ? [{ type: "text", text: messageText }] : []),
-        ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
-      const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
-      const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
-        ? { ...permission.sandboxPolicy, writableRoots: [entry.session.cwd] } : permission.sandboxPolicy;
-      const result = await request(entry, "turn/start", { threadId: entry.threadId, input,
-        approvalPolicy: permission.approvalPolicy, sandboxPolicy,
-        collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
-      for (const filePath of filePaths) entry.allowedFiles.delete(filePath);
-      for (const filePath of filePaths) entry.pastedImages.delete(filePath);
-      if (entry.busy) entry.turnId = result.turn?.id || entry.turnId;
-    }
-    catch (error) {
-      entry.busy = false; entry.activeTurnMode = null; entry.error = error.message;
-      entry.status = "failed"; entry.activitySummary = activitySummary(error.message);
-      broadcastStatus(id, entry, true); publish(id); throw error;
+      if (sessions.get(id) !== entry) throw new Error("会话已关闭。");
+      const fileReferences = files.filter(file => !file.image).map(file => JSON.stringify(file.path));
+      const messageText = [text.trim(), ...(fileReferences.length ? [`请读取以下附件文件：${fileReferences.join("、")}`] : [])].filter(Boolean).join("\n\n");
+      if (!entry.model) {
+        const models = await request(entry, "model/list", {});
+        entry.model = models.data?.find(model => model.isDefault)?.id || models.data?.[0]?.id;
+      }
+      if (!entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
+      entry.error = null;
+      entry.pendingPlan = null;
+      entry.activeTurnMode = entry.mode;
+      entry.activeTurnStartIndex = entry.items.length;
+      entry.busy = true;
+      const localId = `local-${Date.now()}`;
+      entry.items.push({ id: localId, type: "userMessage",
+        text: text.trim(), attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })) });
+      entry.pendingUserAttachments = files.map(file => ({ path: file.path, name: path.basename(file.path) }));
+      publish(id);
+      entry.status = "running";
+      entry.activitySummary = activitySummary(text.trim() || entry.items.at(-1).text);
+      broadcastStatus(id, entry, true);
+      try {
+        const input = [...(messageText ? [{ type: "text", text: messageText }] : []),
+          ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
+        const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
+        const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
+          ? { ...permission.sandboxPolicy, writableRoots: [entry.session.cwd] } : permission.sandboxPolicy;
+        turnRequestSent = true;
+        const result = await request(entry, "turn/start", { threadId: entry.threadId, input,
+          approvalPolicy: permission.approvalPolicy, sandboxPolicy,
+          collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
+        for (const filePath of filePaths) entry.allowedFiles.delete(filePath);
+        for (const filePath of filePaths) entry.pastedImages.delete(filePath);
+        if (entry.busy) entry.turnId = result.turn?.id || entry.turnId;
+      } catch (error) {
+        entry.busy = false; entry.activeTurnMode = null; entry.error = error.message;
+        entry.items = entry.items.filter(item => item.id !== localId);
+        entry.pendingUserAttachments = null;
+        entry.status = "failed"; entry.activitySummary = activitySummary(error.message);
+        broadcastStatus(id, entry, true); publish(id); throw error;
+      }
+    } catch (error) {
+      if (!turnRequestSent) await removeUploadedFiles(entry, uploaded);
+      throw error;
+    } finally {
+      entry.uploading = false;
     }
   }
   async function interrupt(id) {
@@ -669,7 +804,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     publish(id);
   }
   function shutdown() { for (const id of sessions.keys()) close(id); }
-  return { start, snapshot, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
+  return { start, restart, snapshot, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };

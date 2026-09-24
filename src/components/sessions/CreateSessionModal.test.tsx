@@ -74,10 +74,11 @@ describe("CreateSessionModal local SSH bridge", () => {
     })));
   });
 
-  it("hides and omits the local directory when Codex runs remotely", () => {
+  it("offers App Server by default when Codex runs remotely", async () => {
+    const onCreate = vi.fn(async () => undefined);
     render(
       <I18nProvider locale="zh-CN">
-        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} />
+        <CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} />
       </I18nProvider>
     );
 
@@ -86,6 +87,13 @@ describe("CreateSessionModal local SSH bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "远端运行" }));
 
     expect(screen.queryByText("本机 Agent 工作目录（可选）")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: /使用 App Server/ })).toHaveProperty("checked", true);
+    fireEvent.change(screen.getByLabelText("主机"), { target: { value: "example.com" } });
+    fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "/srv/app" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      agentLocation: "remote", codexAppServerEnabled: true
+    })));
   });
 
   it("defaults SSH OpenCode sessions to the local bridge and submits the local directory", async () => {

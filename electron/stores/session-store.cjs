@@ -4,6 +4,7 @@ const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
 const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
+const CODEX_EXECUTION_PERMISSIONS = new Set(["readOnly", "askApproval", "fullAccess"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 
 function inferWorkingDirectory(initialCommand, type) {
@@ -132,8 +133,11 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
-    const codexAppServerEnabled = agentProvider === "codex" && template.type !== "ssh"
+    const codexAppServerEnabled = agentProvider === "codex" && (template.type !== "ssh" || agentLocation === "remote")
       ? template.codexAppServerEnabled !== false
+      : undefined;
+    const codexExecutionPermission = agentProvider === "codex" && (template.type !== "ssh" || agentLocation === "remote")
+      ? (CODEX_EXECUTION_PERMISSIONS.has(template.codexExecutionPermission) ? template.codexExecutionPermission : "askApproval")
       : undefined;
     return {
       ...(template.environmentProfileId ? { environmentProfileId: String(template.environmentProfileId) } : {}),
@@ -155,6 +159,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexModel,
       codexExperimentalAcknowledged,
       codexAppServerEnabled,
+      codexExecutionPermission,
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,
@@ -287,6 +292,21 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
   }
 
+  function setCodexExecutionPermission(id, permission) {
+    if (!CODEX_EXECUTION_PERMISSIONS.has(permission)) throw new Error("无效的 Codex 执行权限。");
+    const idx = librarySessions.findIndex(session => session.id === id);
+    if (idx < 0) throw new Error("会话模板不存在。");
+    const template = librarySessions[idx];
+    if (template.agentProvider !== "codex" || (template.type === "ssh" && template.agentLocation !== "remote"))
+      throw new Error("会话模板不支持 Codex App Server。");
+    const updated = [...librarySessions];
+    updated[idx] = { ...template, codexExecutionPermission: permission };
+    writeJson(dataStore, sessionsFile, updated);
+    librarySessions = updated;
+    try { onChanged(); }
+    catch (err) { console.error("Failed to notify library change:", err); }
+  }
+
   function getLibrary() {
     return librarySessions.map((session) => ({
       ...sanitizeTemplate(session),
@@ -350,6 +370,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     removeFromLibrary,
     duplicateInLibrary,
     updateLibrary,
+    setCodexExecutionPermission,
     getLibrary,
     exportLibrary,
     importLibrary,

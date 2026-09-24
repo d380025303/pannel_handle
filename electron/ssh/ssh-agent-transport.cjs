@@ -32,10 +32,19 @@ function createSshAgentTransport({ sshSessionRuntime }) {
 
         const events = new EventEmitter();
         let closed = false;
+        let finished = false;
+        const finish = (code, signal) => {
+          if (finished) return;
+          finished = true;
+          events.emit("close", code, signal);
+          if (!closed) try { client.end(); } catch { /* best effort */ }
+        };
         stream.on("data", data => events.emit("stdout", data));
         stream.stderr?.on("data", data => events.emit("stderr", data));
         stream.once("error", streamError => events.emit("error", streamError));
-        stream.once("close", (code, signal) => events.emit("close", code, signal));
+        stream.once("close", finish);
+        client.once?.("close", () => finish(null, null));
+        client.once?.("error", connectionError => events.emit("error", connectionError));
 
         resolve({
           invocation: command === "bash -lic 'exec codex app-server --stdio'"
@@ -51,6 +60,7 @@ function createSshAgentTransport({ sshSessionRuntime }) {
             try { stream.end(); } catch { /* best effort */ }
             try { stream.signal?.("TERM"); } catch { /* best effort */ }
             try { client.end(); } catch { /* best effort */ }
+            finish(null, null);
           }
         });
       });

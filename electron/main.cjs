@@ -258,12 +258,6 @@ if (!gotSingleInstanceLock) {
       }
     });
     questionAnswerStore = createQuestionAnswerStore({ userData: app.getPath("userData") });
-    codexAppServerSessionService = createCodexAppServerSessionService({
-      environmentService,
-      terminalManager,
-      broadcast: windowManager.broadcast,
-      questionAnswerStore
-    });
     agentNotificationManager = createAgentNotificationManager({
       Notification,
       windowManager,
@@ -280,6 +274,15 @@ if (!gotSingleInstanceLock) {
     });
     const sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
     const sshFileSystem = createSshFileSystem({ sshSessionRuntime });
+    codexAppServerSessionService = createCodexAppServerSessionService({
+      environmentService,
+      terminalManager,
+      broadcast: windowManager.broadcast,
+      sessionStore,
+      questionAnswerStore,
+      sshAgentTransport,
+      sshFileSystem
+    });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,

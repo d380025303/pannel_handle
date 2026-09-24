@@ -81,6 +81,7 @@ function createSshFileSystem({ sshSessionRuntime, sftpFactory = () => new SftpCl
 
   return {
     cancelDownload,
+    chmod: (sessionId, remotePath, mode) => call(sessionId, "chmod", remotePath, mode),
     cwd: sessionId => call(sessionId, "cwd"),
     disconnect,
     downloadFile,

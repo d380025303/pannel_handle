@@ -146,7 +146,7 @@ export function useTerminalSessions() {
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
       ...(isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
-      ...(!isSsh && agentProvider === "codex" ? { codexAppServerEnabled: codexAppServerEnabled !== false } : {}),
+      ...(agentProvider === "codex" && (!isSsh || agentLocation === "remote") ? { codexAppServerEnabled: codexAppServerEnabled !== false } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
       tags,

@@ -132,6 +132,31 @@ describe("agent-session-launcher", () => {
     expect(launched.runtimeMode).toBeUndefined();
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(1);
   });
+  it("starts SSH remote Codex through App Server and keeps the opt-out terminal path", async () => {
+    const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const options = { type: "ssh", cwd: "/srv/app", agentProvider: "codex", agentLocation: "remote",
+      sshConfig: { host: "example.com" } };
+    const remote = await mocks.launcher.createSession(options);
+    expect(remote).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
+    expect(codexAppServerSessionService.start).toHaveBeenCalledWith(remote, {});
+    expect(mocks.terminalManager.write).not.toHaveBeenCalled();
+    const disabled = await mocks.launcher.createSession({ ...options, codexAppServerEnabled: false });
+    expect(disabled.runtimeMode).toBeUndefined();
+    expect(mocks.terminalManager.write).toHaveBeenCalled();
+    const template = { ...options, id: "saved-remote" };
+    const launched = await mocks.launcher.launchSession(template);
+    expect(mocks.terminalManager.launchSession).toHaveBeenLastCalledWith(template, expect.objectContaining({
+      runtimeMode: "app-server", deferTerminalStart: true }));
+    expect(launched).toBeTruthy();
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
+  });
+  it("closes an SSH App Server session when initialization fails", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn().mockRejectedValue(new Error("SSH failed")) } });
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex",
+      agentLocation: "remote", sshConfig: { host: "example.com" } })).rejects.toThrow("SSH failed");
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
+  });
   it("rejects a Windows Codex shim in WSL App Server mode", async () => {
     const mocks = createMocks({
       codexAppServerSessionService: { start: vi.fn() },

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, Ellipsis, FileText, History, Image as ImageIcon, Paperclip, Plus, Sparkles, Square, X } from "lucide-react";
 import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand } from "../../vite-env";
@@ -43,20 +43,27 @@ function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled }: {
 }
 
 function QuestionCard({ sessionId, request }: { sessionId: string; request: CodexQuestionRequest }) {
+  const tabId = useId();
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [activeIndex, setActiveIndex] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const questions = request.params.questions || [];
+  const hasAnswer = (question: typeof questions[number]) => {
+    const choice = choices[question.id];
+    const note = notes[question.id]?.trim();
+    return Boolean((choice || note) && (!question.options?.length || choice || question.isOther));
+  };
   async function answer() {
     if (sending || request.submitting) return;
     const answers: Record<string, CodexQuestionAnswer> = {};
-    for (const question of questions) {
+    for (const [index, question] of questions.entries()) {
       const choice = choices[question.id];
       const note = notes[question.id]?.trim();
-      if (!choice && !note) { setError(`请回答「${question.header || question.question}」。`); return; }
+      if (!choice && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
       if (question.options?.length && !choice && !question.isOther) {
-        setError(`请选择「${question.header || question.question}」的选项。`); return;
+        setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
       }
       answers[question.id] = { answers: [...(choice ? [choice] : []), ...(note ? [`user_note: ${note}`] : [])] };
     }
@@ -67,7 +74,17 @@ function QuestionCard({ sessionId, request }: { sessionId: string; request: Code
   }
   return <article className="codex-app-server-question" aria-label="Codex 提问">
     <strong>Codex 提问</strong>
-    {questions.map(question => <fieldset key={question.id}>
+    {questions.length > 1 && <div className="codex-app-server-question-tabs" role="tablist" aria-label="切换问题">
+      {questions.map((question, index) => <button key={question.id} type="button" role="tab"
+        id={`${tabId}-tab-${index}`} aria-controls={`${tabId}-panel`} aria-selected={index === activeIndex}
+        onClick={() => { setActiveIndex(index); setError(""); }}>
+        <span>{index + 1}. {question.header || "问题"}</span>
+        <small>{hasAnswer(question) ? "已回答" : "待回答"}</small>
+      </button>)}
+    </div>}
+    {questions.slice(activeIndex, activeIndex + 1).map(question => <fieldset key={question.id} role={questions.length > 1 ? "tabpanel" : undefined}
+      id={questions.length > 1 ? `${tabId}-panel` : undefined}
+      aria-labelledby={questions.length > 1 ? `${tabId}-tab-${activeIndex}` : undefined}>
       <legend><span>{question.header}</span>{question.question}</legend>
       {question.options?.map(option => <label className="codex-app-server-question-option" key={option.label}>
         <input type="radio" name={`question-${request.requestId}-${question.id}`} value={option.label}
@@ -95,38 +112,24 @@ function groupTools(items: SessionItem[]): DisplayItem[] {
   const isTool = (item: SessionItem) => item.type === "commandExecution" || item.type === "fileChange";
   const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
-  const hasFollowingTool = (index: number, first: SessionItem) => {
-    for (const next of items.slice(index + 1)) {
-      if (isHidden(next)) continue;
-      if (!sameTurn(first, next)) return false;
-      if (isTool(next)) return true;
-      if (next.type !== "agentMessage") return false;
-    }
-    return false;
-  };
-  for (const [index, item] of items.entries()) {
+  for (const item of items) {
     if (isHidden(item)) continue;
     const previous = result.at(-1);
     if (isTool(item)) {
       if (previous?.kind === "tools" && sameTurn(previous.items[0], item)) previous.items.push(item);
       else result.push({ kind: "tools", items: [item] });
-    } else if (item.type === "agentMessage" && previous?.kind === "tools" && sameTurn(previous.items[0], item)
-      && hasFollowingTool(index, previous.items[0])) previous.items.push(item);
-    else result.push({ kind: "item", item });
+    } else result.push({ kind: "item", item });
   }
   return result;
 }
 
-function ToolGroup({ items, onLinkClick }: { items: SessionItem[]; onLinkClick?: (href: string) => void }) {
+function ToolGroup({ items }: { items: SessionItem[] }) {
   const [expanded, setExpanded] = useState(false);
-  const calls = items.filter(item => item.type === "commandExecution" || item.type === "fileChange");
   return <section className="codex-app-server-event">
     <button type="button" className="codex-app-server-event-summary" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-      <strong>工具调用 · {calls.length} 项</strong><span>{toolGroupStatus(calls)}</span>
+      <strong>工具调用 · {items.length} 项</strong><span>{toolGroupStatus(items)}</span>
     </button>
-    {items.map(item => item.type === "agentMessage" ? <article className="codex-app-server-message agentMessage codex-app-server-progress" key={item.id}>
-      {item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} />}
-    </article> : expanded && <div className="codex-app-server-tool" key={item.id}>
+    {expanded && items.map(item => <div className="codex-app-server-tool" key={item.id}>
       <div className="codex-app-server-tool-heading"><strong>{item.type === "commandExecution" ? "执行命令" : "修改文件"}</strong><span>{statusLabel(item.status)}</span></div>
       {item.type === "commandExecution" ? <><pre>{item.command}</pre>{item.output && <pre>{item.output}</pre>}</>
         : <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
@@ -153,6 +156,7 @@ type CodexAppServerSessionProps = {
 export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, draft, setDraft, onLinkClick }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [error, setError] = useState("");
+  const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [previewFile, setPreviewFile] = useState<{ path: string; name: string } | null>(null);
   const [preview, setPreview] = useState<AttachmentPreview | null>(null);
@@ -212,6 +216,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     loadedSessionIdRef.current = null;
     setSnapshot(empty);
     setError("");
+    setDismissedSnapshotError(null);
     setAttachments([]);
     setPreviewFile(null);
     setSending(false);
@@ -238,6 +243,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     });
     return () => { active = false; off(); };
   }, [sessionId]);
+  useEffect(() => {
+    if (!snapshot.error) setDismissedSnapshotError(null);
+  }, [snapshot.error]);
   useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [snapshot.items.length, snapshot.approvals.length, snapshot.questions?.length]);
   useEffect(() => {
     if (!previewFile) return;
@@ -410,14 +418,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，Codex 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
       {groupTools(snapshot.items).map(entry => {
         if (entry.kind === "tools") {
-          return <ToolGroup key={entry.items[0].id} items={entry.items} onLinkClick={onLinkClick} />;
+          return <ToolGroup key={entry.items[0].id} items={entry.items} />;
         }
         const item = entry.item;
         if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
           {item.type === "plan" && <strong>计划</strong>}
           {item.type === "userMessage" ? <>{item.text && <p>{item.text}</p>}{Boolean(item.attachments?.length) &&
             <div className="codex-app-server-attachments">{item.attachments?.map(file => <AttachmentTile key={file.path} sessionId={sessionId} file={file} onPreview={() => setPreviewFile(file)} />)}</div>}</>
-            : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} />}
+            : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
           {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
             <p>计划已完成。确认后将在当前会话中执行。</p>
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>暂不执行</button>
@@ -455,7 +463,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       </article>)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question} />)}
-      {(snapshot.error || error) && <p className="codex-app-server-error" role="alert">{error || snapshot.error}</p>}
+      {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
+        <div className="codex-app-server-error" role="alert">
+          <span>{error || snapshot.error}</span>
+          <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => {
+            setError("");
+            setDismissedSnapshotError(snapshot.error);
+          }}><X aria-hidden="true" /></button>
+        </div>}
       <div ref={endRef} />
     </div>
     <form className="codex-app-server-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>

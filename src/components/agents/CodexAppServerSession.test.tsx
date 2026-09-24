@@ -118,7 +118,8 @@ describe("CodexAppServerSession", () => {
     expect(await screen.findByText("继续检查")).toBeTruthy();
     expect(container.querySelector(".codex-app-server-message.userMessage")?.textContent).toBe("检查项目");
     expect(container.querySelector(".codex-app-server-message.agentMessage")?.textContent).toBe("开始检查");
-    expect(container.querySelector(".codex-app-server-progress")?.textContent).toBe("继续检查");
+    expect(Array.from(container.querySelectorAll(".codex-app-server-message.agentMessage")).map(node => node.textContent))
+      .toEqual(["开始检查", "继续检查"]);
     expect(container.querySelector(".codex-app-server-message.plan > strong")?.textContent).toBe("计划");
   });
 
@@ -168,12 +169,20 @@ describe("CodexAppServerSession", () => {
         { id: "details", header: "细节", question: "请补充", options: null }
       ] } }] } }));
     expect(screen.getByText("选择框架")).toBeTruthy();
+    expect(screen.queryByText("请补充")).toBeNull();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
     expect(screen.getByRole("alert").textContent).toContain("请回答");
     fireEvent.click(screen.getByRole("radio", { name: /React/ }));
-    const textareas = screen.getAllByRole("textbox").filter(element => element.tagName === "TEXTAREA" && !element.hasAttribute("disabled"));
-    fireEvent.change(textareas[0], { target: { value: "继续" } });
-    fireEvent.change(textareas[1], { target: { value: "保持简单" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "补充说明或自定义回答" }), { target: { value: "继续" } });
+    expect(screen.getByRole("tab", { name: /框架.*已回答/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /细节.*待回答/ }));
+    expect(screen.getByText("请补充")).toBeTruthy();
+    expect(screen.queryByText("选择框架")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "回答" }), { target: { value: "保持简单" } });
+    fireEvent.click(screen.getByRole("tab", { name: /框架.*已回答/ }));
+    expect(screen.getByRole("radio", { name: /React/ })).toHaveProperty("checked", true);
+    expect(screen.getByRole("textbox", { name: "补充说明或自定义回答" })).toHaveProperty("value", "继续");
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
     await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", 42, {
       framework: { answers: ["React", "user_note: 继续"] }, details: { answers: ["user_note: 保持简单"] }
@@ -188,19 +197,48 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("article", { name: "已回答的 Codex 提问" }).textContent).toContain("补充说明：保持简单");
   });
 
+  it("switches to the first unanswered question before submission", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "plan", busy: true, error: null, items: [], approvals: [],
+      questions: [{ requestId: 44, submitting: false, params: { threadId: "thread-1", turnId: "turn-1", questions: [
+        { id: "first", header: "第一题", question: "选择方案", options: [{ label: "方案 A", description: "描述" }] },
+        { id: "second", header: "第二题", question: "补充细节", options: null }
+      ] } }] } }));
+    fireEvent.click(screen.getByRole("tab", { name: /第二题.*待回答/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "回答" }), { target: { value: "细节" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
+    expect(screen.getByRole("tab", { name: /第一题.*待回答/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toContain("第一题");
+    expect(answerQuestion).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: /方案 A/ }));
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", 44, {
+      first: { answers: ["方案 A"] }, second: { answers: ["user_note: 细节"] }
+    }));
+  });
+
   it("keeps the Question available after a failed answer", async () => {
     answerQuestion.mockRejectedValueOnce(new Error("发送失败"));
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "plan", busy: true, error: null, items: [], approvals: [],
       questions: [{ requestId: 43, submitting: false, params: { threadId: "thread-1", turnId: "turn-1", questions: [
-        { id: "answer", header: "答案", question: "请输入答案", options: null }
+        { id: "answer", header: "答案", question: "请输入答案", options: null },
+        { id: "reason", header: "理由", question: "请输入理由", options: null }
       ] } }] } }));
     fireEvent.change(screen.getByRole("textbox", { name: "回答" }), { target: { value: "继续" } });
+    fireEvent.click(screen.getByRole("tab", { name: /理由.*待回答/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "回答" }), { target: { value: "保持简单" } });
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "发送失败");
+    fireEvent.click(screen.getByRole("tab", { name: /答案.*已回答/ }));
+    expect(screen.getByRole("textbox", { name: "回答" })).toHaveProperty("value", "继续");
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
     await waitFor(() => expect(answerQuestion).toHaveBeenCalledTimes(2));
+    expect(answerQuestion).toHaveBeenLastCalledWith("run-1", 43, {
+      answer: { answers: ["user_note: 继续"] }, reason: { answers: ["user_note: 保持简单"] }
+    });
   });
 
   it("sends messages and displays a command approval", async () => {
@@ -350,31 +388,45 @@ describe("CodexAppServerSession", () => {
     expect(document.querySelectorAll(".codex-app-server-event")).toHaveLength(2);
   });
 
-  it("keeps interleaved progress visible while folding every tool in one turn", async () => {
+  it("starts a new tool group after each Codex reply in the same turn", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");
-    const first = { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pwd", status: "completed" };
-    const second = { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "dir", status: "inProgress" };
+    const firstCalls = Array.from({ length: 4 }, (_, index) => ({
+      id: `cmd-a-${index}`, turnId: "turn-1", type: "commandExecution", command: `a-${index}`, status: "completed"
+    }));
+    const secondCalls = Array.from({ length: 5 }, (_, index) => ({
+      id: `cmd-b-${index}`, turnId: "turn-1", type: "commandExecution", command: `b-${index}`, status: "completed"
+    }));
     changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, approvals: [], items: [
-      first, { id: "msg-1", turnId: "turn-1", type: "agentMessage", text: "继续检查" },
-      { id: "reasoning-1", turnId: "turn-1", type: "reasoning" }, second
+      { id: "msg-a", turnId: "turn-1", type: "agentMessage", text: "回复 A" },
+      ...firstCalls, { id: "reasoning-1", turnId: "turn-1", type: "reasoning" },
+      { id: "msg-b", turnId: "turn-1", type: "agentMessage", text: "回复 B" }, ...secondCalls
     ] } });
-    const summary = await screen.findByRole("button", { name: /工具调用 · 2 项/ });
-    expect(document.querySelectorAll(".codex-app-server-event")).toHaveLength(1);
-    expect(screen.getByText("继续检查")).toBeTruthy();
-    expect(screen.queryByText("pwd")).toBeNull();
-    fireEvent.click(summary);
-    const group = summary.closest(".codex-app-server-event")!;
-    expect(Array.from(group.querySelectorAll(".codex-app-server-tool, .codex-app-server-progress")).map(node => node.textContent)).toEqual([
-      expect.stringContaining("pwd"), expect.stringContaining("继续检查"), expect.stringContaining("dir")
-    ]);
+    const firstSummary = await screen.findByRole("button", { name: /工具调用 · 4 项/ });
+    const secondSummary = screen.getByRole("button", { name: /工具调用 · 5 项/ });
+    expect(Array.from(document.querySelectorAll(".codex-app-server-messages > article, .codex-app-server-messages > section"))
+      .slice(0, 4).map(node => node.textContent)).toEqual([
+        expect.stringContaining("回复 A"), expect.stringContaining("工具调用 · 4 项"),
+        expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
+      ]);
+    expect(screen.queryByText("a-0")).toBeNull();
+    expect(screen.queryByText("b-0")).toBeNull();
+    fireEvent.click(firstSummary);
+    expect(Array.from(firstSummary.closest(".codex-app-server-event")!.querySelectorAll(".codex-app-server-tool pre"))
+      .map(node => node.textContent)).toEqual(["a-0", "a-1", "a-2", "a-3"]);
+    expect(screen.queryByText("b-0")).toBeNull();
+    fireEvent.click(secondSummary);
+    expect(Array.from(secondSummary.closest(".codex-app-server-event")!.querySelectorAll(".codex-app-server-tool pre"))
+      .map(node => node.textContent)).toEqual(["b-0", "b-1", "b-2", "b-3", "b-4"]);
     changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false, error: null, approvals: [], items: [
-      first, { id: "msg-1", turnId: "turn-1", type: "agentMessage", text: "继续检查" },
-      { id: "reasoning-1", turnId: "turn-1", type: "reasoning" }, { ...second, output: "完成", status: "completed" }
+      { id: "msg-a", turnId: "turn-1", type: "agentMessage", text: "回复 A" },
+      ...firstCalls, { id: "reasoning-1", turnId: "turn-1", type: "reasoning" },
+      { id: "msg-b", turnId: "turn-1", type: "agentMessage", text: "回复 B" },
+      ...secondCalls.slice(0, -1), { ...secondCalls.at(-1)!, output: "完成" }
     ] } });
     expect(await screen.findByText("完成")).toBeTruthy();
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
-    expect(summary.textContent).toContain("已完成");
+    expect(firstSummary.getAttribute("aria-expanded")).toBe("true");
+    expect(secondSummary.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("folds commands and file changes into one ordered group", async () => {
@@ -545,5 +597,42 @@ describe("CodexAppServerSession", () => {
     fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "剪贴板中没有可用的图片。");
     expect(input.value).toBe("保留文字");
+  });
+
+  it("dismisses the current server error and shows a later error", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: "服务出错", items: [], approvals: [] } }));
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", "服务出错");
+    fireEvent.click(screen.getByRole("button", { name: "关闭错误提示" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: "服务出错", items: [], approvals: [] } }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: "新的错误", items: [], approvals: [] } }));
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", "新的错误");
+    fireEvent.click(screen.getByRole("button", { name: "关闭错误提示" }));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: null, items: [], approvals: [] } }));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: "新的错误", items: [], approvals: [] } }));
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", "新的错误");
+  });
+
+  it("dismisses a local error without hiding the server error", async () => {
+    pasteImage.mockResolvedValueOnce({ status: "no_image" }).mockResolvedValueOnce({ status: "no_image" });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: "服务出错", items: [], approvals: [] } }));
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "剪贴板中没有可用的图片。");
+    fireEvent.click(screen.getByRole("button", { name: "关闭错误提示" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "剪贴板中没有可用的图片。");
   });
 });

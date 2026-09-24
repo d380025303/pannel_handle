@@ -7982,6 +7982,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-markdown { white-space: normal; }
 .codex-app-server-markdown > :first-child { margin-top: 0; }
 .codex-app-server-markdown > :last-child { margin-bottom: 0; }
+.codex-app-server-markdown .markdown-link-actions { position: relative; display: inline; }
+.codex-app-server-markdown .markdown-link-actions-popup { position: absolute; z-index: 10; top: 100%; left: 0; display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: max-content; max-width: min(420px, 80vw); padding: 8px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-panel); box-shadow: 0 8px 24px rgba(0, 0, 0, .2); white-space: normal; font-size: 12px; line-height: 1.4; }
+.codex-app-server-markdown .markdown-link-actions-address { min-width: 0; overflow-wrap: anywhere; user-select: text; }
+.codex-app-server-markdown .markdown-link-actions-popup button { flex: 0 0 auto; padding: 4px 7px; border: 1px solid var(--color-border); border-radius: 5px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
+.codex-app-server-markdown .markdown-link-actions-popup button:hover { background: var(--color-bg-control-hover); }
+.codex-app-server-markdown .markdown-link-actions-popup [role="status"] { flex: 0 0 auto; color: var(--color-text-secondary); }
 .codex-app-server-markdown pre, .codex-app-server-event pre, .codex-app-server-approval pre { max-width: 100%; overflow: auto; padding: 12px; border-radius: 7px; color: var(--color-text); background: var(--color-bg-code); font-size: 12px; line-height: 1.5; }
 .codex-app-server-message.turnPlan ol { margin: 8px 0 0; padding-left: 22px; }
 .codex-app-server-message.turnPlan li { margin: 4px 0; }
@@ -7997,7 +8003,6 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-event-summary[aria-expanded="true"]::before { transform: rotate(90deg); }
 .codex-app-server-event-summary span { margin-left: auto; color: var(--color-text-muted); }
 .codex-app-server-event > .codex-app-server-tool { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border); }
-.codex-app-server-event > .codex-app-server-progress { margin-top: 10px; }
 .codex-app-server-tool-heading { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; color: var(--color-text-secondary); font-size: 12px; }
 .codex-app-server-tool-heading span { color: var(--color-text-muted); }
 .codex-app-server-tool pre { margin: 6px 0 0; }
@@ -8008,6 +8013,10 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-approval button:hover, .codex-app-server-plan-confirm button:hover { background: var(--color-bg-control-hover); }
 .codex-app-server-question { align-self: flex-start; box-sizing: border-box; width: min(100%, 760px); padding: 16px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg-panel); color: var(--color-text); font-size: 13px; }
 .codex-app-server-question > strong { display: block; margin-bottom: 12px; }
+.codex-app-server-question-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 3px; }
+.codex-app-server-question-tabs button { display: grid; gap: 2px; flex: 0 0 auto; min-width: 92px; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; cursor: pointer; }
+.codex-app-server-question-tabs button[aria-selected="true"] { border-color: var(--color-border-strong); background: var(--color-bg-control-hover); }
+.codex-app-server-question-tabs button small { color: var(--color-text-muted); font-size: 11px; }
 .codex-app-server-question fieldset { min-width: 0; margin: 0 0 16px; padding: 0; border: 0; }
 .codex-app-server-question legend { width: 100%; margin-bottom: 8px; font-weight: 600; }
 .codex-app-server-question legend span { display: block; color: var(--color-text-muted); font-size: 11px; }
@@ -8024,7 +8033,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-plan-confirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); }
 .codex-app-server-plan-confirm p { margin: 0 0 10px; color: var(--color-text-secondary); }
 .codex-app-server-plan-confirm button.primary { border-color: var(--color-success); background: var(--color-success-bg); }
-.codex-app-server-error { margin: 0; padding: 10px 12px; border: 1px solid var(--color-danger); border-radius: 8px; color: var(--color-danger-text); background: var(--color-danger-bg); font-size: 12px; }
+.codex-app-server-error { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0; padding: 10px 12px; border: 1px solid var(--color-danger); border-radius: 8px; color: var(--color-danger-text); background: var(--color-danger-bg); font-size: 12px; }
+.codex-app-server-error > span { min-width: 0; overflow-wrap: anywhere; }
+.codex-app-server-error > button { display: grid; place-items: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
+.codex-app-server-error > button:hover { background: var(--color-bg-control-hover); }
+.codex-app-server-error > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.codex-app-server-error > button svg { width: 14px; height: 14px; }
 .codex-app-server-composer { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--color-border); background: var(--color-bg-panel); }
 @property --codex-app-server-border-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 @keyframes codex-app-server-border-run { to { --codex-app-server-border-angle: 360deg; } }

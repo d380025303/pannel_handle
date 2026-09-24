@@ -337,6 +337,7 @@ function createTerminalManager({
       codexModel: session.codexModel,
       codexExperimentalAcknowledged: session.codexExperimentalAcknowledged,
       codexAppServerEnabled: session.codexAppServerEnabled,
+      codexExecutionPermission: session.codexExecutionPermission,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: sanitizeSshConfig(session.sshConfig),
@@ -453,6 +454,13 @@ function createTerminalManager({
     session.sshConnectionState = state;
     session.sshReconnectAttempt = attempt;
     broadcast("sessions:changed", listSessions());
+  }
+
+  function setAppServerConnectionState(id, state) {
+    const session = sessions.get(id);
+    if (!session || session.type !== "ssh" || session.runtimeMode !== "app-server") return;
+    if (!["connected", "disconnected", "reconnecting"].includes(state)) throw new Error("无效的 SSH 连接状态。");
+    setSshConnectionState(session, state, state === "reconnecting" ? session.sshReconnectAttempt + 1 : 0);
   }
 
   function removeRuntimeSession(session) {
@@ -1147,6 +1155,7 @@ function createTerminalManager({
     updateSession,
     closeSession,
     reconnectSession,
+    setAppServerConnectionState,
     listSessions,
     getHistory,
     write,
