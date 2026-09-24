@@ -972,9 +972,15 @@ export type CodexAppServerSnapshot = {
   diagnostics?: Array<{ id: string; turnId: string | null; kind: string; at: number; payload: Record<string, unknown> }>;
   turnDiffs?: Array<{ turnId: string; diff: string; updatedAt: number }>;
   provider?: "codex" | "codebuddy" | "opencode";
+  team?: { name: string | null; isAutoTeam: boolean; hasLiveMembers: boolean; members: Array<{
+    name: string; color?: string; description?: string; status: string; taskId?: string; sessionId?: string;
+    tokenUsage?: { inputTokens?: number; outputTokens?: number; lastContextWindow?: number }; toolCallCount?: number;
+    items: CodexAppServerSnapshot["items"];
+  }> } | null;
   nativeMode?: string | null;
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
+  contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
   capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
@@ -1010,6 +1016,13 @@ export type CodexAppServerSnapshot = {
 };
 
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
+export type CodexVersionState = { status: "current" | "available" | "updating" | "error";
+  currentVersion?: string; latestVersion?: string; commandPath?: string; method?: "npm" | "standalone" | "unknown";
+  environment: string; guidance?: string | null; error?: string; restartRequired?: boolean };
+export type CodexVersionApi = {
+  check: (id: string, force?: boolean) => Promise<CodexVersionState>;
+  update: (id: string) => Promise<CodexVersionState>;
+};
 export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
 export type CodexSessionCapabilities = {
   skills: Array<{ name: string; path: string; description: string; enabled: boolean; scope: string }>;
@@ -1042,8 +1055,10 @@ export type CodexAppServerApi = {
   setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
   setNativeMode: (id: string, modeId: string) => Promise<CodexAppServerSnapshot>;
   setModel: (id: string, modelId: string) => Promise<CodexAppServerSnapshot>;
+  setContextWindow: (id: string, value: string) => Promise<CodexAppServerSnapshot>;
   setEffort: (id: string, effort: string) => Promise<CodexAppServerSnapshot>;
   setMultitask: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
+  sendTeamMessage: (id: string, teamName: string, memberName: string, text: string) => Promise<void>;
   setFastMode: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
   setExecutionPermission: (id: string, permission: CodexExecutionPermission) => Promise<CodexAppServerSnapshot>;
   dismissPlan: (id: string, itemId: string) => Promise<CodexAppServerSnapshot>;
@@ -1424,6 +1439,7 @@ declare global {
   interface Window {
     projectAssistantApi: ProjectAssistantApi;
     codexAppServerApi: CodexAppServerApi;
+    codexVersionApi: CodexVersionApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     screenshotApi: ScreenshotApi;

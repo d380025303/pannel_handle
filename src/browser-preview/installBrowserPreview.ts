@@ -454,6 +454,8 @@ export function installBrowserPreview() {
       setMode: async (_id, mode) => ({ threadId: "preview-thread", mode, executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setNativeMode: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setModel: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      setContextWindow: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      sendTeamMessage: async () => undefined,
       setEffort: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setFastMode: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       setMultitask: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
@@ -472,6 +474,10 @@ export function installBrowserPreview() {
       answerQuestion: async () => undefined,
       onChanged: () => () => undefined
     } satisfies Window["codexAppServerApi"],
+    codexVersionApi: {
+      check: async () => ({ status: "available", currentVersion: "0.156.0", latestVersion: "0.157.0", method: "npm", environment: "windows" }),
+      update: async () => ({ status: "current", currentVersion: "0.157.0", latestVersion: "0.157.0", method: "npm", environment: "windows", restartRequired: true })
+    } satisfies Window["codexVersionApi"],
     launchTemplateApi: {
       list: async () => copy(launchTemplates),
       create: async (input) => { const entry = { id: `preview-launch-${nextId++}`, ...input, createdAt: Date.now(), updatedAt: Date.now() }; launchTemplates = [...launchTemplates, entry]; return copy(entry); },
@@ -595,7 +601,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "codeBuddyCodexApi" | "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "codeBuddyCodexApi" | "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "codexVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

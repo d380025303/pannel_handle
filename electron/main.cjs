@@ -33,6 +33,7 @@ const { createAgentConversationHistoryService } = require("./services/conversati
 const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
+const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
@@ -298,6 +299,7 @@ if (!gotSingleInstanceLock) {
       environmentService, terminalManager, broadcast: windowManager.broadcast, sshAgentTransport, sshFileSystem
     });
     codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService);
+    const codexVersionService = createCodexVersionService({ terminalManager, sshAgentTransport });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,
@@ -545,7 +547,8 @@ if (!gotSingleInstanceLock) {
       postgresBackupService,
       projectAssistantService,
       codexSessionControl,
-      codexAppServerSessionService
+      codexAppServerSessionService,
+      codexVersionService
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);

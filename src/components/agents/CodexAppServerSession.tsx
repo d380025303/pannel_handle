@@ -1,10 +1,11 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Ellipsis, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand } from "../../vite-env";
+import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
+import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
+import { CodexVersionControl } from "./CodexVersionControl";
 
 const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
 const permissionLabels: Record<CodexExecutionPermission, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
@@ -18,25 +19,23 @@ const effortLabels: Record<string, string> = {
 };
 const effortLabel = (effort: string) => effortLabels[effort] || effort;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+type FileMention = { start: number; end: number; query: string };
+function fileMentionAtCaret(value: string, caret: number): FileMention | null {
+  const prefix = value.slice(0, caret);
+  const match = prefix.match(/(?:^|\s)@([^\s@]*)$/);
+  if (!match) return null;
+  return { start: prefix.length - match[0].length + match[0].lastIndexOf("@"), end: caret, query: match[1] };
+}
 const statusLabels: Record<string, string> = { completed: "已完成", inProgress: "进行中", in_progress: "进行中", pending: "待处理", failed: "失败", declined: "已拒绝" };
 const statusLabel = (status?: string) => statusLabels[status || ""] || status || "进行中";
 type SessionItem = CodexAppServerSnapshot["items"][number];
+type TeamMember = NonNullable<CodexAppServerSnapshot["team"]>["members"][number];
 type ToolDisplayItem = { kind: "item"; item: SessionItem } | { kind: "tools"; items: SessionItem[] };
 type DisplayItem = ToolDisplayItem
-  | { kind: "diagnostic"; event: Diagnostic } | { kind: "diff"; diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] };
+  | { kind: "diagnostic"; event: Diagnostic }
+  | { kind: "diff"; diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
-const hasReply = (item: SessionItem) => (item.type === "agentMessage" || item.type === "plan") && Boolean(item.text?.trim())
-  || item.type === "turnPlan" && Boolean(item.explanation?.trim() || item.plan?.some(step => step.step.trim()));
-const replyChanged = (item: SessionItem, previous?: SessionItem) => hasReply(item) && (!previous || item.text !== previous.text
-  || item.explanation !== previous.explanation || JSON.stringify(item.plan) !== JSON.stringify(previous.plan));
-function latestUnansweredToolGroup(items: SessionItem[]) {
-  const groups = groupTools(items);
-  const latest = [...groups].reverse().find(entry => entry.kind === "tools");
-  if (latest?.kind !== "tools") return null;
-  const lastToolIndex = items.findIndex(item => item.id === latest.items.at(-1)?.id);
-  return items.some((item, index) => index > lastToolIndex && hasReply(item)) ? null : latest.items[0].id;
-}
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
@@ -190,6 +189,34 @@ function ToolGroup({ items, expanded, onToggle }: { items: SessionItem[]; expand
   </section>;
 }
 
+const teamStatusLabels: Record<string, string> = {
+  running: "运行中", idle: "空闲", paused: "已暂停", completed: "已完成", failed: "失败",
+  cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
+};
+
+function TeamMemberTimeline({ member, onLinkClick }: { member: TeamMember; onLinkClick?: (href: string) => void }) {
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  return <div className="codex-app-server-team-timeline" aria-label={`${member.name} 的消息时间线`}>
+    {!member.items.length && <p className="codex-app-server-team-empty">暂无成员消息。</p>}
+    {groupTools(member.items).map(entry => {
+      if (entry.kind === "tools") {
+        const groupId = entry.items[0].id;
+        return <ToolGroup key={groupId} items={entry.items} expanded={expandedGroupId === groupId}
+          onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
+      }
+      const item = entry.item;
+      if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
+        {item.type === "userMessage" ? <p>{item.text}</p>
+          : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
+      </article>;
+      if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
+        <strong>计划进度</strong><ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
+      </article>;
+      return null;
+    })}
+  </div>;
+}
+
 function toolGroupStatus(items: SessionItem[]) {
   if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
   if (items.every(item => item.status === "completed")) return "已完成";
@@ -198,7 +225,7 @@ function toolGroupStatus(items: SessionItem[]) {
 
 type Diagnostic = NonNullable<CodexAppServerSnapshot["diagnostics"]>[number];
 const diagnosticNames: Record<string, string> = {
-  configWarning: "配置警告", warning: "运行警告", "hook/started": "Hook 开始", "hook/completed": "Hook 完成",
+  configWarning: "配置警告", warning: "运行警告",
   "model/rerouted": "模型重路由", "model/safetyBuffering/updated": "模型安全缓冲",
   "model/verification": "模型验证", error: "运行错误"
 };
@@ -213,10 +240,6 @@ function diagnosticSummary(event: Diagnostic) {
   if (event.kind === "configWarning") return String(data.summary || "配置需要检查");
   if (event.kind === "warning" || event.kind === "error") return String(data.message || "运行遇到问题");
   if (event.kind === "model/rerouted") return `${String(data.fromModel || "原模型")} → ${String(data.toModel || "目标模型")}`;
-  if (event.kind.startsWith("hook/")) {
-    const run = data.run && typeof data.run === "object" ? data.run as Record<string, unknown> : {};
-    return [run.name || run.hookName || "生命周期 Hook", run.status || run.result].filter(Boolean).map(String).join(" · ");
-  }
   if (event.kind === "model/verification") return "需要额外账户验证";
   return event.kind === "model/safetyBuffering/updated" ? "响应正在安全缓冲" : "查看详情";
 }
@@ -236,23 +259,9 @@ function TurnDiffCard({ diff }: { diff: NonNullable<CodexAppServerSnapshot["turn
   return <details className="codex-app-server-turn-diff"><summary><FileDiff aria-hidden="true" />本轮变更</summary>
     <pre>{diff.diff || "本轮暂无文件差异。"}</pre></details>;
 }
-function threadStateLabel(snapshot: CodexAppServerSnapshot) {
-  const type = snapshot.threadStatus?.type;
-  const flags = snapshot.threadStatus?.activeFlags || [];
-  if (snapshot.archived) return "已归档 · 只读";
-  if (type === "systemError") return "线程异常";
-  if (type === "notLoaded") return "线程未加载";
-  if (!snapshot.busy && snapshot.turnStatus === "interrupted") return "已中断";
-  if (!snapshot.busy && snapshot.turnStatus === "failed") return "失败";
-  if (!snapshot.busy && snapshot.turnStatus === "completed") return "已完成";
-  if (flags.includes("waitingOnApproval")) return "等待操作确认";
-  if (flags.includes("waitingOnUserInput")) return "等待回答";
-  if (snapshot.busy || type === "active") return "运行中";
-  return "已就绪";
-}
 function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
   const groups = groupTools(snapshot.items);
-  const events = snapshot.diagnostics || [];
+  const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
   const diffs = snapshot.turnDiffs || [];
   const lastIndex = new Map<string, number>();
   groups.forEach((group, index) => {
@@ -274,7 +283,10 @@ function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
   return result;
 }
 
-export type CodexAppServerSessionHandle = { applyQuickCommand: (command: QuickCommand) => Promise<boolean> };
+export type CodexAppServerSessionHandle = {
+  applyQuickCommand: (command: QuickCommand) => Promise<boolean>;
+  appendFilePath: (path: string) => void;
+};
 
 type CodexAppServerSessionProps = {
   sessionId: string;
@@ -288,9 +300,12 @@ type CodexAppServerSessionProps = {
 
 export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
+  const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
+  const [memberDraft, setMemberDraft] = useState("");
+  const [sendingMember, setSendingMember] = useState(false);
+  const [memberError, setMemberError] = useState("");
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const timelineRef = useRef<CodexAppServerSnapshot | null>(null);
-  const repliedGroupIdRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -319,12 +334,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [capabilities, setCapabilities] = useState<CodexSessionCapabilities | null>(null);
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const [capabilityError, setCapabilityError] = useState("");
+  const [fileMention, setFileMention] = useState<FileMention | null>(null);
+  const [fileResults, setFileResults] = useState<WorkspaceEntrySearchResult[]>([]);
+  const [fileSearchStatus, setFileSearchStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [fileSearchError, setFileSearchError] = useState("");
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [resumingHistory, setResumingHistory] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const fileSearchRequestRef = useRef(0);
+  const fileListId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const capabilityButtonRef = useRef<HTMLButtonElement>(null);
@@ -341,6 +364,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   currentSessionRef.current = sessionId;
 
   useImperativeHandle(ref, () => ({
+    appendFilePath(path) {
+      setDraft(current => current + (current && !/\s$/.test(current) ? " " : "") + path);
+      window.requestAnimationFrame(() => {
+        if (currentSessionRef.current === sessionId) textareaRef.current?.focus();
+      });
+    },
     async applyQuickCommand(command) {
       if (loadedSessionIdRef.current !== sessionId || !snapshot.threadId) return false;
       if (command.mode !== "auto-enter") {
@@ -367,8 +396,11 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     let receivedChange = false;
     loadedSessionIdRef.current = null;
     timelineRef.current = null;
-    repliedGroupIdRef.current = null;
     setSnapshot(empty);
+    setSelectedMemberName(null);
+    setMemberDraft("");
+    setSendingMember(false);
+    setMemberError("");
     setExpandedGroupId(null);
     setError("");
     setDismissedSnapshotError(null);
@@ -393,6 +425,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setGoalOpen(false);
     setMenuOpen(false);
     setCapabilityOpen(false);
+    setFileMention(null);
+    setFileResults([]);
+    setFileSearchStatus("idle");
+    setFileSearchError("");
+    setSelectedFileIndex(0);
+    fileSearchRequestRef.current += 1;
     setCapabilities(null);
     setCapabilityQuery("");
     setHistoryQuery("");
@@ -400,7 +438,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setLoadingHistory(false);
     setResumingHistory(false);
     historyRequestRef.current += 1;
-    void window.codexAppServerApi.snapshot(sessionId).then(value => { if (active && !receivedChange) { loadedSessionIdRef.current = sessionId; timelineRef.current = value; setExpandedGroupId(value.busy ? latestUnansweredToolGroup(value.items) : null); setSnapshot(value); } })
+    void window.codexAppServerApi.snapshot(sessionId).then(value => { if (active && !receivedChange) { loadedSessionIdRef.current = sessionId; timelineRef.current = value; setSnapshot(value); } })
       .catch(cause => { if (active) setError(message(cause)); });
     const off = window.codexAppServerApi.onChanged(payload => {
       if (active && payload.id === sessionId) {
@@ -408,31 +446,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         loadedSessionIdRef.current = sessionId;
         const next = payload.snapshot;
         const previous = timelineRef.current;
-        if (previous?.threadId === next.threadId) {
-          const previousIds = new Set(previous.items.map(item => item.id));
-          const addedTool = [...next.items].reverse().find(item => isTool(item) && !previousIds.has(item.id));
-          if (addedTool) {
-            repliedGroupIdRef.current = null;
-            const group = groupTools(next.items).find(entry => entry.kind === "tools" && entry.items.some(item => item.id === addedTool.id));
-            const lastToolIndex = group?.kind === "tools" ? next.items.findIndex(item => item.id === group.items.at(-1)?.id) : -1;
-            const replied = next.items.some((item, index) => index > lastToolIndex && hasReply(item));
-            if (replied && group?.kind === "tools") repliedGroupIdRef.current = group.items[0].id;
-            setExpandedGroupId(group?.kind === "tools" && !replied ? group.items[0].id : null);
-          } else {
-            const previousById = new Map(previous.items.map(item => [item.id, item]));
-            setExpandedGroupId(current => {
-              if (current === repliedGroupIdRef.current) return current;
-              const currentGroup = groupTools(next.items).find(entry => entry.kind === "tools" && entry.items[0].id === current);
-              const toolIndex = currentGroup?.kind === "tools" ? next.items.findIndex(item => item.id === currentGroup.items.at(-1)?.id) : -1;
-              if (toolIndex >= 0 && next.items.some((item, index) =>
-                (index > toolIndex || item.type === "turnPlan") && replyChanged(item, previousById.get(item.id)))) {
-                repliedGroupIdRef.current = current;
-                return null;
-              }
-              return current;
-            });
-          }
-        } else { repliedGroupIdRef.current = null; setExpandedGroupId(next.busy ? latestUnansweredToolGroup(next.items) : null); }
+        if (previous?.threadId !== next.threadId) setExpandedGroupId(null);
         timelineRef.current = next;
         setSnapshot(next);
       }
@@ -442,6 +456,36 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   useEffect(() => {
     if (!snapshot.error) setDismissedSnapshotError(null);
   }, [snapshot.error]);
+  useEffect(() => {
+    const names = snapshot.team?.members.map(member => member.name) || [];
+    if (!names.length) { setSelectedMemberName(null); return; }
+    if (!selectedMemberName || !names.includes(selectedMemberName)) setSelectedMemberName(names[0]);
+  }, [snapshot.team?.name, snapshot.team?.members, selectedMemberName]);
+  useEffect(() => { setMemberDraft(""); setMemberError(""); }, [snapshot.threadId, snapshot.team?.name]);
+  useEffect(() => {
+    if (!fileMention) return;
+    const requestId = ++fileSearchRequestRef.current;
+    setFileSearchStatus("loading");
+    setFileSearchError("");
+    setFileResults([]);
+    setSelectedFileIndex(0);
+    const timer = window.setTimeout(() => {
+      window.projectSearchApi.searchWorkspaceEntries(sessionId, fileMention.query).then(response => {
+        if (fileSearchRequestRef.current !== requestId) return;
+        setFileResults(response.results.filter(entry => entry.type === "file"));
+        setFileSearchStatus("ready");
+      }).catch(cause => {
+        if (fileSearchRequestRef.current !== requestId) return;
+        setFileResults([]);
+        setFileSearchError(message(cause));
+        setFileSearchStatus("error");
+      });
+    }, 180);
+    return () => { window.clearTimeout(timer); fileSearchRequestRef.current += 1; };
+  }, [sessionId, fileMention?.query, fileMention?.start, fileMention?.end]);
+  useEffect(() => {
+    if (fileMention && fileResults[selectedFileIndex]) fileResultRefs.current[selectedFileIndex]?.scrollIntoView?.({ block: "nearest" });
+  }, [fileMention, fileResults, selectedFileIndex]);
   useLayoutEffect(() => {
     const messages = messagesRef.current;
     if (messages) messages.scrollTop = messages.scrollHeight;
@@ -508,12 +552,31 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setCapabilityOpen(false);
     window.requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + prefix.length + token.length, start + prefix.length + token.length); });
   }
+  function closeFileMention() {
+    fileSearchRequestRef.current += 1;
+    setFileMention(null);
+    setFileResults([]);
+    setFileSearchStatus("idle");
+    setFileSearchError("");
+    setSelectedFileIndex(0);
+  }
+  function selectFile(entry: WorkspaceEntrySearchResult) {
+    if (!fileMention) return;
+    const token = `@${entry.relativePath} `;
+    const next = draft.slice(0, fileMention.start) + token + draft.slice(fileMention.end);
+    const caret = fileMention.start + token.length;
+    setDraft(next);
+    setDraftReferences(current => current.filter(value => next.includes(value.token)));
+    closeFileMention();
+    window.requestAnimationFrame(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(caret, caret); });
+  }
 
   async function submit() {
     const text = draft.trim();
     if (snapshot.archived || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || pastingRef.current) return;
     setSending(true);
+    closeFileMention();
     setDraft(""); setError("");
     try { await window.codexAppServerApi.submit(sessionId, text, attachments, draftReferences.filter(value => text.includes(value.token))); if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); } }
     catch (cause) {
@@ -531,7 +594,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       const seenCursors = new Set<string>();
       let nextCursor = cursor;
       do {
-        const page = await window.codexAppServerApi.listHistory(sessionId, nextCursor, historyArchived);
+        let timeoutId: number | undefined;
+        const page = await Promise.race([
+          window.codexAppServerApi.listHistory(sessionId, nextCursor, historyArchived),
+          new Promise<never>((_resolve, reject) => {
+            timeoutId = window.setTimeout(() => reject(new Error("加载历史会话超时，请重试。")), 35000);
+          })
+        ]).finally(() => window.clearTimeout(timeoutId));
         if (currentSessionRef.current !== sessionId || historyRequestRef.current !== requestId) return;
         const append = Boolean(nextCursor);
         setHistory(current => append ? [...current, ...page.data] : page.data);
@@ -548,12 +617,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function closeHistory() {
     setHistoryOpen(false);
+    historyRequestRef.current += 1;
+    setLoadingHistory(false);
     menuButtonRef.current?.focus();
   }
   async function selectHistory(threadId: string) {
     setResumingHistory(true); setHistoryError("");
     try { const value = await window.codexAppServerApi.resume(sessionId, threadId);
-      if (currentSessionRef.current === sessionId) { timelineRef.current = value; repliedGroupIdRef.current = null; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); pastedImagesRef.current.clear(); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
+      if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); pastedImagesRef.current.clear(); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
     catch (cause) { if (currentSessionRef.current === sessionId) setHistoryError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) setResumingHistory(false); }
   }
@@ -570,7 +641,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       if (action === "fork") {
         const next = await window.codexAppServerApi.forkThread(sessionId, threadId);
         if (currentSessionRef.current === sessionId) {
-          timelineRef.current = next; repliedGroupIdRef.current = null; setExpandedGroupId(null); setSnapshot(next);
+          timelineRef.current = next; setExpandedGroupId(null); setSnapshot(next);
           setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear();
           setCapabilities(null); setCapabilityOpen(false); closeHistory();
         }
@@ -684,6 +755,17 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
+  async function changeContextWindow(value: string) {
+    if (!snapshot.threadId || snapshot.busy || changingModelRef.current) return;
+    changingModelRef.current = true;
+    setChangingModel(true);
+    setError("");
+    try {
+      const next = await window.codexAppServerApi.setContextWindow(sessionId, value);
+      if (currentSessionRef.current === sessionId) setSnapshot(next);
+    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+    finally { changingModelRef.current = false; if (currentSessionRef.current === sessionId) setChangingModel(false); }
+  }
   async function changeMultitask(enabled: boolean) {
     if (!snapshot.threadId || changingMultitask) return;
     setChangingMultitask(true); setError("");
@@ -692,6 +774,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       if (currentSessionRef.current === sessionId) setSnapshot(value);
     } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) setChangingMultitask(false); }
+  }
+  async function sendMemberMessage() {
+    const teamName = snapshot.team?.name;
+    const memberName = selectedMemberName || snapshot.team?.members[0]?.name;
+    const content = memberDraft.trim();
+    if (!snapshot.threadId || !teamName || !memberName || !content || sendingMember) return;
+    setSendingMember(true); setMemberError("");
+    try {
+      await window.codexAppServerApi.sendTeamMessage(sessionId, teamName, memberName, content);
+      if (currentSessionRef.current === sessionId && timelineRef.current?.threadId === snapshot.threadId
+        && timelineRef.current?.team?.name === teamName) setMemberDraft("");
+    } catch (cause) { if (currentSessionRef.current === sessionId) setMemberError(message(cause)); }
+    finally { if (currentSessionRef.current === sessionId) setSendingMember(false); }
   }
   async function changeFastMode(enabled: boolean) {
     if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || enabled === snapshot.fastMode) return;
@@ -734,26 +829,23 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
   const acpEffort = snapshot.provider === "opencode" ? snapshot.acpOptions?.find(option => option.id === "effort" && option.type === "select") : undefined;
+  const acpContextWindow = snapshot.provider === "codebuddy" ? snapshot.acpOptions?.find(option => option.id === "context_window" && option.type === "select" && (option.options?.length ?? 0) > 1) : undefined;
   const multitaskOption = snapshot.provider === "codebuddy" && snapshot.capabilities?.multitask === true
     ? snapshot.acpOptions?.find(option => option.id === "multitask" && option.type === "boolean") : undefined;
   const isCodex = snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode";
   const matchesCapability = (name: string, description: string) => `${name} ${description}`.toLocaleLowerCase().includes(capabilityQuery.trim().toLocaleLowerCase());
+  const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
-    {isCodex && (snapshot.backend || "openai") === "openai" && <CodexAccountPanel key={sessionId} account={snapshot.account} preferDeviceCode={sessionType !== "windows"} busy={snapshot.busy} actions={{
+    {isCodex && (snapshot.backend || "openai") === "openai" && snapshot.account?.status === "signedOut" && <CodexAccountPanel key={sessionId} account={snapshot.account} preferDeviceCode={sessionType !== "windows"} busy={snapshot.busy} actions={{
       readAccount: () => window.codexAppServerApi.readAccount(sessionId),
       startLogin: type => window.codexAppServerApi.startLogin(sessionId, type),
       cancelLogin: () => window.codexAppServerApi.cancelLogin(sessionId),
       logout: () => window.codexAppServerApi.logout(sessionId),
       refreshAccountUsage: () => window.codexAppServerApi.refreshAccountUsage(sessionId)
     }} />}
-    {isCodex && snapshot.threadId && <div className="codex-app-server-runtime" role="status">
-      <strong>{threadStateLabel(snapshot)}</strong>
-      {snapshot.threadStatus && <details><summary>线程状态详情</summary><pre>{JSON.stringify(snapshot.threadStatus, null, 2)}</pre></details>}
-      {snapshot.effectiveModel && snapshot.effectiveModel !== snapshot.model && <span>实际模型：{snapshot.effectiveModel}</span>}
-      {Boolean(snapshot.diagnostics?.some(event => event.kind === "configWarning" || event.kind === "warning")) &&
-        <span>警告 {snapshot.diagnostics?.filter(event => event.kind === "configWarning" || event.kind === "warning").length} 条</span>}
-      {snapshot.diagnosticStoreError && <span role="alert">{snapshot.diagnosticStoreError}</span>}
-    </div>}
+    <div className={`codex-app-server-conversation-layout${snapshot.provider === "codebuddy" && snapshot.team ? " has-team" : ""}`}>
+      <div className="codex-app-server-main-pane">
+    {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span></div>}
       {groupTimeline(snapshot).map(entry => {
@@ -834,22 +926,65 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <AttachmentTile key={filePath} sessionId={sessionId}
         file={{ path: filePath, name: fileName(filePath) }} onPreview={() => setPreviewFile({ path: filePath, name: fileName(filePath) })}
         onRemove={() => void removeAttachment(filePath)} disabled={(snapshot.busy && !canSendWhileBusy) || sending || pastingImage} />)}</div>}
+      {fileMention && <div id={fileListId} className="codex-app-server-file-mentions" role="listbox" aria-label="搜索工作区文件">
+        <div className="codex-app-server-file-mentions-heading">搜索工作区文件{fileSearchStatus === "loading" ? " · 搜索中..." : ""}</div>
+        {fileSearchStatus === "error" ? <div className="codex-app-server-file-mentions-empty" role="alert">搜索失败：{fileSearchError}</div>
+          : fileSearchStatus === "ready" && fileResults.length === 0 ? <div className="codex-app-server-file-mentions-empty">没有匹配文件</div>
+          : fileResults.map((entry, index) => <button key={entry.path} ref={element => { fileResultRefs.current[index] = element; }}
+              id={`${fileListId}-option-${index}`} type="button" role="option" aria-selected={index === selectedFileIndex}
+              className={index === selectedFileIndex ? "selected" : ""} onMouseDown={event => event.preventDefault()}
+              onMouseEnter={() => setSelectedFileIndex(index)} onClick={() => selectFile(entry)}>
+              <FileIcon aria-hidden="true" /><span>{entry.name}</span><small>{entry.relativePath}</small>
+            </button>)}
+      </div>}
       <div className={`codex-app-server-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={snapshot.mode}><textarea ref={textareaRef} value={draft} onChange={event => {
         const next = event.target.value;
         setDraft(next);
         setDraftReferences(current => current.filter(value => next.includes(value.token)));
+        const mention = fileMentionAtCaret(next, event.target.selectionStart);
+        if (mention) setFileMention(mention);
+        else closeFileMention();
+      }} onClick={event => {
+        const mention = fileMentionAtCaret(draft, event.currentTarget.selectionStart);
+        if (mention) setFileMention(mention);
+        else closeFileMention();
+      }} onCompositionEnd={event => {
+        const mention = fileMentionAtCaret(event.currentTarget.value, event.currentTarget.selectionStart);
+        if (mention) setFileMention(mention);
+        else closeFileMention();
+      }} onKeyUp={event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const mention = fileMentionAtCaret(event.currentTarget.value, event.currentTarget.selectionStart);
+        if (mention) setFileMention(mention);
+        else closeFileMention();
       }} onPaste={event => {
         if (!Array.from(event.clipboardData.items).some(item => item.type.startsWith("image/"))) return;
         event.preventDefault();
         void pasteImage();
       }} onKeyDown={event => {
+        if (event.nativeEvent.isComposing) return;
+        if (fileMention && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setSelectedFileIndex(current => fileResults.length ? (current + (event.key === "ArrowDown" ? 1 : -1) + fileResults.length) % fileResults.length : 0);
+            return;
+          }
+          if (event.key === "Enter" || event.key === "Tab" && fileResults.length > 0) {
+            event.preventDefault();
+            if (fileResults[selectedFileIndex]) selectFile(fileResults[selectedFileIndex]);
+            return;
+          }
+          if (event.key === "Escape") { event.preventDefault(); closeFileMention(); return; }
+        }
         if (snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) {
           event.preventDefault();
           void changeMode(snapshot.mode === "plan" ? "default" : "plan");
           return;
         }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
-      }} placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || (snapshot.busy && !canSendWhileBusy)} />
+      }} aria-label="图形对话输入" aria-autocomplete="list" aria-controls={fileMention ? fileListId : undefined}
+        aria-expanded={Boolean(fileMention)} aria-activedescendant={fileMention && fileResults[selectedFileIndex] ? `${fileListId}-option-${selectedFileIndex}` : undefined}
+        placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || (snapshot.busy && !canSendWhileBusy)} />
         <div className="codex-app-server-input-actions">
           {isCodex && <div className="codex-app-server-capability-anchor">
             <button ref={capabilityButtonRef} type="button" className="codex-app-server-icon-button" title="Skills、Apps 和 MCP" aria-label="Skills、Apps 和 MCP" aria-expanded={capabilityOpen} disabled={!snapshot.threadId}
@@ -941,6 +1076,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                   aria-checked={acpModel.currentValue === option.value} disabled={snapshot.busy || changingModel}
                   onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeModel(option.value); }}>{option.name}</button>)}</div>
               </div>}
+              {acpContextWindow && <div className="codex-app-server-menu-group" role="group" aria-label="CodeBuddy 上下文窗口档位">
+                <span className="codex-app-server-menu-label" aria-hidden="true">上下文窗口 <small>下一轮生效</small></span>
+                <div className="codex-app-server-mode-options">{acpContextWindow.options?.map(option => <button key={option.value} type="button" role="menuitemradio"
+                  aria-checked={acpContextWindow.currentValue === option.value} disabled={snapshot.busy || changingModel}
+                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeContextWindow(option.value); }}>{option.name}</button>)}</div>
+              </div>}
               {acpEffort && <div className="codex-app-server-menu-group" role="group" aria-label="OpenCode 思考强度">
                 <span className="codex-app-server-menu-label" aria-hidden="true">思考强度 <small>下一轮生效</small></span>
                 <div className="codex-app-server-mode-options">{acpEffort.options?.map(option => <button key={option.value} type="button" role="menuitemradio"
@@ -982,6 +1123,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 </div>
               </div>}
               <button type="button" role="menuitem" disabled={(snapshot.busy && !canSendWhileBusy) || sending || pastingImage || attachments.length >= 10} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
+              {isCodex && <CodexVersionControl sessionId={sessionId} />}
             </div>}
           </div>
           <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy" || snapshot.provider === "opencode"
@@ -990,11 +1132,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}
           {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.backend === "openai" && <span className="codex-app-server-permission-status">{(snapshot.models || []).find(model => model.id === snapshot.model)?.displayName || snapshot.model || "默认模型"}{snapshot.effort ? ` · 思考${effortLabel(snapshot.effort)}` : ""}{snapshot.fastMode ? " · 快速" : ""}</span>}
-          {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}</span>}
+          {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
+          {!acpModel && acpContextWindow?.currentValue && <span className="codex-app-server-permission-status">上下文窗口：{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</span>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行</span>
           <div className="codex-app-server-input-primary">
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={() => void window.codexAppServerApi.newThread(sessionId)
-              .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; repliedGroupIdRef.current = null; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
+              .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
               .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); })}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
             {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
@@ -1002,6 +1145,37 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         </div>
       </div>
     </form>
+      </div>
+      {snapshot.provider === "codebuddy" && snapshot.team && <aside className="codex-app-server-team-pane" aria-label="Agent Teams">
+        <div className="codex-app-server-team-heading"><strong>Agent Teams</strong><span>{snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</span></div>
+        <div className="codex-app-server-team-members" role="tablist" aria-label="团队成员">
+          {snapshot.team.members.map(member => <button key={member.name} type="button" role="tab" aria-selected={selectedMember?.name === member.name}
+            onClick={() => { if (member.name !== selectedMember?.name) setMemberDraft(""); setSelectedMemberName(member.name); setMemberError(""); }}>
+            <span className="codex-app-server-team-dot" data-status={member.status} />
+            <strong>{member.name}</strong><small>{teamStatusLabels[member.status] || member.status}</small>
+          </button>)}
+        </div>
+        {selectedMember ? <>
+          <div className="codex-app-server-team-member-detail"><strong>{selectedMember.name}</strong>
+            <span>{teamStatusLabels[selectedMember.status] || selectedMember.status}</span>
+            {selectedMember.description && <p>{selectedMember.description}</p>}
+            {(selectedMember.tokenUsage || selectedMember.toolCallCount != null) && <small>
+              {selectedMember.tokenUsage ? `输入 ${selectedMember.tokenUsage.inputTokens || 0} · 输出 ${selectedMember.tokenUsage.outputTokens || 0}` : ""}
+              {selectedMember.toolCallCount != null ? ` · 工具 ${selectedMember.toolCallCount}` : ""}
+            </small>}
+          </div>
+          <TeamMemberTimeline key={`${snapshot.threadId}:${snapshot.team.name}:${selectedMember.name}`} member={selectedMember} onLinkClick={onLinkClick} />
+          <form className="codex-app-server-team-composer" onSubmit={event => { event.preventDefault(); void sendMemberMessage(); }}>
+            <label htmlFor="codebuddy-team-message">发给 {selectedMember.name}</label>
+            <textarea id="codebuddy-team-message" value={memberDraft} onChange={event => setMemberDraft(event.target.value)}
+              onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMemberMessage(); } }}
+              disabled={sendingMember || selectedMember.status === "removed"} placeholder="给成员发送消息…" />
+            {memberError && <p role="alert">{memberError}</p>}
+            <button type="submit" disabled={!memberDraft.trim() || sendingMember || selectedMember.status === "removed"}>{sendingMember ? "发送中…" : "发送给成员"}</button>
+          </form>
+        </> : <p className="codex-app-server-team-empty">团队尚无成员。</p>}
+      </aside>}
+    </div>
     {goalOpen && snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <CodexGoalDialog
       key={`${sessionId}:${snapshot.threadId}`} sessionId={sessionId} snapshot={snapshot} onClose={() => setGoalOpen(false)}
       onUpdated={value => { if (currentSessionRef.current === sessionId && value.threadId === snapshot.threadId) setSnapshot(value); }} />}
@@ -1040,6 +1214,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           </div>)}
           {visibleHistory.length === 0 && !loadingHistory && !historyError && <p>{normalizedHistoryQuery ? "没有匹配的历史会话。" : historyArchived ? "当前项目没有已归档会话。" : "当前项目没有历史会话。"}</p>}
           {historyError && <p className="codex-app-server-history-error" role="alert">{historyError}</p>}
+          {historyError && <div className="codex-app-server-history-actions"><button type="button" onClick={() => void loadHistory(null, historyQuery)}>重试加载</button></div>}
           {loadingHistory && <p>正在加载历史会话…</p>}
           {!normalizedHistoryQuery && historyCursor && <button type="button" disabled={loadingHistory} onClick={() => void loadHistory(historyCursor)}>加载更多</button>}
         </div>

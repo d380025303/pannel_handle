@@ -357,6 +357,48 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("adds an entry path to the graphical input without writing to the terminal", async () => {
+    window.remoteFileApi = createRemoteFileApi();
+    const write = vi.fn();
+    window.terminalApi = { write } as unknown as typeof window.terminalApi;
+    const session: TerminalSession = {
+      id: "graphical-session", title: "Codex", shell: "powershell.exe", cwd: rootPath,
+      createdAt: 1, type: "windows", runtimeMode: "app-server", agentProvider: "codex"
+    };
+    const onAddToGraphicalInput = vi.fn();
+    const onFocusTerminal = vi.fn();
+    render(<RemoteFilePanel session={session} onAddToGraphicalInput={onAddToGraphicalInput} onFocusTerminal={onFocusTerminal} />);
+
+    const entry = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(entry.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "添加到输入框" }));
+
+    expect(onAddToGraphicalInput).toHaveBeenCalledWith(session.id, childPath);
+    expect(write).not.toHaveBeenCalled();
+    expect(onFocusTerminal).not.toHaveBeenCalled();
+  });
+
+  it("keeps writing shell-quoted paths for terminal sessions", async () => {
+    window.remoteFileApi = createRemoteFileApi();
+    const write = vi.fn();
+    window.terminalApi = { write } as unknown as typeof window.terminalApi;
+    const session: TerminalSession = {
+      id: "terminal-session", title: "Windows", shell: "powershell.exe", cwd: rootPath,
+      createdAt: 1, type: "windows", runtimeMode: "terminal"
+    };
+    const onAddToGraphicalInput = vi.fn();
+    const onFocusTerminal = vi.fn();
+    render(<RemoteFilePanel session={session} onAddToGraphicalInput={onAddToGraphicalInput} onFocusTerminal={onFocusTerminal} />);
+
+    const entry = await screen.findByTitle(childPath);
+    fireEvent.contextMenu(entry.closest("button")!, { clientX: 20, clientY: 30 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "添加到终端" }));
+
+    expect(write).toHaveBeenCalledWith(session.id, `'${childPath}'`);
+    expect(onFocusTerminal).toHaveBeenCalledOnce();
+    expect(onAddToGraphicalInput).not.toHaveBeenCalled();
+  });
+
   it("opens rename in a dialog and closes it without requesting a move when the name is unchanged", async () => {
     const remoteFileApi = createRemoteFileApi();
     window.remoteFileApi = remoteFileApi;

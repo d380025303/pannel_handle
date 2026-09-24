@@ -1,4 +1,5 @@
 const { EventEmitter } = require("node:events");
+const http = require("node:http");
 
 function createSshAgentTransport({ sshSessionRuntime }) {
   if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
@@ -65,6 +66,18 @@ function createSshAgentTransport({ sshSessionRuntime }) {
         });
       });
     });
+  }
+
+  async function createHttpForwarder(sessionId, remotePort) {
+    const client = await sshSessionRuntime.connectClient(sessionId, { actionName: "CodeBuddy ACP HTTP connection" });
+    const agent = new http.Agent({ keepAlive: true });
+    agent.createConnection = (_options, callback) => {
+      client.forwardOut("127.0.0.1", 0, "127.0.0.1", remotePort, callback);
+    };
+    return {
+      agent,
+      close() { agent.destroy(); client.end(); }
+    };
   }
 
   function createReusableCommandClient(sessionId, options = {}) {
@@ -154,7 +167,7 @@ function createSshAgentTransport({ sshSessionRuntime }) {
     };
   }
 
-  return { exec, createStdioTransport, createReusableCommandClient };
+  return { exec, createStdioTransport, createHttpForwarder, createReusableCommandClient };
 }
 
 module.exports = { createSshAgentTransport };

@@ -30,6 +30,7 @@ type RemoteFilePanelProps = {
   autoCollapseFileChains?: boolean;
   onToggleAutoCollapseFileChains?: () => void;
   onFocusTerminal?: () => void;
+  onAddToGraphicalInput?: (sessionId: string, path: string) => void;
   transfers?: FileTransferTask[];
   onShowTransfers?: () => void;
   onRegisterSaveAll?: (handler: (() => Promise<boolean>) | null) => void;
@@ -267,6 +268,7 @@ export function RemoteFilePanel({
   autoCollapseFileChains = true,
   onToggleAutoCollapseFileChains,
   onFocusTerminal,
+  onAddToGraphicalInput,
   transfers = [],
   onShowTransfers,
   onRegisterSaveAll
@@ -1384,9 +1386,13 @@ export function RemoteFilePanel({
     closeFileContextMenu();
     if (!sessionId) return;
     if (!session) return;
+    if (session.runtimeMode === "app-server") {
+      onAddToGraphicalInput?.(sessionId, entry.path);
+      return;
+    }
     window.terminalApi.write(sessionId, quoteTerminalPath(session, entry.path));
     onFocusTerminal?.();
-  }, [closeFileContextMenu, onFocusTerminal, session, sessionId]);
+  }, [closeFileContextMenu, onAddToGraphicalInput, onFocusTerminal, session, sessionId]);
 
   const performDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
     if (!sessionId) return;
@@ -2066,7 +2072,7 @@ export function RemoteFilePanel({
           )}
           <button type="button" role="menuitem" onClick={() => handleAddToTerminal(contextEntry)}>
             <TerminalIcon aria-hidden="true" />
-            <span>{t("files.addToTerminal")}</span>
+            <span>{t(session.runtimeMode === "app-server" ? "files.addToGraphicalInput" : "files.addToTerminal")}</span>
           </button>
           {!treeRoot || !sameTreePath(contextEntry.path, treeRoot.path) ? (
             <>

@@ -29,6 +29,21 @@ export type TranslationKey =
   | "projectAssistant.questionHint"
   | "projectAssistant.codexPlaceholder"
   | "projectAssistant.sendToCodex"
+  | "codexVersion.title"
+  | "codexVersion.checking"
+  | "codexVersion.current"
+  | "codexVersion.latest"
+  | "codexVersion.unknown"
+  | "codexVersion.upToDate"
+  | "codexVersion.restart"
+  | "codexVersion.manual"
+  | "codexVersion.check"
+  | "codexVersion.update"
+  | "codexVersion.confirmTitle"
+  | "codexVersion.confirm"
+  | "codexVersion.cancel"
+  | "codexVersion.confirmUpdate"
+  | "codexVersion.updating"
   | "projectAssistant.statusUnknown"
   | "sessionOverview.title"
   | "sessionOverview.openOverview"
@@ -693,6 +708,7 @@ export type TranslationKey =
   | "files.noMatches"
   | "files.folder"
   | "files.addToTerminal"
+  | "files.addToGraphicalInput"
   | "files.searchProject"
   | "files.searchFilesHere"
   | "files.searchTextHere"
@@ -1001,6 +1017,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectAssistant.questionHint": "Codex 提问时，点击上方终端，用键盘选择或输入答案。",
     "projectAssistant.codexPlaceholder": "向当前 Codex 会话输入内容",
     "projectAssistant.sendToCodex": "发送给 Codex",
+    "codexVersion.title": "Codex CLI 更新",
+    "codexVersion.checking": "正在检测版本…",
+    "codexVersion.current": "当前版本：{version}",
+    "codexVersion.latest": "最新版本：{version}",
+    "codexVersion.unknown": "当前版本不可用",
+    "codexVersion.upToDate": "已是最新版本",
+    "codexVersion.restart": "更新已安装，手动重启会话后生效",
+    "codexVersion.manual": "安装来源不明，请按原安装方式手动更新",
+    "codexVersion.check": "检查更新",
+    "codexVersion.update": "更新 Codex",
+    "codexVersion.confirmTitle": "确认更新 Codex",
+    "codexVersion.confirm": "将更新 {environment} 中的 Codex 至 {version}。当前会话继续运行，重启后生效。",
+    "codexVersion.cancel": "取消",
+    "codexVersion.confirmUpdate": "确认更新",
+    "codexVersion.updating": "正在更新 Codex…",
     "projectAssistant.statusUnknown": "状态未知",
     "sessionOverview.title": "实例总览",
     "sessionOverview.openOverview": "打开实例总览",
@@ -1665,6 +1696,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.noMatches": "当前目录没有匹配的文件。",
     "files.folder": "文件夹",
     "files.addToTerminal": "添加到终端",
+    "files.addToGraphicalInput": "添加到输入框",
     "files.searchProject": "搜索当前目录",
     "files.searchFilesHere": "在此搜索文件名",
     "files.searchTextHere": "在此搜索内容",
@@ -1965,6 +1997,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "projectAssistant.questionHint": "When Codex asks a question, click the terminal above and answer with the keyboard.",
     "projectAssistant.codexPlaceholder": "Enter text for the current Codex session",
     "projectAssistant.sendToCodex": "Send to Codex",
+    "codexVersion.title": "Codex CLI updates",
+    "codexVersion.checking": "Checking version…",
+    "codexVersion.current": "Installed: {version}",
+    "codexVersion.latest": "Latest: {version}",
+    "codexVersion.unknown": "Installed version unavailable",
+    "codexVersion.upToDate": "Up to date",
+    "codexVersion.restart": "Update installed. Restart this session to use it.",
+    "codexVersion.manual": "Installation source unknown. Update using the original installer.",
+    "codexVersion.check": "Check for updates",
+    "codexVersion.update": "Update Codex",
+    "codexVersion.confirmTitle": "Confirm Codex update",
+    "codexVersion.confirm": "Update Codex in {environment} to {version}. The current session will keep running until restarted.",
+    "codexVersion.cancel": "Cancel",
+    "codexVersion.confirmUpdate": "Confirm update",
+    "codexVersion.updating": "Updating Codex…",
     "projectAssistant.statusUnknown": "Status unknown",
     "sessionOverview.title": "Instance overview",
     "sessionOverview.openOverview": "Open instance overview",
@@ -2629,6 +2676,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.noMatches": "No matching files in this directory.",
     "files.folder": "Folder",
     "files.addToTerminal": "Add to terminal",
+    "files.addToGraphicalInput": "Add to input",
     "files.searchProject": "Search current directory",
     "files.searchFilesHere": "Search file names here",
     "files.searchTextHere": "Search file contents here",

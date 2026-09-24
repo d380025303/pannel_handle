@@ -4,14 +4,22 @@ const { PassThrough } = require("node:stream");
 const readline = require("node:readline");
 const fs = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { randomBytes, randomUUID } = require("node:crypto");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
+const { waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PREVIEW_LIMIT = 2 * 1024 * 1024;
 const IMAGE_LIMIT = 10 * 1024 * 1024;
 const quoteBash = value => `'${String(value).replace(/'/g, "'\\''")}'`;
+function createConversationRequestId() {
+  const bytes = randomBytes(16);
+  bytes.writeUIntBE(Date.now(), 0, 6);
+  bytes[6] = (bytes[6] & 0x0f) | 0x70;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytes.toString("hex");
+}
 function safeStderr(stderr, environment) {
   let detail = String(stderr || "");
   for (const [name, value] of Object.entries({ ...process.env, ...environment })) {
@@ -22,11 +30,20 @@ function safeStderr(stderr, environment) {
   return detail.slice(-500);
 }
 
+function stopAgentChild(child, provider) {
+  if (provider === "codebuddy" && process.platform === "win32" && Number.isInteger(child.pid)) {
+    const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+    killer.once("error", () => child.kill());
+  } else child.kill();
+}
+
 function buildInvocation(session, runtime, environment, provider = "codebuddy") {
   const commandName = provider === "opencode" ? "opencode" : "codebuddy";
-  const args = runtime.acpArgs || (provider === "opencode" ? "acp" : "--acp");
+  const args = provider === "opencode" ? (runtime.acpArgs || "acp")
+    : `${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
+  if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
   if (session.type === "wsl") {
     const script = `${before ? `{ ${before}; } 1>&2 && ` : ""}exec ${commandName} ${args}`;
     const inherited = String(process.env.WSLENV || "").split(":").filter(Boolean);
@@ -47,12 +64,13 @@ function buildInvocation(session, runtime, environment, provider = "codebuddy") 
 
 async function createRemoteChild(transportService, session, environment, provider = "codebuddy") {
   if (!transportService) throw new Error("SSH ACP 通道不可用。");
+  if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
   const exports = Object.entries(environment).map(([name, value]) => {
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(name)) throw new Error(`无效的远端环境变量：${name}`);
     return `export ${name}=${quoteBash(value)}`;
   });
   const before = String(session.initialCommand || "").trim();
-  const commandName = provider === "opencode" ? "opencode acp" : "codebuddy --acp";
+  const commandName = provider === "opencode" ? "opencode acp" : "codebuddy --acp --serve --acp-transport streamable-http --auth password";
   const script = [...exports, `cd ${quoteBash(session.cwd)}`, ...(before ? [`{ ${before}; } 1>&2`] : []), `exec ${commandName}`].join(" && ");
   const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "opencode" ? "OpenCode" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
   const child = new EventEmitter();
@@ -67,7 +85,8 @@ async function createRemoteChild(transportService, session, environment, provide
 }
 
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
-  spawnProcess = spawn, provider = "codebuddy" }) {
+  spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
+  httpTransportFactory = createCodeBuddyHttpTransport }) {
   const sessions = new Map();
   const agentName = provider === "opencode" ? "OpenCode" : "CodeBuddy";
   function applySessionOptions(entry, result) {
@@ -122,7 +141,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
-      items: [...entry.items], approvals: [...entry.approvals.values()].map(value => value.display),
+      contextUsage: entry.contextUsage,
+      items: [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
+        hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
+      approvals: [...entry.approvals.values()].map(value => value.display),
       questions: [], capabilities: entry.capabilities, provider };
   }
   function publish(id) { if (sessions.has(id)) broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
@@ -130,6 +152,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     terminalManager.broadcastAgentStatus({ id, provider, status: state, eventName: "AcpTurn", activitySummary: summary || undefined });
   }
   function send(entry, message) {
+    if (entry.httpTransport) {
+      void entry.httpTransport.send({ jsonrpc: "2.0", ...message }).catch(error => entry.transportError?.(error));
+      return;
+    }
     if (!entry.child.stdin.writable) throw new Error(`${agentName} ACP 已退出。`);
     entry.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
   }
@@ -142,16 +168,53 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       catch (error) { clearTimeout(timer); entry.pending.delete(id); reject(error); }
     });
   }
-  function appendText(entry, type, text, messageId, turnId = entry.turnId) {
+  function appendText(items, type, text, messageId, turnId) {
     if (!text) return;
-    const existing = messageId ? entry.items.find(item => item.id === messageId) : entry.items.at(-1);
+    const existing = messageId ? items.find(item => item.id === messageId) : items.at(-1);
     if (existing?.type === type && existing.turnId === turnId && (messageId || existing.streaming)) existing.text += text;
-    else entry.items.push({ id: messageId || randomUUID(), type, turnId, text, streaming: true });
+    else items.push({ id: messageId || randomUUID(), type, turnId, text, streaming: true });
+  }
+  function memberFor(entry, name) {
+    if (!entry.team) entry.team = { name: null, isAutoTeam: false, hasLiveMembers: false, members: new Map() };
+    let member = entry.team.members.get(name);
+    if (!member) { member = { name, status: "unknown", items: [] }; entry.team.members.set(name, member); }
+    return member;
+  }
+  function updateTeam(entry, value) {
+    if (!value || typeof value !== "object") return;
+    if (value.type === "team_deleted") {
+      if (!entry.team || !value.teamName || entry.team.name === value.teamName) entry.team = null;
+      return;
+    }
+    if (typeof value.teamName !== "string" || !value.teamName) return;
+    if (!entry.team || entry.team.name && entry.team.name !== value.teamName)
+      entry.team = { name: value.teamName, isAutoTeam: false, hasLiveMembers: false, members: new Map() };
+    entry.team.name = value.teamName;
+    if (typeof value.isAutoTeam === "boolean") entry.team.isAutoTeam = value.isAutoTeam;
+    if (typeof value.hasLiveMembers === "boolean") entry.team.hasLiveMembers = value.hasLiveMembers;
+    if (value.type !== "member_status_change" || !Array.isArray(value.members)) return;
+    const seen = new Set();
+    for (const item of value.members) {
+      if (typeof item?.name !== "string" || !item.name) continue;
+      seen.add(item.name);
+      const member = memberFor(entry, item.name);
+      for (const key of ["color", "description", "status", "taskId", "sessionId", "tokenUsage", "toolCallCount"])
+        if (item[key] !== undefined) member[key] = item[key];
+    }
+    for (const [name, member] of entry.team.members) if (!seen.has(name)) {
+      if (member.items.length) member.status = "removed";
+      else entry.team.members.delete(name);
+    }
   }
   function onUpdate(id, entry, value) {
     const update = value?.update || {};
     if (value.sessionId !== entry.threadId && value.sessionId !== entry.loadingThreadId) return;
     const kind = update.sessionUpdate;
+    if (provider === "codebuddy" && kind === "session_info_update")
+      updateTeam(entry, update._meta?.["codebuddy.ai/teamUpdate"]);
+    const memberName = provider === "codebuddy" ? update._meta?.["codebuddy.ai/memberEvent"] : null;
+    const member = typeof memberName === "string" && memberName ? memberFor(entry, memberName) : null;
+    const items = member ? member.items : entry.items;
     const unsolicited = provider === "codebuddy" && kind === "session_info_update"
       ? update._meta?.["codebuddy.ai/unsolicitedTurn"] : null;
     if (unsolicited?.reason === "background_drain" && typeof unsolicited.requestId === "string" && unsolicited.requestId) {
@@ -163,16 +226,17 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       }
     }
     const requestId = update._meta?.["codebuddy.ai/requestId"];
-    const turnId = entry.unsolicitedTurns.has(requestId) ? requestId : entry.turnId;
+    const conversationRequestId = update._meta?.["codebuddy.ai/conversationRequestId"];
+    const turnId = entry.unsolicitedTurns.has(requestId) ? requestId : conversationRequestId || entry.turnId;
     if (kind === "agent_message_chunk" || kind === "agent_thought_chunk" || kind === "user_message_chunk") {
-      if (kind !== "user_message_chunk" || entry.loadingThreadId) appendText(entry,
+      if (kind !== "user_message_chunk" || entry.loadingThreadId || member) appendText(items,
         kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
         update.content?.text, update.messageId, turnId);
     } else if (kind === "tool_call" || kind === "tool_call_update") {
       const toolId = update.toolCallId;
       if (toolId) {
-        let item = entry.items.find(existing => existing.id === toolId);
-        if (!item) { item = { id: toolId, type: "toolCall", turnId }; entry.items.push(item); }
+        let item = items.find(existing => existing.id === toolId);
+        if (!item) { item = { id: toolId, type: "toolCall", turnId }; items.push(item); }
         item.toolName = update.title || item.toolName || "工具调用";
         item.toolKind = update.kind || item.toolKind || "other";
         item.status = update.status || item.status;
@@ -182,9 +246,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       }
     } else if (kind === "plan") {
       const steps = (update.entries || []).map(step => ({ step: step.content || "", status: step.status === "completed" ? "completed" : step.status === "in_progress" ? "inProgress" : "pending" }));
-      const last = entry.items.findLast(item => item.type === "turnPlan" && item.turnId === turnId);
+      const last = items.findLast(item => item.type === "turnPlan" && item.turnId === turnId);
       if (last) last.plan = steps;
-      else entry.items.push({ id: randomUUID(), type: "turnPlan", turnId, plan: steps });
+      else items.push({ id: randomUUID(), type: "turnPlan", turnId, plan: steps });
+    } else if (kind === "session_end" && member) {
+      for (const item of items) delete item.streaming;
     } else if (kind === "session_end" && entry.unsolicitedTurns.delete(requestId)) {
       for (const item of entry.items) if (item.turnId === requestId) delete item.streaming;
       entry.busy = entry.foregroundBusy || entry.unsolicitedTurns.size > 0;
@@ -196,7 +262,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.modes = update.availableModes || [];
       updateCapabilities(entry);
     } else if (kind === "config_option_update") {
+      const before = entry.configOptions;
       entry.configOptions = update.configOptions || [];
+      if (provider === "codebuddy" && ["model", "context_window"].some(key =>
+        before.find(option => option.id === key)?.currentValue !== entry.configOptions.find(option => option.id === key)?.currentValue)) entry.contextUsage = null;
+    } else if (provider === "codebuddy" && kind === "usage_update") {
+      const used = update.used;
+      const size = update.size;
+      if (Number.isFinite(used) && used >= 0 && Number.isFinite(size) && size > 0) {
+        const raw = update._meta?.["codebuddy.ai/usageByCategory"];
+        const categories = {};
+        for (const key of ["systemPrompt", "tools", "conversation", "mcp", "skills"]) {
+          if (Number.isFinite(raw?.[key]) && raw[key] >= 0) categories[key] = raw[key];
+        }
+        entry.contextUsage = { used, size, categories, updatedAt: Date.now() };
+      }
     }
     publish(id);
   }
@@ -238,12 +318,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
     const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
-      error: null, pendingPlan: null, items: [], model: null, configOptions: [], capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
+      error: null, pendingPlan: null, items: [], team: null, model: null, configOptions: [], contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
     entry.listedThreadIds = new Set();
     sessions.set(session.id, entry);
     let stderr = "";
     child.stderr.on("data", chunk => { stderr = (stderr + chunk.toString()).slice(-2000); });
-    readline.createInterface({ input: child.stdout }).on("line", line => {
+    if (provider === "opencode") readline.createInterface({ input: child.stdout }).on("line", line => {
       try { onMessage(session.id, entry, JSON.parse(line)); }
       catch { if (sessions.get(session.id) === entry) { entry.error = `${agentName} 返回了无效 ACP 消息。`; publish(session.id); } }
     });
@@ -256,8 +336,24 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "disconnected");
     }
     child.on("error", fail);
-    child.on("exit", code => fail(new Error(`${agentName} ACP 已退出（代码 ${code ?? "未知"}）。${stderr ? `启动输出：${safeStderr(stderr, environment)}` : ""}`)));
+    child.on("exit", code => fail(new Error(`${agentName} ACP 已退出（代码 ${code ?? "未知"}）。${provider === "opencode" && stderr ? `启动输出：${safeStderr(stderr, environment)}` : ""}`)));
     try {
+      if (provider === "codebuddy") {
+        const { endpoint, password } = await resolveHttpEndpoint(child);
+        child.stdout.on("data", () => {});
+        if (sessions.get(session.id) !== entry) throw new Error("会话已关闭。");
+        let forwarder;
+        if (isRemote(entry)) {
+          forwarder = await sshAgentTransport.createHttpForwarder(session.id, Number(endpoint.port));
+          entry.httpForwarder = forwarder;
+        }
+        const transport = httpTransportFactory({ endpoint, password, agent: forwarder?.agent, closeAgent: !forwarder, child });
+        entry.httpTransport = transport;
+        entry.transportError = fail;
+        transport.on("message", message => onMessage(session.id, entry, message));
+        transport.on("error", fail);
+        await transport.connect();
+      }
       const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } } } : {} });
       entry.multitaskSupport = initialized?.agentCapabilities?.multitaskSupport === true;
       if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
@@ -281,7 +377,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!entry) return;
     sessions.delete(id);
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
-    entry.pending.clear(); entry.child.kill();
+    entry.pending.clear();
+    if (entry.httpTransport) {
+      void Promise.resolve(entry.httpTransport.close()).catch(() => {}).finally(() => {
+        entry.httpForwarder?.close(); stopAgentChild(entry.child, provider);
+      });
+    } else stopAgentChild(entry.child, provider);
     for (const file of [...entry.pastedImages, ...entry.uploadedFiles]) {
       const hostPath = entry.session.type === "wsl" && file.startsWith("/") ? toWslHostPath(entry.session.wslDistro, file) : file;
       void (isRemote(entry) && file.startsWith("/") ? sshFileSystem.remove(id, file) : fs.promises.rm(hostPath, { force: true })).catch(() => {});
@@ -315,6 +416,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if ([...sessions.values()].some(other => other !== entry && other.threadId === threadId)) throw new Error("该历史会话已在其他窗口打开。");
     entry.loadingThreadId = threadId;
     entry.items = [];
+    entry.team = null;
+    entry.contextUsage = null;
     let result;
     try { result = await request(entry, "session/load", { sessionId: threadId, cwd: workspace(entry), mcpServers: [] }); }
     finally { entry.loadingThreadId = null; }
@@ -329,7 +432,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (entry.busy) throw new Error("当前轮次尚未结束。");
     if (entry.approvals.size) throw new Error("请先处理当前会话的待确认请求。");
     const result = await request(entry, "session/new", { cwd: workspace(entry), mcpServers: [] });
-    entry.threadId = result.sessionId; entry.items = []; entry.error = null; entry.pendingPlan = null;
+    entry.threadId = result.sessionId; entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.contextUsage = null;
     applySessionOptions(entry, result);
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
@@ -375,12 +478,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function setConfigOption(id, optionId, value) {
     const entry = entryFor(id);
     if (entry.runtime.requiredMode && optionId === "mode" && value !== entry.runtime.requiredMode) throw new Error("本机 SSH 桥接不允许切换受限 Agent 模式。");
-    if ((provider !== "opencode" && !(provider === "codebuddy" && optionId === "model")) || entry.busy)
+    if ((provider !== "opencode" && !(provider === "codebuddy" && (optionId === "model" || optionId === "context_window"))) || entry.busy)
       throw new Error("当前会话无法切换配置。");
     const option = entry.configOptions.find(item => item.id === optionId && item.type === "select");
     if (!option?.options?.some(item => item.value === value)) throw new Error(`当前 ${agentName} 会话不支持此选项。`);
     const result = await request(entry, "session/set_config_option", { sessionId: entry.threadId, configId: optionId, value });
     entry.configOptions = result?.configOptions || entry.configOptions.map(item => item.id === optionId ? { ...item, currentValue: value } : item);
+    if (provider === "codebuddy" && (optionId === "model" || optionId === "context_window")) entry.contextUsage = null;
     if (optionId === "mode") {
       entry.nativeMode = value;
       reflectNativeMode(entry);
@@ -389,7 +493,20 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return snapshot(id);
   }
   function setModel(id, value) { return setConfigOption(id, "model", value); }
+  function setContextWindow(id, value) { return setConfigOption(id, "context_window", value); }
   function setEffort(id, value) { return setConfigOption(id, "effort", value); }
+  async function sendTeamMessage(id, teamName, memberName, text) {
+    const entry = entryFor(id);
+    if (provider !== "codebuddy" || !entry.httpTransport?.sendTeamMessage) throw new Error("当前会话不支持团队消息。");
+    const team = entry.team;
+    const member = team?.members.get(memberName);
+    if (!team?.name || team.name !== teamName || !member || member.status === "removed") throw new Error("团队成员已失效，请刷新会话状态。");
+    const content = String(text || "").trim();
+    if (!content) throw new Error("请输入发送给成员的消息。");
+    if (content.length > 20000) throw new Error("团队消息不能超过 20000 字符。");
+    await entry.httpTransport.sendTeamMessage({ teamName, recipient: memberName,
+      message: { from: "user", text: content, summary: content.slice(0, 50), timestamp: new Date().toISOString() } });
+  }
   async function setMultitask(id, enabled) {
     const entry = entryFor(id);
     const option = entry.configOptions.find(item => item.id === "multitask" && item.type === "boolean");
@@ -456,11 +573,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       attachments.push({ path: agentPath, name: path.basename(file) });
       entry.allowedFiles.delete(file);
     }
-    entry.error = null; entry.busy = true; entry.foregroundBusy = true; entry.turnId = randomUUID(); entry.pendingPlan = null;
+    entry.error = null; entry.busy = true; entry.foregroundBusy = true;
+    entry.turnId = provider === "codebuddy" ? createConversationRequestId() : randomUUID(); entry.pendingPlan = null;
     entry.items.push({ id: randomUUID(), type: "userMessage", turnId: entry.turnId, text: String(text || "").trim(), attachments });
     publish(id); status(id, entry, "running", text);
     try {
-      const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt }, 60 * 60 * 1000);
+      const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
+        ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       for (const item of entry.items) if (item.turnId === entry.turnId) delete item.streaming;
       status(id, entry, result?.stopReason === "end_turn" ? "completed" : "failed"); publish(id);
@@ -485,7 +604,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     await submit(id, "按上述计划执行。", []);
   }
   return { start, restart, close, shutdown, snapshot, getWorkspaceCwd: id => workspace(entryFor(id)), listHistory, resume, newThread,
-    setMode, setNativeMode, setModel, setEffort, setMultitask, setExecutionPermission, dismissPlan, executePlan, allowFiles, allowPastedImage, discardPastedImage, previewAttachment,
+    setMode, setNativeMode, setModel, setContextWindow, setEffort, setMultitask, sendTeamMessage, setExecutionPermission, dismissPlan, executePlan, allowFiles, allowPastedImage, discardPastedImage, previewAttachment,
     submit, interrupt, resolveApproval, answerQuestion };
 }
 

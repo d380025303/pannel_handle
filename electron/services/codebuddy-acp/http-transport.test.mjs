@@ -1,0 +1,76 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import http from "node:http";
+import { EventEmitter } from "node:events";
+
+const require = createRequire(import.meta.url);
+const { parseStartupLine, waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
+
+const servers = [];
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))));
+});
+
+describe("CodeBuddy HTTP ACP transport", () => {
+  it("reads only loopback startup endpoints and the in-memory password", async () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    const pending = waitForEndpoint(child, { timeoutMs: 500 });
+    child.stdout.emit("data", Buffer.from("  Endpoint  http://127.0.0.1:12345\n"));
+    child.stderr.emit("data", Buffer.from("  Password  secret\n"));
+    const result = await pending;
+    expect(result.endpoint.href).toBe("http://127.0.0.1:12345/");
+    expect(result.password).toBe("secret");
+    expect(() => parseStartupLine("Endpoint http://0.0.0.0:1", {})).toThrow("回环");
+  });
+
+  it("connects, receives GET and POST SSE messages, answers JSON requests, and disconnects", async () => {
+    const seen = [];
+    const teamMessages = [];
+    let subscription;
+    const server = http.createServer(async (req, res) => {
+      seen.push({ method: req.method, path: req.url, headers: req.headers });
+      if (req.url === "/api/v1/acp/connect") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connectionId: "conn-1", sessionToken: "token-1" }));
+      } else if (req.method === "GET") {
+        subscription = res;
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(":ok\n\n");
+      } else if (req.method === "POST") {
+        const parts = [];
+        for await (const part of req) parts.push(part);
+        const message = JSON.parse(Buffer.concat(parts).toString());
+        if (req.url === "/api/v1/team/messages/send") {
+          teamMessages.push(message);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+        } else if (message.method === "initialize") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1 } }));
+        } else {
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "one" } })}\n\n`);
+          res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} })}\n\n`);
+        }
+      } else if (req.method === "DELETE") { res.writeHead(200); res.end(); }
+    });
+    servers.push(server);
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = createCodeBuddyHttpTransport({ endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret" });
+    const messages = [];
+    transport.on("message", message => messages.push(message));
+    await transport.connect();
+    subscription.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "push" } })}\n\n`);
+    await transport.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await transport.send({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: {} });
+    await transport.sendTeamMessage({ teamName: "design", recipient: "architect", message: { from: "user", text: "继续", timestamp: "2026-09-24T00:00:00Z" } });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(messages.map(message => message.params?.sessionId || message.id)).toEqual(["push", 1, "one", 2]);
+    expect(teamMessages).toMatchObject([{ teamName: "design", recipient: "architect", message: { from: "user", text: "继续" } }]);
+    expect(seen.slice(1).every(call => call.headers["acp-connection-id"] === "conn-1" && call.headers["acp-session-token"] === "token-1")).toBe(true);
+    expect(seen.every(call => call.headers.authorization === "Bearer secret" && call.headers["x-codebuddy-request"] === "1")).toBe(true);
+    await transport.close();
+    expect(seen.at(-1).method).toBe("DELETE");
+  });
+});

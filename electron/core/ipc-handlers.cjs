@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -76,8 +76,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
     ipcMain.handle("codex-app-server:native-mode", (_event, id, modeId) => codexAppServerSessionService.setNativeMode(String(id || ""), modeId));
     ipcMain.handle("codex-app-server:model", (_event, id, modelId) => codexAppServerSessionService.setModel(String(id || ""), modelId));
+    ipcMain.handle("codex-app-server:context-window", (_event, id, value) => codexAppServerSessionService.setContextWindow(String(id || ""), value));
     ipcMain.handle("codex-app-server:effort", (_event, id, effort) => codexAppServerSessionService.setEffort(String(id || ""), effort));
     ipcMain.handle("codex-app-server:multitask", (_event, id, enabled) => codexAppServerSessionService.setMultitask(String(id || ""), enabled));
+    ipcMain.handle("codex-app-server:team-message", (_event, id, teamName, memberName, text) =>
+      codexAppServerSessionService.sendTeamMessage(String(id || ""), teamName, memberName, text));
     ipcMain.handle("codex-app-server:fast-mode", (_event, id, enabled) => codexAppServerSessionService.setFastMode(String(id || ""), enabled));
     ipcMain.handle("codex-app-server:execution-permission", (_event, id, permission) =>
       codexAppServerSessionService.setExecutionPermission(String(id || ""), permission));
@@ -109,6 +112,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, typeof approved === "string" ? approved : approved === true));
     ipcMain.handle("codex-app-server:answer-question", (_event, id, requestId, answers) =>
       codexAppServerSessionService.answerQuestion(String(id || ""), requestId, answers));
+  }
+  if (codexVersionService) {
+    ipcMain.handle("codex-version:check", (_event, id, force) => codexVersionService.check(String(id || ""), force === true));
+    ipcMain.handle("codex-version:update", (_event, id) => codexVersionService.update(String(id || "")));
   }
   if (postgresBackupService) {
     ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());

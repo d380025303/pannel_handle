@@ -16,6 +16,19 @@ function createStream() {
 }
 
 describe("ssh-agent-transport", () => {
+  it("forwards CodeBuddy HTTP sockets to the remote loopback port", async () => {
+    const socket = new EventEmitter();
+    socket.destroy = vi.fn();
+    const client = { forwardOut: vi.fn((_sourceHost, _sourcePort, _host, _port, done) => done(null, socket)), end: vi.fn() };
+    const runtime = { connectClient: vi.fn(async () => client) };
+    const forwarder = await createSshAgentTransport({ sshSessionRuntime: runtime }).createHttpForwarder("ssh-1", 48123);
+    const received = await new Promise((resolve, reject) => forwarder.agent.createConnection({}, (error, stream) => error ? reject(error) : resolve(stream)));
+    expect(received).toBe(socket);
+    expect(client.forwardOut).toHaveBeenCalledWith("127.0.0.1", 0, "127.0.0.1", 48123, expect.any(Function));
+    forwarder.close();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
   it("owns the bidirectional stdio channel lifecycle", async () => {
     const stream = createStream();
     const client = { exec: vi.fn((_command, done) => done(null, stream)), end: vi.fn() };

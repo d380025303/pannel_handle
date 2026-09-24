@@ -646,13 +646,40 @@ describe("Codex App Server session", () => {
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
-    expect(await service.listHistory("run-1")).toMatchObject({ data: [{ id: "old-thread", title: "旧对话", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: "next" });
+    expect(await service.listHistory("run-1")).toMatchObject({ data: [{ id: "old-thread", title: "旧对话", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: expect.any(String) });
     expect(received.find(item => item.method === "thread/list").params).toMatchObject({ cwd: "C:\\project", sourceKinds: ["cli", "vscode", "appServer"] });
     const restored = await service.resume("run-1", "old-thread");
     expect(restored.threadId).toBe("old-thread");
     expect(restored.items.map(item => item.text)).toEqual(["之前的问题", "之前的回答", "# 历史计划"]);
     await vi.waitFor(() => expect(received.some(item => item.method === "thread/unsubscribe" && item.params.threadId === "new-thread")).toBe(true));
     service.close("run-1");
+  });
+
+  it("returns pinned history a page at a time before ordinary history", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method !== "thread/list") return undefined;
+      if (request.params.isPinned) return request.params.cursor
+        ? { data: [{ id: "pinned-2", name: "置顶二", isPinned: true }], nextCursor: null }
+        : { data: [{ id: "pinned-1", name: "置顶一", isPinned: true }], nextCursor: "pin-next" };
+      return request.params.cursor
+        ? { data: [{ id: "ordinary-2", name: "普通二" }], nextCursor: null }
+        : { data: [{ id: "ordinary-1", name: "普通一" }], nextCursor: "ordinary-next" };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const first = await service.listHistory("run-1");
+      expect(first.data.map(item => item.id)).toEqual(["pinned-1"]);
+      expect(received.filter(item => item.method === "thread/list")).toHaveLength(1);
+      const second = await service.listHistory("run-1", first.nextCursor);
+      expect(second.data.map(item => item.id)).toEqual(["pinned-2", "ordinary-1"]);
+      const third = await service.listHistory("run-1", second.nextCursor);
+      expect(third.data.map(item => item.id)).toEqual(["ordinary-2"]);
+      expect(third.nextCursor).toBeNull();
+      await expect(service.listHistory("run-1", first.nextCursor, true)).rejects.toThrow("无效的历史会话游标");
+    } finally { service.close("run-1"); }
   });
 
   it("organizes Codex threads through App Server and keeps an archived current thread read-only", async () => {

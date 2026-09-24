@@ -29,3 +29,19 @@ it("shows App Server token updates and isolates the next session", async () => {
   rerender({ id: "run-2" });
   await waitFor(() => expect(result.current.tokenState.status).toBe("waiting"));
 });
+
+it("exposes CodeBuddy ACP context usage only for the active graphical session", async () => {
+  let changed: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void = () => {};
+  const base = { threadId: "buddy-thread", provider: "codebuddy" as const, mode: "default" as const,
+    executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
+  Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
+    snapshot: vi.fn().mockResolvedValue(base), onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
+  } });
+  const { result, rerender } = renderHook(({ id }) => useCodexAppServerFooter(id), { initialProps: { id: "run-1" } });
+  await waitFor(() => expect(result.current.contextUsage).toBeNull());
+  const contextUsage = { used: 250, size: 1000, categories: { tools: 50 }, updatedAt: 1234 };
+  act(() => changed({ id: "run-1", snapshot: { ...base, contextUsage } }));
+  expect(result.current.contextUsage).toEqual(contextUsage);
+  rerender({ id: "run-2" });
+  expect(result.current.contextUsage).toBeUndefined();
+});

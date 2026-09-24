@@ -2,10 +2,24 @@ import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import readline from "node:readline";
 
 const require = createRequire(import.meta.url);
-const { createCodeBuddyAcpSessionService, buildInvocation } = require("./session-service.cjs");
+const { createCodeBuddyAcpSessionService: createRawService, buildInvocation } = require("./session-service.cjs");
 const { createGraphicalSessionRouter } = require("./session-router.cjs");
+
+function createCodeBuddyAcpSessionService(options) {
+  return createRawService({
+    resolveHttpEndpoint: async () => ({ endpoint: new URL("http://127.0.0.1:12345"), password: "test" }),
+    httpTransportFactory: ({ child }) => {
+      const events = new EventEmitter();
+      readline.createInterface({ input: child.stdout }).on("line", line => events.emit("message", JSON.parse(line)));
+      return { on: (name, listener) => events.on(name, listener), connect: async () => {},
+        send: async message => { child.stdin.write(`${JSON.stringify(message)}\n`); }, close: () => {} };
+    },
+    ...options
+  });
+}
 
 function fakeChild(onMessage) {
   const child = new EventEmitter();
@@ -18,13 +32,16 @@ function fakeChild(onMessage) {
 describe("CodeBuddy ACP sessions", () => {
   it("starts in Windows and WSL using the native ACP command", () => {
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1)).toContain("codebuddy --acp");
+    expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1)).toContain("--serve --acp-transport streamable-http --auth password");
     const wsl = buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, {}, {});
     expect(wsl.executable).toBe("wsl.exe");
     expect(wsl.args.at(-1)).toContain("exec codebuddy --acp");
+    expect(wsl.args.at(-1)).toContain("--acp-transport streamable-http");
     const bridge = buildInvocation({ type: "ssh", cwd: "/srv/app", shell: "powershell.exe" },
       { localBridge: true, workspaceCwd: "C:\\bridge", acpArgs: "--acp --strict-mcp-config" }, {});
     expect(bridge.cwd).toBe("C:\\bridge");
     expect(bridge.args.at(-1)).toContain("--strict-mcp-config");
+    expect(bridge.args.at(-1)).toContain("--acp-transport streamable-http");
   });
 
   it("starts an SSH remote CLI over the existing stdio transport", async () => {
@@ -38,15 +55,16 @@ describe("CodeBuddy ACP sessions", () => {
     const createStdioTransport = vi.fn(async () => transport);
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({ FLAG: "yes" }) },
       terminalManager: { broadcastAgentStatus: vi.fn(), setAppServerConnectionState: vi.fn() }, broadcast: vi.fn(),
-      sshAgentTransport: { createStdioTransport } });
+      sshAgentTransport: { createStdioTransport, createHttpForwarder: vi.fn(async () => ({ agent: {}, close: vi.fn() })) } });
     await service.start({ id: "ssh-1", type: "ssh", cwd: "/srv/app", agentProvider: "codebuddy" });
     expect(service.snapshot("ssh-1").threadId).toBe("remote-thread");
     const command = createStdioTransport.mock.calls[0][1].command;
     expect(command).toContain("exec codebuddy --acp");
+    expect(command).toContain("--serve --acp-transport streamable-http --auth password");
     expect(command).toContain("/srv/app");
     expect(command).toContain("export FLAG=");
     service.shutdown();
-    expect(transport.close).toHaveBeenCalled();
+    await vi.waitFor(() => expect(transport.close).toHaveBeenCalled());
   });
 
   it("streams messages, requests approval once, and completes a turn", async () => {
@@ -81,6 +99,43 @@ describe("CodeBuddy ACP sessions", () => {
     expect(service.snapshot("one").busy).toBe(false);
     expect(service.snapshot("one").capabilities.supportedPermissions).toEqual(["readOnly", "askApproval", "fullAccess"]);
     expect(broadcast).toHaveBeenCalledWith("codex-app-server:changed", expect.any(Object));
+    service.shutdown();
+  });
+
+  it("sends a unique client turn ID and groups semantic updates by the returned ID", async () => {
+    const prompts = [];
+    let emitUpdate;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") {
+        prompts.push(message);
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+          sessionUpdate: "agent_message_chunk", messageId: `reply-${prompts.length}`,
+          content: { type: "text", text: `Reply ${prompts.length}` },
+          _meta: { "codebuddy.ai/conversationRequestId": message.params._meta["codebuddy.ai/conversationRequestId"] }
+        } } });
+        emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "First");
+    await service.submit("one", "Second");
+    const [firstId, secondId] = prompts.map(message => message.params._meta["codebuddy.ai/conversationRequestId"]);
+    expect(firstId).toMatch(/^[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$/);
+    expect(secondId).toMatch(/^[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$/);
+    expect(secondId).not.toBe(firstId);
+    const items = service.snapshot("one").items;
+    expect(items.filter(item => item.turnId === firstId).map(item => item.text)).toEqual(["First", "Reply 1"]);
+    expect(items.filter(item => item.turnId === secondId).map(item => item.text)).toEqual(["Second", "Reply 2"]);
+    emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "agent_message_chunk", messageId: "late-first", content: { type: "text", text: "Late first" },
+      _meta: { "codebuddy.ai/conversationRequestId": firstId }
+    } } });
+    expect(service.snapshot("one").items.at(-1)).toMatchObject({ turnId: firstId, text: "Late first" });
     service.shutdown();
   });
 
@@ -167,6 +222,49 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 
+  it("switches advertised context tiers and isolates ACP context usage by thread", async () => {
+    const requests = [];
+    let emitUpdate;
+    let thread = 0;
+    const tiers = [{ value: "200000", name: "200K" }, { value: "1000000", name: "1M" }];
+    const child = fakeChild((message, emit) => {
+      requests.push(message); emitUpdate = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: {
+        sessionId: `thread-${++thread}`, configOptions: [{ id: "context_window", type: "select", currentValue: "200000", options: tiers }]
+      } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: [
+        { id: "context_window", type: "select", currentValue: message.params.value, options: tiers }
+      ] } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    const usage = (sessionId, used, size) => emitUpdate({ jsonrpc: "2.0", method: "session/update", params: {
+      sessionId, update: { sessionUpdate: "usage_update", used, size,
+        _meta: { "codebuddy.ai/usageByCategory": { systemPrompt: 100, tools: 25, conversation: 200 } } }
+    } });
+    usage("other-thread", 999, 1000);
+    expect(service.snapshot("one").contextUsage).toBeNull();
+    usage("thread-1", 325, 200000);
+    expect(service.snapshot("one").contextUsage).toMatchObject({ used: 325, size: 200000,
+      categories: { systemPrompt: 100, tools: 25, conversation: 200 } });
+    usage("thread-1", -1, 0);
+    expect(service.snapshot("one").contextUsage.used).toBe(325);
+    await expect(service.setContextWindow("one", "unlisted")).rejects.toThrow("不支持");
+    expect(requests.filter(value => value.method === "session/set_config_option")).toHaveLength(0);
+    const changed = await service.setContextWindow("one", "1000000");
+    expect(requests.at(-1).params).toEqual({ sessionId: "thread-1", configId: "context_window", value: "1000000" });
+    expect(changed.acpOptions[0].currentValue).toBe("1000000");
+    expect(changed.contextUsage).toBeNull();
+    usage("thread-1", 325, 1000000);
+    expect(service.snapshot("one").contextUsage.size).toBe(1000000);
+    expect((await service.newThread("one")).contextUsage).toBeNull();
+    usage("thread-1", 500, 1000000);
+    expect(service.snapshot("one").contextUsage).toBeNull();
+    service.shutdown();
+  });
+
   it("advertises boolean config support and writes only an advertised Multitask option", async () => {
     const requests = [];
     let emitUpdate;
@@ -248,13 +346,17 @@ describe("CodeBuddy ACP sessions", () => {
 
   it("routes graphical calls by session provider", () => {
     const codex = { snapshot: vi.fn(() => "codex"), close: vi.fn(), shutdown: vi.fn() };
-    const buddy = { snapshot: vi.fn(() => "buddy"), setMultitask: vi.fn(() => "enabled"), close: vi.fn(), shutdown: vi.fn() };
+    const buddy = { snapshot: vi.fn(() => "buddy"), setMultitask: vi.fn(() => "enabled"),
+      sendTeamMessage: vi.fn(() => "sent"), close: vi.fn(), shutdown: vi.fn() };
     const router = createGraphicalSessionRouter(codex, buddy, { getSession: id => ({ agentProvider: id === "buddy" ? "codebuddy" : "codex" }) });
     expect(router.snapshot("buddy")).toBe("buddy");
     expect(router.snapshot("codex")).toBe("codex");
     expect(router.setMultitask("buddy", true)).toBe("enabled");
     expect(buddy.setMultitask).toHaveBeenCalledWith("buddy", true);
     expect(() => router.setMultitask("codex", true)).toThrow("只有 CodeBuddy");
+    expect(router.sendTeamMessage("buddy", "team", "member", "hello")).toBe("sent");
+    expect(buddy.sendTeamMessage).toHaveBeenCalledWith("buddy", "team", "member", "hello");
+    expect(() => router.sendTeamMessage("codex", "team", "member", "hello")).toThrow("只有 CodeBuddy");
     router.close("buddy");
     expect(codex.close).toHaveBeenCalledWith("buddy");
     expect(buddy.close).toHaveBeenCalledWith("buddy");
@@ -285,6 +387,81 @@ describe("CodeBuddy ACP sessions", () => {
     const restored = await service.resume("one", "old");
     expect(restored.threadId).toBe("old");
     expect(restored.items.map(item => item.text)).toEqual(["Old prompt", "Old answer"]);
+    service.shutdown();
+  });
+
+  it("keeps manual and automatic team members in separate timelines and restores the latest team state", async () => {
+    let emitUpdate;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+        result: { agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "current" } });
+      else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [{ sessionId: "saved", cwd: "C:\\work" }] } });
+      else if (message.method === "session/load") {
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "saved", update: {
+          sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "成员历史" },
+          _meta: { "codebuddy.ai/memberEvent": "architect" } } } });
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "saved", update: {
+          sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": {
+            type: "member_status_change", teamName: "team-saved", isAutoTeam: true, hasLiveMembers: true,
+            members: [{ name: "architect", status: "running", description: "架构设计", toolCallCount: 2 }] } } } } });
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "saved" } });
+      }
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    const push = (sessionId, update) => emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
+    push("current", { sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": {
+      type: "member_status_change", teamName: "team-current", isAutoTeam: false,
+      members: [{ name: "architect", status: "idle" }, { name: "reviewer", status: "completed" }] } } });
+    push("current", { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "主消息" } });
+    push("current", { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "成员消息" },
+      _meta: { "codebuddy.ai/memberEvent": "architect" } });
+    push("current", { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "读取文件", status: "in_progress",
+      _meta: { "codebuddy.ai/memberEvent": "architect" } });
+    push("current", { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed",
+      _meta: { "codebuddy.ai/memberEvent": "architect" } });
+    expect(service.snapshot("one").items.map(item => item.text)).toEqual(["主消息"]);
+    expect(service.snapshot("one").team.members[0].items).toMatchObject([
+      { text: "成员消息" }, { id: "tool-1", status: "completed" }
+    ]);
+    await service.listHistory("one");
+    const restored = await service.resume("one", "saved");
+    expect(restored.items).toEqual([]);
+    expect(restored.team).toMatchObject({ name: "team-saved", isAutoTeam: true, hasLiveMembers: true,
+      members: [{ name: "architect", status: "running", description: "架构设计", items: [{ text: "成员历史" }] }] });
+    push("current", { sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": { type: "team_deleted", teamName: "team-saved" } } });
+    expect(service.snapshot("one").team?.name).toBe("team-saved");
+    push("saved", { sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": { type: "team_deleted", teamName: "team-saved" } } });
+    expect(service.snapshot("one").team).toBeNull();
+    service.shutdown();
+  });
+
+  it("validates a team recipient and sends through the authenticated HTTP transport", async () => {
+    const sent = vi.fn().mockResolvedValue(undefined);
+    let child;
+    child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      httpTransportFactory: () => {
+        const events = new EventEmitter();
+        readline.createInterface({ input: child.stdout }).on("line", line => events.emit("message", JSON.parse(line)));
+        return { on: (name, listener) => events.on(name, listener), connect: async () => {},
+          send: async message => child.stdin.write(`${JSON.stringify(message)}\n`), sendTeamMessage: sent, close: () => {} };
+      } });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    child.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": { type: "member_status_change",
+        teamName: "my-team", members: [{ name: "architect", status: "completed" }] } } } } })}\n`);
+    await expect(service.sendTeamMessage("one", "wrong", "architect", "hello")).rejects.toThrow("失效");
+    await service.sendTeamMessage("one", "my-team", "architect", "  继续工作  ");
+    expect(sent).toHaveBeenCalledWith({ teamName: "my-team", recipient: "architect",
+      message: expect.objectContaining({ from: "user", text: "继续工作", summary: "继续工作" }) });
     service.shutdown();
   });
 });

@@ -46,12 +46,15 @@ describe("CodexAppServerSession", () => {
     nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: modeId === "plan" ? "plan" : "default",
     executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }));
   const setModel = vi.fn();
+  const setContextWindow = vi.fn();
   const setEffort = vi.fn();
   const setMultitask = vi.fn();
+  const sendTeamMessage = vi.fn().mockResolvedValue(undefined);
   const setFastMode = vi.fn();
   const setExecutionPermission = vi.fn().mockImplementation(async (_id, executionPermission) => ({
     threadId: "thread-1", mode: "default", executionPermission, busy: false, error: null, items: [], approvals: [] }));
   const chooseFiles = vi.fn().mockResolvedValue([]);
+  const searchWorkspaceEntries = vi.fn().mockResolvedValue({ root: "C:\\work", results: [] });
   const pasteImage = vi.fn().mockResolvedValue({ status: "saved", path: "C:\\project\\.pannel-handle-images\\capture.png", size: 3 });
   const discardImage = vi.fn().mockResolvedValue(undefined);
   const executePlan = vi.fn().mockResolvedValue(undefined);
@@ -60,18 +63,24 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockClear(); forkThread.mockClear(); archiveThread.mockClear(); unarchiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockClear(); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    Object.defineProperty(window, "projectSearchApi", { configurable: true, value: { searchWorkspaceEntries } });
+    Object.defineProperty(window, "codexVersionApi", { configurable: true, value: {
+      check: vi.fn().mockResolvedValue({ status: "current", currentVersion: "1.0.0", latestVersion: "1.0.0", restartRequired: false }),
+      update: vi.fn()
+    } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, listHistory, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
-      resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, setEffort, setMultitask, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
     } });
   });
 
-  it("shows thread status, diagnostic details, and the latest per-turn diff", async () => {
-    render(<CodexAppServerSession sessionId="run-1" />);
+  it("hides the runtime strip while retaining diagnostics and the latest per-turn diff", async () => {
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "askApproval",
       busy: true, error: null, items: [{ id: "user-1", type: "userMessage", turnId: "turn-1", text: "修改文件" }], approvals: [],
       threadStatus: { type: "active", activeFlags: ["waitingOnApproval"] }, model: "primary", effectiveModel: "fallback",
@@ -80,14 +89,59 @@ describe("CodexAppServerSession", () => {
         { id: "2", turnId: "turn-1", kind: "error", at: 1100,
           payload: { message: "limit", kind: "UsageLimitExceeded", httpStatusCode: 429 } }],
       turnDiffs: [{ turnId: "turn-1", diff: "diff --git a/a b/a", updatedAt: 1200 }] } }));
-    expect(screen.getByText("等待操作确认")).toBeTruthy();
-    expect(screen.getByText("实际模型：fallback")).toBeTruthy();
+    expect(container.querySelector(".codex-app-server-runtime")).toBeNull();
+    expect(screen.queryByText("等待操作确认")).toBeNull();
+    expect(screen.queryByText("实际模型：fallback")).toBeNull();
     fireEvent.click(screen.getByText("运行错误"));
     expect(screen.getByText("类别：用量限制 · HTTP 429")).toBeTruthy();
     fireEvent.click(screen.getByText("本轮变更"));
     expect(screen.getByText("diff --git a/a b/a")).toBeTruthy();
-    fireEvent.click(screen.getByText("Hook 完成"));
-    expect(screen.getByText(/"output": "detail"/)).toBeTruthy();
+    expect(screen.queryByText(/Hook 消息|Hook 完成|PreToolUse/)).toBeNull();
+  });
+
+  it("shows account login only while the Codex account is signed out", async () => {
+    const signedOut = { status: "signedOut" as const, requiresOpenaiAuth: true, account: null, login: null,
+      rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "thread-1", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [], account: signedOut });
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "未登录" }));
+    expect(screen.getByRole("region", { name: "Codex 账号管理" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "使用 ChatGPT 登录" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("请先登录 Codex 账号")).toHaveProperty("disabled", true);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "askApproval",
+      busy: false, error: null, items: [], approvals: [], account: { ...signedOut, status: "signedIn",
+        account: { type: "chatgpt", email: "user@example.com", planType: "plus" } } } }));
+    expect(container.querySelector(".codex-account")).toBeNull();
+    expect(screen.queryByRole("button", { name: "未登录" })).toBeNull();
+    expect(screen.getByPlaceholderText("向 Codex 发送消息")).toHaveProperty("disabled", false);
+  });
+
+  it.each(["codebuddy", "opencode"] as const)("does not show the Codex account panel in %s sessions", async provider => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "thread-1", provider,
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null,
+      items: [], approvals: [], account: { status: "signedOut", requiresOpenaiAuth: true, account: null,
+        login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null } });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByRole("region", { name: `${provider === "codebuddy" ? "CodeBuddy" : "OpenCode"} 图形会话` });
+    expect(screen.queryByRole("button", { name: "未登录" })).toBeNull();
+  });
+
+  it("hides Hook messages from the timeline while retaining other diagnostics", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, approvals: [],
+      items: [{ id: "user-1", turnId: "turn-1", type: "userMessage", text: "检查" }], diagnostics: [
+        { id: "hook-1", turnId: "turn-1", kind: "hook/started", at: 1000, payload: { run: { name: "PreToolUse" } } },
+        { id: "hook-2", turnId: "turn-1", kind: "hook/completed", at: 1100, payload: { run: { name: "PreToolUse", output: "结果" } } },
+        { id: "warning-1", turnId: "turn-1", kind: "warning", at: 1200, payload: { message: "注意" } },
+        { id: "hook-3", turnId: "turn-1", kind: "hook/started", at: 1300, payload: { run: { name: "Stop" } } },
+        { id: "hook-4", turnId: "turn-2", kind: "hook/completed", at: 1400, payload: { run: { name: "Other" } } }
+      ] } }));
+    expect(screen.queryByText(/Hook 消息|Hook 开始|Hook 完成|PreToolUse|Stop|Other/)).toBeNull();
+    expect(screen.getByText("运行警告")).toBeTruthy();
+    fireEvent.click(screen.getByText("运行警告"));
+    expect(screen.getByText(/"message": "注意"/)).toBeTruthy();
   });
 
   it("starts compaction from the Codex menu and prevents another submission while it runs", async () => {
@@ -279,6 +333,29 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "glm-5.3"));
     expect(await screen.findByText("Model unavailable")).toBeTruthy();
     expect(screen.getByText("HY3")).toBeTruthy();
+  });
+
+  it("shows only advertised CodeBuddy context tiers and keeps the choice after a rejection", async () => {
+    const base = { threadId: "buddy-1", provider: "codebuddy" as const, nativeMode: "default", nativeModes: [],
+      mode: "default" as const, executionPermission: "askApproval" as const,
+      busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: base }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("group", { name: "CodeBuddy 上下文窗口档位" })).toBeNull();
+    const withTiers = { ...base, acpOptions: [{ id: "context_window", type: "select", currentValue: "200000",
+      options: [{ value: "200000", name: "200K" }, { value: "1000000", name: "1M" }] }] };
+    act(() => changed({ id: "run-1", snapshot: withTiers }));
+    expect(screen.getByRole("menuitemradio", { name: "200K" }).getAttribute("aria-checked")).toBe("true");
+    setContextWindow.mockResolvedValueOnce({ ...withTiers, acpOptions: [{ ...withTiers.acpOptions[0], currentValue: "1000000" }] });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "1M" }));
+    await waitFor(() => expect(setContextWindow).toHaveBeenCalledWith("run-1", "1000000"));
+    expect(await screen.findByText("上下文窗口：1M")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    setContextWindow.mockRejectedValueOnce(new Error("档位不可用"));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "200K" }));
+    expect(await screen.findByText("档位不可用")).toBeTruthy();
+    expect(screen.getByText("上下文窗口：1M")).toBeTruthy();
   });
 
   it("shows OpenCode ACP modes and model options without Codex permissions", async () => {
@@ -488,6 +565,27 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("dialog", { name: "历史会话" })).toBeTruthy();
   });
 
+  it("ends a stalled history load and retries without accepting its late result", async () => {
+    let finishStalled: (value: { data: any[]; nextCursor: null }) => void = () => {};
+    listHistory.mockImplementationOnce(() => new Promise(resolve => { finishStalled = resolve; }));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number, ...args: any[]) =>
+      originalSetTimeout(handler, timeout === 35000 ? 0 : timeout, ...args)) as typeof window.setTimeout);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+      expect(await screen.findByRole("alert")).toHaveProperty("textContent", "加载历史会话超时，请重试。");
+      expect(screen.queryByText("正在加载历史会话…")).toBeNull();
+      listHistory.mockResolvedValueOnce({ data: [{ id: "retry-thread", title: "重试成功", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: null });
+      fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
+      expect(await screen.findByText("会话 ID：retry-thread")).toBeTruthy();
+      await act(async () => finishStalled({ data: [{ id: "stale-thread", title: "旧结果", updatedAt: 122, source: "cli" }], nextCursor: null }));
+      expect(screen.queryByText("会话 ID：stale-thread")).toBeNull();
+    } finally { timeoutSpy.mockRestore(); }
+  });
+
   it("offers Codex thread actions, lists archived threads, and switches to a fork", async () => {
     listHistory.mockImplementation(async (_id, _cursor, archived) => ({ data: archived
       ? [{ id: "archived-1", title: "归档任务", updatedAt: 122, source: "cli", status: "notLoaded", archived: true }]
@@ -515,7 +613,7 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", archived: true, mode: "default",
       executionPermission: "askApproval", busy: false, error: null, items: [{ id: "answer-1", type: "agentMessage", text: "已有回复" }], approvals: [] } }));
     expect(screen.getByText("已有回复")).toBeTruthy();
-    expect(screen.getByText("已归档 · 只读")).toBeTruthy();
+    expect(screen.queryByText("已归档 · 只读")).toBeNull();
     expect(screen.getByPlaceholderText("此会话已归档，请先恢复归档")).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "发送" })).toHaveProperty("disabled", true);
   });
@@ -738,7 +836,24 @@ describe("CodexAppServerSession", () => {
     expect(input.value).toBe("已有内容 继续");
   });
 
-  it("renders plan Markdown and opens newly arrived tool details", async () => {
+  it("appends file paths to the graphical draft without submitting it", async () => {
+    const ref = createRef<CodexAppServerSessionHandle>();
+    render(<CodexAppServerSession sessionId="run-1" ref={ref} />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "检查这个文件" } });
+
+    act(() => {
+      ref.current?.appendFilePath("C:\\work space\\a.ts");
+      ref.current?.appendFilePath("C:\\work space\\b.ts");
+    });
+
+    expect(input.value).toBe("检查这个文件 C:\\work space\\a.ts C:\\work space\\b.ts");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("renders plan Markdown and keeps newly arrived tool details collapsed", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");
     changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "plan", busy: false, error: null, approvals: [], items: [
@@ -748,11 +863,10 @@ describe("CodexAppServerSession", () => {
     expect(await screen.findByRole("heading", { name: "正式计划" })).toBeTruthy();
     expect(screen.getByText("检查代码")).toBeTruthy();
     const summary = screen.getByRole("button", { name: /工具调用 · 1 项/ });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     expect(summary.textContent).toContain("已完成");
     fireEvent.click(summary);
-    expect(summary.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(summary);
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("pnpm build")).toBeTruthy();
     expect(screen.getByText("构建成功")).toBeTruthy();
   });
@@ -766,7 +880,8 @@ describe("CodexAppServerSession", () => {
     const summary = await screen.findByRole("button", { name: /工具调用 · 2 项/ });
     expect(document.querySelectorAll(".codex-app-server-event")).toHaveLength(1);
     expect(summary.textContent).toContain("进行中");
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(summary);
     expect(screen.getByText("pnpm build")).toBeTruthy();
     expect(screen.getByText("pnpm test")).toBeTruthy();
     expect(screen.getByText("构建成功")).toBeTruthy();
@@ -817,7 +932,7 @@ describe("CodexAppServerSession", () => {
         expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
       ]);
     expect(screen.queryByText("a-0")).toBeNull();
-    expect(screen.getByText("b-0")).toBeTruthy();
+    expect(screen.queryByText("b-0")).toBeNull();
     fireEvent.click(firstSummary);
     expect(Array.from(firstSummary.closest(".codex-app-server-event")!.querySelectorAll(".codex-app-server-tool pre"))
       .map(node => node.textContent)).toEqual(["a-0", "a-1", "a-2", "a-3"]);
@@ -847,44 +962,51 @@ describe("CodexAppServerSession", () => {
     const summary = await screen.findByRole("button", { name: /工具调用 · 3 项/ });
     const details = summary.closest(".codex-app-server-event")!;
     expect(document.querySelectorAll(".codex-app-server-event")).toHaveLength(1);
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     expect(summary.textContent).toContain("已完成");
+    fireEvent.click(summary);
     const calls = Array.from(details.querySelectorAll(".codex-app-server-tool"));
     expect(calls.map(call => call.querySelector("strong")?.textContent)).toEqual(["执行命令", "文件变更", "执行命令"]);
     expect(calls.map(call => call.textContent)).toEqual([expect.stringContaining("pwd"), expect.stringContaining("src/App.tsx"), expect.stringContaining("pnpm build")]);
   });
 
-  it("keeps a file approval visible while its tool group is open", async () => {
+  it("keeps a file approval visible while its tool group is collapsed", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");
     changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [
       { id: "file-1", type: "fileChange", changes: [{ path: "src/App.tsx" }], status: "pending" }
     ], approvals: [{ requestId: 10, method: "item/fileChange/requestApproval", params: { itemId: "file-1" } }] } });
     const summary = await screen.findByRole("button", { name: /工具调用 · 1 项/ });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("文件修改确认")).toBeTruthy();
     expect(screen.getByRole("button", { name: "批准一次" })).toBeTruthy();
   });
 
-  it("opens the newest streamed tool and closes it when an answer starts", async () => {
+  it("keeps streamed tools collapsed and preserves manual expansion through replies", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");
     const base = { threadId: "thread-1", mode: "default", busy: true, error: null, approvals: [] };
     const first = { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pnpm test", status: "inProgress" };
     changed({ id: "run-1", snapshot: { ...base, items: [first] } });
     const summary = await screen.findByRole("button", { name: /工具调用 · 1 项/ });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     changed({ id: "run-1", snapshot: { ...base, items: [{ ...first, output: "执行中" },
       { id: "reply-1", turnId: "turn-1", type: "agentMessage", text: "" }] } });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     changed({ id: "run-1", snapshot: { ...base, items: [{ ...first, output: "执行中" },
       { id: "reply-1", turnId: "turn-1", type: "agentMessage", text: "测试完成" }] } });
-    await waitFor(() => expect(summary.getAttribute("aria-expanded")).toBe("false"));
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(summary);
     expect(screen.getByText("执行中")).toBeTruthy();
     act(() => changed({ id: "run-1", snapshot: { ...base, items: [{ ...first, output: "执行中" },
       { id: "reply-1", turnId: "turn-1", type: "agentMessage", text: "测试完成，结果如下" }] } }));
     expect(summary.getAttribute("aria-expanded")).toBe("true");
+    act(() => changed({ id: "run-1", snapshot: { ...base, items: [{ ...first, output: "执行中" },
+      { id: "reply-1", turnId: "turn-1", type: "agentMessage", text: "测试完成，结果如下" },
+      { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "pnpm build", status: "inProgress" }] } }));
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    const newest = screen.getAllByRole("button", { name: /工具调用 · 1 项/ })[1];
+    expect(newest.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("keeps loaded history collapsed and renders ACP search, file, and generic tool results", async () => {
@@ -913,7 +1035,8 @@ describe("CodexAppServerSession", () => {
       { id: "web-1", type: "webSearch", query: "ACP protocol", result: "3 pages", status: "completed" }
     ] } });
     const summary = await screen.findByRole("button", { name: /工具调用 · 2 项/ });
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(summary);
     expect(screen.getByText("find")).toBeTruthy();
     expect(screen.getByText("docs")).toBeTruthy();
     expect(screen.getByText("ACP protocol")).toBeTruthy();
@@ -975,6 +1098,69 @@ describe("CodexAppServerSession", () => {
     expect(await screen.findByText("notes.txt")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "", ["C:\\files\\notes.txt"], []));
+  });
+
+  it("searches workspace files after @ and inserts the selected relative path without sending", async () => {
+    searchWorkspaceEntries.mockResolvedValue({ root: "C:\\work", results: [
+      { name: "src", path: "C:\\work\\src", relativePath: "src", type: "directory" },
+      { name: "alpha.ts", path: "C:\\work\\alpha.ts", relativePath: "alpha.ts", type: "file" },
+      { name: "beta.ts", path: "C:\\work\\src\\beta.ts", relativePath: "src\\beta.ts", type: "file" }
+    ] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "查看 @be 后续", selectionStart: 6 } });
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "be"));
+    const list = await screen.findByRole("listbox", { name: "搜索工作区文件" });
+    await waitFor(() => expect(list.querySelectorAll('[role="option"]')).toHaveLength(2));
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("查看 @src\\beta.ts  后续");
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("supports mouse selection, Escape, and prevents Enter from sending while searching", async () => {
+    searchWorkspaceEntries.mockResolvedValue({ root: "C:\\work", results: [
+      { name: "note.txt", path: "C:\\work\\note.txt", relativePath: "note.txt", type: "file" }
+    ] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "@note", selectionStart: 5 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("option", { name: /note.txt/ }));
+    expect(input.value).toBe("@note.txt ");
+    fireEvent.change(input, { target: { value: "@note", selectionStart: 5 } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+  });
+
+  it("shows file search errors and clears results when the session changes", async () => {
+    searchWorkspaceEntries.mockRejectedValueOnce(new Error("offline"));
+    const { rerender } = render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "@a", selectionStart: 2 } });
+    expect(await screen.findByRole("alert", { name: "" })).toHaveProperty("textContent", "搜索失败：offline");
+    rerender(<CodexAppServerSession sessionId="run-2" />);
+    expect(screen.queryByRole("listbox", { name: "搜索工作区文件" })).toBeNull();
+  });
+
+  it("ignores an older file search response after the query changes", async () => {
+    let resolveOld!: (value: { root: string; results: Array<{ name: string; path: string; relativePath: string; type: "file" }> }) => void;
+    searchWorkspaceEntries.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ root: "C:\\work", results: [{ name: "new.ts", path: "C:\\work\\new.ts", relativePath: "new.ts", type: "file" }] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "@old", selectionStart: 4 } });
+    await waitFor(() => expect(searchWorkspaceEntries).toHaveBeenCalledWith("run-1", "old"));
+    fireEvent.change(input, { target: { value: "@new", selectionStart: 4 } });
+    expect(await screen.findByRole("option", { name: /new.ts/ })).toBeTruthy();
+    await act(async () => { resolveOld({ root: "C:\\work", results: [{ name: "old.ts", path: "C:\\work\\old.ts", relativePath: "old.ts", type: "file" }] }); });
+    expect(screen.queryByRole("option", { name: /old.ts/ })).toBeNull();
   });
 
   it("toggles Plan and Exec with Shift+Tab in the focused composer", async () => {
@@ -1094,5 +1280,35 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "剪贴板中没有可用的图片。");
+  });
+
+  it("shows a CodeBuddy team beside the leader and sends to the selected member", async () => {
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, approvals: [],
+      items: [{ id: "lead", type: "agentMessage", text: "领导消息" }],
+      team: { name: "review", isAutoTeam: true, hasLiveMembers: true, members: [
+        { name: "architect", status: "running", description: "架构审查", items: [{ id: "member", type: "agentMessage", text: "成员消息" }] },
+        { name: "tester", status: "completed", items: [{ id: "tester-message", type: "agentMessage", text: "测试结论" }] }
+      ] } } }));
+    expect(container.querySelector(".codex-app-server-conversation-layout.has-team")).toBeTruthy();
+    expect(screen.getByText("领导消息")).toBeTruthy();
+    expect(screen.getByText("成员消息")).toBeTruthy();
+    expect(screen.getByText("review · 自动团队")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /tester/ }));
+    expect(screen.getByText("测试结论")).toBeTruthy();
+    expect(screen.queryByText("成员消息")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("给成员发送消息…"), { target: { value: "继续测试" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送给成员" }));
+    await waitFor(() => expect(sendTeamMessage).toHaveBeenCalledWith("run-1", "review", "tester", "继续测试"));
+    await waitFor(() => expect(screen.getByPlaceholderText("给成员发送消息…")).toHaveProperty("value", ""));
+    sendTeamMessage.mockRejectedValueOnce(new Error("成员暂不可达"));
+    fireEvent.change(screen.getByPlaceholderText("给成员发送消息…"), { target: { value: "重试消息" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送给成员" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "成员暂不可达");
+    expect(screen.getByPlaceholderText("给成员发送消息…")).toHaveProperty("value", "重试消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-2", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, approvals: [], items: [], team: null } }));
+    expect(screen.queryByRole("complementary", { name: "Agent Teams" })).toBeNull();
   });
 });

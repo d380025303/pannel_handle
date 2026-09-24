@@ -7,6 +7,7 @@ import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
 import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
+import { CodeBuddyContextUsage } from "./components/agents/CodeBuddyContextUsage";
 import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
@@ -910,6 +911,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                     <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
                     <AgentTokenLiveStatus state={appServerFooter.tokenState} source="app-server" />
+                    {appServerFooter.contextUsage !== undefined && <CodeBuddyContextUsage usage={appServerFooter.contextUsage} />}
                     <AgentUsageStatus
                       state={agentUsage.state}
                       onRefresh={agentUsage.refresh}
@@ -1040,6 +1042,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   autoCollapseFileChains={autoCollapseFileChains}
                   onToggleAutoCollapseFileChains={handleToggleAutoCollapseFileChains}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
+                  onAddToGraphicalInput={(sessionId, path) => {
+                    if (terminalSessions.activeSession?.id !== sessionId) return;
+                    setWorkspaceTab("terminal");
+                    appServerSessionRef.current?.appendFilePath(path);
+                  }}
                   transfers={fileTransfers}
                   onShowTransfers={() => setWorkspaceTab("transfers")}
                   onRegisterSaveAll={(handler) => { saveAllRemoteFilesRef.current = handler; }}

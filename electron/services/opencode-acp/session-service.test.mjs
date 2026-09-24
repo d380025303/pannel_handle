@@ -64,6 +64,7 @@ describe("OpenCode ACP sessions", () => {
       else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
         result: { configOptions: configOptions.map(option => option.id === message.params.configId ? { ...option, currentValue: message.params.value } : option) } });
       else if (message.method === "session/prompt") {
+        expect(message.params._meta).toBeUndefined();
         emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done" } } } });
         emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
       }

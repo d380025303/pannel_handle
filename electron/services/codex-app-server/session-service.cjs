@@ -10,6 +10,7 @@ const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const SUMMARY_LIMIT = 500;
 const SUMMARY_BROADCAST_INTERVAL_MS = 150;
+const HISTORY_CURSOR_PREFIX = "pannel-history-v1:";
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const IMAGE_PREVIEW_LIMIT = 10 * 1024 * 1024;
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -855,22 +856,32 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const list = (pinned, pageCursor) => request(entry, "thread/list", { cwd: projectCwd(entry), sourceKinds: ["cli", "vscode", "appServer"],
       archived, isPinned: pinned, sortKey: "updated_at", sortDirection: "desc", limit: 25,
       ...(pageCursor ? { cursor: pageCursor } : {}) });
-    const pinned = [];
-    if (isPinned === null && !cursor) {
-      let pinCursor = null;
-      const seen = new Set();
-      do {
-        const page = await list(true, pinCursor);
-        pinned.push(...(page.data || []));
-        pinCursor = page.nextCursor || null;
-        if (!pinCursor || seen.has(pinCursor)) break;
-        seen.add(pinCursor);
-      } while (true);
+    let phase = "pinned";
+    let pageCursor = null;
+    if (isPinned !== null) { phase = isPinned ? "pinned" : "ordinary"; pageCursor = cursor; }
+    else if (cursor) {
+      try {
+        if (!cursor.startsWith(HISTORY_CURSOR_PREFIX)) throw new Error();
+        const value = JSON.parse(Buffer.from(cursor.slice(HISTORY_CURSOR_PREFIX.length), "base64url").toString("utf8"));
+        if (!(["pinned", "ordinary"].includes(value.phase) && typeof value.cursor === "string" && value.cursor && value.archived === archived)) throw new Error();
+        phase = value.phase; pageCursor = value.cursor;
+      } catch { throw new Error("无效的历史会话游标。"); }
     }
-    const result = await list(isPinned === null ? false : isPinned, cursor);
-    return { data: [...pinned, ...(result.data || [])].map(thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
+    const encodeCursor = (nextPhase, nextCursor) => nextCursor
+      ? HISTORY_CURSOR_PREFIX + Buffer.from(JSON.stringify({ phase: nextPhase, cursor: nextCursor, archived })).toString("base64url") : null;
+    const mapThread = thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
       updatedAt: thread.updatedAt, source: typeof thread.source === "string" ? thread.source : "unknown",
-      status: thread.status?.type || "notLoaded", archived, isPinned: thread.isPinned === true })), nextCursor: result.nextCursor || null };
+      status: thread.status?.type || "notLoaded", archived, isPinned: thread.isPinned === true });
+    const pinnedPage = phase === "pinned" ? await list(true, pageCursor) : null;
+    if (pinnedPage?.nextCursor) {
+      if (pinnedPage.nextCursor === pageCursor) throw new Error("历史会话分页游标重复。");
+      return { data: (pinnedPage.data || []).map(mapThread),
+        nextCursor: isPinned !== null ? pinnedPage.nextCursor : encodeCursor("pinned", pinnedPage.nextCursor) };
+    }
+    const ordinaryPage = isPinned === true ? null : await list(false, phase === "ordinary" ? pageCursor : null);
+    const data = [...(pinnedPage?.data || []), ...(ordinaryPage?.data || [])];
+    return { data: data.map(mapThread),
+      nextCursor: isPinned !== null ? ordinaryPage?.nextCursor || pinnedPage?.nextCursor || null : encodeCursor("ordinary", ordinaryPage?.nextCursor) };
   }
   async function checkedThread(entry, threadId) {
     if (typeof threadId !== "string" || !threadId.trim()) throw new Error("无效的历史会话。");

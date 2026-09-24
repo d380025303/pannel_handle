@@ -72,8 +72,10 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   setMode: (id, mode) => ipcRenderer.invoke("codex-app-server:mode", id, mode),
   setNativeMode: (id, modeId) => ipcRenderer.invoke("codex-app-server:native-mode", id, modeId),
   setModel: (id, modelId) => ipcRenderer.invoke("codex-app-server:model", id, modelId),
+  setContextWindow: (id, value) => ipcRenderer.invoke("codex-app-server:context-window", id, value),
   setEffort: (id, effort) => ipcRenderer.invoke("codex-app-server:effort", id, effort),
   setMultitask: (id, enabled) => ipcRenderer.invoke("codex-app-server:multitask", id, enabled),
+  sendTeamMessage: (id, teamName, memberName, text) => ipcRenderer.invoke("codex-app-server:team-message", id, teamName, memberName, text),
   setFastMode: (id, enabled) => ipcRenderer.invoke("codex-app-server:fast-mode", id, enabled),
   setExecutionPermission: (id, permission) => ipcRenderer.invoke("codex-app-server:execution-permission", id, permission),
   dismissPlan: (id, itemId) => ipcRenderer.invoke("codex-app-server:dismiss-plan", id, itemId),
@@ -91,6 +93,11 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
     ipcRenderer.on("codex-app-server:changed", listener);
     return () => ipcRenderer.removeListener("codex-app-server:changed", listener);
   }
+});
+
+contextBridge.exposeInMainWorld("codexVersionApi", {
+  check: (id, force) => ipcRenderer.invoke("codex-version:check", id, force === true),
+  update: id => ipcRenderer.invoke("codex-version:update", id)
 });
 
 contextBridge.exposeInMainWorld("terminalApi", {
