@@ -137,6 +137,12 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       ? template.codexAppServerEnabled !== false
       : undefined;
     const codeBuddyAcpEnabled = agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true : undefined;
+    const openCodeAcpEnabled = agentProvider === "opencode" ? template.openCodeAcpEnabled === true : undefined;
+    const codexAppServerModel = codexBackend === "openai" && typeof template.codexAppServerModel === "string"
+      ? template.codexAppServerModel.trim() || undefined : undefined;
+    const codexAppServerEffort = codexBackend === "openai" && typeof template.codexAppServerEffort === "string"
+      ? template.codexAppServerEffort.trim() || undefined : undefined;
+    const codexAppServerFastMode = codexBackend === "openai" ? template.codexAppServerFastMode === true : undefined;
     const codexExecutionPermission = agentProvider === "codex"
       ? (CODEX_EXECUTION_PERMISSIONS.has(template.codexExecutionPermission) ? template.codexExecutionPermission : "askApproval")
       : undefined;
@@ -161,6 +167,10 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexExperimentalAcknowledged,
       codexAppServerEnabled,
       codeBuddyAcpEnabled,
+      openCodeAcpEnabled,
+      codexAppServerModel,
+      codexAppServerEffort,
+      codexAppServerFastMode,
       codexExecutionPermission,
       type: template.type,
       wslDistro: template.wslDistro,

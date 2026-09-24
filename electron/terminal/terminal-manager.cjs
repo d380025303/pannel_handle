@@ -338,6 +338,7 @@ function createTerminalManager({
       codexExperimentalAcknowledged: session.codexExperimentalAcknowledged,
       codexAppServerEnabled: session.codexAppServerEnabled,
       codeBuddyAcpEnabled: session.codeBuddyAcpEnabled,
+      openCodeAcpEnabled: session.openCodeAcpEnabled,
       codexExecutionPermission: session.codexExecutionPermission,
       type: session.type,
       wslDistro: session.wslDistro,
@@ -815,6 +816,7 @@ function createTerminalManager({
       codexExperimentalAcknowledged: options.codexExperimentalAcknowledged,
       codexAppServerEnabled: options.codexAppServerEnabled,
       codeBuddyAcpEnabled: options.codeBuddyAcpEnabled,
+      openCodeAcpEnabled: options.openCodeAcpEnabled,
       quickCommands: options.quickCommands || [],
       environmentProfileId: options.environmentProfileId,
       environmentOverrides: options.environmentOverrides,
@@ -873,7 +875,7 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, openCodeAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
     const session = sessions.get(id);
     if (!session) {
       environmentService?.resolve({ ...sessionStore.getTemplate(id),
@@ -882,7 +884,7 @@ function createTerminalManager({
         ...(environmentProfileId !== undefined ? { environmentProfileId } : {}),
         ...(environmentOverrides !== undefined ? { environmentOverrides } : {})
       });
-      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
+      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, codexAppServerEnabled, codeBuddyAcpEnabled, openCodeAcpEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -951,6 +953,10 @@ function createTerminalManager({
     if (typeof codeBuddyAcpEnabled === "boolean" || agentProvider === null) {
       session.codeBuddyAcpEnabled = session.agentProvider === "codebuddy" ? codeBuddyAcpEnabled === true : undefined;
       if (session.agentProvider === "codebuddy") libraryUpdates.codeBuddyAcpEnabled = session.codeBuddyAcpEnabled;
+    }
+    if (typeof openCodeAcpEnabled === "boolean" || agentProvider === null) {
+      session.openCodeAcpEnabled = session.agentProvider === "opencode" ? openCodeAcpEnabled === true : undefined;
+      if (session.agentProvider === "opencode") libraryUpdates.openCodeAcpEnabled = session.openCodeAcpEnabled;
     }
     if (typeof codexModel !== "undefined") {
       session.codexModel = session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy" ? String(codexModel || "").trim() || undefined : undefined;

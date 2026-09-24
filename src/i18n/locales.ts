@@ -118,6 +118,8 @@ export type TranslationKey =
   | "session.codexAppServer"
   | "session.codexAppServerHint"
   | "session.codeBuddyAcpHint"
+  | "session.openCodeAcp"
+  | "session.openCodeAcpHint"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1091,6 +1093,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.codexAppServer": "使用 App Server",
     "session.codexAppServerHint": "仅影响此模板之后启动的 Codex 会话。",
     "session.codeBuddyAcpHint": "使用 CodeBuddy ACP 图形会话；关闭后使用终端。",
+    "session.openCodeAcp": "使用图形会话（ACP）",
+    "session.openCodeAcpHint": "仅影响此模板之后启动的 OpenCode 会话。",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2056,6 +2060,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.codexAppServer": "Use App Server",
     "session.codexAppServerHint": "Applies to future Codex sessions started from this template.",
     "session.codeBuddyAcpHint": "Use a CodeBuddy ACP graphical session; turn off to use the terminal.",
+    "session.openCodeAcp": "Use graphical session (ACP)",
+    "session.openCodeAcpHint": "Applies to future OpenCode sessions started from this template.",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

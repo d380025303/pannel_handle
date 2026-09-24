@@ -8079,6 +8079,9 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-permission-options > button { min-height: 76px; padding: 9px 8px; }
 .codex-app-server-mode-options > button:hover:not(:disabled), .codex-app-server-permission-options > button:hover:not(:disabled) { background: var(--color-bg-control-hover); }
 .codex-app-server-mode-options > button[aria-checked="true"], .codex-app-server-permission-options > button[aria-checked="true"] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-selection); }
+.codex-app-server-fast-option { min-height: 36px; padding: 7px 11px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; font-size: 12px; }
+.codex-app-server-fast-option[aria-checked="true"] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-selection); }
+.codex-app-server-fast-option small { margin-left: 8px; color: var(--color-text-muted); }
 .codex-app-server-permission-options > button[aria-checked="true"]::after { position: absolute; top: 7px; right: 8px; content: "✓"; font-size: 12px; line-height: 1; }
 .codex-app-server-permission-option { display: flex; flex-direction: column; gap: 5px; }
 .codex-app-server-permission-option strong { padding-right: 12px; font-size: 12px; }

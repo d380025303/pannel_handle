@@ -13,6 +13,17 @@ afterEach(() => {
 });
 
 describe("CreateSessionModal structure", () => {
+  it("defaults a new OpenCode session to ACP and allows terminal mode", async () => {
+    const onCreate = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "OpenCode" }));
+    const toggle = screen.getByRole("checkbox", { name: /使用图形会话/ });
+    expect(toggle).toHaveProperty("checked", true);
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ openCodeAcpEnabled: false })));
+  });
   it("sets App Server per new local Codex template", async () => {
     const onCreate = vi.fn(async () => undefined);
     render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);

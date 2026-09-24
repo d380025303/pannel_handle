@@ -43,6 +43,17 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps existing OpenCode templates in terminal mode and persists an explicit ACP choice", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{ id: "old", type: "windows", cwd: "C:\\work", agentProvider: "opencode" }]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("old").openCodeAcpEnabled).toBe(false);
+    store.updateLibrary("old", { openCodeAcpEnabled: true });
+    expect(store.getTemplate("old").openCodeAcpEnabled).toBe(true);
+    expect(store.duplicateInLibrary("old").openCodeAcpEnabled).toBe(true);
+    expect(store.exportLibrary()[0].openCodeAcpEnabled).toBe(true);
+  });
   it.each([true, false])("migrates old Codex templates using the legacy setting %s once", (enabled) => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([
@@ -393,6 +404,18 @@ describe("session-store", () => {
 
     expect(store.getTemplate("1").agentProvider).toBeUndefined();
     expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].agentProvider).toBeUndefined();
+  });
+
+  it("persists OpenAI App Server reasoning effort with its template", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({ id: "1", title: "Codex", agentProvider: "codex", codexBackend: "openai" });
+    store.updateLibrary("1", { codexAppServerModel: "model-a", codexAppServerEffort: "high" });
+
+    const reloaded = createStore(sessionsFile);
+    reloaded.loadLibrary();
+    expect(reloaded.getTemplate("1")).toMatchObject({ codexAppServerModel: "model-a", codexAppServerEffort: "high" });
+    expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEffort).toBe("high");
   });
 
   it("returns an empty library for missing or invalid session files", () => {

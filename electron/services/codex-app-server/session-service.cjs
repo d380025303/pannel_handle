@@ -31,21 +31,25 @@ function startupStderrDetail(stderr, environment) {
   return detail.slice(-2000);
 }
 
-function buildRemoteCommand(session, environment) {
+function tierArgs(session, fastMode) {
+  if ((session.codexBackend || "openai") !== "openai") return "";
+  return fastMode ? ' -c service_tier="priority" -c features.fast_mode=true' : ' -c service_tier="default"';
+}
+function buildRemoteCommand(session, environment, fastMode = false) {
   const exports = Object.entries(environment).map(([name, value]) => {
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(name)) throw new Error(`无效的远端环境变量：${name}`);
     return `export ${name}=${quoteBash(value)}`;
   });
   const before = String(session.initialCommand || "").trim();
   const script = [...exports, `cd ${quoteBash(session.cwd)}`,
-    ...(before ? [`{ ${before}; } 1>&2`] : []), "exec codex app-server --stdio"].join(" && ");
+    ...(before ? [`{ ${before}; } 1>&2`] : []), `exec codex app-server --stdio${tierArgs(session, fastMode)}`].join(" && ");
   return `bash -lic ${quoteBash(script)}`;
 }
 
-async function createRemoteChild(sshAgentTransport, session, environment) {
+async function createRemoteChild(sshAgentTransport, session, environment, fastMode = false) {
   if (!sshAgentTransport) throw new Error("SSH App Server 通道不可用。");
   const transport = await sshAgentTransport.createStdioTransport(session.id, {
-    actionName: "Codex App Server connection", command: buildRemoteCommand(session, environment)
+    actionName: "Codex App Server connection", command: buildRemoteCommand(session, environment, fastMode)
   });
   const child = new EventEmitter();
   child.stdin = new PassThrough();
@@ -63,7 +67,7 @@ async function createRemoteChild(sshAgentTransport, session, environment) {
 }
 
 function buildInvocation(session, runtime, environment) {
-  const command = `${runtime.codexCommand || "codex"} app-server`;
+  const command = `${runtime.codexCommand || "codex"} app-server${tierArgs(session, runtime.appServerFastMode)}`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const shell = runtime.shell || session.shell;
   const cwd = runtime.workspaceCwd || session.cwd;
@@ -187,7 +191,7 @@ function tokenBreakdown(value) {
 function updateTokenUsage(entry, params) {
   const total = tokenBreakdown(params.tokenUsage?.total);
   const last = tokenBreakdown(params.tokenUsage?.last);
-  if (!total || !last) return;
+  if (!total || !last) return false;
   const previousOutput = entry.tokenUsage?.total.outputTokens;
   const previousAt = entry.tokenUpdatedAt;
   const updatedAt = Date.now();
@@ -198,10 +202,11 @@ function updateTokenUsage(entry, params) {
   entry.tokenUsage = { total, last, modelContextWindow: params.tokenUsage.modelContextWindow ?? null };
   entry.tokenUpdatedAt = updatedAt;
   entry.turnOutputTokens = Math.max(0, total.outputTokens - entry.turnOutputBaseline);
+  return true;
 }
 
 function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
-  sshAgentTransport = null, sshFileSystem = null, removePastedImage = null }) {
+  sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const projectCwd = entry => entry.runtime.workspaceCwd || entry.session.cwd;
@@ -240,6 +245,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
+      backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
       busy: entry.busy, error: entry.error, pendingPlan: entry.pendingPlan,
       model: entry.model, tokenUsage: entry.tokenUsage, tokenUpdatedAt: entry.tokenUpdatedAt,
       turnOutputTokens: entry.turnOutputTokens, outputTokensPerSecond: entry.outputTokensPerSecond,
@@ -253,6 +259,19 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return projectCwd(entry);
   }
   function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
+  function recordTokenUsage(entry, baseline = entry.usageNeedsBaseline) {
+    if (!entry.threadId || !entry.tokenUsage) return;
+    try {
+      onTokenUsage({ threadId: entry.threadId, session: entry.session, cwd: projectCwd(entry),
+        model: entry.model, tokens: entry.tokenUsage.total, baseline });
+      entry.usageNeedsBaseline = false;
+    } catch (error) {
+      console.error("Failed to record Codex App Server token statistics:", error);
+    }
+  }
+  function resetUsageBaselines() {
+    for (const entry of sessions.values()) recordTokenUsage(entry, true);
+  }
   function send(entry, value) {
     if (!entry.child.stdin.writable) throw new Error("Codex App Server 已退出。");
     entry.child.stdin.write(`${JSON.stringify(value)}\n`);
@@ -265,6 +284,34 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       try { send(entry, { id, method, params }); }
       catch (error) { clearTimeout(timer); entry.pending.delete(id); reject(error); }
     });
+  }
+  async function refreshModels(entry) {
+    if ((entry.session.codexBackend || "openai") !== "openai") return;
+    const models = [];
+    let cursor = null;
+    do {
+      const result = await request(entry, "model/list", { limit: 100, ...(cursor ? { cursor } : {}) });
+      models.push(...(result.data || []).filter(model => model?.id && !model.hidden).map(model => ({
+        id: model.id, displayName: model.displayName || model.id,
+        fastAvailable: Array.isArray(model.serviceTiers) && model.serviceTiers.some(tier => tier.id === "priority" || tier.id === "fast"),
+        defaultReasoningEffort: typeof model.defaultReasoningEffort === "string" ? model.defaultReasoningEffort : null,
+        supportedReasoningEfforts: Array.isArray(model.supportedReasoningEfforts)
+          ? model.supportedReasoningEfforts.filter(option => typeof option?.reasoningEffort === "string" && option.reasoningEffort)
+            .map(option => ({ reasoningEffort: option.reasoningEffort, description: typeof option.description === "string" ? option.description : "" }))
+          : []
+      })));
+      cursor = result.nextCursor || null;
+    } while (cursor);
+    entry.models = models;
+  }
+  function compatibleEffort(entry, preferred = entry.effort) {
+    if ((entry.session.codexBackend || "openai") !== "openai") return null;
+    const model = entry.models.find(item => item.id === entry.model);
+    const options = model?.supportedReasoningEfforts || [];
+    if (!options.length) return null;
+    if (options.some(option => option.reasoningEffort === preferred)) return preferred;
+    if (options.some(option => option.reasoningEffort === model.defaultReasoningEffort)) return model.defaultReasoningEffort;
+    return options[0].reasoningEffort;
   }
   function close(id) {
     const entry = sessions.get(id);
@@ -327,7 +374,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         entry.pendingTokenUsage = params;
       return;
     }
-    if (message.method === "thread/tokenUsage/updated") updateTokenUsage(entry, params);
+    if (message.method === "thread/tokenUsage/updated" && updateTokenUsage(entry, params)) recordTokenUsage(entry);
     if (message.method === "serverRequest/resolved") {
       entry.approvals.delete(params.requestId);
       const answered = entry.questions.get(params.requestId);
@@ -340,6 +387,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.method === "turn/started") {
       entry.turnId = params.turn?.id; entry.busy = true;
+      for (const item of entry.items.slice(entry.activeTurnStartIndex)) if (item.type === "userMessage"
+        && String(item.id).startsWith("local-") && !item.turnId)
+        item.turnId = entry.turnId;
       entry.turnOutputBaseline = entry.tokenUsage?.total.outputTokens || 0;
       entry.turnOutputTokens = 0; entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
     }
@@ -351,9 +401,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         if (item.type === "userMessage" && !item.attachments?.length && previous?.attachments?.length)
           item.attachments = previous.attachments;
         if (item.type === "userMessage") {
-          entry.items = entry.items.filter(value => !String(value.id).startsWith("local-"));
-          if (entry.pendingUserAttachments?.length && !item.attachments?.length) item.attachments = entry.pendingUserAttachments;
-          entry.pendingUserAttachments = null;
+          const localIndex = entry.items.findIndex(value => value.type === "userMessage"
+            && String(value.id).startsWith("local-") && value.text === item.text
+            && (!value.turnId || value.turnId === item.turnId));
+          if (localIndex >= 0) {
+            const [local] = entry.items.splice(localIndex, 1);
+            if (!item.attachments?.length) item.attachments = local.attachments;
+          }
         }
         const index = entry.items.findIndex(value => value.id === item.id);
         if (index < 0) entry.items.push(item); else entry.items[index] = item;
@@ -406,19 +460,25 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
 
   async function start(session, runtime = {}) {
     const id = session.id;
+    const template = session.templateId && sessionStore?.getTemplate(session.templateId);
+    const fastMode = (session.codexBackend || "openai") === "openai" && (template?.codexAppServerFastMode ?? session.codexAppServerFastMode) === true;
+    runtime = { ...runtime, appServerFastMode: fastMode };
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
     let child;
-    if (session.type === "ssh" && !runtime.localBridge) child = await createRemoteChild(sshAgentTransport, session, environment);
+    if (session.type === "ssh" && !runtime.localBridge) child = await createRemoteChild(sshAgentTransport, session, environment, fastMode);
     else {
       const invocation = buildInvocation(session, runtime, environment);
       child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     }
     const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
-      turnId: null, mode: "default", executionPermission: sessionStore?.getTemplate(session.templateId)?.codexExecutionPermission || session.codexExecutionPermission || "askApproval", model: session.codexModel || null, busy: false, error: null, items: [],
+      turnId: null, mode: "default", executionPermission: template?.codexExecutionPermission || session.codexExecutionPermission || "askApproval",
+      model: template?.codexAppServerModel || session.codexAppServerModel || session.codexModel || null,
+      effort: template?.codexAppServerEffort || session.codexAppServerEffort || null, fastMode, models: [], busy: false, error: null, items: [],
       pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0,
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
+      usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0 };
     sessions.set(id, entry);
     const lines = readline.createInterface({ input: child.stdout });
@@ -451,11 +511,17 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     try {
       await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true } });
       send(entry, { method: "initialized", params: {} });
+      await refreshModels(entry).catch(() => {});
       const result = runtime.resumeThreadId
         ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry) })
         : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
       entry.threadId = result.thread.id;
-      entry.model = result.thread.model || entry.model;
+      entry.model = runtime.resumeThreadId && !runtime.preferTemplateModel
+        ? (result.thread.model || entry.model)
+        : (template?.codexAppServerModel || session.codexAppServerModel || result.thread.model || entry.model);
+      entry.effort = compatibleEffort(entry);
+      if (entry.pendingTokenUsage?.threadId === entry.threadId && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
+      entry.pendingThreadId = null; entry.pendingTokenUsage = null;
       if (runtime.resumeThreadId) {
         entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
         const lastTurn = result.thread.turns?.at(-1);
@@ -587,14 +653,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
-    entry.model = result.thread.model || entry.session.codexModel || null;
+    entry.model = result.thread.model || entry.session.codexAppServerModel || entry.session.codexModel || null;
+    entry.effort = compatibleEffort(entry, sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerEffort || entry.session.codexAppServerEffort);
     entry.tokenUsage = null; entry.tokenUpdatedAt = null;
+    entry.usageNeedsBaseline = true;
     entry.turnOutputBaseline = 0; entry.turnOutputTokens = 0;
     entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
-    if (entry.pendingTokenUsage) updateTokenUsage(entry, entry.pendingTokenUsage);
+    if (entry.pendingTokenUsage && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
     entry.pendingThreadId = null; entry.pendingTokenUsage = null;
     entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
-    entry.pendingUserAttachments = null;
     const lastTurn = result.thread.turns?.at(-1);
     entry.busy = lastTurn?.status === "inProgress";
     entry.turnId = entry.busy ? lastTurn.id : null;
@@ -620,14 +687,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
-    entry.model = result.thread.model || entry.session.codexModel || null;
+    entry.model = sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerModel || result.thread.model || entry.session.codexAppServerModel || entry.session.codexModel || null;
+    entry.effort = compatibleEffort(entry, sessionStore?.getTemplate(entry.session.templateId)?.codexAppServerEffort || entry.session.codexAppServerEffort);
     entry.tokenUsage = null; entry.tokenUpdatedAt = null;
+    entry.usageNeedsBaseline = false;
     entry.turnOutputBaseline = 0; entry.turnOutputTokens = 0;
     entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
     entry.mode = "default";
     entry.pendingPlan = null;
     entry.items = [];
-    entry.pendingUserAttachments = null;
     entry.error = null;
     entry.approvals.clear();
     entry.questions.clear();
@@ -648,6 +716,64 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (hadPendingPlan) broadcastStatus(id, entry, true);
     publish(id);
     return snapshot(id);
+  }
+  async function setModel(id, modelId) {
+    let entry = ready(id);
+    if (entry.uploading) throw new Error("请等待附件上传完成。");
+    if ((entry.session.codexBackend || "openai") !== "openai") throw new Error("仅 OpenAI 后端支持会话内切换模型。");
+    if (typeof modelId !== "string" || !entry.models.some(model => model.id === modelId)) throw new Error("请选择当前可用的 Codex 模型。");
+    if (entry.model === modelId) return snapshot(id);
+    if (entry.fastMode && !entry.models.find(model => model.id === modelId).fastAvailable) {
+      await setFastMode(id, false);
+      entry = ready(id);
+    }
+    if (entry.session.templateId) sessionStore.updateLibrary(entry.session.templateId, {
+      codexAppServerModel: modelId
+    });
+    entry.model = modelId;
+    entry.session.codexAppServerModel = modelId;
+    entry.effort = compatibleEffort(entry);
+    entry.session.codexAppServerEffort = entry.effort;
+    if (entry.session.templateId) sessionStore.updateLibrary(entry.session.templateId, { codexAppServerEffort: entry.effort });
+    publish(id);
+    return snapshot(id);
+  }
+  function setEffort(id, effort) {
+    const entry = ready(id);
+    if (entry.busy || entry.uploading) throw new Error("请等待当前对话或附件上传完成。");
+    if ((entry.session.codexBackend || "openai") !== "openai") throw new Error("仅 OpenAI 后端支持设置思考强度。");
+    const model = entry.models.find(item => item.id === entry.model);
+    if (typeof effort !== "string" || !model?.supportedReasoningEfforts.some(option => option.reasoningEffort === effort))
+      throw new Error("请选择当前模型支持的思考强度。");
+    if (entry.effort === effort) return snapshot(id);
+    if (entry.session.templateId) sessionStore.updateLibrary(entry.session.templateId, { codexAppServerEffort: effort });
+    entry.effort = effort;
+    entry.session.codexAppServerEffort = effort;
+    publish(id);
+    return snapshot(id);
+  }
+  async function setFastMode(id, enabled) {
+    const entry = ready(id);
+    if (entry.uploading) throw new Error("请等待附件上传完成。");
+    if ((entry.session.codexBackend || "openai") !== "openai") throw new Error("仅 OpenAI 后端支持快速模式。");
+    if (typeof enabled !== "boolean") throw new Error("无效的快速模式设置。");
+    if (enabled && !entry.models.find(model => model.id === entry.model)?.fastAvailable)
+      throw new Error("当前模型不支持快速模式。");
+    if (entry.fastMode === enabled) return snapshot(id);
+    const previous = entry.fastMode;
+    const threadId = entry.threadId;
+    const session = entry.session;
+    const runtime = entry.runtime;
+    if (session.templateId) sessionStore.updateLibrary(session.templateId, { codexAppServerFastMode: enabled });
+    session.codexAppServerFastMode = enabled;
+    close(id);
+    try { return await start(session, { ...runtime, resumeThreadId: threadId, preferTemplateModel: true }); }
+    catch (error) {
+      if (session.templateId) sessionStore.updateLibrary(session.templateId, { codexAppServerFastMode: previous });
+      session.codexAppServerFastMode = previous;
+      try { await start(session, { ...runtime, resumeThreadId: threadId, preferTemplateModel: true }); } catch {}
+      throw error;
+    }
   }
   function setExecutionPermission(id, permission) {
     const entry = ready(id);
@@ -737,8 +863,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function submit(id, text, filePaths = []) {
     const entry = sessions.get(id);
-    if (!entry?.threadId || entry.busy || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
+    if (!entry?.threadId || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
       || (!text.trim() && filePaths.length === 0)) throw new Error("Codex 会话未就绪或正在运行。");
+    if (entry.busy && !entry.turnId) throw new Error("当前回合尚未就绪，请稍后重试。");
     if (filePaths.some(filePath => !entry.allowedFiles.has(filePath))) throw new Error("只能发送通过文件选择器附加的文件。");
     entry.uploading = true;
     const uploaded = [];
@@ -746,46 +873,58 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     try { files = await prepareRemoteFiles(entry, filePaths.map(filePath => fileInput(entry, filePath)), uploaded); }
     catch (error) { entry.uploading = false; await removeUploadedFiles(entry, uploaded); throw error; }
     let turnRequestSent = false;
+    let startingTurn = false;
     try {
       if (sessions.get(id) !== entry) throw new Error("会话已关闭。");
       const fileReferences = files.filter(file => !file.image).map(file => JSON.stringify(file.path));
       const messageText = [text.trim(), ...(fileReferences.length ? [`请读取以下附件文件：${fileReferences.join("、")}`] : [])].filter(Boolean).join("\n\n");
-      if (!entry.model) {
+      if (!entry.busy && !entry.model) {
         const models = await request(entry, "model/list", {});
         entry.model = models.data?.find(model => model.isDefault)?.id || models.data?.[0]?.id;
+        entry.effort = compatibleEffort(entry);
       }
-      if (!entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
+      if (!entry.busy && !entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
       entry.error = null;
-      entry.pendingPlan = null;
-      entry.activeTurnMode = entry.mode;
-      entry.activeTurnStartIndex = entry.items.length;
-      entry.busy = true;
-      const localId = `local-${Date.now()}`;
+      startingTurn = !entry.busy;
+      if (startingTurn) {
+        entry.pendingPlan = null;
+        entry.activeTurnMode = entry.mode;
+        entry.activeTurnStartIndex = entry.items.length;
+        entry.busy = true;
+      }
+      const localId = `local-${randomUUID()}`;
       entry.items.push({ id: localId, type: "userMessage",
-        text: text.trim(), attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })) });
-      entry.pendingUserAttachments = files.map(file => ({ path: file.path, name: path.basename(file.path) }));
+        turnId: entry.turnId || undefined, text: text.trim(),
+        attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })) });
       publish(id);
-      entry.status = "running";
+      if (startingTurn || (!entry.approvals.size && !entry.questions.size)) entry.status = "running";
       entry.activitySummary = activitySummary(text.trim() || entry.items.at(-1).text);
       broadcastStatus(id, entry, true);
       try {
         const input = [...(messageText ? [{ type: "text", text: messageText }] : []),
           ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
-        const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
-        const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
-          ? { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } : permission.sandboxPolicy;
         turnRequestSent = true;
-        const result = await request(entry, "turn/start", { threadId: entry.threadId, input,
-          approvalPolicy: permission.approvalPolicy, sandboxPolicy,
-          collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
+        let result;
+        if (startingTurn) {
+          const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
+          const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
+            ? { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } : permission.sandboxPolicy;
+          result = await request(entry, "turn/start", { threadId: entry.threadId, input, model: entry.model,
+            ...(entry.effort ? { effort: entry.effort } : {}),
+            approvalPolicy: permission.approvalPolicy, sandboxPolicy,
+            collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
+        } else {
+          result = await request(entry, "turn/steer", { threadId: entry.threadId, input, expectedTurnId: entry.turnId });
+        }
         for (const filePath of filePaths) entry.allowedFiles.delete(filePath);
         for (const filePath of filePaths) entry.pastedImages.delete(filePath);
-        if (entry.busy) entry.turnId = result.turn?.id || entry.turnId;
+        if (startingTurn && entry.busy) entry.turnId = result.turn?.id || entry.turnId;
       } catch (error) {
-        entry.busy = false; entry.activeTurnMode = null; entry.error = error.message;
+        if (startingTurn) { entry.busy = false; entry.activeTurnMode = null; }
+        entry.error = error.message;
         entry.items = entry.items.filter(item => item.id !== localId);
-        entry.pendingUserAttachments = null;
-        entry.status = "failed"; entry.activitySummary = activitySummary(error.message);
+        if (startingTurn) entry.status = "failed";
+        entry.activitySummary = activitySummary(error.message);
         broadcastStatus(id, entry, true); publish(id); throw error;
       }
     } catch (error) {
@@ -839,7 +978,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     publish(id);
   }
   function shutdown() { for (const id of sessions.keys()) close(id); }
-  return { start, restart, snapshot, getWorkspaceCwd, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
+  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, resume, newThread, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };

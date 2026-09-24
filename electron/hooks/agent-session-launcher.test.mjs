@@ -115,6 +115,21 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
+  it("routes explicitly enabled OpenCode Windows, WSL, and SSH remote sessions to ACP", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    for (const options of [
+      { type: "windows", cwd: "C:\\work" },
+      { type: "wsl", cwd: "/work", wslDistro: "Ubuntu" },
+      { type: "ssh", cwd: "/srv/app", agentLocation: "remote", sshConfig: { host: "example.com" } }
+    ]) {
+      const result = await mocks.launcher.createSession({ ...options, agentProvider: "opencode", openCodeAcpEnabled: true });
+      expect(result).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
+    }
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
+    const old = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode" });
+    expect(old.runtimeMode).toBeUndefined();
+  });
   it("routes opted-in CodeBuddy Windows, WSL, and SSH remote sessions to ACP", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ codexAppServerSessionService });
@@ -926,6 +941,23 @@ describe("agent-session-launcher", () => {
     expect(runtime.acpArgs).toContain("Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}");
     expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS).toBe("Use remote tools.");
     expect(runtime.acpArgs).not.toContain("secret-token");
+  });
+
+  it("starts OpenCode ACP through the restricted local SSH bridge", async () => {
+    const binding = { workspacePath: "C:\\runtime\\run-1", url: "http://127.0.0.1:4568/mcp",
+      token: "secret-token", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN", developerInstructions: "Use remote tools." };
+    const remoteAgentBridgeService = { createBinding: vi.fn(async () => binding),
+      runConfiguredCommand: vi.fn(async () => ({})), closeBinding: vi.fn(async () => {}) };
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
+    const result = await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "opencode",
+      openCodeAcpEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
+    expect(result.runtimeMode).toBe("app-server");
+    const runtime = codexAppServerSessionService.start.mock.calls[0][1];
+    expect(runtime.requiredMode).toBe("pannel-handle-remote");
+    expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_TOKEN).toBe("secret-token");
+    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.pannel_handle_remote.url).toBe(binding.url);
+    expect(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).not.toContain("secret-token");
   });
 
   it("allows a local Codex bridge to target a remote Windows workspace", async () => {

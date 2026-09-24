@@ -27,6 +27,9 @@ describe("CodexAppServerSession", () => {
   const setNativeMode = vi.fn().mockImplementation(async (_id, modeId) => ({ threadId: "thread-1", provider: "codebuddy", nativeMode: modeId,
     nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: modeId === "plan" ? "plan" : "default",
     executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }));
+  const setModel = vi.fn();
+  const setEffort = vi.fn();
+  const setFastMode = vi.fn();
   const setExecutionPermission = vi.fn().mockImplementation(async (_id, executionPermission) => ({
     threadId: "thread-1", mode: "default", executionPermission, busy: false, error: null, items: [], approvals: [] }));
   const chooseFiles = vi.fn().mockResolvedValue([]);
@@ -38,11 +41,11 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); newThread.mockClear(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); newThread.mockClear(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setEffort.mockReset(); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, listHistory,
-      resume, newThread, setMode, setNativeMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      resume, newThread, setMode, setNativeMode, setModel, setEffort, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
     } });
@@ -59,6 +62,23 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("group", { name: /执行权限/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
     await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
+  });
+
+  it("shows OpenCode ACP modes and model options without Codex permissions", async () => {
+    setModel.mockResolvedValueOnce({ threadId: "open-1", provider: "opencode", nativeMode: "build", nativeModes: [],
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [], acpOptions: [] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", nativeMode: "build",
+      nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }], mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "provider/a", options: [
+        { value: "provider/a", name: "Model A" }, { value: "provider/b", name: "Model B" }] }],
+      capabilities: { history: true, plan: true, attachments: true, permissions: false } } }));
+    expect(screen.getByRole("region", { name: "OpenCode 图形会话" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("group", { name: /执行权限/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "provider/b"));
   });
 
   it("follows streamed plan text and new lines after the reader scrolls up", async () => {
@@ -117,6 +137,47 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(newThread).toHaveBeenCalledWith("run-1"));
     expect(screen.queryByRole("dialog", { name: "历史会话" })).toBeNull();
     expect((screen.getByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("switches OpenAI models and Fast mode for later turns", async () => {
+    const base = { threadId: "thread-1", backend: "openai" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      models: [{ id: "model-a", displayName: "Model A", fastAvailable: true, defaultReasoningEffort: null, supportedReasoningEfforts: [] },
+        { id: "model-b", displayName: "Model B", fastAvailable: false, defaultReasoningEffort: null, supportedReasoningEfforts: [] }] };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ ...base, model: "model-a", fastMode: false });
+    setFastMode.mockResolvedValueOnce({ ...base, model: "model-a", fastMode: true });
+    setModel.mockResolvedValueOnce({ ...base, model: "model-b", fastMode: false });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    expect(await screen.findByText("Model A")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /快速模式/ }));
+    await waitFor(() => expect(setFastMode).toHaveBeenCalledWith("run-1", true));
+    expect(await screen.findByText("Model A · 快速")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "model-b"));
+    expect(await screen.findByText("Model B")).toBeTruthy();
+  });
+
+  it("selects only the current model's reasoning efforts for later turns", async () => {
+    const base = { threadId: "thread-1", backend: "openai" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      model: "model-a", models: [{ id: "model-a", displayName: "Model A", fastAvailable: false,
+        defaultReasoningEffort: "medium", supportedReasoningEfforts: [
+          { reasoningEffort: "medium", description: "Balanced" }, { reasoningEffort: "high", description: "Deep" }] }] };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ ...base, effort: "medium" });
+    setEffort.mockResolvedValueOnce({ ...base, effort: "high" });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    expect(await screen.findByText("Model A · 思考中")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    const group = screen.getByRole("group", { name: "思考强度（下一轮生效）" });
+    expect(group.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "高" }));
+    await waitFor(() => expect(setEffort).toHaveBeenCalledWith("run-1", "high"));
+    expect(await screen.findByText("Model A · 思考高")).toBeTruthy();
+    act(() => changed({ id: "run-1", snapshot: { ...base, effort: "high", busy: true } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitemradio", { name: "中" })).toHaveProperty("disabled", true);
   });
 
   it("shows the selected execution permission and disables switching while running", async () => {
@@ -301,6 +362,52 @@ describe("CodexAppServerSession", () => {
     expect(await screen.findByText("pnpm test")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "批准一次" }));
     await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith("run-1", 9, true));
+  });
+
+  it("sends a message with an attachment while Codex is running and keeps Stop available", async () => {
+    chooseFiles.mockResolvedValueOnce(["C:\\project\\notes.txt"]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true,
+      error: null, items: [], approvals: [] } }));
+    expect(input.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "附加文件" })).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByRole("menuitem", { name: "附加文件" }));
+    await waitFor(() => expect(screen.getByText("notes.txt")).toBeTruthy());
+    fireEvent.change(input, { target: { value: "补充要求" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "补充要求", ["C:\\project\\notes.txt"]));
+    expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+  });
+
+  it("keeps the existing ACP composer disabled while its turn is running", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: true, error: null, items: [], approvals: [] } }));
+    expect(screen.getByPlaceholderText("向 CodeBuddy 发送消息")).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "发送" })).toBeNull();
+    expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+  });
+
+  it("restores a rejected in-flight message and its attachment", async () => {
+    submit.mockRejectedValueOnce(new Error("turn/steer rejected"));
+    chooseFiles.mockResolvedValueOnce(["C:\\project\\notes.txt"]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true,
+      error: null, items: [], approvals: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "附加文件" }));
+    await waitFor(() => expect(screen.getByText("notes.txt")).toBeTruthy());
+    fireEvent.change(input, { target: { value: "补充要求" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveProperty("textContent", "turn/steer rejected"));
+    expect(input.value).toBe("补充要求");
+    expect(screen.getByText("notes.txt")).toBeTruthy();
   });
 
   it("animates the input border only while running in either mode", async () => {

@@ -28,13 +28,68 @@ function fakeProcess(received, respond) {
       const result = respond?.(request) ?? (request.method === "thread/start" ? { thread: { id: "thread-1", model: "test-model" } }
         : request.method === "model/list" ? { data: [{ id: "test-model", isDefault: true }] }
           : request.method === "turn/start" ? { turn: { id: "turn-1", status: "inProgress" } } : {});
-      child.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+      child.stdout.write(`${JSON.stringify(result?.__error ? { id: request.id, error: { message: result.__error } }
+        : { id: request.id, result })}\n`);
     }
   });
   return child;
 }
 
 describe("Codex App Server session", () => {
+  it("selects a catalog model and restarts the same thread for template Fast mode", async () => {
+    const received = [];
+    const children = [];
+    const invocations = [];
+    const template = { id: "template-1", codexBackend: "openai", codexAppServerFastMode: false };
+    const sessionStore = {
+      getTemplate: () => template,
+      updateLibrary: vi.fn((_id, changes) => Object.assign(template, changes))
+    };
+    const respond = request => {
+      if (request.method === "model/list") return { data: [
+        { id: "model-a", displayName: "Model A", isDefault: true, serviceTiers: [{ id: "priority" }],
+          defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Quick" }, { reasoningEffort: "medium", description: "Balanced" }, { reasoningEffort: "high", description: "Deep" }] },
+        { id: "model-b", displayName: "Model B", serviceTiers: [],
+          defaultReasoningEffort: "low", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Quick" }, { reasoningEffort: "medium", description: "Balanced" }] }
+      ] };
+      if (request.method === "thread/start") return { thread: { id: "thread-1", model: "model-a" } };
+      if (request.method === "thread/resume") return { thread: { id: "thread-1", model: "model-a", turns: [] } };
+    };
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, sessionStore,
+      spawnProcess: (_command, args) => {
+        invocations.push(args);
+        const child = fakeProcess(received, respond);
+        children.push(child);
+        return child;
+      } });
+    try {
+      await service.start({ id: "run-1", templateId: template.id, codexBackend: "openai", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      expect(service.snapshot("run-1").models).toEqual([
+        { id: "model-a", displayName: "Model A", fastAvailable: true, defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Quick" }, { reasoningEffort: "medium", description: "Balanced" }, { reasoningEffort: "high", description: "Deep" }] },
+        { id: "model-b", displayName: "Model B", fastAvailable: false, defaultReasoningEffort: "low",
+          supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Quick" }, { reasoningEffort: "medium", description: "Balanced" }] }
+      ]);
+      expect(service.snapshot("run-1").effort).toBe("medium");
+      expect(service.setEffort("run-1", "high").effort).toBe("high");
+      expect(template.codexAppServerEffort).toBe("high");
+      expect(() => service.setEffort("run-1", "max")).toThrow("当前模型支持");
+      await expect(service.setFastMode("run-1", true)).resolves.toMatchObject({ fastMode: true, threadId: "thread-1" });
+      expect(template.codexAppServerFastMode).toBe(true);
+      expect(invocations.at(-1).at(-1)).toContain("service_tier=\"priority\"");
+      await service.setModel("run-1", "model-b");
+      expect(template).toMatchObject({ codexAppServerModel: "model-b", codexAppServerEffort: "low", codexAppServerFastMode: false });
+      expect(service.snapshot("run-1").effort).toBe("low");
+      service.setEffort("run-1", "medium");
+      expect(service.snapshot("run-1").effort).toBe("medium");
+      expect(invocations.at(-1).at(-1)).toContain("service_tier=\"default\"");
+      await expect(service.setFastMode("run-1", true)).rejects.toThrow("不支持快速模式");
+      await service.submit("run-1", "hello");
+      expect(received.filter(request => request.method === "turn/start").at(-1).params.model).toBe("model-b");
+      expect(received.filter(request => request.method === "turn/start").at(-1).params.effort).toBe("medium");
+    } finally { service.close("run-1"); }
+  });
   it("runs local SSH bridge threads and attachments in the local workspace", async () => {
     const received = [];
     const child = fakeProcess(received, request => request.method === "thread/read"
@@ -129,6 +184,7 @@ describe("Codex App Server session", () => {
 
   it("retains usage replayed before a history resume response", async () => {
     let child;
+    const recorded = vi.fn();
     child = fakeProcess([], request => {
       if (request.method === "thread/read") return { thread: { id: "old-thread", cwd: "C:\\project" } };
       if (request.method === "thread/resume") {
@@ -140,11 +196,53 @@ describe("Codex App Server session", () => {
       }
     });
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child,
+      onTokenUsage: recorded });
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     const restored = await service.resume("run-1", "old-thread");
     expect(restored.tokenUsage?.total.outputTokens).toBe(8);
+    expect(recorded).toHaveBeenCalledWith(expect.objectContaining({ threadId: "old-thread", baseline: true }));
     service.close("run-1");
+  });
+
+  it("forwards cumulative App Server usage with history and reset baselines", async () => {
+    const recorded = vi.fn();
+    let nextThread = 0;
+    const child = fakeProcess([], request => {
+      if (request.method === "thread/start") return { thread: { id: `thread-${++nextThread}`, model: "test-model" } };
+      if (request.method === "thread/read") return { thread: { id: "history", cwd: "C:\\project" } };
+      if (request.method === "thread/resume") return { thread: { id: "history", model: "test-model", turns: [] } };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child,
+      onTokenUsage: recorded });
+    const sendUsage = (threadId, totalTokens) => child.stdout.write(`${JSON.stringify({ method: "thread/tokenUsage/updated",
+      params: { threadId, tokenUsage: { total: { inputTokens: totalTokens - 10, outputTokens: 10, totalTokens },
+        last: { inputTokens: 5, outputTokens: 5, totalTokens: 10 } } } })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project", title: "Work" });
+      sendUsage("thread-1", 100);
+      await vi.waitFor(() => expect(recorded).toHaveBeenCalledTimes(1));
+      expect(recorded).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "thread-1", baseline: false,
+        tokens: expect.objectContaining({ totalTokens: 100 }) }));
+      sendUsage("wrong-thread", 999);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(recorded).toHaveBeenCalledTimes(1);
+      await service.resume("run-1", "history");
+      sendUsage("history", 500);
+      await vi.waitFor(() => expect(recorded).toHaveBeenCalledTimes(2));
+      expect(recorded).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "history", baseline: true }));
+      sendUsage("history", 530);
+      await vi.waitFor(() => expect(recorded).toHaveBeenCalledTimes(3));
+      expect(recorded).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "history", baseline: false }));
+      service.resetUsageBaselines();
+      expect(recorded).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "history", baseline: true,
+        tokens: expect.objectContaining({ totalTokens: 530 }) }));
+      await service.newThread("run-1");
+      sendUsage("thread-2", 20);
+      await vi.waitFor(() => expect(recorded).toHaveBeenCalledTimes(5));
+      expect(recorded).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "thread-2", baseline: false }));
+    } finally { service.close("run-1"); }
   });
 
   it.skipIf(process.platform !== "win32")("keeps command and configured variables in the launched process", () => {
@@ -201,6 +299,7 @@ describe("Codex App Server session", () => {
     expect(service.snapshot("run-1").threadId).toBe("thread-1");
     await service.submit("run-1", "Hello");
     expect(received.find(item => item.method === "turn/start").params.input[0].text).toBe("Hello");
+    expect(received.find(item => item.method === "turn/start").params).not.toHaveProperty("effort");
     expect(received.find(item => item.method === "turn/start").params.collaborationMode).toEqual({ mode: "default", settings: { model: "test-model", developer_instructions: null } });
     child.stdout.write(`${JSON.stringify({ id: 42, method: "item/commandExecution/requestApproval", params: { command: "pnpm test" } })}\n`);
     await new Promise(resolve => setImmediate(resolve));
@@ -208,6 +307,67 @@ describe("Codex App Server session", () => {
     service.resolveApproval("run-1", 42, true);
     expect(received.at(-1)).toEqual({ id: 42, result: { decision: "accept" } });
     service.close("run-1");
+  });
+
+  it("steers consecutive messages and images into the active turn without losing either message", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "turn/steer" ? { turnId: "turn-1" } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", shell: "bash", cwd: "/repo" });
+    try {
+      await service.submit("run-1", "开始");
+      const image = "/repo/.pannel-handle-images/steer.png";
+      service.allowPastedImage("run-1", image);
+      await service.submit("run-1", "先检查测试", [image]);
+      await service.submit("run-1", "再检查文档");
+      expect(received.filter(item => item.method === "turn/start")).toHaveLength(1);
+      const steers = received.filter(item => item.method === "turn/steer");
+      expect(steers).toHaveLength(2);
+      expect(steers[0].params).toEqual({ threadId: "thread-1", expectedTurnId: "turn-1", input: [
+        { type: "text", text: "先检查测试" }, { type: "localImage", path: image }
+      ] });
+      expect(service.snapshot("run-1").items.filter(item => item.type === "userMessage")).toHaveLength(3);
+      for (const [id, text] of [["user-1", "开始"], ["user-2", "先检查测试"], ["user-3", "再检查文档"]])
+        child.stdout.write(`${JSON.stringify({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1",
+          item: { id, type: "userMessage", content: [{ type: "text", text }] } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").items.find(item => item.id === "user-3")).toBeTruthy());
+      expect(service.snapshot("run-1").items.filter(item => item.type === "userMessage")).toHaveLength(3);
+      expect(service.snapshot("run-1").items.find(item => item.id === "user-2").attachments).toEqual([
+        { path: image, name: "steer.png" }
+      ]);
+    } finally { service.close("run-1"); }
+  });
+
+  it("keeps the active turn running when a steer is rejected", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "turn/steer" ? { __error: "turn/steer rejected" } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      await service.submit("run-1", "开始");
+      await expect(service.submit("run-1", "补充")).rejects.toThrow("turn/steer rejected");
+      expect(service.snapshot("run-1").busy).toBe(true);
+      expect(service.snapshot("run-1").items.filter(item => item.type === "userMessage").map(item => item.text)).toEqual(["开始"]);
+    } finally { service.close("run-1"); }
+  });
+
+  it("starts a new turn when the previous turn completes before the follow-up is sent", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      await service.submit("run-1", "开始");
+      child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1",
+        turn: { id: "turn-1", status: "completed" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").busy).toBe(false));
+      await service.submit("run-1", "继续");
+      expect(received.filter(item => item.method === "turn/start")).toHaveLength(2);
+      expect(received.some(item => item.method === "turn/steer")).toBe(false);
+    } finally { service.close("run-1"); }
   });
 
   it("keeps Question pending until resolved and sends all structured answers once", async () => {
@@ -602,6 +762,11 @@ describe("Codex App Server session", () => {
       convert.mockReturnValueOnce({ status: 0, stdout: "/mnt/c/files/notes.txt\n" }).mockReturnValueOnce({ status: 0 });
       await service.submit("run-1", "检查", [filePath]);
       expect(received.find(item => item.method === "turn/start").params.input[0].text).toContain('"/mnt/c/files/notes.txt"');
+      service.allowFiles("run-1", [filePath]);
+      convert.mockReturnValueOnce({ status: 0, stdout: "/mnt/c/files/notes.txt\n" }).mockReturnValueOnce({ status: 0 });
+      await service.submit("run-1", "补充检查", [filePath]);
+      expect(received.find(item => item.method === "turn/steer").params.input[0].text)
+        .toContain('"/mnt/c/files/notes.txt"');
       service.close("run-1");
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });

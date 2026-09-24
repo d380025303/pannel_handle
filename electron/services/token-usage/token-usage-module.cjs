@@ -51,6 +51,23 @@ function createTokenUsageModule({
     return statsService.handleHook(input);
   }
 
+  function recordAppServerUsage({ threadId, session, cwd, model, tokens, baseline = false }) {
+    if (stopped || !threadId || !session || !tokens) return;
+    const agentSessionId = `app-server:${threadId}`;
+    if (baseline) statsStore.setBaseline("codex", agentSessionId, tokens);
+    statsStore.update({
+      provider: "codex",
+      agentSessionId,
+      panelSessionId: session.id,
+      templateId: session.templateId,
+      title: session.title,
+      cwd: cwd || session.cwd,
+      location: session.type,
+      models: model ? [model] : [],
+      tokens
+    });
+  }
+
   function disconnect(sessionId) {
     usageService.disconnect(sessionId);
     statsService.markEnded(sessionId);
@@ -68,6 +85,7 @@ function createTokenUsageModule({
   return {
     disconnect,
     handleHook,
+    recordAppServerUsage,
     getDashboard: options => statsStore.getDashboard(options),
     shutdown
   };

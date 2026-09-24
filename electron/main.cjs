@@ -34,6 +34,7 @@ const { createProjectAssistantService } = require("./services/project-assistant/
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
+const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
@@ -283,12 +284,16 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       questionAnswerStore,
       sshAgentTransport,
-      sshFileSystem
+      sshFileSystem,
+      onTokenUsage: usage => tokenUsageModule?.recordAppServerUsage(usage)
     });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
       environmentService, terminalManager, broadcast: windowManager.broadcast, sshAgentTransport, sshFileSystem
     });
-    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager);
+    const openCodeGraphicalService = createOpenCodeAcpSessionService({
+      environmentService, terminalManager, broadcast: windowManager.broadcast, sshAgentTransport, sshFileSystem
+    });
+    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService);
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,
@@ -325,7 +330,10 @@ if (!gotSingleInstanceLock) {
       broadcast: windowManager.broadcast,
       conversationSink: agentConversationManager,
       onStatsChanged: () => postgresBackupService?.schedule(),
-      onStatsCleared: () => postgresBackupService?.newStatsEpoch()
+      onStatsCleared: () => {
+        codexGraphicalService.resetUsageBaselines();
+        postgresBackupService?.newStatsEpoch();
+      }
     });
     remoteFilesModule = createRemoteFilesModule({
       app,

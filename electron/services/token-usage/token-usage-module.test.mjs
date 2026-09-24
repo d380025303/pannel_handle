@@ -1,4 +1,7 @@
 import { createRequire } from "node:module";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -25,7 +28,9 @@ function createHarness() {
     clear: vi.fn(),
     close: vi.fn(),
     getDashboard: vi.fn(options => ({ options })),
-    load: vi.fn()
+    load: vi.fn(),
+    setBaseline: vi.fn(),
+    update: vi.fn()
   };
   const usageService = {
     consumeResetCredit: vi.fn(request => request),
@@ -106,5 +111,42 @@ describe("token usage module", () => {
     expect(harness.usageService.shutdown).toHaveBeenCalledTimes(1);
     expect(harness.statsService.shutdown).toHaveBeenCalledTimes(1);
     expect(harness.statsStore.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("records App Server snapshots as isolated Codex thread statistics", () => {
+    const harness = createHarness();
+    const session = { id: "panel-1", title: "Work", cwd: "C:\\project", type: "windows", templateId: "saved-1" };
+    const tokens = { inputTokens: 80, outputTokens: 20, totalTokens: 100 };
+    harness.module.recordAppServerUsage({ threadId: "thread-1", session, cwd: "C:\\workspace", model: "gpt-5", tokens,
+      baseline: true });
+    expect(harness.statsStore.setBaseline).toHaveBeenCalledWith("codex", "app-server:thread-1", tokens);
+    expect(harness.statsStore.update).toHaveBeenCalledWith(expect.objectContaining({ provider: "codex",
+      agentSessionId: "app-server:thread-1", panelSessionId: "panel-1", templateId: "saved-1",
+      cwd: "C:\\workspace", location: "windows", models: ["gpt-5"], tokens }));
+    harness.module.disconnect("panel-1");
+    expect(harness.statsService.markEnded).toHaveBeenCalledWith("panel-1");
+  });
+
+  it("persists App Server totals and history baselines in the dashboard", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "app-server-usage-"));
+    const ipcMain = createIpcMain();
+    const module = createTokenUsageModule({ ipcMain, databaseFile: path.join(root, "stats.sqlite3"),
+      terminalManager: {}, broadcast: vi.fn(), createUsageService: () => ({ disconnect: vi.fn(), shutdown: vi.fn() }),
+      createStatsService: () => ({ getLive: vi.fn(), handleHook: vi.fn(), markEnded: vi.fn(), shutdown: vi.fn() }) });
+    const session = { id: "panel-1", title: "Work", cwd: "C:\\project", type: "windows" };
+    const record = (threadId, totalTokens, baseline = false) => module.recordAppServerUsage({ threadId, session,
+      tokens: { inputTokens: totalTokens, outputTokens: 0, totalTokens }, baseline });
+    try {
+      record("new", 100);
+      record("new", 100);
+      record("new", 130);
+      record("history", 500, true);
+      record("history", 530);
+      expect(module.getDashboard({ range: "all", provider: "codex" }).summary.tokens.totalTokens).toBe(160);
+      ipcMain.handlers.get("agent-token-stats:clear")();
+      record("new", 150);
+      record("history", 550);
+      expect(module.getDashboard({ range: "all", provider: "codex" }).summary.tokens.totalTokens).toBe(40);
+    } finally { module.shutdown(); rmSync(root, { recursive: true, force: true }); }
   });
 });

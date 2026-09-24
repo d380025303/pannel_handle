@@ -17,6 +17,8 @@ export function resolveCodexFileLink(cwd: string, href: string): CodexFileLinkTa
   const suffixLine = !fragmentLine && !/^file:/i.test(withoutFragment)
     ? withoutFragment.match(/:(\d+)(?::\d+)?$/) : null;
   const link = suffixLine ? withoutFragment.slice(0, suffixLine.index) : withoutFragment;
+  const normalizedLink = /^[a-zA-Z]:[\\/]/.test(cwd) && /^\/[a-zA-Z]:\//.test(link)
+    ? link.slice(1) : link;
   const lineValue = fragmentLine?.[1] ?? suffixLine?.[1];
   const line = lineValue === undefined ? undefined : Number(lineValue);
   if (lineValue !== undefined && (!Number.isSafeInteger(line) || line! < 1)) {
@@ -24,7 +26,7 @@ export function resolveCodexFileLink(cwd: string, href: string): CodexFileLinkTa
   }
 
   const source = `${cwd.replace(/[\\/]$/, "")}/__codex_link__.md`;
-  const target = resolveMarkdownLink(source, link);
+  const target = resolveMarkdownLink(source, normalizedLink);
   if (target.kind !== "file") return target;
   if (!isPathInside(target.path, cwd)) {
     return { kind: "error", message: "只能跳转到当前工作目录内的文件。" };
