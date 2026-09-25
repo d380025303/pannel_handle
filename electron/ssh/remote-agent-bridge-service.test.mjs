@@ -77,6 +77,30 @@ afterEach(() => {
 });
 
 describe("remote-agent-bridge-service", () => {
+  it("exposes only read tools and rejects remote writes in plan mode", async () => {
+    const harness = createHarness();
+    const binding = await harness.service.createBinding("run-1");
+    harness.service.setReadOnly("run-1", true);
+    const listed = await post(binding, { id: 1, method: "tools/list" });
+    expect((await listed.json()).result.tools.map(tool => tool.name)).toEqual([
+      "remote_context", "remote_list", "remote_search", "remote_read_text"
+    ]);
+    const edit = await post(binding, { id: 2, method: "tools/call", params: {
+      name: "remote_apply_patch", arguments: { changes: [{ path: "src/a.ts", content: "new" }] }
+    } });
+    expect((await edit.json()).result.isError).toBe(true);
+    const command = await post(binding, { id: 3, method: "tools/call", params: {
+      name: "remote_exec", arguments: { command: "echo changed > a.txt" }
+    } });
+    expect((await command.json()).result.isError).toBe(true);
+    expect(harness.remoteFileService.writeText).not.toHaveBeenCalled();
+    expect(harness.sshSessionRuntime.execStreaming).not.toHaveBeenCalled();
+    harness.service.setReadOnly("run-1", false);
+    const restored = await post(binding, { id: 4, method: "tools/list" });
+    expect((await restored.json()).result.tools.map(tool => tool.name)).toContain("remote_apply_patch");
+    await harness.service.shutdown();
+  });
+
   it("keeps tool paths inside the configured workspace", () => {
     expect(normalizeToolPath("/srv/app", "src/main.ts")).toBe("/srv/app/src/main.ts");
     expect(() => normalizeToolPath("/srv/app", "../secret")).toThrow("工作目录内");

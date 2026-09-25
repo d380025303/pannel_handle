@@ -59,8 +59,8 @@ describe("WorkBuddy model catalog", () => {
 
   it("omits missing or invalid credit multipliers", () => {
     expect(normalizeCatalogData({ models: [
-      { id: "valid", credits: "1.5x" }, { id: "missing" }, { id: "invalid", credits: "free" }
-    ] }).map(model => model.creditMultiplier)).toEqual(["1.5x", undefined, undefined]);
+      { id: "valid", credits: "1.5x" }, { id: "prefixed", credits: "x0.21" }, { id: "missing" }, { id: "invalid", credits: "free" }
+    ] }).map(model => model.creditMultiplier)).toEqual(["1.5x", "0.21x", undefined, undefined]);
   });
 
   it("evaluates bounded and cross-midnight schedules in the configured timezone", () => {

@@ -44,6 +44,11 @@ export type TranslationKey =
   | "codexVersion.cancel"
   | "codexVersion.confirmUpdate"
   | "codexVersion.updating"
+  | "codeBuddyVersion.title"
+  | "codeBuddyVersion.update"
+  | "codeBuddyVersion.confirmTitle"
+  | "codeBuddyVersion.confirm"
+  | "codeBuddyVersion.updating"
   | "projectAssistant.statusUnknown"
   | "sessionOverview.title"
   | "sessionOverview.openOverview"
@@ -1036,6 +1041,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.cancel": "取消",
     "codexVersion.confirmUpdate": "确认更新",
     "codexVersion.updating": "正在更新 Codex…",
+    "codeBuddyVersion.title": "CodeBuddy CLI 更新",
+    "codeBuddyVersion.update": "更新 CodeBuddy",
+    "codeBuddyVersion.confirmTitle": "确认更新 CodeBuddy",
+    "codeBuddyVersion.confirm": "将更新 {environment} 中的 CodeBuddy 至 {version}。当前会话继续运行，重启后生效。",
+    "codeBuddyVersion.updating": "正在更新 CodeBuddy…",
     "projectAssistant.statusUnknown": "状态未知",
     "sessionOverview.title": "实例总览",
     "sessionOverview.openOverview": "打开实例总览",
@@ -2020,6 +2030,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.cancel": "Cancel",
     "codexVersion.confirmUpdate": "Confirm update",
     "codexVersion.updating": "Updating Codex…",
+    "codeBuddyVersion.title": "CodeBuddy CLI updates",
+    "codeBuddyVersion.update": "Update CodeBuddy",
+    "codeBuddyVersion.confirmTitle": "Confirm CodeBuddy update",
+    "codeBuddyVersion.confirm": "Update CodeBuddy in {environment} to {version}. The current session will keep running until restarted.",
+    "codeBuddyVersion.updating": "Updating CodeBuddy…",
     "projectAssistant.statusUnknown": "Status unknown",
     "sessionOverview.title": "Instance overview",
     "sessionOverview.openOverview": "Open instance overview",

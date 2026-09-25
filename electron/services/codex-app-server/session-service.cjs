@@ -260,7 +260,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       turnOutputTokens: entry.turnOutputTokens, outputTokensPerSecond: entry.outputTokensPerSecond,
       outputRateAvailable: entry.outputRateAvailable,
       items: [...entry.items], approvals: [...entry.approvals.values()].map(({ requestId, method, params }) => ({ requestId, method, params })),
-      questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })) };
+      questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })),
+      elicitations: [...entry.elicitations.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })) };
   }
   function getWorkspaceCwd(id) {
     const entry = sessions.get(id);
@@ -376,6 +377,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) return;
     sessions.delete(id);
     if (entry.statusTimer) clearTimeout(entry.statusTimer);
+    entry.elicitations.clear();
     void releasePastedImages(id, entry);
     entry.child.kill();
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
@@ -401,7 +403,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.id != null && message.method) {
       const method = message.method;
-      if (message.params?.threadId && message.params.threadId !== entry.threadId) return;
+      if (message.params?.threadId && message.params.threadId !== entry.threadId) {
+        send(entry, { id: message.id, error: { code: -32602, message: "请求不属于当前会话。" } });
+        return;
+      }
       if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(method)) {
         if (entry.mode === "plan") send(entry, { id: message.id, result: method === "item/permissions/requestApproval"
           ? { permissions: {}, scope: "turn" } : { decision: "decline" } });
@@ -412,7 +417,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           broadcastStatus(id, entry, true);
           publish(id);
         }
-      } else if (method === "item/tool/requestUserInput") {
+      } else if (method === "item/tool/requestUserInput" || method === "tool/requestUserInput") {
         if (!entry.busy || (message.params?.turnId && entry.turnId && message.params.turnId !== entry.turnId)) return;
         entry.questions.set(message.id, { requestId: message.id, params: message.params || {}, submitting: false,
           afterItemId: entry.items.at(-1)?.id || null });
@@ -420,9 +425,23 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         updateSummary(id, entry, message.params?.questions?.[0]?.question || "等待回答问题");
         broadcastStatus(id, entry, true);
         publish(id);
+      } else if (method === "mcpServer/elicitation/request") {
+        const params = message.params || {};
+        if (typeof params.threadId !== "string" || !entry.threadId || !["form", "openai/form", "url"].includes(params.mode)
+          || typeof params.serverName !== "string" || typeof params.message !== "string"
+          || (params.mode === "url" && (typeof params.url !== "string" || !/^https?:\/\//i.test(params.url)))
+          || (params.mode !== "url" && (!params.requestedSchema || typeof params.requestedSchema !== "object" || Array.isArray(params.requestedSchema)))) {
+          send(entry, { id: message.id, error: { code: -32602, message: "不支持的 MCP 交互请求。" } });
+          return;
+        }
+        entry.elicitations.set(message.id, { requestId: message.id, params, submitting: false });
+        entry.status = "e_prompt";
+        updateSummary(id, entry, params.message);
+        broadcastStatus(id, entry, true);
+        publish(id);
       } else {
-        const result = method === "mcpServer/elicitation/request" ? { action: "decline", content: null } : { decision: "decline" };
-        send(entry, { id: message.id, result });
+        recordDiagnostic(entry, "unsupportedServerRequest", { method }, entry.turnId || null);
+        send(entry, { id: message.id, error: { code: -32601, message: `未实现的服务端请求：${method}` } });
       }
       return;
     }
@@ -469,11 +488,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (message.method === "serverRequest/resolved") {
       entry.approvals.delete(params.requestId);
+      entry.elicitations.delete(params.requestId);
       const answered = entry.questions.get(params.requestId);
       settleQuestionAnswer(entry, answered, "completed");
       entry.questions.delete(params.requestId);
       if (entry.busy) {
-        entry.status = entry.questions.size ? "e_prompt" : entry.approvals.size ? "waiting_for_permission" : "running";
+        entry.status = entry.questions.size || entry.elicitations.size ? "e_prompt" : entry.approvals.size ? "waiting_for_permission" : "running";
+        broadcastStatus(id, entry, true);
+      } else if (!entry.questions.size && !entry.elicitations.size && !entry.approvals.size && entry.status === "e_prompt") {
+        entry.status = "completed";
         broadcastStatus(id, entry, true);
       }
     }
@@ -560,6 +583,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       for (const question of entry.questions.values()) settleQuestionAnswer(entry, question,
         params.turn?.status === "completed" ? "completed" : "failed");
       entry.questions.clear();
+      for (const [requestId, elicitation] of entry.elicitations) {
+        if (!elicitation.params.turnId || elicitation.params.turnId === params.turn?.id) entry.elicitations.delete(requestId);
+      }
       if (entry.activeTurnMode === "plan" && params.turn?.status === "completed") {
         const plan = entry.items.slice(entry.activeTurnStartIndex).filter(item =>
           (item.type === "plan" && item.text?.trim())
@@ -592,7 +618,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       child = spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     }
-    const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
+    const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), elicitations: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
       turnId: null, mode: "default", executionPermission: template?.codexExecutionPermission || session.codexExecutionPermission || "askApproval",
       model: template?.codexAppServerModel || session.codexAppServerModel || session.codexModel || null,
       effort: template?.codexAppServerEffort || session.codexAppServerEffort || null, fastMode, models: [], busy: false, archived: false, error: null, items: [],
@@ -629,6 +655,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.busy = false;
       entry.accountController.reset();
       entry.questions.clear();
+      entry.elicitations.clear();
       const detail = session.type === "wsl" && !entry.threadId ? startupStderrDetail(startupStderr, environment) : "";
       entry.error ||= `Codex App Server 已退出（代码 ${code ?? "未知"}）。${detail ? ` 启动输出：${detail}` : ""}`;
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(entry.error)); }
@@ -638,7 +665,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(id, "disconnected");
     });
     try {
-      await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true } });
+      await request(entry, "initialize", { clientInfo: { name: "pannel_handle", title: "Pannel Handle", version: "1.0.0" }, capabilities: { experimentalApi: true, mcpServerOpenaiFormElicitation: true } });
       send(entry, { method: "initialized", params: {} });
       const account = (session.codexBackend || "openai") === "openai" && (!session.agentProvider || session.agentProvider === "codex")
         ? await entry.accountController.refresh() : { status: "notRequired" };
@@ -889,6 +916,17 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (detail.thread?.cwd !== projectCwd(entry)) throw new Error("只能整理当前项目的历史会话。");
     return detail.thread;
   }
+  async function readInitialUserInput(id, threadId) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    if (typeof threadId !== "string" || !threadId.trim()) throw new Error("无效的历史会话。");
+    const detail = await request(entry, "thread/read", { threadId, includeTurns: true });
+    if (detail.thread?.id !== threadId || detail.thread.cwd !== projectCwd(entry))
+      throw new Error("只能读取当前项目的历史会话。");
+    const first = historyItems(detail.thread).find(item => item.type === "userMessage");
+    if (!first) return null;
+    return { text: first.text || "", attachments: first.attachments || [] };
+  }
   function assertThreadIdle(threadId) {
     if ([...sessions.values()].some(other => other.threadId === threadId && other.busy))
       throw new Error("该会话正在运行，请等待当前回合结束。");
@@ -1025,6 +1063,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.errorDetails = null;
     entry.approvals.clear();
     entry.questions.clear();
+    entry.elicitations.clear();
     entry.allowedFiles.clear();
     entry.activitySummary = itemSummary(entry.items.filter(item =>
       (item.type === "agentMessage" || item.type === "plan") && item.text?.trim()).at(-1)
@@ -1063,6 +1102,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.effectiveModel = null;
     entry.approvals.clear();
     entry.questions.clear();
+    entry.elicitations.clear();
     entry.allowedFiles.clear();
     entry.activitySummary = "";
     entry.status = "cleared";
@@ -1357,6 +1397,20 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.items.push(item);
     publish(id);
   }
+  function resolveElicitation(id, requestId, action, content = null) {
+    const entry = sessions.get(id);
+    const elicitation = entry?.elicitations.get(requestId);
+    if (!entry?.threadId || !elicitation || elicitation.submitting || elicitation.params.threadId !== entry.threadId
+      || (elicitation.params.turnId && elicitation.params.turnId !== entry.turnId)) throw new Error("MCP 交互请求已失效。");
+    if (!["accept", "decline", "cancel"].includes(action)) throw new Error("无效的 MCP 交互操作。");
+    if (action === "accept" && elicitation.params.mode !== "url"
+      && (!content || typeof content !== "object" || Array.isArray(content))) throw new Error("表单内容必须是对象。");
+    if (action !== "accept" || elicitation.params.mode === "url") content = null;
+    elicitation.submitting = true;
+    try { send(entry, { id: requestId, result: { action, content } }); }
+    catch (error) { elicitation.submitting = false; throw error; }
+    publish(id);
+  }
   function shutdown() { for (const id of sessions.keys()) close(id); }
   function accountEntry(id) {
     const entry = sessions.get(id);
@@ -1373,7 +1427,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

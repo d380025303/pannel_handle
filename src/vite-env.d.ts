@@ -950,6 +950,10 @@ export type CodexQuestionRequest = { requestId: number | string; submitting: boo
   questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean;
     options?: Array<{ label: string; description: string }> | null }>;
 } };
+export type CodexMcpElicitation = { requestId: number | string; submitting: boolean; params: {
+  threadId: string; turnId?: string; serverName: string; mode: "form" | "openai/form" | "url";
+  message: string; requestedSchema?: Record<string, unknown>; url?: string; elicitationId?: string;
+} };
 
 export type CodexThreadGoal = {
   threadId: string;
@@ -978,8 +982,10 @@ export type CodexAppServerSnapshot = {
     items: CodexAppServerSnapshot["items"];
   }> } | null;
   nativeMode?: string | null;
+  readOnlyProtected?: boolean;
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
+  availableCommands?: Array<{ name: string; description: string }>;
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
   capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
@@ -1013,6 +1019,7 @@ export type CodexAppServerSnapshot = {
     explanation?: string | null; plan?: Array<{ step: string; status: "pending" | "inProgress" | "completed" }> }>;
   approvals: Array<{ requestId: number | string; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown; choices?: Array<{ id: string; label: string }> } }>;
   questions?: CodexQuestionRequest[];
+  elicitations?: CodexMcpElicitation[];
 };
 
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
@@ -1023,6 +1030,7 @@ export type CodexVersionApi = {
   check: (id: string, force?: boolean) => Promise<CodexVersionState>;
   update: (id: string) => Promise<CodexVersionState>;
 };
+export type CodeBuddyVersionApi = CodexVersionApi;
 export type CodexPluginScope = "project" | "user";
 export type CodexPluginCatalog = {
   installed: Array<Record<string, unknown>>;
@@ -1058,6 +1066,7 @@ export type CodexAppServerApi = {
   logout: (id: string) => Promise<CodexAccountState>;
   refreshAccountUsage: (id: string) => Promise<CodexAccountState>;
   listHistory: (id: string, cursor?: string | null, archived?: boolean, isPinned?: boolean | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
+  readInitialUserInput: (id: string, threadId: string) => Promise<{ text: string; attachments: Array<{ path: string; name: string }> } | null>;
   renameThread: (id: string, threadId: string, name: string) => Promise<void>;
   pinThread: (id: string, threadId: string, isPinned: boolean) => Promise<{ isPinned: boolean }>;
   forkThread: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
@@ -1090,6 +1099,7 @@ export type CodexAppServerApi = {
   interrupt: (id: string) => Promise<void>;
   resolveApproval: (id: string, requestId: number | string, approved: boolean | string) => Promise<void>;
   answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;
+  resolveElicitation: (id: string, requestId: number | string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown> | null) => Promise<void>;
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
 };
 export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };
@@ -1460,6 +1470,7 @@ declare global {
     codexPluginApi: CodexPluginApi;
     codexAppServerApi: CodexAppServerApi;
     codexVersionApi: CodexVersionApi;
+    codeBuddyVersionApi: CodeBuddyVersionApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     screenshotApi: ScreenshotApi;

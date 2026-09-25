@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Package, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
+import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Copy, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Package, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
+import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, CodexMcpElicitation, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
@@ -40,9 +40,13 @@ const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToo
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
-type SlashCommand = { id: string; label: string; disabled?: boolean };
+type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" };
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
+function userMessageCopyText(item: { text?: string; attachments?: Array<{ path: string }> }) {
+  const attachments = item.attachments?.map(file => file.path) || [];
+  return [item.text || "", attachments.length ? `附件：\n${attachments.join("\n")}` : ""].filter(Boolean).join("\n\n");
+}
 
 function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled }: {
   sessionId: string; file: { path: string; name: string }; onPreview: () => void;
@@ -131,6 +135,105 @@ function QuestionCard({ sessionId, request }: { sessionId: string; request: Code
   </article>;
 }
 
+function McpElicitationCard({ sessionId, request }: { sessionId: string; request: CodexMcpElicitation }) {
+  const { params } = request;
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [rawJson, setRawJson] = useState("{}");
+  const [sending, setSending] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [error, setError] = useState("");
+  const schema = params.requestedSchema;
+  const properties = schema?.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
+    ? Object.entries(schema.properties as Record<string, unknown>) : [];
+  const required = Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
+  const isForm = params.mode !== "url";
+
+  function formContent(): Record<string, unknown> {
+    if (!properties.length) {
+      const parsed: unknown = JSON.parse(rawJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("请输入 JSON 对象。");
+      for (const name of required) if (!Object.prototype.hasOwnProperty.call(parsed, name)) throw new Error(`请填写「${name}」。`);
+      return parsed as Record<string, unknown>;
+    }
+    const content: Record<string, unknown> = Object.create(null);
+    for (const [name, rawField] of properties) {
+      const field = rawField && typeof rawField === "object" ? rawField as Record<string, unknown> : {};
+      const value = values[name] ?? "";
+      if (!value.trim()) { if (required.includes(name)) throw new Error(`请填写「${String(field.title || name)}」。`); continue; }
+      if (field.type === "boolean") content[name] = value === "true";
+      else if (field.type === "number" || field.type === "integer") {
+        const number = Number(value);
+        if (!Number.isFinite(number) || (field.type === "integer" && !Number.isInteger(number))) throw new Error(`「${String(field.title || name)}」需要有效数字。`);
+        content[name] = number;
+      } else if (field.type === "object" || field.type === "array") {
+        let parsed: unknown;
+        try { parsed = JSON.parse(value); } catch { throw new Error(`「${String(field.title || name)}」需要有效 JSON。`); }
+        if (field.type === "array" ? !Array.isArray(parsed) : !parsed || typeof parsed !== "object" || Array.isArray(parsed))
+          throw new Error(`「${String(field.title || name)}」的数据类型不正确。`);
+        content[name] = parsed;
+      } else content[name] = value;
+      if (Array.isArray(field.enum) && !field.enum.includes(content[name])) throw new Error(`「${String(field.title || name)}」不在可选范围内。`);
+      if (typeof field.minLength === "number" && typeof content[name] === "string" && content[name].length < field.minLength)
+        throw new Error(`「${String(field.title || name)}」内容太短。`);
+      if (typeof field.maxLength === "number" && typeof content[name] === "string" && content[name].length > field.maxLength)
+        throw new Error(`「${String(field.title || name)}」内容太长。`);
+      if (typeof field.minimum === "number" && typeof content[name] === "number" && content[name] < field.minimum)
+        throw new Error(`「${String(field.title || name)}」小于允许值。`);
+      if (typeof field.maximum === "number" && typeof content[name] === "number" && content[name] > field.maximum)
+        throw new Error(`「${String(field.title || name)}」大于允许值。`);
+    }
+    return content;
+  }
+  async function respond(action: "accept" | "decline" | "cancel") {
+    if (sending || request.submitting) return;
+    let content: Record<string, unknown> | null = null;
+    try { if (action === "accept" && isForm) content = formContent(); }
+    catch (cause) { setError(message(cause)); return; }
+    setSending(true); setError("");
+    try { await window.codexAppServerApi.resolveElicitation(sessionId, request.requestId, action, content); }
+    catch (cause) { setError(message(cause)); }
+    finally { setSending(false); }
+  }
+  async function openUrl() {
+    if (!params.url) return;
+    await window.externalLinkApi.open(params.url);
+    setOpened(true); setError("");
+  }
+  return <article className="codex-app-server-elicitation" aria-label="MCP 交互请求">
+    <strong>{params.serverName} · {isForm ? "需要填写信息" : "需要打开链接"}</strong>
+    <p>{params.message}</p>
+    {isForm ? properties.length ? <div className="codex-app-server-elicitation-fields">{properties.map(([name, rawField]) => {
+      const field = rawField && typeof rawField === "object" ? rawField as Record<string, unknown> : {};
+      const label = String(field.title || name);
+      const value = values[name] ?? "";
+      const disabled = sending || request.submitting;
+      const update = (next: string) => { setValues(current => ({ ...current, [name]: next })); setError(""); };
+      return <label key={name}><span>{label}{required.includes(name) ? " *" : ""}</span>
+        {typeof field.description === "string" && <small>{field.description}</small>}
+        {Array.isArray(field.enum) ? <select value={value} disabled={disabled} onChange={event => update(event.target.value)}>
+          <option value="">请选择</option>{field.enum.map(option => <option key={JSON.stringify(option)} value={String(option)}>{String(option)}</option>)}
+        </select> : field.type === "boolean" ? <select value={value} disabled={disabled} onChange={event => update(event.target.value)}>
+          <option value="">请选择</option><option value="true">是</option><option value="false">否</option>
+        </select> : field.type === "object" || field.type === "array" ? <textarea value={value} disabled={disabled}
+          placeholder={field.type === "array" ? "[]" : "{}"} onChange={event => update(event.target.value)} />
+          : <input type={field.writeOnly === true || field.format === "password" ? "password" : field.type === "number" || field.type === "integer" ? "number" : "text"}
+            value={value} disabled={disabled} onChange={event => update(event.target.value)} />}
+      </label>;
+    })}</div> : <label className="codex-app-server-elicitation-fields"><span>JSON 表单内容</span>
+      <textarea value={rawJson} disabled={sending || request.submitting} onChange={event => { setRawJson(event.target.value); setError(""); }} />
+    </label> : <div className="codex-app-server-elicitation-url"><code>{params.url}</code>
+      <button type="button" disabled={sending || request.submitting} onClick={() => void openUrl().catch(cause => setError(message(cause)))}>打开链接</button>
+      {opened && <small>链接已打开。完成外部操作后再确认。</small>}
+    </div>}
+    {error && <p role="alert">{error}</p>}
+    <div className="codex-app-server-elicitation-actions">
+      <button type="button" disabled={sending || request.submitting} onClick={() => void respond("cancel")}>取消</button>
+      <button type="button" disabled={sending || request.submitting} onClick={() => void respond("decline")}>拒绝</button>
+      <button type="button" className="primary" disabled={sending || request.submitting || (!isForm && !opened)} onClick={() => void respond("accept")}>{isForm ? "提交" : "已完成"}</button>
+    </div>
+  </article>;
+}
+
 function groupTools(items: SessionItem[]): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
   const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn"].includes(item.type);
@@ -165,19 +268,30 @@ function toolDetails(item: SessionItem) {
 }
 
 function ToolCard({ item }: { item: SessionItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const { kind, Icon, label } = toolPresentation(item);
+  const firstChange = Array.isArray(item.changes) ? item.changes[0] : null;
+  const changedFile = firstChange && typeof firstChange === "object" ? String((firstChange as Record<string, unknown>).path || (firstChange as Record<string, unknown>).filePath || "") : "";
+  const summary = item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
   return <div className="codex-app-server-tool">
-    <div className="codex-app-server-tool-heading" data-kind={kind} data-status={item.status}><Icon aria-hidden="true" /><strong>{item.toolName || item.tool || label}</strong>
-      <span>{item.status === "completed" ? <CircleCheck aria-hidden="true" /> : item.status === "failed" || item.status === "declined" ? <CircleX aria-hidden="true" /> : <span className="codex-app-server-tool-spinner" aria-hidden="true" />}{statusLabel(item.status)}</span></div>
-    {item.command && <pre className="codex-app-server-tool-command">{item.command}</pre>}
-    {item.server && <p className="codex-app-server-tool-query">{item.server}</p>}
-    {item.query && <p className="codex-app-server-tool-query">{item.query}</p>}
-    {item.arguments != null && <pre className="codex-app-server-tool-command">{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
-    {toolDetails(item)}
-    {item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
-    {item.result != null && <pre className="codex-app-server-tool-output">{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
-    {item.changes != null && !Array.isArray(item.changes) && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-    {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
+    <button type="button" className="codex-app-server-tool-heading" data-kind={kind} data-status={item.status}
+      aria-expanded={expanded} aria-controls={expanded ? detailsId : undefined} onClick={() => setExpanded(current => !current)}>
+      <ChevronRight className="codex-app-server-tool-chevron" aria-hidden="true" /><Icon aria-hidden="true" />
+      <strong>{item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
+      <span className="codex-app-server-tool-status">{item.status === "completed" ? <CircleCheck aria-hidden="true" /> : item.status === "failed" || item.status === "declined" ? <CircleX aria-hidden="true" /> : <span className="codex-app-server-tool-spinner" aria-hidden="true" />}{statusLabel(item.status)}</span>
+    </button>
+    {expanded && <div id={detailsId} className="codex-app-server-tool-details">
+      {item.command && <pre className="codex-app-server-tool-command">{item.command}</pre>}
+      {item.server && <p className="codex-app-server-tool-query">{item.server}</p>}
+      {item.query && <p className="codex-app-server-tool-query">{item.query}</p>}
+      {item.arguments != null && <pre className="codex-app-server-tool-command">{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
+      {toolDetails(item)}
+      {item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
+      {item.result != null && <pre className="codex-app-server-tool-output">{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
+      {item.changes != null && !Array.isArray(item.changes) && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
+      {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
+    </div>}
   </div>;
 }
 
@@ -307,6 +421,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const timelineRef = useRef<CodexAppServerSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [copyNotice, setCopyNotice] = useState<{ scope: "main" | "history"; text: string } | null>(null);
+  const [historyCopyingThreadId, setHistoryCopyingThreadId] = useState<string | null>(null);
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [previewFile, setPreviewFile] = useState<{ path: string; name: string } | null>(null);
@@ -374,6 +490,31 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const resolvingPlanRef = useRef(false);
   currentSessionRef.current = sessionId;
 
+  async function copyText(value: string, label: string, scope: "main" | "history" = "main") {
+    try {
+      const copied = await window.clipboardApi.writeText(value);
+      if (currentSessionRef.current === sessionId) setCopyNotice({ scope, text: copied ? `${label} 已复制` : `${label} 复制失败` });
+    } catch {
+      if (currentSessionRef.current === sessionId) setCopyNotice({ scope, text: `${label} 复制失败` });
+    }
+  }
+
+  async function copyInitialUserInput(threadId: string) {
+    setHistoryCopyingThreadId(threadId);
+    setCopyNotice(null);
+    try {
+      const input = await window.codexAppServerApi.readInitialUserInput(sessionId, threadId);
+      if (currentSessionRef.current !== sessionId) return;
+      const value = input && userMessageCopyText(input);
+      if (value) await copyText(value, "首条用户输入", "history");
+      else setCopyNotice({ scope: "history", text: "未找到首条用户输入" });
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId) setCopyNotice({ scope: "history", text: `读取首条用户输入失败：${message(cause)}` });
+    } finally {
+      if (currentSessionRef.current === sessionId) setHistoryCopyingThreadId(null);
+    }
+  }
+
   useImperativeHandle(ref, () => ({
     appendFilePath(path) {
       setDraft(current => current + (current && !/\s$/.test(current) ? " " : "") + path);
@@ -408,6 +549,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     loadedSessionIdRef.current = null;
     timelineRef.current = null;
     setSnapshot(empty);
+    setCopyNotice(null);
+    setHistoryCopyingThreadId(null);
     setSelectedMemberName(null);
     setMemberDraft("");
     setSendingMember(false);
@@ -505,7 +648,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   useLayoutEffect(() => {
     const messages = messagesRef.current;
     if (messages) messages.scrollTop = messages.scrollHeight;
-  }, [snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.pendingPlan, error, snapshot.error]);
+  }, [snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
     if (!previewFile) return;
     let active = true;
@@ -760,7 +903,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
   }
   async function changeNativeMode(modeId: string) {
-    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode) return false;
+    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode
+      && !(snapshot.provider === "codebuddy" && modeId === "plan" && !snapshot.readOnlyProtected)) return false;
     changingModeRef.current = true;
     setChangingMode(true); setError("");
     try {
@@ -907,7 +1051,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   type SelectionOption = { value: string; label: string; description?: string; selected: boolean; disabled?: boolean };
   const selectionOptions: SelectionOption[] = selectionKind === "mode"
     ? isAcp ? (snapshot.nativeModes || []).map(mode => ({ value: mode.id, label: mode.name, description: mode.description,
-      selected: snapshot.nativeMode === mode.id, disabled: snapshot.busy || changingMode }))
+      selected: snapshot.nativeMode === mode.id && !(snapshot.provider === "codebuddy" && mode.id === "plan" && !snapshot.readOnlyProtected),
+      disabled: snapshot.busy || changingMode }))
       : [{ value: "default", label: "Exec", selected: snapshot.mode === "default", disabled: snapshot.busy || changingMode },
         { value: "plan", label: "Plan", selected: snapshot.mode === "plan", disabled: snapshot.busy || changingMode || snapshot.capabilities?.plan === false }]
     : selectionKind === "model"
@@ -938,7 +1083,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
     if (!capabilities) void loadCapabilities();
   }
-  function openHistory() { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }
+  function openHistory() { setMenuOpen(false); setHistoryQuery(""); setCopyNotice(null); setHistoryOpen(true); }
   function openGoal() {
     setMenuOpen(false); setGoalOpen(true);
     void window.codexAppServerApi.getGoal(sessionId).catch(cause => {
@@ -977,7 +1122,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   const isCodex = snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode";
   const canAttach = (!snapshot.busy || canSendWhileBusy) && !sending && !pastingImage && attachments.length < 10;
-  const slashCommands: SlashCommand[] = [
+  const localSlashCommands: SlashCommand[] = [
     { id: "new", label: "新对话", disabled: snapshot.busy || sending || pastingImage },
     { id: "history", label: "历史会话", disabled: snapshot.busy || snapshot.capabilities?.history === false },
     ...(isCodex ? [
@@ -995,10 +1140,22 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ...(!isAcp ? [{ id: "permission", label: "执行权限" }] : []),
     { id: "files", label: "附加文件", disabled: !canAttach }
   ];
+  const localCommandNames = new Set(localSlashCommands.map(command => command.id.toLocaleLowerCase()));
+  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy"
+    ? [...localSlashCommands, ...(snapshot.availableCommands || [])
+      .filter(command => !localCommandNames.has(command.name.toLocaleLowerCase()))
+      .map(command => ({ id: command.name, label: command.description || "CodeBuddy 命令", source: "codebuddy" as const }))]
+    : localSlashCommands;
   const slashQuery = !slashDismissed && /^\/[^\s]*$/.test(draft) ? draft.slice(1).toLocaleLowerCase() : null;
   const visibleSlashCommands = slashQuery === null ? [] : slashCommands.filter(command => `${command.id} ${command.label}`.toLocaleLowerCase().includes(slashQuery));
   function executeSlashCommand(command: SlashCommand) {
     if (command.disabled) return;
+    if (command.source === "codebuddy") {
+      setSlashDismissed(true); setSelectedSlashIndex(0);
+      setDraft(`/${command.id} `);
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
     setSlashDismissed(true); setSelectedSlashIndex(0); setDraft("");
     if (command.id === "new") startNewConversation();
     else if (command.id === "history") openHistory();
@@ -1023,7 +1180,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
-      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span>{isCodex && snapshot.threadId && <CodexVersionControl sessionId={sessionId} />}</div>}
+      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span>{(isCodex || snapshot.provider === "codebuddy") && snapshot.threadId && <CodexVersionControl sessionId={sessionId} provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />}</div>}
       {groupTimeline(snapshot).map(entry => {
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
@@ -1089,6 +1246,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       </article>)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question} />)}
+      {snapshot.elicitations?.map(request => <McpElicitationCard key={request.requestId} sessionId={sessionId} request={request} />)}
       {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
         <div className="codex-app-server-error" role="alert">
           <span>{error || snapshot.error}</span>
@@ -1246,7 +1404,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
                 <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
-              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认" : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
+              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.provider === "codebuddy" && snapshot.nativeMode === "plan" && !snapshot.readOnlyProtected
+                ? "Plan · 只读未生效" : snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
+                : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
               {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
               {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
               {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
@@ -1257,7 +1417,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </div>}
           </div>
           <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy" || snapshot.provider === "opencode"
-            ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}`
+            ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}${snapshot.provider === "codebuddy" && snapshot.nativeMode === "plan" && !snapshot.readOnlyProtected ? " · 只读未生效" : ""}`
             : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>
           {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}
@@ -1265,7 +1425,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{typeof acpModel.currentValue === "string" && modelDetails(acpModel.currentValue) ? ` · ${modelDetails(acpModel.currentValue)}` : ""}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
           {!acpModel && acpContextWindow?.currentValue && <span className="codex-app-server-permission-status">上下文窗口：{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</span>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行</span>
+          {copyNotice?.scope === "main" && <span className="codex-app-server-copy-notice" role="status">{copyNotice.text}</span>}
           <div className="codex-app-server-input-primary">
+            <button type="button" className="codex-app-server-icon-button" title="复制会话 ID" aria-label="复制会话 ID" disabled={!snapshot.threadId}
+              onClick={() => { if (snapshot.threadId) void copyText(snapshot.threadId, "会话 ID"); }}><Copy aria-hidden="true" /></button>
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
             {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
@@ -1347,6 +1510,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <button type="button" role="tab" aria-selected={historyArchived} onClick={() => setHistoryArchived(true)}>已归档</button>
         </div>}
         <div className="codex-app-server-history-search"><input autoFocus type="search" aria-label="搜索历史会话" placeholder="搜索标题或会话 ID" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} /></div>
+        {copyNotice?.scope === "history" && <p className="codex-app-server-history-copy-notice" role="status">{copyNotice.text}</p>}
         <div className="codex-app-server-history" aria-label="历史会话列表">
           {visibleHistory.map(thread => <div className="codex-app-server-history-row" key={thread.id}>
             {renamingThreadId === thread.id ? <form className="codex-app-server-history-rename" onSubmit={event => { event.preventDefault(); if (renameDraft.trim()) void mutateHistory(thread.id, "rename", renameDraft); }}>
@@ -1356,14 +1520,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </form> : <button type="button" className="codex-app-server-history-select" disabled={snapshot.busy || sending || pastingImage || resumingHistory || Boolean(historyMutation) || Boolean(thread.archived) || thread.id === snapshot.threadId} onClick={() => void selectHistory(thread.id)}>
               <strong>{thread.isPinned ? "📌 " : ""}{thread.title}</strong><small>会话 ID：{thread.id}</small><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
             </button>}
-            {isCodex && <div className="codex-app-server-history-actions">
+            <div className="codex-app-server-history-actions">
+              <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID", "history")}>复制 ID</button>
+              {isCodex && <button type="button" disabled={Boolean(historyCopyingThreadId)} aria-label={`复制首条用户输入：${thread.id}`}
+                onClick={() => void copyInitialUserInput(thread.id)}>{historyCopyingThreadId === thread.id ? "读取中…" : "复制首条输入"}</button>}
+              {isCodex && <>
               <button type="button" disabled={Boolean(historyMutation)} onClick={() => { setRenamingThreadId(thread.id); setRenameDraft(thread.title); }}>重命名</button>
               <button type="button" disabled={Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "pin", !thread.isPinned)}>{thread.isPinned ? "取消置顶" : "置顶"}</button>
               {thread.archived ? <button type="button" disabled={Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "unarchive")}>恢复归档</button> : <>
                 <button type="button" disabled={snapshot.busy || Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "fork")}>分叉</button>
                 <button type="button" disabled={thread.id === snapshot.threadId && snapshot.busy || Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "archive")}>归档</button>
               </>}
-            </div>}
+              </>}
+            </div>
           </div>)}
           {visibleHistory.length === 0 && !loadingHistory && !historyError && <p>{normalizedHistoryQuery ? "没有匹配的历史会话。" : historyArchived ? "当前项目没有已归档会话。" : "当前项目没有历史会话。"}</p>}
           {historyError && <p className="codex-app-server-history-error" role="alert">{historyError}</p>}

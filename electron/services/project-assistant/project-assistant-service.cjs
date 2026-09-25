@@ -120,7 +120,7 @@ function createProjectAssistantService({ userData, broadcast, dependencies, spaw
     if (message.id != null && message.method) {
       // This assistant never grants command, file, network, or tool permissions.
       const result = message.method === "item/permissions/requestApproval" ? { permissions: {}, scope: "turn" }
-        : message.method === "item/tool/requestUserInput" ? { answers: {} }
+        : ["item/tool/requestUserInput", "tool/requestUserInput"].includes(message.method) ? { answers: {} }
           : message.method === "mcpServer/elicitation/request" ? { action: "decline", content: null }
             : { decision: "decline" };
       try { send({ id: message.id, result }); } catch { /* process exit handles failure */ }

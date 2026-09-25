@@ -21,7 +21,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     restart: route("restart"), snapshot: route("snapshot"), getWorkspaceCwd: route("getWorkspaceCwd"),
     allowFiles: route("allowFiles"), previewAttachment: route("previewAttachment"),
     allowPastedImage: route("allowPastedImage"), discardPastedImage: route("discardPastedImage"),
-    listHistory: route("listHistory"), listCapabilities: route("listCapabilities"), resume: route("resume"), newThread: route("newThread"),
+    listHistory: route("listHistory"), readInitialUserInput: codexRoute("readInitialUserInput"), listCapabilities: route("listCapabilities"), resume: route("resume"), newThread: route("newThread"),
     renameThread: routeCodex("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
     archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
     compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),

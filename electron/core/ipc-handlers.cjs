@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codexPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, codexPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -62,6 +62,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:account-logout", (_event, id) => codexAppServerSessionService.logout(String(id || "")));
     ipcMain.handle("codex-app-server:account-usage", (_event, id) => codexAppServerSessionService.refreshAccountUsage(String(id || "")));
     ipcMain.handle("codex-app-server:history", (_event, id, cursor, archived, isPinned) => codexAppServerSessionService.listHistory(String(id || ""), cursor, archived, isPinned));
+    ipcMain.handle("codex-app-server:initial-user-input", (_event, id, threadId) => codexAppServerSessionService.readInitialUserInput(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
     ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));
     ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId) => codexAppServerSessionService.forkThread(String(id || ""), threadId));
@@ -113,10 +114,16 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, typeof approved === "string" ? approved : approved === true));
     ipcMain.handle("codex-app-server:answer-question", (_event, id, requestId, answers) =>
       codexAppServerSessionService.answerQuestion(String(id || ""), requestId, answers));
+    ipcMain.handle("codex-app-server:resolve-elicitation", (_event, id, requestId, action, content) =>
+      codexAppServerSessionService.resolveElicitation(String(id || ""), requestId, action, content));
   }
   if (codexVersionService) {
     ipcMain.handle("codex-version:check", (_event, id, force) => codexVersionService.check(String(id || ""), force === true));
     ipcMain.handle("codex-version:update", (_event, id) => codexVersionService.update(String(id || "")));
+  }
+  if (codeBuddyVersionService) {
+    ipcMain.handle("codebuddy-version:check", (_event, id, force) => codeBuddyVersionService.check(String(id || ""), force === true));
+    ipcMain.handle("codebuddy-version:update", (_event, id) => codeBuddyVersionService.update(String(id || "")));
   }
   if (codexPluginService) {
     ipcMain.handle("codex-plugin:list", (_event, id) => codexPluginService.list(id));

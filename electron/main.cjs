@@ -34,6 +34,7 @@ const { createProjectAssistantService } = require("./services/project-assistant/
 const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
+const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/version-service.cjs");
 const { createCodexPluginService } = require("./services/codex-app-server/plugin-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
@@ -293,6 +294,7 @@ if (!gotSingleInstanceLock) {
     });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      setBridgeReadOnly: (id, readOnly) => remoteAgentBridgeService?.setReadOnly(id, readOnly),
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService()
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
@@ -300,6 +302,7 @@ if (!gotSingleInstanceLock) {
     });
     codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService);
     const codexVersionService = createCodexVersionService({ terminalManager, sshAgentTransport });
+    const codeBuddyVersionService = createCodeBuddyVersionService({ terminalManager, sshAgentTransport });
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,
       environmentService, sshAgentTransport });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
@@ -552,6 +555,7 @@ if (!gotSingleInstanceLock) {
       codexSessionControl,
       codexAppServerSessionService,
       codexVersionService,
+      codeBuddyVersionService,
       codexPluginService
     });
     windowManager.createWindow();

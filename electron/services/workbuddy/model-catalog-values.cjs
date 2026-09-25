@@ -13,7 +13,7 @@ function normalizeTokenLimit(value) {
 
 function normalizeCreditMultiplier(value) {
   const text = typeof value === "number" ? String(value) : normalizeText(value, 20);
-  const match = /^(\d{1,4}(?:\.\d{1,3})?)\s*x?$/i.exec(text);
+  const match = /^(?:x\s*)?(\d{1,4}(?:\.\d{1,3})?)\s*x?$/i.exec(text);
   if (!match || Number(match[1]) > 1000) return undefined;
   return `${match[1]}x`;
 }

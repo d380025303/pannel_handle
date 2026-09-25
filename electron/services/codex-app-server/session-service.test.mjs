@@ -434,6 +434,57 @@ describe("Codex App Server session", () => {
     service.close("run-1");
   });
 
+  it("keeps MCP form and URL requests pending until the user responds", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      expect(received.find(item => item.method === "initialize").params.capabilities.mcpServerOpenaiFormElicitation).toBe(true);
+      await service.submit("run-1", "Connect the server");
+      const form = { threadId: "thread-1", turnId: "turn-1", serverName: "calendar", mode: "form",
+        message: "Select a calendar", requestedSchema: { type: "object", properties: { calendar: { type: "string" } }, required: ["calendar"] } };
+      child.stdout.write(`${JSON.stringify({ id: 81, method: "mcpServer/elicitation/request", params: form })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(1));
+      expect(received.some(item => item.id === 81 && item.result)).toBe(false);
+      service.resolveElicitation("run-1", 81, "accept", { calendar: "Team" });
+      expect(received.at(-1)).toEqual({ id: 81, result: { action: "accept", content: { calendar: "Team" } } });
+      expect(() => service.resolveElicitation("run-1", 81, "decline")).toThrow("已失效");
+      child.stdout.write(`${JSON.stringify({ method: "serverRequest/resolved", params: { threadId: "thread-1", requestId: 81 } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(0));
+
+      child.stdout.write(`${JSON.stringify({ id: 82, method: "mcpServer/elicitation/request", params: {
+        threadId: "thread-1", turnId: "turn-1", serverName: "calendar", mode: "url", message: "Authorize",
+        url: "https://example.com/authorize", elicitationId: "auth-1" } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(1));
+      service.resolveElicitation("run-1", 82, "cancel", { unexpected: true });
+      expect(received.at(-1)).toEqual({ id: 82, result: { action: "cancel", content: null } });
+    } finally { service.close("run-1"); }
+  });
+
+  it("expires MCP requests and reports unsupported server requests as protocol errors", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      await service.submit("run-1", "Connect");
+      child.stdout.write(`${JSON.stringify({ id: 91, method: "mcpServer/elicitation/request", params: {
+        threadId: "thread-1", turnId: "turn-1", serverName: "calendar", mode: "url", message: "Authorize",
+        url: "https://example.com/authorize" } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(1));
+      child.stdout.write(`${JSON.stringify({ id: 92, method: "item/tool/call", params: { threadId: "thread-1", secret: "do-not-log" } })}\n`);
+      await vi.waitFor(() => expect(received.find(item => item.id === 92 && item.error)).toMatchObject({ error: { code: -32601 } }));
+      expect(service.snapshot("run-1").diagnostics.at(-1).payload).toEqual({ method: "item/tool/call" });
+      child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1",
+        turn: { id: "turn-1", status: "interrupted" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").elicitations).toHaveLength(0));
+      expect(() => service.resolveElicitation("run-1", 91, "accept")).toThrow("已失效");
+    } finally { service.close("run-1"); }
+  });
+
   it("steers consecutive messages and images into the active turn without losing either message", async () => {
     const received = [];
     const child = fakeProcess(received, request => request.method === "turn/steer" ? { turnId: "turn-1" } : undefined);
@@ -495,7 +546,7 @@ describe("Codex App Server session", () => {
     } finally { service.close("run-1"); }
   });
 
-  it("keeps Question pending until resolved and sends all structured answers once", async () => {
+  it.each(["item/tool/requestUserInput", "tool/requestUserInput"])("keeps %s pending until resolved and sends all structured answers once", async method => {
     const received = [];
     const child = fakeProcess(received);
     const statuses = [];
@@ -507,7 +558,7 @@ describe("Codex App Server session", () => {
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     await service.submit("run-1", "Ask me");
     child.stdout.write(`${JSON.stringify({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "turn-1" } } })}\n`);
-    child.stdout.write(`${JSON.stringify({ id: 42, method: "item/tool/requestUserInput", params: {
+    child.stdout.write(`${JSON.stringify({ id: 42, method, params: {
       threadId: "thread-1", turnId: "turn-1", questions: [
         { id: "framework", header: "框架", question: "选择框架", isOther: true,
           options: [{ label: "React", description: "使用 React" }] },
@@ -652,6 +703,34 @@ describe("Codex App Server session", () => {
     expect(restored.threadId).toBe("old-thread");
     expect(restored.items.map(item => item.text)).toEqual(["之前的问题", "之前的回答", "# 历史计划"]);
     await vi.waitFor(() => expect(received.some(item => item.method === "thread/unsubscribe" && item.params.threadId === "new-thread")).toBe(true));
+    service.close("run-1");
+  });
+
+  it("reads the first user input from history without resuming or using its title", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method === "thread/start") return { thread: { id: "current-thread", model: "test-model" } };
+      if (request.method === "thread/read") return { thread: {
+        id: request.params.threadId, cwd: request.params.threadId === "other-project" ? "C:\\other" : "C:\\project",
+        name: "已重命名的标题", turns: [{ items: [
+          { id: "agent-1", type: "agentMessage", text: "系统回复" },
+          { id: "user-1", type: "userMessage", content: [
+            { type: "text", text: "最初的问题\n第二行\n\n请读取以下附件文件：\"C:\\\\project\\\\notes.txt\"" }
+          ] },
+          { id: "user-2", type: "userMessage", content: [{ type: "text", text: "后续问题" }] }
+        ] }] } };
+      return {};
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    expect(await service.readInitialUserInput("run-1", "old-thread")).toEqual({
+      text: "最初的问题\n第二行", attachments: [{ path: "C:\\project\\notes.txt", name: "notes.txt" }]
+    });
+    expect(received.find(item => item.method === "thread/read").params).toEqual({ threadId: "old-thread", includeTurns: true });
+    expect(received.some(item => item.method === "thread/resume")).toBe(false);
+    expect(service.snapshot("run-1").threadId).toBe("current-thread");
+    await expect(service.readInitialUserInput("run-1", "other-project")).rejects.toThrow("只能读取当前项目");
     service.close("run-1");
   });
 

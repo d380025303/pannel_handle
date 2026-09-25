@@ -436,6 +436,7 @@ export function installBrowserPreview() {
       logout: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       refreshAccountUsage: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       listHistory: async () => ({ data: [], nextCursor: null }),
+      readInitialUserInput: async () => null,
       listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: true, scope: "user" }],
         apps: [{ id: "github", name: "GitHub", description: "代码托管", accessible: true, enabled: true, callable: true }],
         mcp: [{ name: "filesystem", status: "connected", authStatus: "unsupported", toolsError: null,
@@ -473,6 +474,7 @@ export function installBrowserPreview() {
       interrupt: async () => undefined,
       resolveApproval: async () => undefined,
       answerQuestion: async () => undefined,
+      resolveElicitation: async () => undefined,
       onChanged: () => () => undefined
     } satisfies Window["codexAppServerApi"],
     codexVersionApi: {

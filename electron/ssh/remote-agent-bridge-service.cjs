@@ -560,6 +560,9 @@ function createRemoteAgentBridgeService({
   ];
 
   async function callTool(binding, name, args, requestId) {
+    if (binding.readOnly && !new Set(["remote_context", "remote_list", "remote_search", "remote_read_text"]).has(name)) {
+      throw new Error("计划模式只允许读取远程工作区。");
+    }
     if (name === "remote_context") {
       const session = terminalManager.getSession(binding.sessionId);
       return { sessionId: binding.sessionId, type: "ssh", platform: binding.platform, host: session.sshConfig?.host, username: session.sshConfig?.username, root: binding.root };
@@ -640,7 +643,7 @@ function createRemoteAgentBridgeService({
       } else if (message.method === "ping") {
         result = {};
       } else if (message.method === "tools/list") {
-        result = { tools };
+        result = { tools: binding.readOnly ? tools.filter(tool => tool.annotations?.readOnlyHint === true) : tools };
       } else if (message.method === "tools/call") {
         result = toolResult(await callTool(binding, message.params?.name, message.params?.arguments || {}, message.id));
       } else {
@@ -771,6 +774,7 @@ function createRemoteAgentBridgeService({
       sshSecret: sshSessionRuntime.getSecret(session.sshConfig),
       activeCommands: new Map(),
       sessionMutationAllowed: false,
+      readOnly: false,
       approvalQueue: Promise.resolve(),
       closed: false
     };
@@ -801,6 +805,12 @@ function createRemoteAgentBridgeService({
       finishOperation(binding, operationId, "remote_prelaunch", "failed", { error: error?.message || String(error) });
       throw error;
     }
+  }
+
+  function setReadOnly(sessionId, readOnly) {
+    const binding = bindingsBySession.get(String(sessionId || ""));
+    if (!binding || binding.closed) throw new Error("远程 Agent 会话已失效。");
+    binding.readOnly = readOnly === true;
   }
 
   async function closeBinding(sessionId) {
@@ -838,6 +848,7 @@ function createRemoteAgentBridgeService({
   return {
     start,
     createBinding,
+    setReadOnly,
     runConfiguredCommand,
     closeBinding,
     shutdown,

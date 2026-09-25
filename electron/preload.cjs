@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   logout: id => ipcRenderer.invoke("codex-app-server:account-logout", id),
   refreshAccountUsage: id => ipcRenderer.invoke("codex-app-server:account-usage", id),
   listHistory: (id, cursor, archived, isPinned) => ipcRenderer.invoke("codex-app-server:history", id, cursor, archived, isPinned),
+  readInitialUserInput: (id, threadId) => ipcRenderer.invoke("codex-app-server:initial-user-input", id, threadId),
   renameThread: (id, threadId, name) => ipcRenderer.invoke("codex-app-server:rename-thread", id, threadId, name),
   pinThread: (id, threadId, isPinned) => ipcRenderer.invoke("codex-app-server:pin-thread", id, threadId, isPinned),
   forkThread: (id, threadId) => ipcRenderer.invoke("codex-app-server:fork-thread", id, threadId),
@@ -89,6 +90,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
   resolveApproval: (id, requestId, approved) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, approved),
   answerQuestion: (id, requestId, answers) => ipcRenderer.invoke("codex-app-server:answer-question", id, requestId, answers),
+  resolveElicitation: (id, requestId, action, content) => ipcRenderer.invoke("codex-app-server:resolve-elicitation", id, requestId, action, content),
   onChanged: callback => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("codex-app-server:changed", listener);
@@ -99,6 +101,11 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
 contextBridge.exposeInMainWorld("codexVersionApi", {
   check: (id, force) => ipcRenderer.invoke("codex-version:check", id, force === true),
   update: id => ipcRenderer.invoke("codex-version:update", id)
+});
+
+contextBridge.exposeInMainWorld("codeBuddyVersionApi", {
+  check: (id, force) => ipcRenderer.invoke("codebuddy-version:check", id, force === true),
+  update: id => ipcRenderer.invoke("codebuddy-version:update", id)
 });
 
 contextBridge.exposeInMainWorld("codexPluginApi", {

@@ -24,6 +24,7 @@ function fixture({ failNewThread = false, initiallySignedOut = false } = {}) {
       input = input.slice(newline + 1);
       if (message.id == null) continue;
       requests.push(message);
+      if (!message.method) continue;
       let result = {};
       let error;
       if (message.method === "account/read") result = signedOut
@@ -54,10 +55,21 @@ function fixture({ failNewThread = false, initiallySignedOut = false } = {}) {
     }
   });
   return { service, fsApi, requests, getStored: () => JSON.parse(stored), holdTurn: () => { holdTurn = true; },
+    emitRequest: (id, method) => processHandle.stdout.write(`${JSON.stringify({ id, method, params: { threadId: "old-thread", questions: [] } })}\n`),
     completeLogin: () => { signedOut = false; processHandle.stdout.write(`${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`); } };
 }
 
 describe("project assistant new conversation", () => {
+  it.each(["item/tool/requestUserInput", "tool/requestUserInput"])(
+    "declines %s without answering for the user", async method => {
+      const { service, requests, emitRequest } = fixture();
+      try {
+        await service.start();
+        emitRequest(42, method);
+        await vi.waitFor(() => expect(requests).toContainEqual({ id: 42, result: { answers: {} } }));
+      } finally { service.shutdown(); }
+    }
+  );
   it("keeps the App Server available for login before resuming a saved thread", async () => {
     const { service, requests, completeLogin } = fixture({ initiallySignedOut: true });
     await service.start();
