@@ -57,6 +57,51 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.getByRole("button", { name: "更换文件根目录" })).toBeTruthy();
   });
 
+  it("deletes all selected files after one confirmation", async () => {
+    const paths = [`${rootPath}\\a.txt`, `${rootPath}\\b.txt`];
+    const api = createRemoteFileApi();
+    api.list = vi.fn(async () => paths.map((path) => ({ name: path.split("\\").at(-1)!, path, type: "file" as const, size: 1, modifiedAt: 0 })));
+    api.deleteEntry = vi.fn(async () => ({ mode: "trash" as const }));
+    window.remoteFileApi = api;
+    const session = { id: "batch-delete", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    render(<RemoteFilePanel session={session} />);
+    const rows = await Promise.all(paths.map(async (path) => (await screen.findByTitle(path)).closest("button")!));
+    fireEvent.click(rows[0]);
+    fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows[0]);
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "删除" }));
+    expect(screen.getByRole("dialog", { name: "删除" }).textContent).toContain("2 项");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "删除" })).getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(api.deleteEntry).toHaveBeenCalledTimes(2));
+    expect(api.deleteEntry).toHaveBeenCalledWith(session.id, paths[0]);
+    expect(api.deleteEntry).toHaveBeenCalledWith(session.id, paths[1]);
+  });
+
+  it("moves the selected files and resolves a conflict before continuing", async () => {
+    const paths = [`${rootPath}\\a.txt`, `${rootPath}\\b.txt`];
+    const api = createRemoteFileApi();
+    api.list = vi.fn(async () => paths.map((path) => ({ name: path.split("\\").at(-1)!, path, type: "file" as const, size: 1, modifiedAt: 0 })));
+    api.moveEntry = vi.fn(async (_sessionId, sourcePath, _target, _name, policy) => ({
+      status: sourcePath === paths[0] && policy === "cancel" ? "conflict" as const : "completed" as const,
+      path: sourcePath,
+      name: sourcePath.split("\\").at(-1)!
+    }));
+    window.remoteFileApi = api;
+    const session = { id: "batch-move", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    render(<RemoteFilePanel session={session} />);
+    const rows = await Promise.all(paths.map(async (path) => (await screen.findByTitle(path)).closest("button")!));
+    fireEvent.click(rows[0]);
+    fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows[0]);
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "移动" }));
+    const dialog = screen.getByRole("dialog", { name: "移动" });
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "C:\\target" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "移动" }));
+    const conflict = await screen.findByText("目标中已存在同名项目");
+    fireEvent.click(within(conflict.closest(".file-operation-dialog") as HTMLElement).getByRole("button", { name: "跳过" }));
+    await waitFor(() => expect(api.moveEntry).toHaveBeenCalledWith(session.id, paths[1], "C:\\target", undefined, "cancel"));
+  });
+
   it("changes a Windows root through the native directory picker without persisting it", async () => {
     const nextRoot = "D:\\shared";
     const remoteFileApi = createRemoteFileApi();
@@ -154,7 +199,7 @@ describe("RemoteFilePanel directory navigation", () => {
       />
     );
     const childRow = (await screen.findByTitle(childPath)).closest("button")!;
-    fireEvent.click(childRow);
+    fireEvent.doubleClick(childRow);
     await screen.findByTitle(`${childPath}\\01_SCHEMA`);
     first.unmount();
 
@@ -300,7 +345,7 @@ describe("RemoteFilePanel directory navigation", () => {
     render(<RemoteFilePanel session={session} />);
 
     const patches = await screen.findByTitle(childPath);
-    fireEvent.click(patches.closest("button")!);
+    fireEvent.doubleClick(patches.closest("button")!);
 
     await waitFor(() => {
       expect(screen.getByTitle(`${childPath}\\01_SCHEMA`)).toBeTruthy();
@@ -607,7 +652,7 @@ describe("RemoteFilePanel directory navigation", () => {
     render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
 
     const patches = await screen.findByTitle(childPath);
-    fireEvent.click(patches.closest("button")!);
+    fireEvent.doubleClick(patches.closest("button")!);
     await screen.findByTitle(`${childPath}\\01_SCHEMA`);
 
     expect(remoteFileApi.list).not.toHaveBeenCalledWith(session.id, `${childPath}\\01_SCHEMA`);
@@ -682,7 +727,7 @@ describe("RemoteFilePanel directory navigation", () => {
     window.remoteFileApi = api;
     render(<RemoteFilePanel autoCollapseFileChains={false} session={{ id: "delete-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" }} />);
     const row = (await screen.findByTitle(childPath)).closest("button")!;
-    fireEvent.click(row);
+    fireEvent.doubleClick(row);
     await waitFor(() => expect(api.list).toHaveBeenCalledWith("delete-session", childPath));
     fireEvent.contextMenu(row);
     fireEvent.click(screen.getByRole("menu").querySelector(".lucide-trash-2")!.closest("button")!);

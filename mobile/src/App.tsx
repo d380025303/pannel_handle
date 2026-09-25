@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { TerminalView } from "./TerminalView";
+import { GraphicalView } from "./GraphicalView";
 import { PROTOCOL_VERSION, type RuntimeSession } from "./types";
 import { useRemoteConnection } from "./useRemoteConnection";
 
@@ -10,6 +11,10 @@ function kindLabel(type: RuntimeSession["type"]) {
   if (type === "windows") return "Windows";
   if (type === "wsl") return "WSL";
   return "SSH";
+}
+function modeLabel(session: { runtimeMode: string; agentProvider?: string }) {
+  if (session.runtimeMode !== "app-server") return "终端";
+  return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : "Codex"} 图形`;
 }
 
 export default function App() {
@@ -55,7 +60,7 @@ export default function App() {
   };
 
   const closeSession = (session: RuntimeSession) => {
-    if (!window.confirm(`关闭“${session.title}”会终止正在运行的终端，是否继续？`)) return;
+    if (!window.confirm(`关闭“${session.title}”会终止正在运行的会话，是否继续？`)) return;
     remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: requestId() });
   };
 
@@ -82,7 +87,9 @@ export default function App() {
       </header>
       {remote.commandError && <div className="command-error" role="alert">{remote.commandError}</div>}
 
-      {activeSession ? (
+      {activeSession?.runtimeMode === "app-server" ? (
+        <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage} />
+      ) : activeSession ? (
         <TerminalView
           key={activeSession.id}
           session={activeSession}
@@ -92,7 +99,7 @@ export default function App() {
         />
       ) : (
         <section className="empty-terminal">
-          <h2>没有运行中的终端</h2>
+          <h2>没有运行中的会话</h2>
           <p>从电脑已保存的模板启动一个会话。</p>
           <button className="primary large" type="button" onClick={() => { setDrawerTab("templates"); setDrawerOpen(true); }}>选择模板</button>
         </section>
@@ -101,7 +108,7 @@ export default function App() {
       {drawerOpen && (
         <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)}>
           <aside className="session-drawer" onClick={(event) => event.stopPropagation()}>
-            <header><h2>终端会话</h2><button type="button" onClick={() => setDrawerOpen(false)}>×</button></header>
+            <header><h2>会话</h2><button type="button" onClick={() => setDrawerOpen(false)}>×</button></header>
             <nav>
               <button className={drawerTab === "running" ? "active" : ""} type="button" onClick={() => setDrawerTab("running")}>运行中 ({remote.sessions.length})</button>
               <button className={drawerTab === "templates" ? "active" : ""} type="button" onClick={() => setDrawerTab("templates")}>已保存模板 ({remote.templates.length})</button>
@@ -110,13 +117,13 @@ export default function App() {
               {drawerTab === "running" ? remote.sessions.map((session) => (
                 <article className={session.id === activeId ? "session-card selected" : "session-card"} key={session.id}>
                   <button className="session-main" type="button" onClick={() => { setActiveId(session.id); setDrawerOpen(false); }}>
-                    <strong>{session.title}</strong><span>{kindLabel(session.type)}{session.cwd ? ` · ${session.cwd}` : ""}</span>
+                    <strong>{session.title}</strong><span>{kindLabel(session.type)} · {modeLabel(session)}{session.cwd ? ` · ${session.cwd}` : ""}</span>
                   </button>
                   <div className="session-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button className="danger" type="button" onClick={() => closeSession(session)}>关闭</button></div>
                 </article>
               )) : remote.templates.map((template) => (
                 <article className="session-card" key={template.id}>
-                  <div className="session-main static"><strong>{template.title}</strong><span>{kindLabel(template.type)}{template.runningCount ? ` · 已运行 ${template.runningCount}` : ""}</span></div>
+                  <div className="session-main static"><strong>{template.title}</strong><span>{kindLabel(template.type)} · {modeLabel(template)}{template.runningCount ? ` · 已运行 ${template.runningCount}` : ""}</span></div>
                   <div className="session-actions"><button className="primary" type="button" onClick={() => launchTemplate(template.id)}>启动</button></div>
                 </article>
               ))}

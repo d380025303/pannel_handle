@@ -53,11 +53,15 @@ describe("CodeBuddy ACP sessions", () => {
     });
     transport.close = vi.fn();
     const createStdioTransport = vi.fn(async () => transport);
+    const readCatalog = vi.fn(async () => [{ id: "remote", creditMultiplier: "2x", promotions: [] }]);
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({ FLAG: "yes" }) },
       terminalManager: { broadcastAgentStatus: vi.fn(), setAppServerConnectionState: vi.fn() }, broadcast: vi.fn(),
-      sshAgentTransport: { createStdioTransport, createHttpForwarder: vi.fn(async () => ({ agent: {}, close: vi.fn() })) } });
+      sshAgentTransport: { createStdioTransport, createHttpForwarder: vi.fn(async () => ({ agent: {}, close: vi.fn() })) },
+      workBuddyModelCatalogService: { readCatalog } });
     await service.start({ id: "ssh-1", type: "ssh", cwd: "/srv/app", agentProvider: "codebuddy" });
     expect(service.snapshot("ssh-1").threadId).toBe("remote-thread");
+    expect(await service.listModelMetadata("ssh-1")).toEqual([]);
+    expect(readCatalog).not.toHaveBeenCalled();
     const command = createStdioTransport.mock.calls[0][1].command;
     expect(command).toContain("exec codebuddy --acp");
     expect(command).toContain("--serve --acp-transport streamable-http --auth password");
@@ -120,8 +124,10 @@ describe("CodeBuddy ACP sessions", () => {
       }
     });
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      workBuddyModelCatalogService: { readCatalog: async () => [{ id: "hy3", creditMultiplier: "0x", promotions: [{ id: "night", priority: 1, badge: { label: "夜间折扣" }, schedule: {} }] }] } });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    expect(await service.listModelMetadata("one")).toEqual([{ id: "hy3", creditMultiplier: "0x", promotions: [{ id: "night", label: "夜间折扣" }] }]);
     await service.submit("one", "First");
     await service.submit("one", "Second");
     const [firstId, secondId] = prompts.map(message => message.params._meta["codebuddy.ai/conversationRequestId"]);

@@ -262,6 +262,8 @@ export type TranslationKey =
   | "confirm.discardUnsavedFileChanges"
   | "confirm.deleteEntry"
   | "confirm.trashEntry"
+  | "confirm.deleteEntries"
+  | "confirm.trashEntries"
   | "window.minimize"
   | "window.maximize"
   | "window.restore"
@@ -728,6 +730,8 @@ export type TranslationKey =
   | "files.languageAutoDetected"
   | "files.languagePlainText"
   | "files.deleteEntry"
+  | "files.selectedItems"
+  | "files.cannotMoveIntoSelf"
   | "files.tooLarge"
   | "files.binary"
   | "files.loadingOfficePreview"
@@ -1250,6 +1254,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "confirm.discardUnsavedFileChanges": "放弃未保存的文件更改？",
     "confirm.deleteEntry": "确定要删除 \"{name}\" 吗？此操作无法撤销。",
     "confirm.trashEntry": "确定将 \"{name}\" 移到回收站吗？",
+    "confirm.deleteEntries": "确定要删除选中的 {count} 项吗？此操作无法撤销。",
+    "confirm.trashEntries": "确定将选中的 {count} 项移到回收站吗？",
     "window.minimize": "最小化",
     "window.maximize": "最大化",
     "window.restore": "还原",
@@ -1716,6 +1722,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.languageAutoDetected": "自动识别（{language}）",
     "files.languagePlainText": "纯文本",
     "files.deleteEntry": "删除",
+    "files.selectedItems": "{count} 项",
+    "files.cannotMoveIntoSelf": "无法将 {name} 移入其自身。",
     "files.tooLarge": "文件大小为 {size}。请下载后在本地查看。",
     "files.binary": "二进制文件。请下载后在本地查看。",
     "files.loadingOfficePreview": "正在加载 Office 预览...",
@@ -2230,6 +2238,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "confirm.discardUnsavedFileChanges": "Discard unsaved file changes?",
     "confirm.deleteEntry": "Are you sure you want to delete \"{name}\"? This cannot be undone.",
     "confirm.trashEntry": "Move \"{name}\" to the Recycle Bin?",
+    "confirm.deleteEntries": "Delete the {count} selected items? This cannot be undone.",
+    "confirm.trashEntries": "Move the {count} selected items to the Recycle Bin?",
     "window.minimize": "Minimize",
     "window.maximize": "Maximize",
     "window.restore": "Restore",
@@ -2696,6 +2706,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "files.languageAutoDetected": "Auto detect ({language})",
     "files.languagePlainText": "Plain text",
     "files.deleteEntry": "Delete",
+    "files.selectedItems": "{count} items",
+    "files.cannotMoveIntoSelf": "Cannot move {name} into itself.",
     "files.tooLarge": "File is {size}. Download it to view locally.",
     "files.binary": "Binary file. Download it to view locally.",
     "files.loadingOfficePreview": "Loading Office preview...",

@@ -9,6 +9,7 @@ const {
   createWorkBuddyModelCatalogService,
   getPromotionDisplay,
   isPromotionActive,
+  normalizeCatalogData,
   normalizeTokenLimit
 } = require("./workbuddy-model-catalog-service.cjs");
 const dirs = [];
@@ -43,6 +44,7 @@ describe("WorkBuddy model catalog", () => {
     expect(await service.readCatalog()).toEqual([{
       id: "hy3",
       name: "混元 3",
+      creditMultiplier: "0x",
       contextWindow: 800_000,
       promotions: [{ id: "free", priority: 200, badge: { label: "限时免费", color: "#FF0000" }, hover: { textZh: "每日赠送免费额度。" }, schedule: {} }]
     }]);
@@ -53,6 +55,12 @@ describe("WorkBuddy model catalog", () => {
     expect(normalizeTokenLimit(1023)).toBeUndefined();
     expect(normalizeTokenLimit(1_000_001)).toBeUndefined();
     expect(normalizeTokenLimit(128000.5)).toBeUndefined();
+  });
+
+  it("omits missing or invalid credit multipliers", () => {
+    expect(normalizeCatalogData({ models: [
+      { id: "valid", credits: "1.5x" }, { id: "missing" }, { id: "invalid", credits: "free" }
+    ] }).map(model => model.creditMultiplier)).toEqual(["1.5x", undefined, undefined]);
   });
 
   it("evaluates bounded and cross-midnight schedules in the configured timezone", () => {

@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
+import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Package, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
 import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
 import { CodexVersionControl } from "./CodexVersionControl";
+import { CodexPluginDialog } from "./CodexPluginDialog";
+import { TurnDiffCard } from "./TurnDiffCard";
 
 const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
 const permissionLabels: Record<CodexExecutionPermission, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
@@ -37,6 +39,8 @@ type DisplayItem = ToolDisplayItem
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
+type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
+type SlashCommand = { id: string; label: string; disabled?: boolean };
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 
@@ -255,10 +259,6 @@ function DiagnosticCard({ event }: { event: Diagnostic }) {
     <pre>{JSON.stringify(data, null, 2)}</pre>
   </details>;
 }
-function TurnDiffCard({ diff }: { diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] }) {
-  return <details className="codex-app-server-turn-diff"><summary><FileDiff aria-hidden="true" />本轮变更</summary>
-    <pre>{diff.diff || "本轮暂无文件差异。"}</pre></details>;
-}
 function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
   const groups = groupTools(snapshot.items);
   const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
@@ -327,7 +327,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [renameDraft, setRenameDraft] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
+  const [pluginOpen, setPluginOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [selectionKind, setSelectionKind] = useState<SelectionKind | null>(null);
+  const [selectionError, setSelectionError] = useState("");
+  const [selectionPending, setSelectionPending] = useState(false);
+  const [modelMetadata, setModelMetadata] = useState<Awaited<ReturnType<typeof window.codexAppServerApi.listModelMetadata>>>([]);
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   const [capabilityTab, setCapabilityTab] = useState<"skills" | "apps" | "mcp">("skills");
   const [capabilityQuery, setCapabilityQuery] = useState("");
@@ -335,6 +340,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const [capabilityError, setCapabilityError] = useState("");
   const [fileMention, setFileMention] = useState<FileMention | null>(null);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [fileResults, setFileResults] = useState<WorkspaceEntrySearchResult[]>([]);
   const [fileSearchStatus, setFileSearchStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [fileSearchError, setFileSearchError] = useState("");
@@ -348,12 +355,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const fileResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileSearchRequestRef = useRef(0);
   const fileListId = useId();
+  const slashListId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const selectionDialogRef = useRef<HTMLDivElement>(null);
   const capabilityButtonRef = useRef<HTMLButtonElement>(null);
   const capabilityRef = useRef<HTMLDivElement>(null);
   const historyRequestRef = useRef(0);
   const currentSessionRef = useRef(sessionId);
+  const modelMetadataSessionRef = useRef<string | null>(null);
+  const modelMetadataRequestRef = useRef(0);
   const loadedSessionIdRef = useRef<string | null>(null);
   const pastedImagesRef = useRef(new Set<string>());
   const pastingRef = useRef(false);
@@ -424,8 +435,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setHistoryOpen(false);
     setGoalOpen(false);
     setMenuOpen(false);
+    setSelectionKind(null);
+    setSelectionError("");
+    setSelectionPending(false);
     setCapabilityOpen(false);
     setFileMention(null);
+    setSlashDismissed(false);
+    setSelectedSlashIndex(0);
     setFileResults([]);
     setFileSearchStatus("idle");
     setFileSearchError("");
@@ -513,6 +529,27 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [menuOpen]);
+  useEffect(() => {
+    if (selectionKind) (selectionDialogRef.current?.querySelector<HTMLButtonElement>('button[role="radio"]:not(:disabled)')
+      || selectionDialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus();
+  }, [selectionKind]);
+  useEffect(() => {
+    if (snapshot.provider !== "codebuddy" || !snapshot.threadId) {
+      modelMetadataRequestRef.current += 1;
+      modelMetadataSessionRef.current = null;
+      setModelMetadata([]);
+      return;
+    }
+    const key = `${sessionId}:${snapshot.threadId}`;
+    if (!menuOpen && modelMetadataSessionRef.current === key) return;
+    if (modelMetadataSessionRef.current !== key) setModelMetadata([]);
+    modelMetadataSessionRef.current = key;
+    const requestId = ++modelMetadataRequestRef.current;
+    void Promise.resolve().then(() => window.codexAppServerApi.listModelMetadata?.(sessionId) ?? []).then(value => {
+      if (modelMetadataRequestRef.current === requestId && currentSessionRef.current === sessionId)
+        setModelMetadata(Array.isArray(value) ? value : []);
+    }).catch(() => { if (modelMetadataRequestRef.current === requestId && currentSessionRef.current === sessionId) setModelMetadata([]); });
+  }, [sessionId, snapshot.provider, snapshot.threadId, menuOpen]);
   useEffect(() => {
     if (!capabilityOpen) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -698,16 +735,23 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     try { await window.codexAppServerApi.resolveApproval(sessionId, requestId, approved); }
     catch (cause) { setError(message(cause)); }
   }
+  function reportChangeError(cause: unknown) {
+    if (currentSessionRef.current !== sessionId) return;
+    if (selectionKind) setSelectionError(message(cause));
+    else setError(message(cause));
+  }
   async function changeMode(mode: "default" | "plan") {
-    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || mode === snapshot.mode) return;
+    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || mode === snapshot.mode) return false;
     changingModeRef.current = true;
     setChangingMode(true);
     setError("");
     try {
       const value = await window.codexAppServerApi.setMode(sessionId, mode);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
+      return true;
     } catch (cause) {
-      if (currentSessionRef.current === sessionId) setError(message(cause));
+      reportChangeError(cause);
+      return false;
     } finally {
       if (currentSessionRef.current === sessionId) {
         changingModeRef.current = false;
@@ -716,25 +760,28 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
   }
   async function changeNativeMode(modeId: string) {
-    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode) return;
+    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode) return false;
     changingModeRef.current = true;
     setChangingMode(true); setError("");
     try {
       const value = await window.codexAppServerApi.setNativeMode(sessionId, modeId);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { changingModeRef.current = false; if (currentSessionRef.current === sessionId) setChangingMode(false); }
   }
   async function changePermission(permission: CodexExecutionPermission) {
-    if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission) return;
+    if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission) return false;
     changingPermissionRef.current = true;
     setChangingPermission(true);
     setError("");
     try {
       const value = await window.codexAppServerApi.setExecutionPermission(sessionId, permission);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
+      return true;
     } catch (cause) {
-      if (currentSessionRef.current === sessionId) setError(message(cause));
+      reportChangeError(cause);
+      return false;
     } finally {
       if (currentSessionRef.current === sessionId) {
         changingPermissionRef.current = false;
@@ -743,45 +790,49 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
   }
   async function changeModel(modelId: string) {
-    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || modelId === snapshot.model) return;
+    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || modelId === snapshot.model) return false;
     changingModelRef.current = true;
     setChangingModel(true);
     setError("");
     try {
       const value = await window.codexAppServerApi.setModel(sessionId, modelId);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
   async function changeEffort(effort: string) {
-    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || effort === snapshot.effort) return;
+    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || effort === snapshot.effort) return false;
     changingModelRef.current = true;
     setChangingModel(true);
     setError("");
     try {
       const value = await window.codexAppServerApi.setEffort(sessionId, effort);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
   async function changeContextWindow(value: string) {
-    if (!snapshot.threadId || snapshot.busy || changingModelRef.current) return;
+    if (!snapshot.threadId || snapshot.busy || changingModelRef.current) return false;
     changingModelRef.current = true;
     setChangingModel(true);
     setError("");
     try {
       const next = await window.codexAppServerApi.setContextWindow(sessionId, value);
       if (currentSessionRef.current === sessionId) setSnapshot(next);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { changingModelRef.current = false; if (currentSessionRef.current === sessionId) setChangingModel(false); }
   }
   async function changeMultitask(enabled: boolean) {
-    if (!snapshot.threadId || changingMultitask) return;
+    if (!snapshot.threadId || changingMultitask) return false;
     setChangingMultitask(true); setError("");
     try {
       const value = await window.codexAppServerApi.setMultitask(sessionId, enabled);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { if (currentSessionRef.current === sessionId) setChangingMultitask(false); }
   }
   async function sendMemberMessage() {
@@ -798,14 +849,15 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     finally { if (currentSessionRef.current === sessionId) setSendingMember(false); }
   }
   async function changeFastMode(enabled: boolean) {
-    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || enabled === snapshot.fastMode) return;
+    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || enabled === snapshot.fastMode) return false;
     changingModelRef.current = true;
     setChangingModel(true);
     setError("");
     try {
       const value = await window.codexAppServerApi.setFastMode(sessionId, enabled);
       if (currentSessionRef.current === sessionId) setSnapshot(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
   async function resolvePlan(itemId: string, execute: boolean) {
@@ -837,11 +889,126 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const canSendWhileBusy = agentName === "Codex" && !snapshot.compacting;
   const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
+  const modelDetails = (modelId: string) => {
+    if (snapshot.provider !== "codebuddy") return "";
+    const metadata = modelMetadata.find(model => model.id === modelId);
+    return [metadata?.creditMultiplier ? `倍率 ${metadata.creditMultiplier}` : "", ...(metadata?.promotions.map(promotion => promotion.label) || [])].filter(Boolean).join(" · ");
+  };
   const acpEffort = snapshot.provider === "opencode" ? snapshot.acpOptions?.find(option => option.id === "effort" && option.type === "select") : undefined;
   const acpContextWindow = snapshot.provider === "codebuddy" ? snapshot.acpOptions?.find(option => option.id === "context_window" && option.type === "select" && (option.options?.length ?? 0) > 1) : undefined;
   const multitaskOption = snapshot.provider === "codebuddy" && snapshot.capabilities?.multitask === true
     ? snapshot.acpOptions?.find(option => option.id === "multitask" && option.type === "boolean") : undefined;
+  const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode";
+  const currentModel = (snapshot.models || []).find(model => model.id === snapshot.model);
+  const selectionTitles: Record<SelectionKind, string> = {
+    mode: isAcp ? `${agentName} 模式` : "模式", model: "模型", effort: "思考强度",
+    fastMode: "快速模式", permission: "执行权限", contextWindow: "上下文窗口", multitask: "Multitask"
+  };
+  type SelectionOption = { value: string; label: string; description?: string; selected: boolean; disabled?: boolean };
+  const selectionOptions: SelectionOption[] = selectionKind === "mode"
+    ? isAcp ? (snapshot.nativeModes || []).map(mode => ({ value: mode.id, label: mode.name, description: mode.description,
+      selected: snapshot.nativeMode === mode.id, disabled: snapshot.busy || changingMode }))
+      : [{ value: "default", label: "Exec", selected: snapshot.mode === "default", disabled: snapshot.busy || changingMode },
+        { value: "plan", label: "Plan", selected: snapshot.mode === "plan", disabled: snapshot.busy || changingMode || snapshot.capabilities?.plan === false }]
+    : selectionKind === "model"
+      ? acpModel ? (acpModel.options || []).map(option => ({ value: option.value, label: option.name,
+        description: modelDetails(option.value), selected: acpModel.currentValue === option.value, disabled: snapshot.busy || changingModel }))
+        : (snapshot.models || []).map(model => ({ value: model.id, label: model.displayName, selected: snapshot.model === model.id,
+          disabled: snapshot.busy || sending || changingModel || attachments.length > 0 }))
+    : selectionKind === "effort"
+      ? acpEffort ? (acpEffort.options || []).map(option => ({ value: option.value, label: option.name,
+        selected: acpEffort.currentValue === option.value, disabled: snapshot.busy || changingModel }))
+        : (currentModel?.supportedReasoningEfforts || []).map(option => ({ value: option.reasoningEffort,
+          label: effortLabel(option.reasoningEffort), description: option.description || undefined,
+          selected: snapshot.effort === option.reasoningEffort, disabled: snapshot.busy || sending || changingModel || attachments.length > 0 }))
+    : selectionKind === "fastMode" ? [false, true].map(value => ({ value: String(value), label: value ? "开启" : "关闭",
+      description: value ? "用量成本更高" : undefined, selected: Boolean(snapshot.fastMode) === value,
+      disabled: snapshot.busy || sending || changingModel || attachments.length > 0 || !currentModel?.fastAvailable }))
+    : selectionKind === "permission" ? (["readOnly", "askApproval", "fullAccess"] as const).map(value => ({ value,
+      label: permissionLabels[value], description: permissionDescriptions[value], selected: snapshot.executionPermission === value,
+      disabled: snapshot.busy || changingPermission || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(value)) }))
+    : selectionKind === "contextWindow" ? (acpContextWindow?.options || []).map(option => ({ value: option.value,
+      label: option.name, selected: acpContextWindow?.currentValue === option.value, disabled: snapshot.busy || changingModel }))
+    : selectionKind === "multitask" ? [false, true].map(value => ({ value: String(value), label: value ? "开启" : "关闭",
+      selected: multitaskOption?.currentValue === value, disabled: snapshot.busy || changingMultitask })) : [];
+  const selectionNextTurn = selectionKind === "model" || selectionKind === "effort" || selectionKind === "fastMode"
+    || selectionKind === "permission" || selectionKind === "contextWindow";
+  function openSelection(kind: SelectionKind) { setMenuOpen(false); setSelectionError(""); setSelectionKind(kind); }
+  function openCapabilities(tab: "skills" | "apps" | "mcp") {
+    setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
+    if (!capabilities) void loadCapabilities();
+  }
+  function openHistory() { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }
+  function openGoal() {
+    setMenuOpen(false); setGoalOpen(true);
+    void window.codexAppServerApi.getGoal(sessionId).catch(cause => {
+      if (currentSessionRef.current === sessionId) setError(message(cause));
+    });
+  }
+  function compactConversation() {
+    setMenuOpen(false); setError("");
+    void window.codexAppServerApi.compactThread(sessionId).catch(cause => {
+      if (currentSessionRef.current === sessionId) setError(message(cause));
+    });
+  }
+  function startNewConversation() {
+    void window.codexAppServerApi.newThread(sessionId)
+      .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
+      .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); });
+  }
+  function closeSelection() { if (selectionPending) return; setSelectionKind(null); setSelectionError(""); menuButtonRef.current?.focus(); }
+  async function selectOption(value: string) {
+    if (!selectionKind || selectionPending) return;
+    const selected = selectionOptions.find(option => option.value === value);
+    if (!selected || selected.disabled || selected.selected) return;
+    const kind = selectionKind;
+    setSelectionPending(true); setSelectionError("");
+    let succeeded = false;
+    try {
+      if (kind === "mode") succeeded = isAcp ? await changeNativeMode(value) : await changeMode(value as "default" | "plan");
+      else if (kind === "model") succeeded = await changeModel(value);
+      else if (kind === "effort") succeeded = await changeEffort(value);
+      else if (kind === "fastMode") succeeded = await changeFastMode(value === "true");
+      else if (kind === "permission") succeeded = await changePermission(value as CodexExecutionPermission);
+      else if (kind === "contextWindow") succeeded = await changeContextWindow(value);
+      else succeeded = await changeMultitask(value === "true");
+      if (succeeded && currentSessionRef.current === sessionId) { setSelectionKind(null); menuButtonRef.current?.focus(); }
+    } finally { if (currentSessionRef.current === sessionId) setSelectionPending(false); }
+  }
   const isCodex = snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode";
+  const canAttach = (!snapshot.busy || canSendWhileBusy) && !sending && !pastingImage && attachments.length < 10;
+  const slashCommands: SlashCommand[] = [
+    { id: "new", label: "新对话", disabled: snapshot.busy || sending || pastingImage },
+    { id: "history", label: "历史会话", disabled: snapshot.busy || snapshot.capabilities?.history === false },
+    ...(isCodex ? [
+      { id: "skills", label: "Skills 列表" }, { id: "apps", label: "Apps 列表" }, { id: "mcp", label: "MCP 列表" },
+      { id: "plugins", label: "插件管理" },
+      { id: "compact", label: "压缩对话", disabled: snapshot.busy || sending },
+      { id: "goal", label: "目标管理" }
+    ] : []),
+    { id: "mode", label: "模式" },
+    ...(multitaskOption ? [{ id: "multitask", label: "Multitask" }] : []),
+    ...(acpModel || (!isAcp && snapshot.backend === "openai") ? [{ id: "model", label: "模型" }] : []),
+    ...(acpContextWindow ? [{ id: "contextWindow", label: "上下文窗口" }] : []),
+    ...(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length)) ? [{ id: "effort", label: "思考强度" }] : []),
+    ...(!isAcp && snapshot.backend === "openai" ? [{ id: "fastMode", label: "快速模式" }] : []),
+    ...(!isAcp ? [{ id: "permission", label: "执行权限" }] : []),
+    { id: "files", label: "附加文件", disabled: !canAttach }
+  ];
+  const slashQuery = !slashDismissed && /^\/[^\s]*$/.test(draft) ? draft.slice(1).toLocaleLowerCase() : null;
+  const visibleSlashCommands = slashQuery === null ? [] : slashCommands.filter(command => `${command.id} ${command.label}`.toLocaleLowerCase().includes(slashQuery));
+  function executeSlashCommand(command: SlashCommand) {
+    if (command.disabled) return;
+    setSlashDismissed(true); setSelectedSlashIndex(0); setDraft("");
+    if (command.id === "new") startNewConversation();
+    else if (command.id === "history") openHistory();
+    else if (command.id === "skills" || command.id === "apps" || command.id === "mcp") openCapabilities(command.id);
+    else if (command.id === "plugins") setPluginOpen(true);
+    else if (command.id === "compact") compactConversation();
+    else if (command.id === "goal") openGoal();
+    else if (command.id === "files") void addFiles();
+    else openSelection(command.id as SelectionKind);
+  }
   const matchesCapability = (name: string, description: string) => `${name} ${description}`.toLocaleLowerCase().includes(capabilityQuery.trim().toLocaleLowerCase());
   const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
@@ -931,11 +1098,27 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           }}><X aria-hidden="true" /></button>
         </div>}
     </div>
-    <form className="codex-app-server-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <form className="codex-app-server-composer" onSubmit={event => {
+      event.preventDefault();
+      if (slashQuery !== null) {
+        const command = visibleSlashCommands[selectedSlashIndex];
+        if (command && !command.disabled) executeSlashCommand(command);
+      } else void submit();
+    }}>
       {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <AttachmentTile key={filePath} sessionId={sessionId}
         file={{ path: filePath, name: fileName(filePath) }} onPreview={() => setPreviewFile({ path: filePath, name: fileName(filePath) })}
         onRemove={() => void removeAttachment(filePath)} disabled={(snapshot.busy && !canSendWhileBusy) || sending || pastingImage} />)}</div>}
-      {fileMention && <div id={fileListId} className="codex-app-server-file-mentions" role="listbox" aria-label="搜索工作区文件">
+      {slashQuery !== null && <div id={slashListId} className="codex-app-server-slash-commands" role="listbox" aria-label="会话操作联想">
+        <div className="codex-app-server-file-mentions-heading">会话操作</div>
+        {visibleSlashCommands.length === 0 ? <div className="codex-app-server-file-mentions-empty">没有匹配的操作</div>
+          : visibleSlashCommands.map((command, index) => <button key={command.id} type="button" role="option"
+              id={`${slashListId}-option-${index}`} aria-label={`/${command.id} ${command.label}`} aria-selected={index === selectedSlashIndex} disabled={command.disabled}
+              className={index === selectedSlashIndex ? "selected" : ""} onMouseDown={event => event.preventDefault()}
+              onMouseEnter={() => setSelectedSlashIndex(index)} onClick={() => executeSlashCommand(command)}>
+              <span>/{command.id}</span><small>{command.label}</small>
+            </button>)}
+      </div>}
+      {fileMention && slashQuery === null && <div id={fileListId} className="codex-app-server-file-mentions" role="listbox" aria-label="搜索工作区文件">
         <div className="codex-app-server-file-mentions-heading">搜索工作区文件{fileSearchStatus === "loading" ? " · 搜索中..." : ""}</div>
         {fileSearchStatus === "error" ? <div className="codex-app-server-file-mentions-empty" role="alert">搜索失败：{fileSearchError}</div>
           : fileSearchStatus === "ready" && fileResults.length === 0 ? <div className="codex-app-server-file-mentions-empty">没有匹配文件</div>
@@ -949,6 +1132,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       <div className={`codex-app-server-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={snapshot.mode}><textarea ref={textareaRef} value={draft} onChange={event => {
         const next = event.target.value;
         setDraft(next);
+        setSlashDismissed(false); setSelectedSlashIndex(0);
         setDraftReferences(current => current.filter(value => next.includes(value.token)));
         const mention = fileMentionAtCaret(next, event.target.selectionStart);
         if (mention) setFileMention(mention);
@@ -972,6 +1156,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         void pasteImage();
       }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
+        if (slashQuery !== null && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setSelectedSlashIndex(current => visibleSlashCommands.length ? (current + (event.key === "ArrowDown" ? 1 : -1) + visibleSlashCommands.length) % visibleSlashCommands.length : 0);
+            return;
+          }
+          if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            const command = visibleSlashCommands[selectedSlashIndex];
+            if (command && !command.disabled) executeSlashCommand(command);
+            return;
+          }
+          if (event.key === "Escape") { event.preventDefault(); setSlashDismissed(true); return; }
+        }
         if (fileMention && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
@@ -991,13 +1189,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           return;
         }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
-      }} aria-label="图形对话输入" aria-autocomplete="list" aria-controls={fileMention ? fileListId : undefined}
-        aria-expanded={Boolean(fileMention)} aria-activedescendant={fileMention && fileResults[selectedFileIndex] ? `${fileListId}-option-${selectedFileIndex}` : undefined}
+      }} aria-label="图形对话输入" aria-autocomplete="list" aria-controls={slashQuery !== null ? slashListId : fileMention ? fileListId : undefined}
+        aria-expanded={slashQuery !== null || Boolean(fileMention)} aria-activedescendant={slashQuery !== null && visibleSlashCommands[selectedSlashIndex] ? `${slashListId}-option-${selectedSlashIndex}` : fileMention && fileResults[selectedFileIndex] ? `${fileListId}-option-${selectedFileIndex}` : undefined}
         placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || (snapshot.busy && !canSendWhileBusy)} />
         <div className="codex-app-server-input-actions">
           {isCodex && <div className="codex-app-server-capability-anchor">
             <button ref={capabilityButtonRef} type="button" className="codex-app-server-icon-button" title="Skills、Apps 和 MCP" aria-label="Skills、Apps 和 MCP" aria-expanded={capabilityOpen} disabled={!snapshot.threadId}
-              onClick={() => { setCapabilityOpen(open => !open); if (!capabilities) void loadCapabilities(); }}><BookOpen aria-hidden="true" /></button>
+              onClick={() => { if (capabilityOpen) setCapabilityOpen(false); else openCapabilities(capabilityTab); }}><BookOpen aria-hidden="true" /></button>
             {capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
               if (event.key === "Escape") { event.preventDefault(); setCapabilityOpen(false); capabilityButtonRef.current?.focus(); }
             }}>
@@ -1042,96 +1240,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               const index = items.indexOf(document.activeElement as HTMLButtonElement);
               items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
             }}>
-              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={() => { setMenuOpen(false); setHistoryQuery(""); setHistoryOpen(true); }}><History aria-hidden="true" />历史会话</button>
+              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
               {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <>
-                <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={() => {
-                  setMenuOpen(false); setError("");
-                  void window.codexAppServerApi.compactThread(sessionId).catch(cause => {
-                    if (currentSessionRef.current === sessionId) setError(message(cause));
-                  });
-                }}><Minimize2 aria-hidden="true" />压缩对话</button>
-                <button type="button" role="menuitem" onClick={() => {
-                  setMenuOpen(false); setGoalOpen(true);
-                  void window.codexAppServerApi.getGoal(sessionId).catch(cause => {
-                    if (currentSessionRef.current === sessionId) setError(message(cause));
-                  });
-                }}><Target aria-hidden="true" />目标管理</button>
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
+                <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
+                <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
-              {snapshot.provider === "codebuddy" || snapshot.provider === "opencode" ? <div className="codex-app-server-menu-group" role="group" aria-label={`${agentName} 模式`}>
-                <span className="codex-app-server-menu-label" aria-hidden="true">{agentName} 模式</span>
-                <div className="codex-app-server-mode-options">
-                  {(snapshot.nativeModes || []).map(mode => <button key={mode.id} type="button" role="menuitemradio"
-                    aria-checked={snapshot.nativeMode === mode.id} title={mode.description} disabled={snapshot.busy || changingMode}
-                    onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeNativeMode(mode.id); }}>{mode.name}</button>)}
-                  {!snapshot.nativeModes?.length && <span>当前 CLI 未提供模式切换</span>}
-                </div>
-              </div> : <div className="codex-app-server-menu-group" role="group" aria-label="模式">
-                <span className="codex-app-server-menu-label" aria-hidden="true">模式</span>
-                <div className="codex-app-server-mode-options">
-                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "default"} disabled={snapshot.busy || changingMode} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("default"); }}>Exec</button>
-                  <button type="button" role="menuitemradio" aria-checked={snapshot.mode === "plan"} disabled={snapshot.busy || changingMode || snapshot.capabilities?.plan === false} title={snapshot.capabilities?.plan === false ? "当前 CodeBuddy CLI 不支持 Plan 模式" : undefined} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMode("plan"); }}>Plan</button>
-                </div>
-              </div>}
-              {multitaskOption && <div className="codex-app-server-menu-group" role="group" aria-label="CodeBuddy Multitask">
-                <button type="button" className="codex-app-server-fast-option" role="menuitemcheckbox" aria-checked={multitaskOption.currentValue === true}
-                  disabled={snapshot.busy || changingMultitask}
-                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeMultitask(multitaskOption.currentValue !== true); }}>
-                  Multitask：{multitaskOption.currentValue === true ? "开启" : "关闭"}
-                </button>
-              </div>}
-              {acpModel && <div className="codex-app-server-menu-group" role="group" aria-label={`${agentName} 模型`}>
-                <span className="codex-app-server-menu-label" aria-hidden="true">模型 <small>下一轮生效</small></span>
-                <div className="codex-app-server-mode-options">{acpModel.options?.map(option => <button key={option.value} type="button" role="menuitemradio"
-                  aria-checked={acpModel.currentValue === option.value} disabled={snapshot.busy || changingModel}
-                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeModel(option.value); }}>{option.name}</button>)}</div>
-              </div>}
-              {acpContextWindow && <div className="codex-app-server-menu-group" role="group" aria-label="CodeBuddy 上下文窗口档位">
-                <span className="codex-app-server-menu-label" aria-hidden="true">上下文窗口 <small>下一轮生效</small></span>
-                <div className="codex-app-server-mode-options">{acpContextWindow.options?.map(option => <button key={option.value} type="button" role="menuitemradio"
-                  aria-checked={acpContextWindow.currentValue === option.value} disabled={snapshot.busy || changingModel}
-                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeContextWindow(option.value); }}>{option.name}</button>)}</div>
-              </div>}
-              {acpEffort && <div className="codex-app-server-menu-group" role="group" aria-label="OpenCode 思考强度">
-                <span className="codex-app-server-menu-label" aria-hidden="true">思考强度 <small>下一轮生效</small></span>
-                <div className="codex-app-server-mode-options">{acpEffort.options?.map(option => <button key={option.value} type="button" role="menuitemradio"
-                  aria-checked={acpEffort.currentValue === option.value} disabled={snapshot.busy || changingModel}
-                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeEffort(option.value); }}>{option.name}</button>)}</div>
-              </div>}
-              {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.backend === "openai" && <div className="codex-app-server-menu-group" role="group" aria-label="模型">
-                <span className="codex-app-server-menu-label" aria-hidden="true">模型 <small>下一轮生效</small></span>
-                <div className="codex-app-server-mode-options">
-                  {(snapshot.models || []).map(model => <button key={model.id} type="button" role="menuitemradio"
-                    aria-checked={snapshot.model === model.id} disabled={snapshot.busy || sending || changingModel || attachments.length > 0}
-                    onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeModel(model.id); }}>{model.displayName}</button>)}
-                </div>
-                {Boolean((snapshot.models || []).find(model => model.id === snapshot.model)?.supportedReasoningEfforts?.length) && <div className="codex-app-server-menu-group" role="group" aria-label="思考强度（下一轮生效）">
-                  <span className="codex-app-server-menu-label" aria-hidden="true">思考强度 <small>下一轮生效</small></span>
-                  <div className="codex-app-server-mode-options">
-                    {(snapshot.models || []).find(model => model.id === snapshot.model)?.supportedReasoningEfforts?.map(option => <button key={option.reasoningEffort}
-                      type="button" role="menuitemradio" aria-checked={snapshot.effort === option.reasoningEffort}
-                      title={option.description || undefined} disabled={snapshot.busy || sending || changingModel || attachments.length > 0}
-                      onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeEffort(option.reasoningEffort); }}>
-                      {effortLabel(option.reasoningEffort)}
-                    </button>)}
-                  </div>
-                </div>}
-                <button type="button" className="codex-app-server-fast-option" role="menuitemcheckbox" aria-checked={Boolean(snapshot.fastMode)}
-                  disabled={snapshot.busy || sending || changingModel || attachments.length > 0 || !(snapshot.models || []).find(model => model.id === snapshot.model)?.fastAvailable}
-                  onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changeFastMode(!snapshot.fastMode); }}>
-                  快速模式{snapshot.fastMode ? "：开启" : "：关闭"} <small>用量成本更高</small>
-                </button>
-              </div>}
-              {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <div className="codex-app-server-menu-group" role="group" aria-label="执行权限（下一轮生效）">
-                <span className="codex-app-server-menu-label" aria-hidden="true">执行权限 <small>下一轮生效</small></span>
-                <div className="codex-app-server-permission-options">
-                  {(["readOnly", "askApproval", "fullAccess"] as const).map(permission => <button key={permission} type="button"
-                    role="menuitemradio" aria-label={permissionLabels[permission]} aria-checked={snapshot.executionPermission === permission}
-                    disabled={snapshot.busy || changingPermission || (snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission))} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void changePermission(permission); }}>
-                    <span className="codex-app-server-permission-option"><strong>{permissionLabels[permission]}</strong><small>{permissionDescriptions[permission]}</small></span>
-                  </button>)}
-                </div>
-              </div>}
-              <button type="button" role="menuitem" disabled={(snapshot.busy && !canSendWhileBusy) || sending || pastingImage || attachments.length >= 10} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
+              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认" : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
+              {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
+              {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
+              {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
+              {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
+              {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+              {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
+              <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
           </div>
           <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy" || snapshot.provider === "opencode"
@@ -1139,14 +1261,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>
           {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}
-          {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.backend === "openai" && <span className="codex-app-server-permission-status">{(snapshot.models || []).find(model => model.id === snapshot.model)?.displayName || snapshot.model || "默认模型"}{snapshot.effort ? ` · 思考${effortLabel(snapshot.effort)}` : ""}{snapshot.fastMode ? " · 快速" : ""}</span>}
-          {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
+          {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.backend === "openai" && <span className="codex-app-server-permission-status">{(snapshot.models || []).find(model => model.id === snapshot.model)?.displayName || snapshot.model || "默认模型"}{snapshot.effort ? ` · ${effortLabel(snapshot.effort)}` : ""}{snapshot.fastMode ? " · 快速" : ""}</span>}
+          {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{typeof acpModel.currentValue === "string" && modelDetails(acpModel.currentValue) ? ` · ${modelDetails(acpModel.currentValue)}` : ""}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
           {!acpModel && acpContextWindow?.currentValue && <span className="codex-app-server-permission-status">上下文窗口：{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</span>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行</span>
           <div className="codex-app-server-input-primary">
-            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={() => void window.codexAppServerApi.newThread(sessionId)
-              .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
-              .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); })}><Plus aria-hidden="true" /></button>
+            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
             {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
           </div>
@@ -1184,9 +1304,34 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         </> : <p className="codex-app-server-team-empty">团队尚无成员。</p>}
       </aside>}
     </div>
+    {selectionKind && <div className="modal-overlay codex-app-server-selection-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeSelection(); }}>
+      <div ref={selectionDialogRef} className="modal-dialog codex-app-server-selection-dialog" role="dialog" aria-modal="true"
+        aria-labelledby="codex-app-server-selection-title" onKeyDown={event => {
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeSelection(); return; }
+          if (event.key !== "Tab") return;
+          const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+          if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus(); }
+          else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0]?.focus(); }
+        }}>
+        <div className="codex-app-server-selection-header"><h2 id="codex-app-server-selection-title">{selectionTitles[selectionKind]}</h2>
+          <button type="button" aria-label={`关闭${selectionTitles[selectionKind]}`} disabled={selectionPending} onClick={closeSelection}><X aria-hidden="true" /></button></div>
+        {selectionNextTurn && <p className="codex-app-server-selection-hint">下一轮生效{selectionKind === "fastMode" ? " · 开启后用量成本更高" : ""}</p>}
+        <div className="codex-app-server-selection-options" role="radiogroup" aria-label={selectionTitles[selectionKind]}>
+          {selectionOptions.map(option => <button key={option.value} type="button" role="radio" aria-checked={option.selected}
+            disabled={selectionPending || option.disabled} onClick={() => void selectOption(option.value)}>
+            <span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>
+          </button>)}
+          {selectionOptions.length === 0 && <p>当前会话没有可选项。</p>}
+        </div>
+        {selectionError && <p className="codex-app-server-selection-error" role="alert">{selectionError}</p>}
+        <div className="codex-app-server-selection-actions"><button type="button" disabled={selectionPending} onClick={closeSelection}>取消</button></div>
+      </div>
+    </div>}
     {goalOpen && snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <CodexGoalDialog
       key={`${sessionId}:${snapshot.threadId}`} sessionId={sessionId} snapshot={snapshot} onClose={() => setGoalOpen(false)}
       onUpdated={value => { if (currentSessionRef.current === sessionId && value.threadId === snapshot.threadId) setSnapshot(value); }} />}
+    {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} onClose={() => setPluginOpen(false)}
+      onChanged={() => { setCapabilities(null); }} />}
     {historyOpen && <div className="modal-overlay codex-app-server-history-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeHistory(); }}>
       <div className="modal-dialog codex-app-server-history-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-app-server-history-title" onKeyDown={event => {
         if (event.key === "Escape") { event.stopPropagation(); closeHistory(); return; }

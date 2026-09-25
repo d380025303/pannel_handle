@@ -4,6 +4,8 @@ function toRuntimeSession(session) {
     templateId: session.templateId,
     title: session.title,
     type: session.type,
+    runtimeMode: session.runtimeMode === "app-server" ? "app-server" : "terminal",
+    agentProvider: session.agentProvider,
     cwd: session.cwd,
     tags: Array.isArray(session.tags) ? session.tags : []
   };
@@ -18,6 +20,8 @@ function toSavedTemplates(sessionStore, terminalManager) {
     id: template.id,
     title: template.title,
     type: template.type,
+    runtimeMode: ["codex", "codebuddy", "opencode"].includes(template.agentProvider) && template.graphicalSessionEnabled !== false ? "app-server" : "terminal",
+    agentProvider: template.agentProvider,
     cwd: template.cwd,
     wslDistro: template.wslDistro,
     sshEndpoint: template.type === "ssh" && template.sshConfig?.host

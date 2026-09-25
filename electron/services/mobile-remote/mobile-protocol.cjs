@@ -1,4 +1,4 @@
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const PAIRING_TTL_MS = 2 * 60 * 1000;
 const MOBILE_GRACE_MS = 30 * 1000;
 const HEARTBEAT_MS = 10 * 1000;

@@ -64,14 +64,21 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
         if (task.status === "canceled" || result.status === "skipped") return;
         update(task, { status: "completed", remotePath: result.remotePath, transferredBytes: task.totalBytes, percent: 100 });
       } else {
-        await remoteFileService.downloadFile(task.sessionId, task.request.remotePath, task.request.localPath, {
-          transferId: task.id,
-          onProgress: (progress) => update(task, {
-            transferredBytes: progress.transferredBytes,
-            totalBytes: progress.totalBytes,
-            percent: progress.percent
-          })
-        });
+        const localPath = task.request.localPath;
+        const downloadPath = task.request.atomicOverwrite ? `${localPath}.${task.id}.part` : localPath;
+        try {
+          await remoteFileService.downloadFile(task.sessionId, task.request.remotePath, downloadPath, {
+            transferId: task.id,
+            onProgress: (progress) => update(task, {
+              transferredBytes: progress.transferredBytes,
+              totalBytes: progress.totalBytes,
+              percent: progress.percent
+            })
+          });
+          if (downloadPath !== localPath) await fsApi.promises.rename(downloadPath, localPath);
+        } finally {
+          if (downloadPath !== localPath) await fsApi.promises.rm(downloadPath, { force: true });
+        }
         update(task, { status: "completed", transferredBytes: task.totalBytes, percent: 100 });
       }
     } catch (error) {
@@ -142,6 +149,10 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
     return enqueue("download", sessionId, [{ remotePath, localPath, fileName }])[0];
   }
 
+  function enqueueDownloads(sessionId, requests) {
+    return enqueue("download", sessionId, requests);
+  }
+
   async function cancel(id) {
     const task = tasks.get(id);
     if (!task || !["queued", "running"].includes(task.status)) return false;
@@ -195,7 +206,7 @@ function createFileTransferManager({ remoteFileService, broadcast, fsApi = fs, c
     await Promise.allSettled(Array.from(activeRuns));
   }
 
-  return { list, enqueueUploads, enqueueDownload, cancel, retry, resolveConflict, clear, hasActiveForSession, shutdown };
+  return { list, enqueueUploads, enqueueDownload, enqueueDownloads, cancel, retry, resolveConflict, clear, hasActiveForSession, shutdown };
 }
 
 module.exports = { createFileTransferManager };

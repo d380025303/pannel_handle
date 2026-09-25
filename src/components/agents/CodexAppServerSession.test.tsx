@@ -46,6 +46,7 @@ describe("CodexAppServerSession", () => {
     nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: modeId === "plan" ? "plan" : "default",
     executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }));
   const setModel = vi.fn();
+  const listModelMetadata = vi.fn().mockResolvedValue([]);
   const setContextWindow = vi.fn();
   const setEffort = vi.fn();
   const setMultitask = vi.fn();
@@ -63,7 +64,7 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "projectSearchApi", { configurable: true, value: { searchWorkspaceEntries } });
     Object.defineProperty(window, "codexVersionApi", { configurable: true, value: {
       check: vi.fn().mockResolvedValue({ status: "current", currentVersion: "1.0.0", latestVersion: "1.0.0", restartRequired: false }),
@@ -72,7 +73,7 @@ describe("CodexAppServerSession", () => {
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, listHistory, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
-      resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
@@ -266,6 +267,79 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "请使用 MCP 工具 mcp__files__read_file", [], []));
   });
 
+  it("suggests slash operations only at the start and executes the selected operation", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "请执行 /new" } });
+    expect(screen.queryByRole("listbox", { name: "会话操作联想" })).toBeNull();
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.getByRole("option", { name: "/new 新对话" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/skills Skills 列表" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/mcp MCP 列表" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/plugins 插件管理" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/compact 压缩对话" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "/new" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(newThread).toHaveBeenCalledWith("run-1"));
+    expect(submit).not.toHaveBeenCalled();
+    expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("opens capability tabs and existing settings from slash suggestions", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/mcp" } });
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(await screen.findByRole("dialog", { name: "选择会话能力" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP" }).getAttribute("aria-selected")).toBe("true");
+    expect(listCapabilities).toHaveBeenCalledWith("run-1", false);
+    fireEvent.change(input, { target: { value: "/mode" } });
+    fireEvent.click(screen.getByRole("option", { name: "/mode 模式" }));
+    expect(screen.getByRole("dialog", { name: "模式" })).toBeTruthy();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("supports filtering, arrow navigation, Escape, and direct compaction", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/历史" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "会话操作联想" })).toBeNull();
+    fireEvent.change(input, { target: { value: "/" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getByRole("option", { name: "/history 历史会话" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.change(input, { target: { value: "/compact" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(compactThread).toHaveBeenCalledWith("run-1"));
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("shows provider-supported slash operations in CodeBuddy sessions", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "buddy-1", provider: "codebuddy",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null,
+      items: [], approvals: [], capabilities: { history: false, plan: true, attachments: true, permissions: true } });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 CodeBuddy 发送消息");
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.getByRole("option", { name: "/new 新对话" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/mode 模式" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Skills|MCP|压缩对话|目标管理/ })).toBeNull();
+    expect(screen.getByRole("option", { name: "/history 历史会话" })).toHaveProperty("disabled", true);
+  });
+
+  it("keeps OpenCode slash suggestions limited to its available controls", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "open-1", provider: "opencode",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null,
+      items: [], approvals: [], capabilities: { history: true, plan: true, attachments: true, permissions: true } });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 OpenCode 发送消息");
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.getByRole("option", { name: "/new 新对话" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "/history 历史会话" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Skills|Apps|MCP|压缩对话|插件管理/ })).toBeNull();
+  });
+
   it("shows CodeBuddy modes supplied by ACP and hides Codex permission controls", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",
@@ -274,8 +348,9 @@ describe("CodexAppServerSession", () => {
       capabilities: { history: false, plan: true, attachments: true, permissions: true } } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.getByRole("menuitem", { name: "历史会话" })).toHaveProperty("disabled", true);
-    expect(screen.queryByRole("group", { name: /执行权限/ })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
+    expect(screen.queryByRole("menuitem", { name: /执行权限/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
     await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
   });
 
@@ -286,17 +361,19 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { ...base, capabilities: { history: false, plan: false, attachments: true, permissions: true } } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.queryByRole("menuitemcheckbox", { name: /Multitask/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Multitask/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     act(() => changed({ id: "run-1", snapshot: { ...base, capabilities: { history: false, plan: false, attachments: true, permissions: true, multitask: true } } }));
     setMultitask.mockResolvedValueOnce({ ...base, capabilities: { history: false, plan: false, attachments: true, permissions: true, multitask: true },
       acpOptions: [{ ...base.acpOptions[0], currentValue: true }] });
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Multitask：关闭" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Multitask/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "开启" }));
     await waitFor(() => expect(setMultitask).toHaveBeenCalledWith("run-1", true));
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" }).getAttribute("aria-expanded")).toBe("false"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    await waitFor(() => expect(screen.getByRole("menuitemcheckbox", { name: "Multitask：开启" }).getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Multitask/ }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "开启" }).getAttribute("aria-checked")).toBe("true"));
     act(() => changed({ id: "run-1", snapshot: { ...base, capabilities: { history: false, plan: false, attachments: true, permissions: true, multitask: true },
       items: [{ id: "background-turn:drain", type: "backgroundTurn", turnId: "drain" },
         { id: "answer", type: "agentMessage", turnId: "drain", text: "子任务已完成" }],
@@ -314,10 +391,10 @@ describe("CodexAppServerSession", () => {
       acpOptions: [{ id: "multitask", name: "Multitask", type: "boolean", currentValue: false }] } }));
     setMultitask.mockRejectedValueOnce(new Error("后台任务已禁用"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Multitask：关闭" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("后台任务已禁用"));
-    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemcheckbox", { name: "Multitask：关闭" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("menuitem", { name: /Multitask/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "开启" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Multitask" }).textContent).toContain("后台任务已禁用"));
+    expect(screen.getByRole("radio", { name: "关闭" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("shows CodeBuddy ACP models and switches the selected model", async () => {
@@ -332,15 +409,48 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: withModel("hy3") }));
     expect(screen.getByText("HY3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("group", { name: "CodeBuddy 模型" })).toBeTruthy();
-    expect(screen.getByRole("menuitemradio", { name: "HY3" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "GLM 5.3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    expect(screen.getByRole("dialog", { name: "模型" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "HY3" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: "GLM 5.3" }));
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "glm-5.3"));
     expect(await screen.findByText("GLM 5.3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemradio", { name: "GLM 5.3" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    expect(screen.getByRole("radio", { name: "GLM 5.3" }).getAttribute("aria-checked")).toBe("true");
     act(() => changed({ id: "run-1", snapshot: { ...withModel("glm-5.3"), busy: true } }));
-    expect(screen.getByRole("menuitemradio", { name: "HY3" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("radio", { name: "HY3" })).toHaveProperty("disabled", true);
+  });
+
+  it("shows current CodeBuddy multiplier and discount in the model menu and status", async () => {
+    listModelMetadata.mockResolvedValue([{ id: "hy3", creditMultiplier: "0x", promotions: [{ id: "night", label: "夜间折扣" }] }]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "hy3", options: [
+        { value: "hy3", name: "HY3" }, { value: "other", name: "Other" }] }] } }));
+    await waitFor(() => expect(screen.getByText("HY3 · 倍率 0x · 夜间折扣")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    expect(await screen.findByRole("radio", { name: /HY3.*倍率 0x · 夜间折扣/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Other" })).toBeTruthy();
+  });
+
+  it.each(["missing", "throws", "rejects", "invalid response"])("keeps the CodeBuddy session visible when model metadata %s", async failure => {
+    if (failure === "missing") Object.defineProperty(window.codexAppServerApi, "listModelMetadata", { configurable: true, value: undefined });
+    else if (failure === "throws") listModelMetadata.mockImplementationOnce(() => { throw new Error("Metadata unavailable"); });
+    else if (failure === "rejects") listModelMetadata.mockRejectedValueOnce(new Error("Metadata unavailable"));
+    else listModelMetadata.mockResolvedValueOnce({ invalid: true });
+
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "hy3", options: [{ value: "hy3", name: "HY3" }] }] } }));
+    await act(async () => {});
+    expect(screen.getByRole("region", { name: "CodeBuddy 图形会话" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    expect(screen.getByRole("radio", { name: "HY3" })).toBeTruthy();
   });
 
   it("hides missing CodeBuddy model options and reports a rejected model change", async () => {
@@ -350,14 +460,15 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: base }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.queryByRole("group", { name: "CodeBuddy 模型" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /模型/ })).toBeNull();
     act(() => changed({ id: "run-1", snapshot: { ...base, acpOptions: [{ id: "model", type: "select",
       currentValue: "hy3", options: [{ value: "hy3", name: "HY3" }, { value: "glm-5.3", name: "GLM 5.3" }] }] } }));
     setModel.mockRejectedValueOnce(new Error("Model unavailable"));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "GLM 5.3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "GLM 5.3" }));
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "glm-5.3"));
-    expect(await screen.findByText("Model unavailable")).toBeTruthy();
-    expect(screen.getByText("HY3")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "模型" }).textContent).toContain("Model unavailable"));
+    expect(screen.getByRole("radio", { name: "HY3" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("shows only advertised CodeBuddy context tiers and keeps the choice after a rejection", async () => {
@@ -367,19 +478,21 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: base }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.queryByRole("group", { name: "CodeBuddy 上下文窗口档位" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /上下文窗口/ })).toBeNull();
     const withTiers = { ...base, acpOptions: [{ id: "context_window", type: "select", currentValue: "200000",
       options: [{ value: "200000", name: "200K" }, { value: "1000000", name: "1M" }] }] };
     act(() => changed({ id: "run-1", snapshot: withTiers }));
-    expect(screen.getByRole("menuitemradio", { name: "200K" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitem", { name: /上下文窗口/ }));
+    expect(screen.getByRole("radio", { name: "200K" }).getAttribute("aria-checked")).toBe("true");
     setContextWindow.mockResolvedValueOnce({ ...withTiers, acpOptions: [{ ...withTiers.acpOptions[0], currentValue: "1000000" }] });
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "1M" }));
+    fireEvent.click(screen.getByRole("radio", { name: "1M" }));
     await waitFor(() => expect(setContextWindow).toHaveBeenCalledWith("run-1", "1000000"));
     expect(await screen.findByText("上下文窗口：1M")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /上下文窗口/ }));
     setContextWindow.mockRejectedValueOnce(new Error("档位不可用"));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "200K" }));
-    expect(await screen.findByText("档位不可用")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "200K" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "上下文窗口" }).textContent).toContain("档位不可用"));
     expect(screen.getByText("上下文窗口：1M")).toBeTruthy();
   });
 
@@ -395,8 +508,9 @@ describe("CodexAppServerSession", () => {
       capabilities: { history: true, plan: true, attachments: true, permissions: false } } }));
     expect(screen.getByRole("region", { name: "OpenCode 图形会话" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.queryByRole("group", { name: /执行权限/ })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+    expect(screen.queryByRole("menuitem", { name: /执行权限/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Model B" }));
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "provider/b"));
   });
 
@@ -431,23 +545,21 @@ describe("CodexAppServerSession", () => {
     expect(composer.querySelector(".codex-app-server-composer-footer")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     const menu = screen.getByRole("menu", { name: "会话操作" });
-    const modeGroup = screen.getByRole("group", { name: "模式" });
-    const permissionGroup = screen.getByRole("group", { name: "执行权限（下一轮生效）" });
-    expect(menu.contains(modeGroup)).toBe(true);
-    expect(menu.contains(permissionGroup)).toBe(true);
-    expect(modeGroup.querySelectorAll('.codex-app-server-mode-options > [role="menuitemradio"]')).toHaveLength(2);
-    expect(permissionGroup.querySelectorAll('.codex-app-server-permission-options > [role="menuitemradio"]')).toHaveLength(3);
-    expect(screen.getByRole("menuitemradio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
+    expect(menu.contains(screen.getByRole("menuitem", { name: /模式/ }))).toBe(true);
+    expect(menu.contains(screen.getByRole("menuitem", { name: /执行权限/ }))).toBe(true);
+    expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.getByRole("menuitem", { name: "附加文件" })).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "历史会话" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "插件管理" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "压缩对话" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "目标管理" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Exec" }));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /模式/ }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Plan" }));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /执行权限/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
     const dialog = await screen.findByRole("dialog", { name: "历史会话" });
     expect(composer.contains(dialog)).toBe(false);
@@ -473,11 +585,13 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     expect(await screen.findByText("Model A")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /快速模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /快速模式/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /开启/ }));
     await waitFor(() => expect(setFastMode).toHaveBeenCalledWith("run-1", true));
     expect(await screen.findByText("Model A · 快速")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Model B" }));
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "model-b"));
     expect(await screen.findByText("Model B")).toBeTruthy();
   });
@@ -491,24 +605,27 @@ describe("CodexAppServerSession", () => {
     vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ ...base, effort: "medium" });
     setEffort.mockResolvedValueOnce({ ...base, effort: "high" });
     render(<CodexAppServerSession sessionId="run-1" />);
-    expect(await screen.findByText("Model A · 思考中")).toBeTruthy();
+    expect(await screen.findByText("Model A · 中")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    const group = screen.getByRole("group", { name: "思考强度（下一轮生效）" });
-    expect(group.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "高" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /思考强度/ }));
+    const group = screen.getByRole("radiogroup", { name: "思考强度" });
+    expect(group.querySelectorAll('[role="radio"]')).toHaveLength(2);
+    fireEvent.click(screen.getByRole("radio", { name: /高/ }));
     await waitFor(() => expect(setEffort).toHaveBeenCalledWith("run-1", "high"));
-    expect(await screen.findByText("Model A · 思考高")).toBeTruthy();
+    expect(await screen.findByText("Model A · 高")).toBeTruthy();
     act(() => changed({ id: "run-1", snapshot: { ...base, effort: "high", busy: true } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemradio", { name: "中" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("menuitem", { name: /思考强度/ }));
+    expect(screen.getByRole("radio", { name: /中/ })).toHaveProperty("disabled", true);
   });
 
   it("shows the selected execution permission and disables switching while running", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     expect((await screen.findByText("执行权限：需要确认")).getAttribute("data-permission")).toBe("askApproval");
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemradio", { name: "需要确认" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "完全访问" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /执行权限/ }));
+    expect(screen.getByRole("radio", { name: /需要确认/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
     await waitFor(() => expect(setExecutionPermission).toHaveBeenCalledWith("run-1", "fullAccess"));
     expect((await screen.findByText("执行权限：完全访问")).getAttribute("data-permission")).toBe("fullAccess");
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "plan", executionPermission: "fullAccess",
@@ -516,10 +633,44 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("执行权限：完全访问")).toBeTruthy();
     expect(screen.queryByText(/Plan 时只读/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemradio", { name: "只读" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("menuitem", { name: /执行权限/ }));
+    expect(screen.getByRole("radio", { name: /只读/ })).toHaveProperty("disabled", true);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "readOnly",
       busy: false, error: null, items: [], approvals: [] } }));
     expect(screen.getByText("执行权限：只读").getAttribute("data-permission")).toBe("readOnly");
+  });
+
+  it("cancels a selection without changing the session and restores focus", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    expect(screen.getByRole("radio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Exec" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("dialog", { name: "模式" })).toBeNull();
+    expect(setMode).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "模式" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "模式" })).toBeNull();
+    expect(setMode).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed choice open for retry and closes after success", async () => {
+    setExecutionPermission.mockRejectedValueOnce(new Error("权限暂不可用"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /执行权限/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "执行权限" }).textContent).toContain("权限暂不可用"));
+    expect(screen.getByRole("radio", { name: /需要确认/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "执行权限" })).toBeNull());
+    expect(setExecutionPermission).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("执行权限：完全访问")).toBeTruthy();
   });
 
   it("routes source links through the parent file navigation handler", async () => {
@@ -530,7 +681,7 @@ describe("CodexAppServerSession", () => {
     });
     render(<SessionView sessionId="run-1" draft="" setDraft={() => {}} onLinkClick={onLinkClick} />);
     fireEvent.click(await screen.findByRole("link", { name: "源码" }));
-    expect(onLinkClick).toHaveBeenCalledWith("src/App.tsx:42");
+    await waitFor(() => expect(onLinkClick).toHaveBeenCalledWith("src/App.tsx:42"));
   });
 
   it("shows conversation content without user or Codex role labels", async () => {
@@ -1155,7 +1306,8 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
     await waitFor(() => expect(setMode).toHaveBeenCalledWith("run-1", "plan"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
@@ -1252,9 +1404,10 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(screen.getByPlaceholderText("向 Codex 发送消息").parentElement?.getAttribute("data-mode")).toBe("default"));
     expect(setMode).toHaveBeenLastCalledWith("run-1", "default");
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("menuitemradio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "历史会话" }));
-    fireEvent.keyDown(screen.getByRole("menu", { name: "会话操作" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    expect(screen.getByRole("radio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Exec" }));
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "模式" }), { key: "Escape" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
     expect(input.value).toBe("保留草稿");
 

@@ -18,6 +18,6 @@ describe("mobile remote protocol helpers", () => {
   });
 
   it("rejects incompatible server messages", () => {
-    expect(() => parseServerMessage('{"v":2,"type":"ready"}')).toThrow("协议版本");
+    expect(() => parseServerMessage('{"v":1,"type":"ready"}')).toThrow("协议版本");
   });
 });

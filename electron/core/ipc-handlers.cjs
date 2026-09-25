@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codexPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -55,6 +55,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   }
   if (codexAppServerSessionService) {
     ipcMain.handle("codex-app-server:snapshot", (_event, id) => codexAppServerSessionService.snapshot(String(id || "")));
+    ipcMain.handle("codex-app-server:model-metadata", (_event, id) => codexAppServerSessionService.listModelMetadata(String(id || "")));
     ipcMain.handle("codex-app-server:account-read", (_event, id) => codexAppServerSessionService.readAccount(String(id || "")));
     ipcMain.handle("codex-app-server:account-login", (_event, id, type) => codexAppServerSessionService.startLogin(String(id || ""), type));
     ipcMain.handle("codex-app-server:account-cancel", (_event, id) => codexAppServerSessionService.cancelLogin(String(id || "")));
@@ -116,6 +117,16 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   if (codexVersionService) {
     ipcMain.handle("codex-version:check", (_event, id, force) => codexVersionService.check(String(id || ""), force === true));
     ipcMain.handle("codex-version:update", (_event, id) => codexVersionService.update(String(id || "")));
+  }
+  if (codexPluginService) {
+    ipcMain.handle("codex-plugin:list", (_event, id) => codexPluginService.list(id));
+    ipcMain.handle("codex-plugin:install", (_event, id, plugin, marketplace) => codexPluginService.install(id, plugin, marketplace));
+    ipcMain.handle("codex-plugin:uninstall", (_event, id, plugin, marketplace) => codexPluginService.uninstall(id, plugin, marketplace));
+    ipcMain.handle("codex-plugin:marketplace-add", (_event, id, source) => codexPluginService.addMarketplace(id, source));
+    ipcMain.handle("codex-plugin:marketplace-refresh", (_event, id, name) => codexPluginService.refreshMarketplace(id, name));
+    ipcMain.handle("codex-plugin:marketplace-remove", (_event, id, name) => codexPluginService.removeMarketplace(id, name));
+    ipcMain.handle("codex-plugin:config", (_event, id, scope) => codexPluginService.readConfig(id, scope));
+    ipcMain.handle("codex-plugin:enable", (_event, id, scope, input) => codexPluginService.setEnabled(id, scope, input));
   }
   if (postgresBackupService) {
     ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());

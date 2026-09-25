@@ -1023,6 +1023,23 @@ export type CodexVersionApi = {
   check: (id: string, force?: boolean) => Promise<CodexVersionState>;
   update: (id: string) => Promise<CodexVersionState>;
 };
+export type CodexPluginScope = "project" | "user";
+export type CodexPluginCatalog = {
+  installed: Array<Record<string, unknown>>;
+  available: Array<Record<string, unknown>>;
+  marketplaces: Array<Record<string, unknown>>;
+  environment: string;
+};
+export type CodexPluginApi = {
+  list: (id: string) => Promise<CodexPluginCatalog>;
+  install: (id: string, plugin: string, marketplace: string) => Promise<CodexPluginCatalog>;
+  uninstall: (id: string, plugin: string, marketplace: string) => Promise<CodexPluginCatalog>;
+  addMarketplace: (id: string, source: string) => Promise<CodexPluginCatalog>;
+  refreshMarketplace: (id: string, name: string) => Promise<CodexPluginCatalog>;
+  removeMarketplace: (id: string, name: string) => Promise<CodexPluginCatalog>;
+  readConfig: (id: string, scope: CodexPluginScope) => Promise<{ overrides: Record<string, { enabled?: boolean }> }>;
+  setEnabled: (id: string, scope: CodexPluginScope, input: { plugin: string; marketplace: string; enabled: boolean }) => Promise<{ overrides: Record<string, { enabled?: boolean }> }>;
+};
 export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
 export type CodexSessionCapabilities = {
   skills: Array<{ name: string; path: string; description: string; enabled: boolean; scope: string }>;
@@ -1034,6 +1051,7 @@ export type CodexSessionCapabilities = {
 
 export type CodexAppServerApi = {
   snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
+  listModelMetadata: (id: string) => Promise<Array<{ id: string; creditMultiplier?: string; promotions: CodeBuddyCodexPromotion[] }>>;
   readAccount: (id: string) => Promise<CodexAccountState>;
   startLogin: (id: string, type: "chatgpt" | "chatgptDeviceCode") => Promise<CodexAccountState>;
   cancelLogin: (id: string) => Promise<CodexAccountState>;
@@ -1312,6 +1330,7 @@ export type FileTransferApi = {
   chooseUpload: (sessionId: string, remoteDir: string) => Promise<{ canceled: true } | { canceled: false; tasks: FileTransferTask[] }>;
   uploadDroppedFiles: (sessionId: string, remoteDir: string, files: FileList | File[]) => Promise<{ canceled: false; tasks: FileTransferTask[] }>;
   chooseDownload: (sessionId: string, remotePath: string, fileName?: string) => Promise<{ canceled: true } | { canceled: false; task: FileTransferTask }>;
+  chooseDownloadBatch: (sessionId: string, entries: RemoteFileEntry[]) => Promise<{ canceled: true } | { canceled: false; tasks: FileTransferTask[] }>;
   cancel: (id: string) => Promise<boolean>;
   retry: (id: string) => Promise<boolean>;
   resolveConflict: (id: string, policy: "overwrite" | "skip" | "rename") => Promise<boolean>;
@@ -1438,6 +1457,7 @@ export type IdeaBridgeApi = {
 declare global {
   interface Window {
     projectAssistantApi: ProjectAssistantApi;
+    codexPluginApi: CodexPluginApi;
     codexAppServerApi: CodexAppServerApi;
     codexVersionApi: CodexVersionApi;
     environmentApi: EnvironmentApi;

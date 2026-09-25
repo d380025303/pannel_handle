@@ -26,6 +26,10 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
     compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),
     setMode: route("setMode"), setModel: route("setModel"), setEffort: route("setEffort"), setFastMode: route("setFastMode"),
+    listModelMetadata(id) {
+      if (serviceFor(id) !== codeBuddy) return [];
+      return codeBuddy.listModelMetadata(id);
+    },
     setContextWindow(id, value) {
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持上下文窗口档位。");
       return codeBuddy.setContextWindow(id, value);

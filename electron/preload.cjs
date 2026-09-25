@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld("projectAssistantApi", {
 
 contextBridge.exposeInMainWorld("codexAppServerApi", {
   snapshot: id => ipcRenderer.invoke("codex-app-server:snapshot", id),
+  listModelMetadata: id => ipcRenderer.invoke("codex-app-server:model-metadata", id),
   readAccount: id => ipcRenderer.invoke("codex-app-server:account-read", id),
   startLogin: (id, type) => ipcRenderer.invoke("codex-app-server:account-login", id, type),
   cancelLogin: id => ipcRenderer.invoke("codex-app-server:account-cancel", id),
@@ -98,6 +99,17 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
 contextBridge.exposeInMainWorld("codexVersionApi", {
   check: (id, force) => ipcRenderer.invoke("codex-version:check", id, force === true),
   update: id => ipcRenderer.invoke("codex-version:update", id)
+});
+
+contextBridge.exposeInMainWorld("codexPluginApi", {
+  list: id => ipcRenderer.invoke("codex-plugin:list", id),
+  install: (id, plugin, marketplace) => ipcRenderer.invoke("codex-plugin:install", id, plugin, marketplace),
+  uninstall: (id, plugin, marketplace) => ipcRenderer.invoke("codex-plugin:uninstall", id, plugin, marketplace),
+  addMarketplace: (id, source) => ipcRenderer.invoke("codex-plugin:marketplace-add", id, source),
+  refreshMarketplace: (id, name) => ipcRenderer.invoke("codex-plugin:marketplace-refresh", id, name),
+  removeMarketplace: (id, name) => ipcRenderer.invoke("codex-plugin:marketplace-remove", id, name),
+  readConfig: (id, scope) => ipcRenderer.invoke("codex-plugin:config", id, scope),
+  setEnabled: (id, scope, input) => ipcRenderer.invoke("codex-plugin:enable", id, scope, input)
 });
 
 contextBridge.exposeInMainWorld("terminalApi", {
@@ -400,6 +412,7 @@ contextBridge.exposeInMainWorld("fileTransferApi", {
   chooseUpload: (sessionId, remoteDir) => ipcRenderer.invoke("file-transfers:choose-upload", { sessionId, remoteDir }),
   uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("file-transfers:upload-paths", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
   chooseDownload: (sessionId, remotePath, fileName) => ipcRenderer.invoke("file-transfers:choose-download", { sessionId, remotePath, fileName }),
+  chooseDownloadBatch: (sessionId, entries) => ipcRenderer.invoke("file-transfers:choose-download-batch", { sessionId, entries }),
   cancel: (id) => ipcRenderer.invoke("file-transfers:cancel", { id }),
   retry: (id) => ipcRenderer.invoke("file-transfers:retry", { id }),
   resolveConflict: (id, policy) => ipcRenderer.invoke("file-transfers:resolve-conflict", { id, policy }),

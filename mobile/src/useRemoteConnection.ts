@@ -5,6 +5,8 @@ import { PROTOCOL_VERSION, type ClientMessage, type ConnectionStatus, type Runti
 
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
+type GraphicalMessage = Extract<ServerMessage,
+  { type: "graphical.snapshot" | "graphical.history" | "command.ok" | "error" }>;
 
 function defaultDeviceName() {
   const saved = localStorage.getItem("pannel-handle-device-name");
@@ -27,6 +29,7 @@ export function useRemoteConnection() {
   const retryTimerRef = useRef<number | null>(null);
   const connectAttemptRef = useRef(0);
   const terminalListenersRef = useRef(new Set<(message: TerminalMessage) => void>());
+  const graphicalListenersRef = useRef(new Set<(message: GraphicalMessage) => void>());
 
   const send = useCallback((message: ClientMessage) => {
     const socket = socketRef.current;
@@ -81,7 +84,7 @@ export function useRemoteConnection() {
             await saveStoredDevice(approved);
             setDevice(approved);
             window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-            setStatusMessage("配对成功，正在进入终端…");
+            setStatusMessage("配对成功，正在进入会话…");
             break;
           }
           case "pair.rejected":
@@ -116,7 +119,13 @@ export function useRemoteConnection() {
           case "terminal.size-owner":
             terminalListenersRef.current.forEach((listener) => listener(message));
             break;
+          case "graphical.snapshot":
+          case "graphical.history":
+          case "command.ok":
+            graphicalListenersRef.current.forEach((listener) => listener(message));
+            break;
           case "error":
+            graphicalListenersRef.current.forEach((listener) => listener(message));
             if (message.code === "AUTH_INVALID" || message.code === "DEVICE_REVOKED") {
               await clearStoredDevice();
               setDevice(null);
@@ -124,7 +133,7 @@ export function useRemoteConnection() {
             if (["AUTH_INVALID", "DEVICE_REVOKED", "AUTH_REQUIRED", "PROTOCOL_MISMATCH", "DEVICE_BUSY"].includes(message.code)) {
               setStatus("error");
               setStatusMessage(message.message);
-            } else {
+            } else if (message.code !== "GRAPHICAL_COMMAND_FAILED") {
               setCommandError(message.message);
             }
             break;
@@ -169,6 +178,10 @@ export function useRemoteConnection() {
     terminalListenersRef.current.add(listener);
     return () => terminalListenersRef.current.delete(listener);
   }, []);
+  const onGraphicalMessage = useCallback((listener: (message: GraphicalMessage) => void) => {
+    graphicalListenersRef.current.add(listener);
+    return () => graphicalListenersRef.current.delete(listener);
+  }, []);
 
   const retry = useCallback(() => {
     socketRef.current?.close();
@@ -186,6 +199,7 @@ export function useRemoteConnection() {
     commandError,
     send,
     retry,
-    onTerminalMessage
+    onTerminalMessage,
+    onGraphicalMessage
   };
 }

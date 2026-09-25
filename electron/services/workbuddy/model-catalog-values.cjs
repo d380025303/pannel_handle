@@ -11,6 +11,13 @@ function normalizeTokenLimit(value) {
     : undefined;
 }
 
+function normalizeCreditMultiplier(value) {
+  const text = typeof value === "number" ? String(value) : normalizeText(value, 20);
+  const match = /^(\d{1,4}(?:\.\d{1,3})?)\s*x?$/i.exec(text);
+  if (!match || Number(match[1]) > 1000) return undefined;
+  return `${match[1]}x`;
+}
+
 function normalizeClock(value) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(normalizeText(value, 5));
   if (!match) return "";
@@ -56,12 +63,14 @@ function normalizeCatalogData(data) {
     if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
     const contextLimits = [normalizeTokenLimit(model?.maxInputTokens), normalizeTokenLimit(model?.maxAllowedSize)].filter(Boolean);
     const contextWindow = contextLimits.length ? Math.min(...contextLimits) : undefined;
+    const creditMultiplier = normalizeCreditMultiplier(model?.credits);
     const sourcePromotions = Array.isArray(model?.promotions)
       ? model.promotions
       : promotions.filter(promotion => Array.isArray(promotion?.modelIds) && promotion.modelIds.includes(id));
     return {
       id,
       name: normalizeText(model?.name, 120) || id,
+      ...(creditMultiplier ? { creditMultiplier } : {}),
       ...(contextWindow ? { contextWindow } : {}),
       promotions: sourcePromotions.map(normalizePromotion).filter(Boolean)
     };
@@ -127,6 +136,7 @@ function getPromotionDisplay(promotions, timestamp = Date.now()) {
 module.exports = {
   normalizeText,
   normalizeTokenLimit,
+  normalizeCreditMultiplier,
   normalizeClock,
   normalizePromotion,
   normalizeCatalogData,

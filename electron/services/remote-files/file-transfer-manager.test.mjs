@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFileTransferManager } from "./file-transfer-manager.cjs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 function deferred() {
   let resolve;
@@ -9,6 +12,32 @@ function deferred() {
 }
 
 describe("file-transfer-manager", () => {
+  it("replaces an existing file only after a batch download succeeds", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "panel-batch-download-"));
+    const target = path.join(dir, "note.txt");
+    await fs.writeFile(target, "original");
+    const remoteFileService = {
+      downloadFile: vi.fn(async (_sessionId, _remotePath, localPath) => { await fs.writeFile(localPath, "replacement"); }),
+      cancelDownload: vi.fn()
+    };
+    try {
+      const manager = createFileTransferManager({ remoteFileService, broadcast: vi.fn() });
+      manager.enqueueDownloads("s1", [{ remotePath: "/note.txt", localPath: target, fileName: "note.txt", atomicOverwrite: true }]);
+      await vi.waitFor(() => expect(manager.list()[0].status).toBe("completed"));
+      expect(await fs.readFile(target, "utf8")).toBe("replacement");
+      expect(remoteFileService.downloadFile.mock.calls[0][2]).not.toBe(target);
+
+      remoteFileService.downloadFile.mockImplementationOnce(async (_sessionId, _remotePath, localPath) => {
+        await fs.writeFile(localPath, "partial");
+        throw new Error("network failed");
+      });
+      manager.enqueueDownloads("s1", [{ remotePath: "/note.txt", localPath: target, fileName: "note.txt", atomicOverwrite: true }]);
+      await vi.waitFor(() => expect(manager.list().some((task) => task.status === "failed")).toBe(true));
+      expect(await fs.readFile(target, "utf8")).toBe("replacement");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
   it("updates a running upload from service progress", async () => {
     const upload = deferred();
     const remoteFileService = {

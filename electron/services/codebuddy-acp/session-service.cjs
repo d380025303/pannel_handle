@@ -8,6 +8,7 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const { waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
+const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PREVIEW_LIMIT = 2 * 1024 * 1024;
@@ -86,7 +87,7 @@ async function createRemoteChild(transportService, session, environment, provide
 
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
-  httpTransportFactory = createCodeBuddyHttpTransport }) {
+  httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService }) {
   const sessions = new Map();
   const agentName = provider === "opencode" ? "OpenCode" : "CodeBuddy";
   function applySessionOptions(entry, result) {
@@ -146,6 +147,16 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
       approvals: [...entry.approvals.values()].map(value => value.display),
       questions: [], capabilities: entry.capabilities, provider };
+  }
+  async function listModelMetadata(id) {
+    const entry = entryFor(id);
+    if (provider !== "codebuddy" || entry.session.type !== "windows" || !workBuddyModelCatalogService) return [];
+    const catalog = await workBuddyModelCatalogService.readCatalog();
+    return catalog.map(model => ({
+      id: model.id,
+      ...(model.creditMultiplier ? { creditMultiplier: model.creditMultiplier } : {}),
+      promotions: getPromotionDisplay(model.promotions)
+    }));
   }
   function publish(id) { if (sessions.has(id)) broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
   function status(id, entry, state, summary) {
@@ -603,7 +614,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     await setMode(id, "default");
     await submit(id, "按上述计划执行。", []);
   }
-  return { start, restart, close, shutdown, snapshot, getWorkspaceCwd: id => workspace(entryFor(id)), listHistory, resume, newThread,
+  return { start, restart, close, shutdown, snapshot, listModelMetadata, getWorkspaceCwd: id => workspace(entryFor(id)), listHistory, resume, newThread,
     setMode, setNativeMode, setModel, setContextWindow, setEffort, setMultitask, sendTeamMessage, setExecutionPermission, dismissPlan, executePlan, allowFiles, allowPastedImage, discardPastedImage, previewAttachment,
     submit, interrupt, resolveApproval, answerQuestion };
 }

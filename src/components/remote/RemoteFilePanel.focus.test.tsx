@@ -17,6 +17,62 @@ describe("RemoteFilePanel file activation", () => {
     Reflect.deleteProperty(Range.prototype, "getClientRects");
   });
 
+  it("selects on click, supports Ctrl and visible Shift ranges, and opens on double click", async () => {
+    const paths = ["a.txt", "b.txt", "c.txt"].map((name) => `${rootPath}\\${name}`);
+    const folder = `${rootPath}\\folder`;
+    const previewFile = vi.fn(async (_sessionId: string, path: string) => ({ kind: "text" as const, path, content: "hello" }));
+    const list = vi.fn(async (_sessionId: string, path: string) => path === rootPath
+      ? [...paths.map((entry, index) => ({ name: `${String.fromCharCode(97 + index)}.txt`, path: entry, type: "file" as const, size: 1, modifiedAt: 0 })), { name: "folder", path: folder, type: "directory" as const, size: 0, modifiedAt: 0 }]
+      : []);
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath), list, previewFile,
+      onDownloadProgress: vi.fn(() => () => undefined), watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true), onChanged: vi.fn(() => () => undefined), onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const session = { id: "session-1", type: "windows", name: "Windows" } as unknown as TerminalSession;
+    render(<RemoteFilePanel session={session} />);
+    const rows = await Promise.all(paths.map(async (path) => (await screen.findByTitle(path)).closest("button")!));
+    const folderRow = (await screen.findByTitle(folder)).closest("button")!;
+    fireEvent.click(rows[0]);
+    expect(rows[0].getAttribute("aria-selected")).toBe("true");
+    expect(previewFile).not.toHaveBeenCalled();
+    fireEvent.click(rows[2], { ctrlKey: true });
+    expect(rows[0].getAttribute("aria-selected")).toBe("true");
+    expect(rows[2].getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(rows[1], { shiftKey: true });
+    expect(rows.map((row) => row.getAttribute("aria-selected"))).toEqual(["false", "true", "true"]);
+    fireEvent.doubleClick(rows[1]);
+    await waitFor(() => expect(previewFile).toHaveBeenCalledWith(session.id, paths[1]));
+    fireEvent.click(folderRow);
+    expect(list).toHaveBeenCalledTimes(1);
+    fireEvent.doubleClick(folderRow);
+    await waitFor(() => expect(list).toHaveBeenCalledWith(session.id, folder));
+  });
+
+  it("keeps a multi-selection on right click and downloads the selected entries together", async () => {
+    const paths = ["a.txt", "b.txt", "c.txt"].map((name) => `${rootPath}\\${name}`);
+    window.remoteFileApi = {
+      getHome: vi.fn(async () => rootPath),
+      list: vi.fn(async () => paths.map((path) => ({ name: path.split("\\").at(-1)!, path, type: "file", size: 1, modifiedAt: 0 }))),
+      onDownloadProgress: vi.fn(() => () => undefined), watchDirectories: vi.fn(async () => true),
+      unwatchDirectories: vi.fn(async () => true), onChanged: vi.fn(() => () => undefined), onWatchError: vi.fn(() => () => undefined)
+    } as unknown as RemoteFileApi;
+    const chooseDownloadBatch = vi.fn(async () => ({ canceled: false, tasks: [] }));
+    window.fileTransferApi = { chooseDownloadBatch } as unknown as Window["fileTransferApi"];
+    render(<RemoteFilePanel session={{ id: "session-1", type: "windows", name: "Windows" } as unknown as TerminalSession} />);
+    const rows = await Promise.all(paths.map(async (path) => (await screen.findByTitle(path)).closest("button")!));
+    fireEvent.click(rows[0]);
+    fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows[1]);
+    expect(rows.slice(0, 2).map((row) => row.getAttribute("aria-selected"))).toEqual(["true", "true"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "下载" }));
+    await waitFor(() => expect(chooseDownloadBatch).toHaveBeenCalledWith("session-1", expect.arrayContaining([
+      expect.objectContaining({ path: paths[0] }), expect.objectContaining({ path: paths[1] })
+    ])));
+    fireEvent.contextMenu(rows[2]);
+    expect(rows.map((row) => row.getAttribute("aria-selected"))).toEqual(["false", "false", "true"]);
+  });
+
   it("opens a requested source file and selects its requested line", async () => {
     Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => [] });
     const previewFile = vi.fn(async () => {
@@ -86,13 +142,13 @@ describe("RemoteFilePanel file activation", () => {
     render(<RemoteFilePanel session={session} onActivePreviewTabChange={onActivePreviewTabChange} />);
 
     const notes = await screen.findByTitle(filePath);
-    fireEvent.click(notes.closest("button")!);
+    fireEvent.doubleClick(notes.closest("button")!);
     await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
     const openedTabId = onActivePreviewTabChange.mock.calls[0]?.[0];
     expect(openedTabId).toBeTruthy();
 
     onActivePreviewTabChange.mockClear();
-    fireEvent.click(notes.closest("button")!);
+    fireEvent.doubleClick(notes.closest("button")!);
 
     expect(onActivePreviewTabChange).toHaveBeenCalledWith(openedTabId);
     expect(previewFile).toHaveBeenCalledTimes(1);
@@ -144,7 +200,7 @@ describe("RemoteFilePanel file activation", () => {
     );
 
     const notes = await screen.findByTitle(filePath);
-    fireEvent.click(notes.closest("button")!);
+    fireEvent.doubleClick(notes.closest("button")!);
     await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({ sessionId: firstSession.id, fileName: "notes.txt" })
     ]));
@@ -160,7 +216,7 @@ describe("RemoteFilePanel file activation", () => {
 
     await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([]));
     expect(onActivePreviewTabChange).toHaveBeenCalledWith(null, true);
-    fireEvent.click((await screen.findByTitle(secondFilePath)).closest("button")!);
+    fireEvent.doubleClick((await screen.findByTitle(secondFilePath)).closest("button")!);
     await waitFor(() => expect(onPreviewTabsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({ sessionId: secondSession.id, fileName: "todo.txt" })
     ]));
@@ -246,7 +302,7 @@ describe("RemoteFilePanel file activation", () => {
       />
     );
 
-    fireEvent.click((await screen.findByTitle(filePath)).closest("button")!);
+    fireEvent.doubleClick((await screen.findByTitle(filePath)).closest("button")!);
     await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
     view.rerender(
       <RemoteFilePanel
@@ -413,7 +469,7 @@ describe("RemoteFilePanel file activation", () => {
       />
     );
 
-    fireEvent.click((await screen.findByTitle(markdownPath)).closest("button")!);
+    fireEvent.doubleClick((await screen.findByTitle(markdownPath)).closest("button")!);
     await waitFor(() => expect(previewFile).toHaveBeenCalledWith(session.id, markdownPath));
     view.rerender(
       <RemoteFilePanel
@@ -473,7 +529,7 @@ describe("RemoteFilePanel file activation", () => {
       />
     );
 
-    fireEvent.click((await screen.findByTitle(markdownPath)).closest("button")!);
+    fireEvent.doubleClick((await screen.findByTitle(markdownPath)).closest("button")!);
     await waitFor(() => expect(previewFile).toHaveBeenCalledTimes(1));
     view.rerender(
       <RemoteFilePanel

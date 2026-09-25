@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import { createPairingUrls, getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
+import sessionValues from "./mobile-session-values.cjs";
+
+const { toRuntimeSession, toSavedTemplates } = sessionValues;
+
+describe("mobile session mode values", () => {
+  it("uses the actual runtime mode for running sessions and the saved preference for templates", () => {
+    expect(toRuntimeSession({ id: "run", title: "Codex", type: "windows", agentProvider: "codex", runtimeMode: "app-server" }))
+      .toMatchObject({ runtimeMode: "app-server", agentProvider: "codex" });
+    const templates = toSavedTemplates({ getLibrary: () => [
+      { id: "graph", title: "Graph", type: "wsl", agentProvider: "opencode", graphicalSessionEnabled: true },
+      { id: "terminal", title: "Terminal", type: "ssh", agentProvider: "codebuddy", graphicalSessionEnabled: false }
+    ] }, { listSessions: () => [] });
+    expect(templates.map(value => value.runtimeMode)).toEqual(["app-server", "terminal"]);
+  });
+});
 
 describe("mobile remote network helpers", () => {
   it("only accepts RFC1918 IPv4 addresses", () => {

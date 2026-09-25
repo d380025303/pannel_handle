@@ -37,5 +37,5 @@ it("serves HEAD metadata, blocks writes and returns unavailable when the static 
   expect(head.end).toHaveBeenCalledWith();
   expect(head.setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
   expect(request("POST").writeHead).toHaveBeenCalledWith(405, { Allow: "GET, HEAD" });
-  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 1 }));
+  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 2 }));
 });

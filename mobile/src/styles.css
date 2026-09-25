@@ -72,6 +72,42 @@ button { color: inherit; }
 .text-sheet div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .text-sheet button { padding: 8px 16px; border: 1px solid #3a4b61; border-radius: 8px; background: #1e293b; }
 
+.graphical-shell { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.graphical-loading { align-items: center; justify-content: center; color: #91a4bc; }
+.graphical-header { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-bottom: 1px solid #263244; background: #0d1522; }
+.graphical-header div { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.graphical-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphical-header span { color: #8fa4bc; font-size: 11px; }
+.graphical-header button, .graphical-actions button, .graphical-composer button { padding: 7px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; }
+.graphical-shell button:disabled { opacity: .45; }
+.graphical-error { padding: 8px 12px; color: #fecdd3; background: #4c0519; font-size: 12px; }
+.graphical-timeline { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 10px; overscroll-behavior: contain; }
+.graphical-empty { margin: 28px 12px; color: #8fa4bc; text-align: center; }
+.graphical-message { max-width: 95%; margin: 0 0 12px; padding: 10px 12px; border: 1px solid #29384c; border-radius: 12px; background: #141f30; overflow-wrap: anywhere; }
+.graphical-message.userMessage { margin-left: auto; border-color: #0e7490; background: #083344; }
+.graphical-message small { color: #67e8f9; }
+.graphical-message p, .graphical-card p { margin: 7px 0 0; white-space: pre-wrap; line-height: 1.5; }
+.graphical-markdown pre { overflow-x: auto; padding: 9px; border-radius: 7px; background: #080d16; white-space: pre; }
+.graphical-markdown code { overflow-wrap: anywhere; }
+.graphical-markdown table { display: block; overflow-x: auto; border-collapse: collapse; }
+.graphical-markdown td, .graphical-markdown th { padding: 5px 7px; border: 1px solid #344459; }
+.graphical-card, .graphical-tool { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #344459; border-radius: 10px; background: #101827; overflow-wrap: anywhere; }
+.graphical-card strong { display: block; margin-bottom: 5px; }
+.graphical-card small { color: #8fa4bc; }
+.graphical-tool summary { color: #9fb5ce; font-size: 12px; }
+.graphical-tool pre { overflow-x: auto; white-space: pre-wrap; font-size: 11px; }
+.graphical-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.graphical-question { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-size: 13px; }
+.graphical-question input, .graphical-question select { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #36506e; border-radius: 8px; color: #d8e2f0; background: #080d16; }
+.graphical-composer { display: flex; align-items: flex-end; gap: 7px; padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); border-top: 1px solid #263244; background: #101827; }
+.graphical-composer textarea { min-width: 0; flex: 1; min-height: 42px; max-height: 145px; padding: 9px; resize: vertical; border: 1px solid #36506e; border-radius: 9px; color: #d8e2f0; background: #080d16; }
+.graphical-history-backdrop { position: fixed; inset: 0; z-index: 25; display: flex; justify-content: flex-end; background: #020617aa; }
+.graphical-history { width: min(90vw, 390px); height: 100%; padding: 12px; overflow-y: auto; background: #101827; }
+.graphical-history header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.graphical-history button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px; margin: 5px 0; border: 1px solid #344459; border-radius: 8px; color: inherit; background: #172235; text-align: left; }
+.graphical-history header button { width: auto; }
+.graphical-history small { color: #8fa4bc; }
+
 @media (orientation: landscape) and (max-height: 540px) {
   .app-header { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
   .terminal-header { min-height: 38px; }

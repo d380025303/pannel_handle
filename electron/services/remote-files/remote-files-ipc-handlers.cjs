@@ -197,6 +197,40 @@ function registerRemoteFileIpcHandlers({
     if (result.canceled || !result.filePath) return { canceled: true };
     return { canceled: false, task: fileTransferManager.enqueueDownload(sessionId, remotePath, result.filePath, fileName) };
   });
+  ipcMain.handle("file-transfers:choose-download-batch", async (event, { sessionId, entries }) => {
+    if (!Array.isArray(entries) || entries.length === 0) throw new Error("No entries were selected for download.");
+    const ownerWindow = windowManager.getWindowFromEvent(event);
+    const result = await dialog.showOpenDialog(ownerWindow, { properties: ["openDirectory", "createDirectory"] });
+    if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
+    const destination = result.filePaths[0];
+    const directories = new Set();
+    const requests = new Map();
+    const seenTypes = new Map();
+    async function collect(entry, relativeParent = "") {
+      const name = getDownloadFileName(entry.name, entry.path, pathApi);
+      const relativePath = pathApi.join(relativeParent, name);
+      const localPath = pathApi.resolve(destination, relativePath);
+      const destinationRoot = pathApi.resolve(destination);
+      if (!localPath.startsWith(`${destinationRoot}${pathApi.sep}`)) throw new Error("Invalid download path.");
+      const key = localPath.toLowerCase();
+      const kind = entry.type === "directory" ? "directory" : "file";
+      if (seenTypes.has(key) && seenTypes.get(key) !== kind) throw new Error(`Download name conflict: ${relativePath}`);
+      seenTypes.set(key, kind);
+      if (entry.type === "directory") {
+        directories.add(localPath);
+        const children = await remoteFileService.list(sessionId, entry.path);
+        for (const child of children) await collect(child, relativePath);
+      } else {
+        directories.add(pathApi.dirname(localPath));
+        requests.set(key, { remotePath: entry.path, localPath, fileName: name, atomicOverwrite: true });
+      }
+    }
+    for (const entry of entries) await collect(entry);
+    for (const directory of [...directories].sort((left, right) => left.length - right.length)) {
+      await fsApi.promises.mkdir(directory, { recursive: true });
+    }
+    return { canceled: false, tasks: fileTransferManager.enqueueDownloads(sessionId, [...requests.values()]) };
+  });
   ipcMain.handle("file-transfers:cancel", (_event, { id }) => fileTransferManager.cancel(id));
   ipcMain.handle("file-transfers:retry", (_event, { id }) => fileTransferManager.retry(id));
   ipcMain.handle("file-transfers:resolve-conflict", (_event, { id, policy }) => fileTransferManager.resolveConflict(id, policy));

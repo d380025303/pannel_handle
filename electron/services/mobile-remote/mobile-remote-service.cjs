@@ -13,6 +13,7 @@ const { WebSocket, WebSocketServer } = require("ws");
 function createMobileRemoteService({
   terminalManager,
   agentSessionLauncher,
+  graphicalService,
   sessionStore,
   accessStore,
   stateHub,
@@ -45,7 +46,7 @@ function createMobileRemoteService({
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
-    terminalManager, sessionStore, agentSessionLauncher, stateHub, now,
+    terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now,
     accessStore, auth, sizes, send, sendError
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
@@ -183,7 +184,11 @@ function createMobileRemoteService({
     return currentState();
   }
 
-  function handleTerminalEvent(channel, payload) {
+  function handleDesktopEvent(channel, payload) {
+    if (channel === "codex-app-server:changed") {
+      socketHandlers.handleGraphicalChanged(auth.getActiveClient()?.socket, payload);
+      return;
+    }
     if (channel === "terminal:started") {
       stateHub.start(payload.id, payload.cols, payload.rows);
       sizes.start(payload);
@@ -219,7 +224,8 @@ function createMobileRemoteService({
     disconnectActiveDevice: auth.disconnectActiveDevice,
     resizeFromDesktop: sizes.resizeFromDesktop,
     claimDesktopSize: sizes.claimDesktopSize,
-    handleTerminalEvent,
+    handleDesktopEvent,
+    handleTerminalEvent: handleDesktopEvent,
     constants: { PROTOCOL_VERSION, PAIRING_TTL_MS, MOBILE_GRACE_MS }
   };
 }

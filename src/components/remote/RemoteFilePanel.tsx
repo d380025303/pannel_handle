@@ -80,11 +80,12 @@ type InlineEditState =
 
 type RenameDialogState = { parentPath: string; entry: RemoteFileEntry; value: string } | null;
 
-type MoveDialogState = { entry: RemoteFileEntry; targetDirectory: string } | null;
+type MoveDialogState = { entries: RemoteFileEntry[]; targetDirectory: string } | null;
 
 type MutationConflictState = {
   label: string;
   retry: (policy: "overwrite" | "skip" | "rename") => Promise<void>;
+  onCancel?: () => void;
 } | null;
 
 type DownloadTransferState = {
@@ -125,6 +126,8 @@ type RemoteFilePanelSessionState = {
   directories: DirectoryTreeState;
   expandedPaths: Set<string>;
   selectedPath: string | null;
+  selectedPaths: Set<string>;
+  selectionAnchor: string | null;
   searchQuery: string;
   tabs: PreviewTabState[];
   activeTabId: string | null;
@@ -281,6 +284,7 @@ export function RemoteFilePanel({
   const [directories, setDirectories] = useState<DirectoryTreeState>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [previewTabs, setPreviewTabs] = useState<PreviewTabState[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -299,7 +303,7 @@ export function RemoteFilePanel({
   }, []);
   const [downloadTransfer, setDownloadTransfer] = useState<DownloadTransferState | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState>(null);
-  const [deleteDialogEntry, setDeleteDialogEntry] = useState<RemoteFileEntry | null>(null);
+  const [deleteDialogEntries, setDeleteDialogEntries] = useState<RemoteFileEntry[] | null>(null);
   const [fileSort, setFileSort] = useState(session?.fileSort ?? { key: "name" as const, direction: "asc" as const });
   const [lineJump, setLineJump] = useState<{ path: string; line: number; requestId: number } | null>(null);
   const [pathHistory, setPathHistory] = useState<string[]>([]);
@@ -326,6 +330,8 @@ export function RemoteFilePanel({
   const currentPathRef = useRef(".");
   const pathInputRef = useRef(".");
   const selectedPathRef = useRef<string | null>(null);
+  const selectedPathsRef = useRef<Set<string>>(new Set());
+  const selectionAnchorRef = useRef<string | null>(null);
   const treeRootRef = useRef<RemoteFileEntry | null>(null);
   const navigationRootRef = useRef<string | null>(null);
   const directoriesRef = useRef<DirectoryTreeState>({});
@@ -380,6 +386,20 @@ export function RemoteFilePanel({
     return Object.values(directories).flatMap((directory) => directory.entries)
       .find((entry) => entry.path === selectedPath);
   }, [directories, selectedPath, treeRoot]);
+  const selectedEntries = useMemo(() => {
+    const entries = [treeRoot, ...Object.values(directories).flatMap((directory) => directory.entries)]
+      .filter((entry): entry is RemoteFileEntry => Boolean(entry));
+    return entries.filter((entry) => selectedPaths.has(entry.path)
+      && !entries.some((parent) => parent.type === "directory" && parent.path !== entry.path
+        && selectedPaths.has(parent.path) && isPathInside(entry.path, parent.path)));
+  }, [directories, selectedPaths, treeRoot]);
+  const mutableSelectedEntries = useMemo(() => {
+    const entries = [treeRoot, ...Object.values(directories).flatMap((directory) => directory.entries)]
+      .filter((entry): entry is RemoteFileEntry => Boolean(entry))
+      .filter((entry) => selectedPaths.has(entry.path) && (!treeRoot || !sameTreePath(entry.path, treeRoot.path)));
+    return entries.filter((entry) => !entries.some((parent) => parent.type === "directory" && parent.path !== entry.path
+      && isPathInside(entry.path, parent.path)));
+  }, [directories, selectedPaths, treeRoot]);
   const canOpenInExplorer = session?.type === "windows" || session?.type === "wsl";
   const contextEntry = fileContextMenu?.entry;
   const sessionTransfers = useMemo(() => transfers.filter((task) => task.sessionId === sessionId), [sessionId, transfers]);
@@ -529,11 +549,40 @@ export function RemoteFilePanel({
     setFileContextMenu(null);
   }, []);
 
+  const selectPaths = useCallback((paths: Set<string>, activePath: string | null, anchor: string | null) => {
+    selectedPathsRef.current = paths;
+    selectionAnchorRef.current = anchor;
+    selectedPathRef.current = activePath;
+    setSelectedPaths(paths);
+    setSelectedPath(activePath);
+  }, []);
+
+  const handleRowClick = useCallback((event: MouseEvent<HTMLButtonElement>, entry: RemoteFileEntry) => {
+    closeFileContextMenu();
+    const path = entry.path;
+    if (event.shiftKey) {
+      const paths = visibleTreeNodes.map((node) => node.entry.path);
+      const anchorIndex = paths.indexOf(selectionAnchorRef.current ?? "");
+      const endIndex = paths.indexOf(path);
+      if (anchorIndex >= 0 && endIndex >= 0) {
+        selectPaths(new Set(paths.slice(Math.min(anchorIndex, endIndex), Math.max(anchorIndex, endIndex) + 1)), path, selectionAnchorRef.current);
+        return;
+      }
+    }
+    if (event.ctrlKey || event.metaKey) {
+      const next = new Set(selectedPathsRef.current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      selectPaths(next, next.has(path) ? path : next.values().next().value ?? null, path);
+      return;
+    }
+    selectPaths(new Set([path]), path, path);
+  }, [closeFileContextMenu, selectPaths, visibleTreeNodes]);
+
   const handleFileContextMenu = useCallback((event: MouseEvent<HTMLElement>, entry: RemoteFileEntry) => {
     event.preventDefault();
     event.stopPropagation();
-    selectedPathRef.current = entry.path;
-    setSelectedPath(entry.path);
+    if (!selectedPathsRef.current.has(entry.path)) selectPaths(new Set([entry.path]), entry.path, entry.path);
 
     const menuWidth = 176;
     const isTreeRoot = Boolean(treeRoot && sameTreePath(entry.path, treeRoot.path));
@@ -547,7 +596,7 @@ export function RemoteFilePanel({
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
       y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
     });
-  }, [session?.type, treeRoot]);
+  }, [selectPaths, session?.type, treeRoot]);
 
   useEffect(() => {
     if (!fileContextMenu) {
@@ -591,6 +640,8 @@ export function RemoteFilePanel({
     treeRootRef.current = null;
     directoriesRef.current = {};
     selectedPathRef.current = null;
+    selectedPathsRef.current = new Set();
+    selectionAnchorRef.current = null;
     currentPathRef.current = path;
     pathInputRef.current = path;
     expandedPathsRef.current = new Set();
@@ -603,6 +654,7 @@ export function RemoteFilePanel({
     setDirectories({});
     setExpandedPaths(new Set());
     setSelectedPath(null);
+    setSelectedPaths(new Set());
     setSearchQuery("");
     setDropTargetPath(null);
     setUploadingCount(0);
@@ -619,6 +671,8 @@ export function RemoteFilePanel({
     directories: directoriesRef.current,
     expandedPaths: new Set(expandedPathsRef.current),
     selectedPath: selectedPathRef.current,
+    selectedPaths: new Set(selectedPathsRef.current),
+    selectionAnchor: selectionAnchorRef.current,
     searchQuery: searchQueryRef.current,
     tabs: previewTabsRef.current,
     activeTabId: activePreviewTabIdRef.current
@@ -630,6 +684,8 @@ export function RemoteFilePanel({
     treeRootRef.current = state.treeRoot;
     directoriesRef.current = state.directories;
     selectedPathRef.current = state.selectedPath;
+    selectedPathsRef.current = new Set(state.selectedPaths);
+    selectionAnchorRef.current = state.selectionAnchor;
     currentPathRef.current = state.currentPath;
     pathInputRef.current = state.pathInput;
     expandedPathsRef.current = new Set(state.expandedPaths);
@@ -642,6 +698,7 @@ export function RemoteFilePanel({
     setDirectories(state.directories);
     setExpandedPaths(new Set(state.expandedPaths));
     setSelectedPath(state.selectedPath);
+    setSelectedPaths(new Set(state.selectedPaths));
     setSearchQuery(state.searchQuery);
     setDropTargetPath(null);
     setUploadingCount(0);
@@ -710,7 +767,10 @@ export function RemoteFilePanel({
     requestRef.current = requestId;
     closeFileContextMenu();
     selectedPathRef.current = null;
+    selectedPathsRef.current = new Set();
+    selectionAnchorRef.current = null;
     setSelectedPath(null);
+    setSelectedPaths(new Set());
     setLoading(true);
     setError(null);
     try {
@@ -741,6 +801,9 @@ export function RemoteFilePanel({
       onCurrentPathChange?.(targetEntry.path);
       setSelectedPath(targetEntry.path);
       selectedPathRef.current = targetEntry.path;
+      selectedPathsRef.current = new Set();
+      selectionAnchorRef.current = null;
+      setSelectedPaths(new Set());
       if (!preserveSearch) setSearchQuery("");
       if (historyNavigationRef.current) {
         historyNavigationRef.current = false;
@@ -905,12 +968,11 @@ export function RemoteFilePanel({
         const existingTab = previewTabsRef.current.find((tab) => tab.id === getPreviewTabId(sessionId, entry.path));
         if (existingTab) {
           onActivePreviewTabChange?.(existingTab.id);
+          return;
         }
       }
-      return;
     }
-    selectedPathRef.current = entry.path;
-    setSelectedPath(entry.path);
+    selectPaths(new Set([entry.path]), entry.path, entry.path);
     if (entry.type === "directory") {
       setCurrentPath(entry.path);
       setPathInput(entry.path);
@@ -1027,7 +1089,7 @@ export function RemoteFilePanel({
         }
       }));
     }
-  }, [autoCollapseFileChains, expandedPaths, loadTreeDirectory, onActivePreviewTabChange, onCurrentPathChange, sessionId, updatePreviewTab]);
+  }, [autoCollapseFileChains, expandedPaths, loadTreeDirectory, onActivePreviewTabChange, onCurrentPathChange, selectPaths, sessionId, updatePreviewTab]);
 
   const handleMarkdownLink = useCallback(async (sourcePath: string, href: string) => {
     const target = resolveMarkdownLink(sourcePath, href);
@@ -1169,6 +1231,8 @@ export function RemoteFilePanel({
       directoriesRef.current = { [normalizedRoot]: { status: "ready", entries } };
       expandedPathsRef.current = new Set([normalizedRoot]);
       selectedPathRef.current = normalizedRoot;
+      selectedPathsRef.current = new Set();
+      selectionAnchorRef.current = null;
       currentPathRef.current = normalizedRoot;
       pathInputRef.current = normalizedRoot;
       searchQueryRef.current = "";
@@ -1178,6 +1242,7 @@ export function RemoteFilePanel({
       setDirectories({ [normalizedRoot]: { status: "ready", entries } });
       setExpandedPaths(new Set([normalizedRoot]));
       setSelectedPath(normalizedRoot);
+      setSelectedPaths(new Set());
       setCurrentPath(normalizedRoot);
       setPathInput(normalizedRoot);
       setSearchQuery("");
@@ -1261,11 +1326,36 @@ export function RemoteFilePanel({
 
   const submitMove = useCallback(async () => {
     if (!moveDialog || !sessionId || !moveDialog.targetDirectory.trim()) return;
-    const parentPath = findCachedParentPath(moveDialog.entry.path);
-    await runMutation(moveDialog.entry.name, (policy) => window.remoteFileApi.moveEntry(
-      sessionId, moveDialog.entry.path, moveDialog.targetDirectory.trim(), undefined, policy
-    ), parentPath);
-  }, [findCachedParentPath, moveDialog, runMutation, sessionId]);
+    const target = moveDialog.targetDirectory.trim();
+    setMoveDialog(null);
+    const remaining: string[] = [];
+    for (const entry of moveDialog.entries) {
+      if (entry.type === "directory" && isPathInside(target, entry.path)) {
+        setError(t("files.cannotMoveIntoSelf", { name: entry.name }));
+        remaining.push(entry.path);
+        continue;
+      }
+      try {
+        let policy: "cancel" | "overwrite" | "skip" | "rename" = "cancel";
+        for (;;) {
+          const result = await window.remoteFileApi.moveEntry(sessionId, entry.path, target, undefined, policy);
+          if (result.status !== "conflict") {
+            if (result.status === "skipped") remaining.push(entry.path);
+            break;
+          }
+          policy = await new Promise<"overwrite" | "skip" | "rename">((resolve) => {
+            setMutationConflict({ label: entry.name, retry: async (choice) => { setMutationConflict(null); resolve(choice); }, onCancel: () => { setMutationConflict(null); resolve("skip"); } });
+          });
+        }
+        await refreshDirectory(findCachedParentPath(entry.path), true);
+        await refreshDirectory(target, true);
+      } catch (err) {
+        setError(getErrorMessage(err));
+        remaining.push(entry.path);
+      }
+    }
+    selectPaths(new Set(remaining), remaining[0] ?? null, remaining[0] ?? null);
+  }, [findCachedParentPath, moveDialog, refreshDirectory, selectPaths, sessionId, t]);
 
   const handleUpload = useCallback(async () => {
     if (!sessionId) return;
@@ -1371,10 +1461,18 @@ export function RemoteFilePanel({
     void startDownloadTransfer("drag", entry);
   }, [closeFileContextMenu, sessionId, startDownloadTransfer]);
 
-  const handleDownload = useCallback(async (entry: RemoteFileEntry) => {
+  const handleDownload = useCallback(async (entries: RemoteFileEntry[]) => {
     closeFileContextMenu();
-    if (!sessionId || entry.type === "directory") return;
-    await window.fileTransferApi.chooseDownload(sessionId, entry.path, entry.name);
+    if (!sessionId || entries.length === 0) return;
+    try {
+      if (entries.length === 1 && entries[0].type !== "directory") {
+        await window.fileTransferApi.chooseDownload(sessionId, entries[0].path, entries[0].name);
+      } else {
+        await window.fileTransferApi.chooseDownloadBatch(sessionId, entries);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   }, [closeFileContextMenu, sessionId]);
 
   const handleCancelDownload = useCallback(() => {
@@ -1395,7 +1493,7 @@ export function RemoteFilePanel({
   }, [closeFileContextMenu, onAddToGraphicalInput, onFocusTerminal, session, sessionId]);
 
   const performDeleteEntry = useCallback(async (entry: RemoteFileEntry) => {
-    if (!sessionId) return;
+    if (!sessionId) return false;
     try {
       await window.remoteFileApi.deleteEntry(sessionId, entry.path);
       const parentDirectory = findCachedParentPath(entry.path);
@@ -1436,22 +1534,30 @@ export function RemoteFilePanel({
       } else {
         await refreshDirectory(parentDirectory);
       }
+      return true;
     } catch (err) {
       setError(getErrorMessage(err));
+      return false;
     }
   }, [findCachedParentPath, loadDirectory, onActivePreviewTabChange, onCurrentPathChange, refreshDirectory, releasePreviewForTab, sessionId, updateDirectories]);
 
-  const requestDeleteEntry = useCallback((entry: RemoteFileEntry) => {
+  const requestDeleteEntry = useCallback((entries: RemoteFileEntry[]) => {
     closeFileContextMenu();
-    setDeleteDialogEntry(entry);
+    setDeleteDialogEntries(entries);
   }, [closeFileContextMenu]);
 
   const confirmDeleteEntry = useCallback(() => {
-    const entry = deleteDialogEntry;
-    if (!entry) return;
-    setDeleteDialogEntry(null);
-    void performDeleteEntry(entry);
-  }, [deleteDialogEntry, performDeleteEntry]);
+    const entries = deleteDialogEntries;
+    if (!entries) return;
+    setDeleteDialogEntries(null);
+    void (async () => {
+      const failed: string[] = [];
+      for (const entry of entries) {
+        if (!await performDeleteEntry(entry)) failed.push(entry.path);
+      }
+      selectPaths(new Set(failed), failed[0] ?? null, failed[0] ?? null);
+    })();
+  }, [deleteDialogEntries, performDeleteEntry, selectPaths]);
 
   const handleOpenInExplorer = useCallback(async () => {
     if (!sessionId) return;
@@ -1752,6 +1858,12 @@ export function RemoteFilePanel({
       : <FileText aria-hidden="true" />;
 
   const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, node: VisibleTreeNode, index: number) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      selectPaths(new Set([node.entry.path]), node.entry.path, node.entry.path);
+      void handleOpenEntry(node.entry);
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const nextIndex = Math.max(0, Math.min(visibleTreeNodes.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
@@ -1960,17 +2072,16 @@ export function RemoteFilePanel({
                     if (element) treeRowRefs.current.set(entry.path, element);
                     else treeRowRefs.current.delete(entry.path);
                   }}
-                  className={`remote-file-row ${entry.type}-entry ${selectedPath === entry.path ? "selected" : ""} ${dropTargetPath === entry.path ? "drop-target" : ""} ${downloadDragPath === entry.path ? "drag-preparing" : ""}`}
+                  className={`remote-file-row ${entry.type}-entry ${selectedPaths.has(entry.path) ? "selected" : ""} ${dropTargetPath === entry.path ? "drop-target" : ""} ${downloadDragPath === entry.path ? "drag-preparing" : ""}`}
                   style={{ "--remote-file-depth": depth } as CSSProperties}
                   role="treeitem"
                   aria-level={depth + 1}
                   aria-expanded={entry.type === "directory" ? expanded : undefined}
+                  aria-selected={selectedPaths.has(entry.path)}
                   type="button"
                   draggable={entry.type !== "directory"}
-                  onClick={() => {
-                    closeFileContextMenu();
-                    void handleOpenEntry(entry);
-                  }}
+                  onClick={(event) => handleRowClick(event, entry)}
+                  onDoubleClick={(event) => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey) void handleOpenEntry(entry); }}
                   onKeyDown={(event) => handleTreeKeyDown(event, node, index)}
                   onContextMenu={(event) => handleFileContextMenu(event, entry)}
                   onDragStart={(event) => handleRemoteFileDragStart(event, entry)}
@@ -2074,8 +2185,7 @@ export function RemoteFilePanel({
             <TerminalIcon aria-hidden="true" />
             <span>{t(session.runtimeMode === "app-server" ? "files.addToGraphicalInput" : "files.addToTerminal")}</span>
           </button>
-          {!treeRoot || !sameTreePath(contextEntry.path, treeRoot.path) ? (
-            <>
+          {(!treeRoot || !sameTreePath(contextEntry.path, treeRoot.path)) && (
               <button type="button" role="menuitem" onClick={() => {
                 closeFileContextMenu();
                 setRenameDialog({ parentPath: findCachedParentPath(contextEntry.path), entry: contextEntry, value: contextEntry.name });
@@ -2083,12 +2193,13 @@ export function RemoteFilePanel({
                 <Pencil aria-hidden="true" />
                 <span>{t("files.rename")}</span>
               </button>
-              <button type="button" role="menuitem" onClick={() => { closeFileContextMenu(); setMoveDialog({ entry: contextEntry, targetDirectory: currentPath }); }}>
+          )}
+          {mutableSelectedEntries.length > 0 && (
+              <button type="button" role="menuitem" onClick={() => { closeFileContextMenu(); setMoveDialog({ entries: mutableSelectedEntries, targetDirectory: currentPath }); }}>
                 <Move aria-hidden="true" />
                 <span>{t("files.move")}</span>
               </button>
-            </>
-          ) : null}
+          )}
           <button type="button" role="menuitem" onClick={() => { closeFileContextMenu(); void window.clipboardApi.writeText(contextEntry.path); }}>
             <Copy aria-hidden="true" />
             <span>{t("files.copyPath")}</span>
@@ -2097,18 +2208,16 @@ export function RemoteFilePanel({
             <Copy aria-hidden="true" />
             <span>{t("files.copyName")}</span>
           </button>
-          {(!treeRoot || !sameTreePath(contextEntry.path, treeRoot.path)) && (
-            <button type="button" role="menuitem" onClick={() => requestDeleteEntry(contextEntry)}>
+          {mutableSelectedEntries.length > 0 && (
+            <button type="button" role="menuitem" onClick={() => requestDeleteEntry(mutableSelectedEntries)}>
               <Trash2 aria-hidden="true" />
               <span>{t("files.deleteEntry")}</span>
             </button>
           )}
-          {contextEntry.type !== "directory" && (
-            <button type="button" role="menuitem" disabled={downloadTransfer !== null} onClick={() => void handleDownload(contextEntry)}>
-              <Download aria-hidden="true" />
-              <span>{t("common.download")}</span>
-            </button>
-          )}
+          <button type="button" role="menuitem" disabled={downloadTransfer !== null} onClick={() => void handleDownload(selectedEntries)}>
+            <Download aria-hidden="true" />
+            <span>{t("common.download")}</span>
+          </button>
         </div>
       )}
     </aside>
@@ -2165,7 +2274,7 @@ export function RemoteFilePanel({
                 </>
               )}
               {activePreview.status === "ready" && activePreviewTab.entry && activePreviewTab.entry.type !== "directory" && (
-                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} disabled={downloadTransfer !== null} onClick={() => void handleDownload(activePreviewTab.entry!)}>
+                <button className="icon-button" type="button" title={t("common.download")} aria-label={t("common.download")} disabled={downloadTransfer !== null} onClick={() => void handleDownload([activePreviewTab.entry!])}>
                   <Download aria-hidden="true" />
                 </button>
               )}
@@ -2269,8 +2378,8 @@ export function RemoteFilePanel({
     )}
     {moveDialog && (
       <div className="modal-overlay" onClick={() => setMoveDialog(null)}>
-        <div className="file-operation-dialog" onClick={(event) => event.stopPropagation()}>
-          <h2>{t("files.move")}: {moveDialog.entry.name}</h2>
+        <div className="file-operation-dialog" role="dialog" aria-modal="true" aria-label={t("files.move")} onClick={(event) => event.stopPropagation()}>
+          <h2>{t("files.move")}: {moveDialog.entries.length === 1 ? moveDialog.entries[0].name : t("files.selectedItems", { count: moveDialog.entries.length })}</h2>
           <label>
             <span>{t("files.targetDirectory")}</span>
             <input autoFocus value={moveDialog.targetDirectory} onChange={(event) => setMoveDialog({ ...moveDialog, targetDirectory: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") void submitMove(); }} />
@@ -2351,7 +2460,7 @@ export function RemoteFilePanel({
       </div>
     )}
     {mutationConflict && (
-      <div className="modal-overlay" onClick={() => setMutationConflict(null)}>
+      <div className="modal-overlay" onClick={() => { mutationConflict.onCancel?.(); setMutationConflict(null); }}>
         <div className="file-operation-dialog" onClick={(event) => event.stopPropagation()}>
           <h2>{t("files.nameConflict")}</h2>
           <p>{mutationConflict.label}</p>
@@ -2359,17 +2468,17 @@ export function RemoteFilePanel({
             <button type="button" onClick={() => void mutationConflict.retry("overwrite")}>{t("files.overwrite")}</button>
             <button type="button" onClick={() => void mutationConflict.retry("skip")}>{t("files.skip")}</button>
             <button type="button" onClick={() => void mutationConflict.retry("rename")}>{t("files.autoRename")}</button>
-            <button type="button" onClick={() => setMutationConflict(null)}>{t("common.cancel")}</button>
+            <button type="button" onClick={() => { mutationConflict.onCancel?.(); setMutationConflict(null); }}>{t("common.cancel")}</button>
           </div>
         </div>
       </div>
     )}
-    {deleteDialogEntry && (
+    {deleteDialogEntries && (
       <div
         className="modal-overlay"
-        onClick={() => setDeleteDialogEntry(null)}
+        onClick={() => setDeleteDialogEntries(null)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setDeleteDialogEntry(null);
+          if (event.key === "Escape") setDeleteDialogEntries(null);
         }}
       >
         <div
@@ -2380,11 +2489,11 @@ export function RemoteFilePanel({
           onClick={(event) => event.stopPropagation()}
         >
           <h2>{t("files.deleteEntry")}</h2>
-          <p>{session?.type === "windows"
-            ? t("confirm.trashEntry", { name: deleteDialogEntry.name })
-            : t("confirm.deleteEntry", { name: deleteDialogEntry.name })}</p>
+          <p>{deleteDialogEntries.length > 1
+            ? t(session?.type === "windows" ? "confirm.trashEntries" : "confirm.deleteEntries", { count: deleteDialogEntries.length })
+            : t(session?.type === "windows" ? "confirm.trashEntry" : "confirm.deleteEntry", { name: deleteDialogEntries[0].name })}</p>
           <div className="file-operation-actions">
-            <button type="button" autoFocus onClick={() => setDeleteDialogEntry(null)}>{t("common.cancel")}</button>
+            <button type="button" autoFocus onClick={() => setDeleteDialogEntries(null)}>{t("common.cancel")}</button>
             <button className="danger" type="button" onClick={confirmDeleteEntry}>{t("common.delete")}</button>
           </div>
         </div>

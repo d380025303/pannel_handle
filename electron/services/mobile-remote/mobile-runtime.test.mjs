@@ -122,7 +122,7 @@ describe("mobile component collaboration", () => {
     const f = fixture();
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
-    const message = payload => client.emit("message", JSON.stringify({ v: 1, ...payload }));
+    const message = payload => client.emit("message", JSON.stringify({ v: 2, ...payload }));
     message({ type: "terminal.input", sessionId: "run-1", data: "x" });
     expect(f.terminalManager.write).not.toHaveBeenCalled();
     expect(f.sendError).toHaveBeenLastCalledWith(client, "AUTH_REQUIRED", expect.any(String));
@@ -141,7 +141,7 @@ describe("mobile component collaboration", () => {
     const client = socket();
     f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
     f.auth.authenticateSocket(client, f.device);
-    const message = payload => client.emit("message", JSON.stringify({ v: 1, ...payload }));
+    const message = payload => client.emit("message", JSON.stringify({ v: 2, ...payload }));
     f.stateHub.getDeltas.mockReturnValue([{ data: "delta", seq: 2 }]);
     message({ type: "terminal.subscribe", sessionId: "run-1", lastSeq: 1 });
     expect(f.send).toHaveBeenCalledWith(client, { type: "terminal.data", sessionId: "run-1", data: "delta", seq: 2 });
@@ -186,10 +186,10 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   await service.start();
   expect(createHttpServer).toHaveBeenCalledTimes(1);
   server.emit("upgrade", { url: "/api/v1/ws", headers: { host: "192.168.1.1:43123" }, socket: { remoteAddress: "192.168.1.2" } }, {}, Buffer.alloc(0));
-  client.emit("message", JSON.stringify({ v: 1, type: "auth", deviceId: f.device.id, token: "test-token" }));
-  client.emit("message", JSON.stringify({ v: 1, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
+  client.emit("message", JSON.stringify({ v: 2, type: "auth", deviceId: f.device.id, token: "test-token" }));
+  client.emit("message", JSON.stringify({ v: 2, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "output" });
-  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: 1, type: "terminal.data", sessionId: "run-1", data: "output", seq: 1 }));
+  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: 2, type: "terminal.data", sessionId: "run-1", data: "output", seq: 1 }));
   await vi.advanceTimersByTimeAsync(10_000);
   expect(client.ping).toHaveBeenCalledTimes(1);
   await service.stop();

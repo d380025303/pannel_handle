@@ -1,8 +1,10 @@
 const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = require("./mobile-protocol.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
+const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, stateHub, now, accessStore, auth, sizes, send, sendError }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now, accessStore, auth, sizes, send, sendError }) {
   const { getSizeState, applySize } = sizes;
+  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, send });
 
   function sendReady(socket) {
     send(socket, {
@@ -24,11 +26,13 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
   }
 
   async function subscribeTerminal(socket, sessionId, lastSeq) {
-    if (!terminalManager.getSession(sessionId)) {
+    const session = terminalManager.getSession(sessionId);
+    if (!session || session.runtimeMode === "app-server") {
       sendError(socket, "SESSION_NOT_FOUND", "会话不存在或已经结束。");
       return;
     }
     socket.subscriptions.clear();
+    socket.graphicalSessionId = null;
     socket.subscriptions.add(sessionId);
     const deltas = stateHub.getDeltas(sessionId, lastSeq);
     if (deltas !== null && Number.isSafeInteger(lastSeq)) {
@@ -44,15 +48,19 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
   async function handleAuthenticatedMessage(socket, message) {
     const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
     try {
-      if (message.type === "terminal.subscribe") {
+      if (message.type.startsWith("graphical.")) {
+        await graphical.handle(socket, message);
+      } else if (message.type === "terminal.subscribe") {
         await subscribeTerminal(socket, String(message.sessionId || ""), Number(message.lastSeq));
       } else if (message.type === "terminal.input") {
+        if (terminalManager.getSession(String(message.sessionId || ""))?.runtimeMode === "app-server") throw new Error("图形会话不能接收终端输入。");
         const data = typeof message.data === "string" ? message.data : "";
         const bytes = Buffer.byteLength(data, "utf8");
         if (!data || bytes > MAX_INPUT_BYTES || !checkInputRate(socket, bytes)) throw new Error("终端输入过大或发送过快。");
         terminalManager.write(String(message.sessionId || ""), data);
       } else if (message.type === "terminal.claim-size" || message.type === "terminal.resize") {
         const sessionId = String(message.sessionId || "");
+        if (terminalManager.getSession(sessionId)?.runtimeMode === "app-server") throw new Error("图形会话没有终端尺寸。");
         const state = getSizeState(sessionId);
         if (message.type === "terminal.resize" && state.owner !== socket.mobileDevice.id) return;
         applySize(sessionId, socket.mobileDevice.id, message.cols, message.rows);
@@ -62,11 +70,14 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         const cols = Math.max(20, Math.min(500, Math.floor(Number(message.cols) || 100)));
         const rows = Math.max(5, Math.min(200, Math.floor(Number(message.rows) || 30)));
         const session = await launchMobileTemplate(agentSessionLauncher, template, cols, rows);
-        applySize(session.id, socket.mobileDevice.id, cols, rows);
         socket.subscriptions.clear();
-        socket.subscriptions.add(session.id);
+        socket.graphicalSessionId = null;
         send(socket, { type: "session.launched", sessionId: session.id });
-        await subscribeTerminal(socket, session.id);
+        if (session.runtimeMode === "app-server") await graphical.handle(socket, { type: "graphical.subscribe", sessionId: session.id });
+        else {
+          applySize(session.id, socket.mobileDevice.id, cols, rows);
+          await subscribeTerminal(socket, session.id);
+        }
       } else if (message.type === "session.rename") {
         const title = String(message.title || "").trim();
         if (!title || title.length > 120) throw new Error("会话名称必须为 1 到 120 个字符。");
@@ -79,7 +90,8 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         sendError(socket, "MESSAGE_NOT_ALLOWED", "该移动端操作不被允许。", requestId);
       }
     } catch (error) {
-      sendError(socket, "COMMAND_FAILED", error.message || String(error), requestId);
+      sendError(socket, message.type.startsWith("graphical.") ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
+        error.message || String(error), requestId);
     }
   }
 
@@ -92,7 +104,9 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       return;
     }
     if (!message || message.v !== PROTOCOL_VERSION || typeof message.type !== "string") {
-      sendError(socket, "PROTOCOL_MISMATCH", "移动端协议版本不兼容。");
+      if (message?.v === 1) {
+        socket.send(JSON.stringify({ v: 1, type: "error", code: "PROTOCOL_MISMATCH", message: "移动端已更新，请刷新手机页面。" }));
+      } else sendError(socket, "PROTOCOL_MISMATCH", "移动端协议版本不兼容，请刷新页面。");
       return;
     }
     if (!socket.authenticated) {
@@ -125,13 +139,14 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.isAlive = true;
     socket.remoteAddress = request.socket.remoteAddress || "unknown";
     socket.subscriptions = new Set();
+    socket.graphicalSessionId = null;
     socket.on("pong", () => { socket.isAlive = true; });
     socket.on("message", (raw) => handleSocketMessage(socket, raw));
     socket.on("close", () => {
       auth.handleSocketClosed(socket);
     });
   }
-  return { sendReady, handleWebSocket };
+  return { sendReady, handleWebSocket, handleGraphicalChanged: graphical.handleChanged };
 }
 
 module.exports = { createMobileSocketHandlers };
