@@ -8220,11 +8220,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-menu-group { display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; }
 .codex-app-server-menu-label { display: flex; align-items: baseline; gap: 7px; padding: 0 4px; color: var(--color-text-secondary); font-size: 12px; font-weight: 600; }
 .codex-app-server-menu-label small { color: var(--color-text-muted); font-size: 11px; font-weight: 400; }
-.codex-version-control { border-bottom: 1px solid var(--color-border); padding-bottom: 8px; }
-.codex-version-detail { display: flex; flex-direction: column; gap: 3px; padding: 0 4px; color: var(--color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.codex-version-control { box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; width: min(100%, 360px); margin-top: 24px; padding: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-panel); text-align: left; }
+.codex-version-title { color: var(--color-text); font-size: 13px; }
+.codex-version-detail { display: flex; flex-direction: column; gap: 3px; color: var(--color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
 .codex-version-detail [role="alert"] { color: var(--color-danger); }
-.codex-version-actions, .codex-version-confirm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 4px; }
-.codex-version-confirm p { flex-basis: 100%; margin: 0; font-size: 11px; }
+.codex-version-actions, .codex-version-confirm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.codex-app-server-empty .codex-version-confirm p { flex-basis: 100%; margin: 0; font-size: 11px; }
 .codex-version-actions button, .codex-version-confirm button { border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 4px 8px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
 .codex-version-actions button:disabled, .codex-version-confirm button:disabled { opacity: .5; cursor: default; }
 .codex-app-server-mode-options, .codex-app-server-permission-options { display: grid; gap: 6px; }

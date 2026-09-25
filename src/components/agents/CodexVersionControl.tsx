@@ -36,8 +36,8 @@ export function CodexVersionControl({ sessionId }: { sessionId: string }) {
     finally { setUpdating(false); }
   }
   const available = state?.status === "available";
-  return <div className="codex-app-server-menu-group codex-version-control" role="group" aria-label={t("codexVersion.title")}>
-    <span className="codex-app-server-menu-label">{t("codexVersion.title")}</span>
+  return <div className="codex-version-control" role="group" aria-label={t("codexVersion.title")}>
+    <strong className="codex-version-title">{t("codexVersion.title")}</strong>
     <div className="codex-version-detail" role="status">
       {checking ? t("codexVersion.checking") : state?.currentVersion
         ? t("codexVersion.current", { version: state.currentVersion }) : t("codexVersion.unknown")}

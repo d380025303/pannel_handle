@@ -79,6 +79,31 @@ describe("CodexAppServerSession", () => {
     } });
   });
 
+  it("shows Codex updates in the empty state instead of the actions menu", async () => {
+    const check = vi.mocked(window.codexVersionApi.check);
+    const update = vi.mocked(window.codexVersionApi.update);
+    check.mockResolvedValue({ status: "available", currentVersion: "1.0.0", latestVersion: "1.1.0", method: "npm", environment: "Windows", restartRequired: false });
+    update.mockResolvedValue({ status: "current", currentVersion: "1.1.0", latestVersion: "1.1.0", environment: "Windows", restartRequired: true });
+
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
+    const emptyState = container.querySelector(".codex-app-server-empty")!;
+    const updates = await screen.findByRole("group", { name: "Codex CLI 更新" });
+    expect(emptyState.contains(updates)).toBe(true);
+    await waitFor(() => expect(screen.getByText("最新版本：1.1.0")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menu", { name: "会话操作" }).contains(updates)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "更新 Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认更新" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("run-1"));
+    expect(await screen.findByText("更新已安装，手动重启会话后生效")).toBeTruthy();
+
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: null, items: [{ id: "user-1", type: "userMessage", text: "继续" }], approvals: [] } }));
+    expect(container.querySelector(".codex-app-server-empty")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Codex CLI 更新" })).toBeNull();
+  });
+
   it("hides the runtime strip while retaining diagnostics and the latest per-turn diff", async () => {
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "askApproval",
