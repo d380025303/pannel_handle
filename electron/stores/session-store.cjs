@@ -147,6 +147,15 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const codexExecutionPermission = agentProvider === "codex"
       ? (CODEX_EXECUTION_PERMISSIONS.has(template.codexExecutionPermission) ? template.codexExecutionPermission : "askApproval")
       : undefined;
+    const savedCodeBuddyOptions = template.codeBuddyGraphicalOptions;
+    const codeBuddyGraphicalOptions = savedCodeBuddyOptions && typeof savedCodeBuddyOptions === "object" && !Array.isArray(savedCodeBuddyOptions)
+      ? {
+          ...(typeof savedCodeBuddyOptions.mode === "string" && savedCodeBuddyOptions.mode.trim() ? { mode: savedCodeBuddyOptions.mode.trim() } : {}),
+          ...(typeof savedCodeBuddyOptions.model === "string" && savedCodeBuddyOptions.model.trim() ? { model: savedCodeBuddyOptions.model.trim() } : {}),
+          ...(typeof savedCodeBuddyOptions.contextWindow === "string" && savedCodeBuddyOptions.contextWindow.trim() ? { contextWindow: savedCodeBuddyOptions.contextWindow.trim() } : {}),
+          ...(typeof savedCodeBuddyOptions.multitask === "boolean" ? { multitask: savedCodeBuddyOptions.multitask } : {})
+        }
+      : undefined;
     return {
       ...(template.environmentProfileId ? { environmentProfileId: String(template.environmentProfileId) } : {}),
       ...(template.environmentOverrides ? { environmentOverrides: normalizeEntries(template.environmentOverrides, template.type === "windows" || (template.type === "ssh" && template.agentProvider && template.agentLocation === "local")) } : {}),
@@ -171,6 +180,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexAppServerEffort,
       codexAppServerFastMode,
       codexExecutionPermission,
+      ...(codeBuddyGraphicalOptions && Object.keys(codeBuddyGraphicalOptions).length ? { codeBuddyGraphicalOptions } : {}),
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

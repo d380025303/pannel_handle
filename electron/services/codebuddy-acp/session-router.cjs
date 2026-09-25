@@ -46,7 +46,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     resetUsageBaselines: (...args) => codex.resetUsageBaselines?.(...args),
     setExecutionPermission: route("setExecutionPermission"),
     dismissPlan: route("dismissPlan"), executePlan: route("executePlan"), submit: route("submit"),
-    interrupt: route("interrupt"), resolveApproval: route("resolveApproval"), answerQuestion: route("answerQuestion"),
+    interrupt: route("interrupt"), resolveApproval: route("resolveApproval"), answerQuestion: route("answerQuestion"), cancelQuestion: route("cancelQuestion"),
     close(id) { codex.close(id); codeBuddy.close(id); openCode?.close(id); },
     shutdown() { codex.shutdown(); codeBuddy.shutdown(); openCode?.shutdown(); }
   };

@@ -1,6 +1,7 @@
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const os = require("node:os");
 const { buildCodexBackendCommand } = require("../services/codex-model-bridge/index.cjs");
+const { codeBuddyInheritanceArgs } = require("../services/codebuddy-acp/codex-inheritance.cjs");
 
 const AGENT_COMMANDS = Object.freeze({
   claude: "claude",
@@ -110,6 +111,11 @@ function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
   let agentCommand = command;
+  if (session.agentProvider === "codebuddy") {
+    const shell = session.type === "windows" ? isPowerShell(session.shell) ? "powershell" : "cmd" : "bash";
+    const inheritedArgs = codeBuddyInheritanceArgs(runtime.inheritance, shell);
+    if (inheritedArgs) agentCommand += ` ${inheritedArgs}`;
+  }
   if (session.agentProvider === "codex") {
     const backend = runtime.openRouter || runtime.naraRouter || runtime.miniMax || runtime.codeBuddyCodex;
     if (backend) {
@@ -246,9 +252,10 @@ function buildLocalOpenCodeStartCommand(binding) {
   ].join(" ");
 }
 
-function buildLocalCodeBuddyConfig(binding) {
+function buildLocalCodeBuddyConfig(binding, inheritance) {
   return JSON.stringify({
     mcpServers: {
+      ...(inheritance?.mcpServers || {}),
       pannel_handle_remote: {
         type: "http",
         url: binding.url,
@@ -260,18 +267,20 @@ function buildLocalCodeBuddyConfig(binding) {
   });
 }
 
-function buildLocalCodeBuddyStartCommand(binding) {
+function buildLocalCodeBuddyStartCommand(binding, inheritance) {
   const powerShellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
   const instructions = binding.runtimeInstructions || binding.developerInstructions;
   const args = [
     "codebuddy",
     "--mcp-config",
-    powerShellQuote(buildLocalCodeBuddyConfig(binding)),
+    powerShellQuote(buildLocalCodeBuddyConfig(binding, inheritance)),
     "--strict-mcp-config",
     "--tools",
     powerShellQuote("Read,Glob,Grep")
   ];
   if (instructions) args.push("--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`);
+  const inheritedArgs = codeBuddyInheritanceArgs(inheritance && { ...inheritance, mcpFile: undefined }, "powershell");
+  if (inheritedArgs) args.push(inheritedArgs);
   return args.join(" ");
 }
 
@@ -288,6 +297,7 @@ function createAgentSessionLauncher({
   miniMaxService,
   codexModelBridgeModule,
   codexAppServerSessionService,
+  codexInheritanceManager,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
@@ -483,6 +493,20 @@ function createAgentSessionLauncher({
   }
 
   async function launchPreparedLocal(create, target, runtime, removeSavedOnFailure = false) {
+    if (!useAppServer(target) && target.agentProvider === "codebuddy" && codexInheritanceManager) {
+      let session;
+      try {
+        session = create({ ...runtime, deferTerminalStart: true });
+        const running = terminalManager.getSession(session.id);
+        const inheritance = await codexInheritanceManager.prepare(running);
+        const command = buildAgentStartCommand(running, { inheritance });
+        return terminalManager.startDeferredSession(session.id, { ...runtime,
+          runtimeInitialCommand: wrapAgentStartCommand(running, command) });
+      } catch (error) {
+        if (session) terminalManager.closeSession(session.id);
+        throw error;
+      }
+    }
     if (!useAppServer(target)) return createAndBindCodexBridgeRuntime(() => create(runtime), runtime);
     let session;
     try {
@@ -531,10 +555,12 @@ function createAgentSessionLauncher({
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions
         : undefined;
+      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
+        ? await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true }) : undefined;
       const startCommand = session.agentProvider === "opencode"
         ? buildLocalOpenCodeStartCommand(binding)
         : session.agentProvider === "codebuddy"
-          ? buildLocalCodeBuddyStartCommand(binding)
+          ? buildLocalCodeBuddyStartCommand(binding, inheritance)
           : buildLocalCodexStartCommand(binding);
       return terminalManager.startDeferredSession(session.id, {
         terminalTransport: "local-agent",
@@ -569,9 +595,11 @@ function createAgentSessionLauncher({
       await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions : undefined;
+      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
+        ? await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true }) : undefined;
       const openCodeConfig = session.agentProvider === "opencode" ? buildLocalOpenCodeConfig(binding) : undefined;
       const acpArgs = session.agentProvider === "codebuddy" ? [
-        "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding).replace(/'/g, "''")}'`,
+        "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
         "--strict-mcp-config", "--tools", "'Read,Glob,Grep'",
         ...(codeBuddyInstructions ? ["--append-system-prompt", `\"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}\"`] : [])
       ].join(" ") : undefined;
@@ -581,6 +609,7 @@ function createAgentSessionLauncher({
         shell: getLocalBridgeShell(),
         codexCommand: session.agentProvider === "codex" ? buildLocalCodexAppServerCommand(binding) : undefined,
         acpArgs,
+        inheritance: inheritance ? { ...inheritance, mcpFile: undefined } : undefined,
         requiredMode: session.agentProvider === "opencode" ? OPENCODE_REMOTE_AGENT : undefined,
         runtimeEnv: { [binding.tokenEnv]: binding.token,
           ...(openCodeConfig ? { [OPENCODE_CONFIG_ENV]: openCodeConfig } : {}),
@@ -599,9 +628,12 @@ function createAgentSessionLauncher({
       validateAgentSession(session);
       const commandWarning = await prepareSshCommand(session.id, session);
       const { tunnel, warningCommand } = await prepareSshHook(session.id, session);
+      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
+        ? await codexInheritanceManager.prepare(session) : undefined;
       const command = buildAgentStartCommand(session, {
         hookUrl: tunnel?.hookUrl,
-        sessionId: session.id
+        sessionId: session.id,
+        inheritance
       });
       const launchCommand = `cd ${shellQuote(session.cwd)} && ${command}`;
       const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
@@ -722,6 +754,7 @@ function createAgentSessionLauncher({
       codexModel: provider === "codex" ? session.codexModel : undefined,
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
       graphicalSessionEnabled: session.graphicalSessionEnabled,
+      codeBuddyGraphicalOptions: session.codeBuddyGraphicalOptions,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,

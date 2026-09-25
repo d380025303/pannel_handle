@@ -88,8 +88,9 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   discardImage: (id, filePath) => ipcRenderer.invoke("codex-app-server:discard-image", id, filePath),
   submit: (id, text, filePaths, references) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths, references),
   interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
-  resolveApproval: (id, requestId, approved) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, approved),
+  resolveApproval: (id, requestId, decision) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, decision),
   answerQuestion: (id, requestId, answers) => ipcRenderer.invoke("codex-app-server:answer-question", id, requestId, answers),
+  cancelQuestion: (id, requestId) => ipcRenderer.invoke("codex-app-server:cancel-question", id, requestId),
   resolveElicitation: (id, requestId, action, content) => ipcRenderer.invoke("codex-app-server:resolve-elicitation", id, requestId, action, content),
   onChanged: callback => {
     const listener = (_event, value) => callback(value);

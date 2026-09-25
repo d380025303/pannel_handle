@@ -265,6 +265,7 @@ function createTerminalManager({
   broadcast,
   getHookUrl,
   onSessionClosed,
+  onSessionClosing,
   onAgentStatusChanged,
   knownHostStore,
   pty = nodePty,
@@ -465,6 +466,7 @@ function createTerminalManager({
 
   function removeRuntimeSession(session) {
     clearSshReconnectTimer(session);
+    if (typeof onSessionClosing === "function") onSessionClosing(session.id);
     sessions.delete(session.id);
     const orderIndex = sessionOrder.indexOf(session.id);
     if (orderIndex >= 0) sessionOrder.splice(orderIndex, 1);

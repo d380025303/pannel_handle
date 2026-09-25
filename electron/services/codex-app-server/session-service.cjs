@@ -1358,15 +1358,34 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (entry?.turnId) await request(entry, "turn/interrupt", { threadId: entry.threadId, turnId: entry.turnId });
   }
-  function resolveApproval(id, requestId, approved) {
+  function resolveApproval(id, requestId, decision) {
     const entry = sessions.get(id);
     const approval = entry?.approvals.get(requestId);
     if (!approval) throw new Error("确认请求已失效。");
-    entry.approvals.delete(requestId);
-    const result = approval.method === "item/permissions/requestApproval"
-      ? { permissions: approved ? approval.params.permissions || {} : {}, scope: "turn" }
-      : { decision: approved ? "accept" : "decline" };
+    const selected = decision === true ? "accept" : decision === false ? "decline" : decision;
+    const { method, params } = approval;
+    let result;
+    if (method === "item/permissions/requestApproval") {
+      if (!["accept", "acceptForSession", "decline"].includes(selected)) throw new Error("无效的权限确认选择。");
+      result = { permissions: selected === "decline" ? {} : params.permissions || {},
+        scope: selected === "acceptForSession" ? "session" : "turn" };
+    } else {
+      const allowed = method === "item/commandExecution/requestApproval"
+        ? ["accept", "acceptForSession", "decline", "cancel", "acceptWithExecpolicyAmendment"]
+        : ["accept", "acceptForSession", "decline", "cancel"];
+      if (!allowed.includes(selected)) throw new Error("无效的审批选择。");
+      if (Array.isArray(params.availableDecisions) && !params.availableDecisions.some(value =>
+        value === selected || (selected === "acceptWithExecpolicyAmendment" && value && typeof value === "object"
+          && Object.hasOwn(value, selected)))) throw new Error("当前请求不允许此审批选择。");
+      if (selected === "acceptWithExecpolicyAmendment") {
+        const amendment = params.proposedExecpolicyAmendment;
+        if (!Array.isArray(amendment) || !amendment.length || amendment.some(value => typeof value !== "string" || !value.trim()))
+          throw new Error("当前请求没有有效的命令规则修订建议。");
+        result = { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: [...amendment] } } };
+      } else result = { decision: selected };
+    }
     send(entry, { id: requestId, result });
+    entry.approvals.delete(requestId);
     if (!entry.approvals.size && !entry.questions.size && entry.busy) { entry.status = "running"; broadcastStatus(id, entry, true); }
     publish(id);
   }

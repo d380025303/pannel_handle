@@ -474,6 +474,7 @@ export function installBrowserPreview() {
       interrupt: async () => undefined,
       resolveApproval: async () => undefined,
       answerQuestion: async () => undefined,
+      cancelQuestion: async () => undefined,
       resolveElicitation: async () => undefined,
       onChanged: () => () => undefined
     } satisfies Window["codexAppServerApi"],

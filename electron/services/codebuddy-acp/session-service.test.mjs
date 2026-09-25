@@ -30,6 +30,75 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("advertises and answers native questions, then cancels a later question", async () => {
+    const messages = [];
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    expect(messages.find(message => message.method === "initialize").params.clientCapabilities._meta)
+      .toEqual({ "codebuddy.ai": { question: true } });
+    emitMessage({ jsonrpc: "2.0", id: 901, method: "_codebuddy.ai/question", params: { sessionId: "thread", toolCallId: "ask-1",
+      schema: { questions: [
+        { id: "q_0", header: "方案", question: "选择方案", options: [{ label: "A", description: "说明" }], multiSelect: false },
+        { id: "q_1", header: "范围", question: "选择范围", options: [{ label: "前端" }, { label: "后端" }], multiSelect: true }
+      ] } } });
+    expect(service.snapshot("one").questions).toMatchObject([{ requestId: 901, params: { questions: [
+      { id: "q_0", multiSelect: false }, { id: "q_1", multiSelect: true }
+    ] } }]);
+    await expect(service.answerQuestion("one", 901, { q_0: { answers: ["A", "B"] }, q_1: { answers: ["前端"] } }))
+      .rejects.toThrow("问题答案无效");
+    await service.answerQuestion("one", 901, { q_0: { answers: ["A"] }, q_1: { answers: ["前端", "后端"] } });
+    expect(messages.find(message => message.id === 901).result).toEqual({ outcome: "submitted",
+      answers: { q_0: ["A"], q_1: ["前端", "后端"] }
+    });
+    expect(service.snapshot("one").questions).toEqual([]);
+    expect(service.snapshot("one").items.at(-1)).toMatchObject({ type: "questionAnswer", status: "submitted", questions: [
+      { answers: ["A"] }, { answers: ["前端", "后端"] }
+    ] });
+    emitMessage({ jsonrpc: "2.0", id: 902, method: "_codebuddy.ai/question", params: { sessionId: "thread",
+      schema: { questions: [{ id: "q_0", question: "继续吗？" }] } } });
+    await service.cancelQuestion("one", 902);
+    expect(messages.find(message => message.id === 902).result).toEqual({ outcome: "cancelled" });
+    await expect(service.answerQuestion("one", 902, { q_0: { answers: ["是"] } })).rejects.toThrow("问题请求已失效");
+    emitMessage({ jsonrpc: "2.0", id: 903, method: "_codebuddy.ai/question", params: { sessionId: "another-thread",
+      schema: { questions: [{ id: "q_0", question: "无效会话" }] } } });
+    expect(messages.find(message => message.id === 903).result).toEqual({ outcome: "cancelled" });
+    service.shutdown();
+  });
+
+  it("keeps a CodeBuddy question available when its response cannot be sent", async () => {
+    const events = new EventEmitter();
+    let failAnswer = true;
+    const sent = [];
+    const service = createRawService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(),
+      spawnProcess: () => fakeChild(() => {}),
+      resolveHttpEndpoint: async () => ({ endpoint: new URL("http://127.0.0.1:12345"), password: "test" }),
+      httpTransportFactory: () => ({ on: (name, listener) => events.on(name, listener), connect: async () => {}, close: () => {},
+        send: async message => {
+          if (message.id === 71 && failAnswer) { failAnswer = false; throw new Error("发送失败"); }
+          sent.push(message);
+          if (message.method === "initialize") events.emit("message", { id: message.id, result: { agentCapabilities: {} } });
+          else if (message.method === "session/new") events.emit("message", { id: message.id, result: { sessionId: "thread" } });
+        } }) });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    events.emit("message", { id: 71, method: "_codebuddy.ai/question", params: { sessionId: "thread",
+      schema: { questions: [{ id: "q_0", question: "继续吗？" }] } } });
+    const answers = { q_0: { answers: ["继续"] } };
+    await expect(service.answerQuestion("one", 71, answers)).rejects.toThrow("发送失败");
+    expect(service.snapshot("one").questions).toMatchObject([{ requestId: 71, submitting: false }]);
+    await service.answerQuestion("one", 71, answers);
+    expect(sent.find(message => message.id === 71).result).toEqual({ outcome: "submitted", answers: { q_0: ["继续"] } });
+    expect(service.snapshot("one").questions).toEqual([]);
+    service.shutdown();
+  });
+
   it("reopens a plan session with read-only tools and restores normal tools on exit", async () => {
     const invocations = [];
     const messages = [];
@@ -362,6 +431,136 @@ describe("CodeBuddy ACP sessions", () => {
     await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
     await expect(service.setModel("one", "glm-5.3")).rejects.toThrow("Model unavailable");
     expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("hy3");
+    service.shutdown();
+  });
+
+  it("restores a saved Plan choice through the protected CodeBuddy profile", async () => {
+    const invocations = [];
+    const session = { id: "one", templateId: "saved", type: "windows", cwd: "C:\\work",
+      codeBuddyGraphicalOptions: { mode: "plan" } };
+    const spawnProcess = vi.fn((_executable, args) => {
+      invocations.push(args.at(-1));
+      return fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+          result: { agentCapabilities: { loadSession: true } } });
+        else if (message.method === "session/new" || message.method === "session/load") emit({ jsonrpc: "2.0", id: message.id,
+          result: { sessionId: "thread", modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] } } });
+        else if (message.method === "session/set_mode") emit({ jsonrpc: "2.0", id: message.id, result: {} });
+      });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn(), getSession: () => session },
+      sessionStore: { getTemplate: () => ({ codeBuddyGraphicalOptions: { mode: "plan" } }) },
+      broadcast: vi.fn(), spawnProcess });
+
+    await service.start(session);
+
+    expect(service.snapshot("one")).toMatchObject({ nativeMode: "plan", readOnlyProtected: true });
+    expect(invocations).toHaveLength(2);
+    expect(invocations[1]).toContain("--permission-mode plan");
+    service.shutdown();
+  });
+
+  it("keeps CodeBuddy prompt errors in their turns without duplicating them", async () => {
+    const detail = "429 您的使用量已超出频率限制，将在 2026-09-26 02:50:40 UTC+8 重置。\n(01a0d92020e4737f80c66dbc27673af9)";
+    let promptCount = 0;
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") {
+        promptCount++;
+        if (promptCount === 1) {
+          const response = { jsonrpc: "2.0", id: message.id, result: { stopReason: "refusal", errorMessage: detail } };
+          emit(response); emit(response);
+        } else if (promptCount === 2) emit({ jsonrpc: "2.0", id: message.id,
+          error: { code: -32000, message: "Prompt failed", data: { details: "upstream 503" } } });
+        else if (promptCount === 3) emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "error" } });
+        else emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: promptCount === 4 ? "cancelled" : "end_turn" } });
+      }
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "First");
+    await expect(service.submit("one", "Second")).rejects.toThrow("upstream 503");
+    await service.submit("one", "Third");
+    await service.submit("one", "Cancel");
+    await service.submit("one", "Continue");
+    const items = service.snapshot("one").items;
+    const users = items.filter(item => item.type === "userMessage");
+    expect(items.filter(item => item.type === "turnError")).toMatchObject([
+      { turnId: users[0].turnId, text: detail },
+      { turnId: users[1].turnId, text: "upstream 503" },
+      { turnId: users[2].turnId, text: "CodeBuddy 本轮未完成（error）。" }
+    ]);
+    expect(items.filter(item => item.type === "turnError")).toHaveLength(3);
+    expect(service.snapshot("one").error).toBeNull();
+    service.shutdown();
+  });
+
+  it("saves graphical choices to the original template and restores them for new and restarted threads", async () => {
+    const requests = [];
+    const template = { id: "saved", agentProvider: "codex" };
+    const session = { id: "one", templateId: "saved", type: "windows", cwd: "C:\\work", shell: "powershell.exe", agentProvider: "codebuddy" };
+    const sessionStore = { getTemplate: () => template, updateLibrary: vi.fn((_id, updates) => Object.assign(template, updates)) };
+    let nextThread = 0;
+    let rejectMode = false;
+    const options = () => [
+      { id: "model", type: "select", currentValue: "hy3", options: [{ value: "hy3" }, { value: "glm-5.3" }] },
+      { id: "context_window", type: "select", currentValue: "200000", options: [{ value: "200000" }, { value: "1000000" }] },
+      { id: "multitask", type: "boolean", currentValue: false }
+    ];
+    let currentOptions = options();
+    const spawnProcess = () => fakeChild((message, emit) => {
+      requests.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+        result: { agentCapabilities: { loadSession: true, multitaskSupport: true } } });
+      else if (message.method === "session/new" || message.method === "session/load") {
+        currentOptions = options();
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: message.params.sessionId || `thread-${++nextThread}`,
+          modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "bypassPermissions" }] },
+          configOptions: currentOptions } });
+      }
+      else if (message.method === "session/set_mode") emit({ jsonrpc: "2.0", id: message.id,
+        ...(rejectMode ? { error: { code: -1, message: "Mode unavailable" } } : { result: {} }) });
+      else if (message.method === "session/set_config_option") {
+        currentOptions = currentOptions.map(option => option.id === message.params.configId
+          ? { ...option, currentValue: message.params.value } : option);
+        emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: currentOptions } });
+      }
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn(), getSession: () => session, listSessions: () => [session] },
+      sessionStore, broadcast: vi.fn(), spawnProcess });
+    await service.start(session);
+    await service.setNativeMode("one", "bypassPermissions");
+    await service.setModel("one", "glm-5.3");
+    await service.setContextWindow("one", "1000000");
+    await service.setMultitask("one", true);
+    const expected = { mode: "bypassPermissions", model: "glm-5.3", contextWindow: "1000000", multitask: true };
+    expect(template).toMatchObject({ agentProvider: "codex", codeBuddyGraphicalOptions: expected });
+    expect(session.codeBuddyGraphicalOptions).toEqual(expected);
+
+    const next = await service.newThread("one");
+    expect(next).toMatchObject({ nativeMode: "bypassPermissions" });
+    expect(next.acpOptions.map(option => option.currentValue)).toEqual(["glm-5.3", "1000000", true]);
+    await service.restart("one");
+    expect(service.snapshot("one")).toMatchObject({ nativeMode: "bypassPermissions" });
+    expect(service.snapshot("one").acpOptions.map(option => option.currentValue)).toEqual(["glm-5.3", "1000000", true]);
+    expect(requests.filter(message => message.method === "session/set_mode")).toHaveLength(3);
+
+    template.codeBuddyGraphicalOptions = { mode: "removed", model: "removed", contextWindow: "removed", multitask: true };
+    await service.restart("one");
+    expect(service.snapshot("one")).toMatchObject({ nativeMode: "default" });
+    expect(service.snapshot("one").acpOptions.map(option => option.currentValue)).toEqual(["hy3", "200000", true]);
+
+    template.codeBuddyGraphicalOptions = { mode: "bypassPermissions" };
+    rejectMode = true;
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    await service.restart("one");
+    expect(service.snapshot("one").nativeMode).toBe("default");
+    expect(errorLog).toHaveBeenCalledWith("Failed to restore CodeBuddy mode:", expect.any(Error));
+    errorLog.mockRestore();
     service.shutdown();
   });
 

@@ -1,4 +1,7 @@
 const { spawn: defaultSpawn } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const {
   emptyCapabilityUsage,
   parseTranscriptFileWithSubagents,
@@ -17,6 +20,7 @@ const {
 
 const RETRY_DELAYS_MS = [150, 500, 1200];
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+const CODEBUDDY_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,299}$/;
 const TOKEN_STATS_PROVIDERS = ["codex", "claude", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const CONVERSATION_PROVIDERS = ["codex", "codebuddy", "gemini", "grok"];
 
@@ -87,7 +91,8 @@ function createAgentTokenStatsService({
   toWslHostPathFn = toWslHostPath,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
-  conversationSink = null
+  conversationSink = null,
+  homeDir = os.homedir()
 }) {
   void terminalManager;
   const pending = new Map();
@@ -95,6 +100,88 @@ function createAgentTokenStatsService({
   const startedAtBySession = new Map();
   const conversations = new Map();
   const sessionLifetimes = new Map();
+  const graphicalCodeBuddy = new Map();
+  const codeBuddyWrites = new Map();
+  let graphicalEpoch = 0;
+
+  function queueCodeBuddyWrite(key, work) {
+    const previous = codeBuddyWrites.get(key) || Promise.resolve();
+    const request = previous.then(work, work);
+    codeBuddyWrites.set(key, request);
+    void request.finally(() => { if (codeBuddyWrites.get(key) === request) codeBuddyWrites.delete(key); });
+    return request;
+  }
+
+  async function findCodeBuddyTranscript(session, agentSessionId) {
+    if (!CODEBUDDY_SESSION_ID.test(agentSessionId)) throw new Error("Invalid CodeBuddy session ID.");
+    if (session.type === "windows" || isLocalSshBridge(session)) {
+      const root = path.join(homeDir, ".codebuddy", "projects");
+      const matches = [];
+      for (const directory of await fs.promises.readdir(root, { withFileTypes: true })) {
+        if (!directory.isDirectory()) continue;
+        const candidate = path.join(root, directory.name, `${agentSessionId}.jsonl`);
+        try { if ((await fs.promises.stat(candidate)).isFile()) matches.push(candidate); }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+      if (matches.length !== 1) throw new Error(`CodeBuddy transcript match count: ${matches.length}.`);
+      return matches[0];
+    }
+    const script = [
+      "import glob,json,os,sys",
+      "sid=sys.argv[1]",
+      "root=os.path.expanduser('~/.codebuddy/projects')",
+      "matches=[p for p in glob.glob(os.path.join(root,'*',sid+'.jsonl')) if os.path.isfile(p)]",
+      "print(json.dumps(matches))"
+    ].join("\n");
+    const command = `python3 -c ${shellQuote(script)} ${shellQuote(agentSessionId)}`;
+    const output = session.type === "wsl"
+      ? await runProcess("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc", command], spawn)
+      : await sshAgentTransport.exec(session.id, command, { actionName: "CodeBuddy token statistics", timeoutMs: 10000 });
+    const matches = JSON.parse(output);
+    if (!Array.isArray(matches) || matches.length !== 1 || typeof matches[0] !== "string")
+      throw new Error(`CodeBuddy transcript match count: ${Array.isArray(matches) ? matches.length : "invalid"}.`);
+    return matches[0];
+  }
+
+  function recordGraphicalCodeBuddy({ threadId, session, cwd, model, resumed = false, baseline = false }) {
+    if (!threadId || !session || !CODEBUDDY_SESSION_ID.test(threadId)) return Promise.resolve();
+    const key = `codebuddy:${threadId}`;
+    let state = graphicalCodeBuddy.get(key);
+    if (!state) {
+      state = { initialized: !resumed, panelSessionId: session.id, queue: Promise.resolve() };
+      graphicalCodeBuddy.set(key, state);
+    }
+    const epoch = graphicalEpoch;
+    const work = async () => {
+      if (epoch !== graphicalEpoch) return;
+      try {
+        const transcriptPath = state.transcriptPath || await findCodeBuddyTranscript(session, threadId);
+        const result = await readWithRetry(session, "codebuddy", transcriptPath);
+        if (epoch !== graphicalEpoch) return;
+        state.transcriptPath = transcriptPath;
+        if (baseline || !state.initialized) {
+          statsStore.setBaseline("codebuddy", threadId, result.tokens, result.capabilities);
+          state.initialized = true;
+          if (baseline || resumed) return;
+        }
+        statsStore.update({ provider: "codebuddy", agentSessionId: threadId,
+          panelSessionId: session.id, templateId: session.templateId, title: session.title,
+          cwd: cwd || session.cwd, location: session.type,
+          models: result.models.length ? result.models : [model].filter(Boolean),
+          tokens: result.tokens, capabilities: result.capabilities });
+      } catch (error) {
+        console.error("Failed to collect graphical CodeBuddy token statistics:", error);
+      }
+    };
+    state.queue = queueCodeBuddyWrite(key, work);
+    return state.queue;
+  }
+
+  function resetGraphicalCodeBuddyBaselines() {
+    graphicalEpoch++;
+    graphicalCodeBuddy.clear();
+    codeBuddyWrites.clear();
+  }
 
   function conversationSupported(provider, session) {
     return CONVERSATION_PROVIDERS.includes(provider) && (
@@ -209,10 +296,19 @@ function createAgentTokenStatsService({
     if (!agentSessionId || !transcriptPath) return;
     const key = `${provider}:${agentSessionId}`;
     const lifetime = sessionLifetimes.get(session.id);
-    const request = Promise.resolve(baselinePending.get(key))
+    const epoch = graphicalEpoch;
+    const run = () => Promise.resolve(baselinePending.get(key))
       .catch(() => undefined)
       .then(() => readWithRetry(session, provider, transcriptPath))
       .then(result => {
+        if (provider === "codebuddy" && session.runtimeMode === "app-server" && epoch !== graphicalEpoch) return undefined;
+        const graphicalState = provider === "codebuddy" && session.runtimeMode === "app-server"
+          ? graphicalCodeBuddy.get(key) : null;
+        if (graphicalState && !graphicalState.initialized) {
+          statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities);
+          graphicalState.initialized = true;
+          return undefined;
+        }
         const record = statsStore.update({
           provider,
           agentSessionId,
@@ -231,9 +327,11 @@ function createAgentTokenStatsService({
         }
         return record;
       })
-      .catch(error => console.error(`Failed to collect ${provider} token statistics:`, error))
-      .finally(() => { if (pending.get(key) === request) pending.delete(key); });
+      .catch(error => console.error(`Failed to collect ${provider} token statistics:`, error));
+    const request = provider === "codebuddy" && session.runtimeMode === "app-server"
+      ? queueCodeBuddyWrite(key, run) : run();
     pending.set(key, request);
+    void request.finally(() => { if (pending.get(key) === request) pending.delete(key); });
   }
 
   function captureBaseline({ provider, input, session }) {
@@ -242,11 +340,18 @@ function createAgentTokenStatsService({
     if (!agentSessionId || !transcriptPath) return;
     const key = `${provider}:${agentSessionId}`;
     if (baselinePending.has(key)) return;
+    const epoch = graphicalEpoch;
     const request = (session.type === "windows" || isLocalSshBridge(session)
       ? Promise.resolve().then(() => parseTranscriptFileWithSubagents(provider, transcriptPath))
       : parseRemote(session, provider, transcriptPath))
-      .then(result => statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities))
-      .catch(() => statsStore.setBaseline(provider, agentSessionId, {}, emptyCapabilityUsage()));
+      .then(result => {
+        if (provider !== "codebuddy" || session.runtimeMode !== "app-server" || epoch === graphicalEpoch)
+          statsStore.setBaseline(provider, agentSessionId, result.tokens, result.capabilities);
+      })
+      .catch(() => {
+        if (provider !== "codebuddy" || session.runtimeMode !== "app-server" || epoch === graphicalEpoch)
+          statsStore.setBaseline(provider, agentSessionId, {}, emptyCapabilityUsage());
+      });
     baselinePending.set(key, request);
   }
 
@@ -312,10 +417,20 @@ function createAgentTokenStatsService({
       liveModule.endSession(panelSessionId);
       conversations.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
+      for (const [key, state] of graphicalCodeBuddy) {
+        if (state.panelSessionId !== panelSessionId) continue;
+        graphicalCodeBuddy.delete(key);
+        void state.queue.finally(() => statsStore.markEnded(panelSessionId));
+      }
       conversationSink?.clearSession?.(panelSessionId);
     },
+    recordGraphicalCodeBuddy,
+    resetGraphicalCodeBuddyBaselines,
     shutdown() {
       sessionLifetimes.clear();
+      graphicalEpoch++;
+      graphicalCodeBuddy.clear();
+      codeBuddyWrites.clear();
       liveModule.shutdown();
       conversations.clear();
     }

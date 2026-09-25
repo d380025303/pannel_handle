@@ -180,6 +180,19 @@ describe("agent-session-launcher", () => {
     }), expect.objectContaining({ runtimeMode: "app-server" }));
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
   });
+  it("carries CodeBuddy choices through switches without changing the template Agent", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    const original = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex",
+      graphicalSessionEnabled: true, persist: true });
+    original.codeBuddyGraphicalOptions = { mode: "default", model: "glm-5.3", contextWindow: "1000000", multitask: true };
+
+    const buddy = await mocks.launcher.switchAgent(original.id, "codebuddy");
+    const codex = await mocks.launcher.switchAgent(buddy.id, "codex");
+    const again = await mocks.launcher.switchAgent(codex.id, "codebuddy");
+
+    expect(again.codeBuddyGraphicalOptions).toEqual(original.codeBuddyGraphicalOptions);
+    expect(mocks.sessionStore.updateLibrary).not.toHaveBeenCalledWith("1", expect.objectContaining({ agentProvider: "codebuddy" }));
+  });
   it("starts SSH remote Codex through App Server and keeps the opt-out terminal path", async () => {
     const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
     const mocks = createMocks({ codexAppServerSessionService });

@@ -111,9 +111,14 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
       codexAppServerSessionService.discardPastedImage(String(id || ""), filePath));
     ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths, references) => codexAppServerSessionService.submit(String(id || ""), text, filePaths, references));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
-    ipcMain.handle("codex-app-server:approval", (_event, id, requestId, approved) => codexAppServerSessionService.resolveApproval(String(id || ""), requestId, typeof approved === "string" ? approved : approved === true));
+    ipcMain.handle("codex-app-server:approval", (_event, id, requestId, decision) => {
+      if (typeof decision !== "string" && typeof decision !== "boolean") throw new Error("无效的审批选择。");
+      return codexAppServerSessionService.resolveApproval(String(id || ""), requestId, decision);
+    });
     ipcMain.handle("codex-app-server:answer-question", (_event, id, requestId, answers) =>
       codexAppServerSessionService.answerQuestion(String(id || ""), requestId, answers));
+    ipcMain.handle("codex-app-server:cancel-question", (_event, id, requestId) =>
+      codexAppServerSessionService.cancelQuestion(String(id || ""), requestId));
     ipcMain.handle("codex-app-server:resolve-elicitation", (_event, id, requestId, action, content) =>
       codexAppServerSessionService.resolveElicitation(String(id || ""), requestId, action, content));
   }

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Copy, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Package, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
 import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, CodexMcpElicitation, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
@@ -16,11 +16,29 @@ const permissionDescriptions: Record<CodexExecutionPermission, string> = {
   askApproval: "可修改工作区，越界操作先确认",
   fullAccess: "可访问文件与网络，不再请求批准"
 };
+const codeBuddyModeDescriptions: Record<string, string> = {
+  default: "自主分析并执行任务，可读取与修改文件、运行命令。",
+  standard: "自主分析并执行任务，可读取与修改文件、运行命令。",
+  acceptedits: "自动接受代码修改，无需逐项确认。",
+  plan: "先制定计划并等待你确认，再开始执行（只读，不直接改动文件）。",
+  bypasspermissions: "跳过权限确认，直接执行操作。",
+  fullaccess: "授予完整执行权限，直接运行命令与修改文件。",
+  auto: "自主分析并执行任务，遇到需确认的操作自动放行。",
+  dontask: "运行命令与修改文件均不再弹出确认。",
+  delegate: "将子任务委派给子 Agent 并行处理。"
+};
+const normalizeModeKey = (value: string) => (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const effortLabels: Record<string, string> = {
   none: "无", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高", ultra: "极致"
 };
 const effortLabel = (effort: string) => effortLabels[effort] || effort;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+async function hasRecordedCodeBuddyError(sessionId: string, detail: string) {
+  try {
+    const current = await window.codexAppServerApi.snapshot(sessionId);
+    return current.provider === "codebuddy" && current.items.some(item => item.type === "turnError" && item.text === detail);
+  } catch { return false; }
+}
 type FileMention = { start: number; end: number; query: string };
 function fileMentionAtCaret(value: string, caret: number): FileMention | null {
   const prefix = value.slice(0, caret);
@@ -39,6 +57,16 @@ type DisplayItem = ToolDisplayItem
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
+type Approval = CodexAppServerSnapshot["approvals"][number];
+function approvalAllows(approval: Approval, decision: string) {
+  const available = approval.params.availableDecisions;
+  return !Array.isArray(available) || available.some(value => value === decision
+    || (decision === "acceptWithExecpolicyAmendment" && value != null && typeof value === "object"
+      && Object.prototype.hasOwnProperty.call(value, decision)));
+}
+function validExecpolicyAmendment(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
+}
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
 type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" };
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
@@ -70,16 +98,16 @@ function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled }: {
   </div>;
 }
 
-function QuestionCard({ sessionId, request }: { sessionId: string; request: CodexQuestionRequest }) {
+function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" }) {
   const tabId = useId();
-  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [choices, setChoices] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [activeIndex, setActiveIndex] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const questions = request.params.questions || [];
   const hasAnswer = (question: typeof questions[number]) => {
-    const choice = choices[question.id];
+    const choice = choices[question.id]?.length;
     const note = notes[question.id]?.trim();
     return Boolean((choice || note) && (!question.options?.length || choice || question.isOther));
   };
@@ -87,21 +115,31 @@ function QuestionCard({ sessionId, request }: { sessionId: string; request: Code
     if (sending || request.submitting) return;
     const answers: Record<string, CodexQuestionAnswer> = {};
     for (const [index, question] of questions.entries()) {
-      const choice = choices[question.id];
+      const choice = choices[question.id] || [];
       const note = notes[question.id]?.trim();
-      if (!choice && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
-      if (question.options?.length && !choice && !question.isOther) {
+      if (!choice.length && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
+      if (question.options?.length && !choice.length && !question.isOther) {
         setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
       }
-      answers[question.id] = { answers: [...(choice ? [choice] : []), ...(note ? [`user_note: ${note}`] : [])] };
+      answers[question.id] = { answers: provider === "codebuddy"
+        ? [...(question.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
+        : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
     setSending(true); setError("");
     try { await window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers); }
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
-  return <article className="codex-app-server-question" aria-label="Codex 提问">
-    <strong>Codex 提问</strong>
+  async function cancel() {
+    if (sending || request.submitting) return;
+    setSending(true); setError("");
+    try { await window.codexAppServerApi.cancelQuestion(sessionId, request.requestId); }
+    catch (cause) { setError(message(cause)); }
+    finally { setSending(false); }
+  }
+  const agentName = provider === "codebuddy" ? "CodeBuddy" : "Codex";
+  return <article className="codex-app-server-question" aria-label={`${agentName} 提问`}>
+    <strong>{agentName} 提问</strong>
     {questions.length > 1 && <div className="codex-app-server-question-tabs" role="tablist" aria-label="切换问题">
       {questions.map((question, index) => <button key={question.id} type="button" role="tab"
         id={`${tabId}-tab-${index}`} aria-controls={`${tabId}-panel`} aria-selected={index === activeIndex}
@@ -115,23 +153,28 @@ function QuestionCard({ sessionId, request }: { sessionId: string; request: Code
       aria-labelledby={questions.length > 1 ? `${tabId}-tab-${activeIndex}` : undefined}>
       <legend><span>{question.header}</span>{question.question}</legend>
       {question.options?.map(option => <label className="codex-app-server-question-option" key={option.label}>
-        <input type="radio" name={`question-${request.requestId}-${question.id}`} value={option.label}
-          checked={choices[question.id] === option.label} disabled={sending || request.submitting}
-          onChange={() => { setChoices(current => ({ ...current, [question.id]: option.label })); setError(""); }} />
+         <input type={question.multiSelect ? "checkbox" : "radio"} name={`question-${request.requestId}-${question.id}`} value={option.label}
+           checked={choices[question.id]?.includes(option.label) || false} disabled={sending || request.submitting}
+           onChange={() => { setChoices(current => ({ ...current, [question.id]: question.multiSelect
+             ? current[question.id]?.includes(option.label) ? current[question.id].filter(value => value !== option.label) : [...(current[question.id] || []), option.label]
+             : [option.label] })); if (provider === "codebuddy" && !question.multiSelect) setNotes(current => ({ ...current, [question.id]: "" })); setError(""); }} />
         <span><strong>{option.label}</strong><small>{option.description}</small></span>
       </label>)}
       <label className="codex-app-server-question-note">
-        <span>{question.options?.length ? "补充说明或自定义回答" : "回答"}</span>
-        {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
-          onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value })); setError(""); }} />
+        <span>{question.options?.length ? provider === "codebuddy" ? "自定义回答" : "补充说明或自定义回答" : "回答"}</span>
+         {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
+           onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
+             if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />
           : <textarea value={notes[question.id] || ""} disabled={sending || request.submitting}
-            onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value })); setError(""); }} />}
+             onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
+               if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />}
       </label>
     </fieldset>)}
     {error && <p role="alert">{error}</p>}
     <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
       {sending || request.submitting ? "正在提交…" : "提交回答"}
     </button>
+    {provider === "codebuddy" && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
   </article>;
 }
 
@@ -236,7 +279,7 @@ function McpElicitationCard({ sessionId, request }: { sessionId: string; request
 
 function groupTools(items: SessionItem[]): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
-  const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn"].includes(item.type);
+  const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
   for (const item of items) {
     if (isHidden(item)) continue;
@@ -535,7 +578,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         await window.codexAppServerApi.submit(sessionId, command.command, []);
         return true;
       } catch (cause) {
-        if (currentSessionRef.current === sessionId) setError(message(cause));
+        const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause));
+        if (currentSessionRef.current === sessionId && !recorded) setError(message(cause));
         return false;
       } finally {
         if (currentSessionRef.current === sessionId) setSending(false);
@@ -760,8 +804,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setDraft(""); setError("");
     try { await window.codexAppServerApi.submit(sessionId, text, attachments, draftReferences.filter(value => text.includes(value.token))); if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); } }
     catch (cause) {
-      setDraft(current => current || text);
-      if (currentSessionRef.current === sessionId) setError(message(cause));
+      const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause));
+      if (recorded) {
+        if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); }
+      } else {
+        setDraft(current => current || text);
+        if (currentSessionRef.current === sessionId) setError(message(cause));
+      }
     }
     finally { if (currentSessionRef.current === sessionId) setSending(false); }
   }
@@ -1050,9 +1099,18 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   };
   type SelectionOption = { value: string; label: string; description?: string; selected: boolean; disabled?: boolean };
   const selectionOptions: SelectionOption[] = selectionKind === "mode"
-    ? isAcp ? (snapshot.nativeModes || []).map(mode => ({ value: mode.id, label: mode.name, description: mode.description,
-      selected: snapshot.nativeMode === mode.id && !(snapshot.provider === "codebuddy" && mode.id === "plan" && !snapshot.readOnlyProtected),
-      disabled: snapshot.busy || changingMode }))
+    ? isAcp ? (snapshot.nativeModes || []).map(mode => {
+      const translation = snapshot.provider === "codebuddy"
+        ? (codeBuddyModeDescriptions[normalizeModeKey(mode.id)] || codeBuddyModeDescriptions[normalizeModeKey(mode.name)])
+        : undefined;
+      return {
+        value: mode.id,
+        label: mode.name,
+        description: snapshot.provider === "codebuddy" ? (translation ?? mode.description) : mode.description,
+        selected: snapshot.nativeMode === mode.id && !(snapshot.provider === "codebuddy" && mode.id === "plan" && !snapshot.readOnlyProtected),
+        disabled: snapshot.busy || changingMode
+      };
+    })
       : [{ value: "default", label: "Exec", selected: snapshot.mode === "default", disabled: snapshot.busy || changingMode },
         { value: "plan", label: "Plan", selected: snapshot.mode === "plan", disabled: snapshot.busy || changingMode || snapshot.capabilities?.plan === false }]
     : selectionKind === "model"
@@ -1168,7 +1226,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   const matchesCapability = (name: string, description: string) => `${name} ${description}`.toLocaleLowerCase().includes(capabilityQuery.trim().toLocaleLowerCase());
   const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
+  const timeline = useMemo(() => groupTimeline(snapshot), [snapshot]);
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
+    {snapshot.provider === "codebuddy" && snapshot.codexInheritance && <div className="codex-inheritance-status" aria-label="Codex 配置继承状态">
+      已为此会话准备 Codex Skills {snapshot.codexInheritance.skills.length} 项、MCP {snapshot.codexInheritance.mcpServers.length} 项。
+      {snapshot.codexInheritance.skills.length > 0 && <span>技能使用 /codex:名称 调用。</span>}
+      <span>修改配置后重启会话以刷新。</span>
+      {snapshot.codexInheritance.warnings.map(warning => <span key={warning} role="status">{warning}</span>)}
+    </div>}
     {isCodex && (snapshot.backend || "openai") === "openai" && snapshot.account?.status === "signedOut" && <CodexAccountPanel key={sessionId} account={snapshot.account} preferDeviceCode={sessionType !== "windows"} busy={snapshot.busy} actions={{
       readAccount: () => window.codexAppServerApi.readAccount(sessionId),
       startLogin: type => window.codexAppServerApi.startLogin(sessionId, type),
@@ -1181,7 +1246,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span>{(isCodex || snapshot.provider === "codebuddy") && snapshot.threadId && <CodexVersionControl sessionId={sessionId} provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />}</div>}
-      {groupTimeline(snapshot).map(entry => {
+      {timeline.map(entry => {
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
         if (entry.kind === "tools") {
@@ -1191,6 +1256,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         }
         const item = entry.item;
         if (item.type === "backgroundTurn") return <div className="codex-app-server-background-turn" key={item.id} role="status">后台任务汇总</div>;
+        if (item.type === "turnError") return <article className="codex-app-server-message turnError" key={item.id} role="alert">
+          <strong>CodeBuddy 运行错误</strong><p>{item.text}</p>
+        </article>;
         if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
           {item.type === "plan" && <strong>计划</strong>}
           {item.type === "userMessage" ? <>{item.text && <p>{item.text}</p>}{Boolean(item.attachments?.length) &&
@@ -1212,8 +1280,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
         </article>;
-        if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label="已回答的 Codex 提问">
-          <strong>Codex 提问与回答{item.status === "submitted" ? " · 正在确认" : item.status === "failed" ? " · 轮次失败" : ""}</strong>
+        if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label={`已回答的 ${agentName} 提问`}>
+          <strong>{agentName} 提问与回答{item.status === "submitted" ? snapshot.provider === "codebuddy" ? " · 已发送" : " · 正在确认" : item.status === "failed" ? " · 轮次失败" : ""}</strong>
           {item.questions?.map(question => <div className="codex-app-server-answered-question" key={question.id}>
             {question.header && <small>{question.header}</small>}
             <p className="codex-app-server-answered-prompt">{question.question}</p>
@@ -1235,17 +1303,32 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         {approval.params.reason && <p>{approval.params.reason}</p>}
         {approval.params.networkApprovalContext && <p>{approval.params.networkApprovalContext.protocol}://{approval.params.networkApprovalContext.host}{approval.params.networkApprovalContext.port ? `:${approval.params.networkApprovalContext.port}` : ""}</p>}
         {approval.params.cwd && <p>{approval.params.cwd}</p>}
+        {isCodex && approval.method === "item/fileChange/requestApproval" && approval.params.grantRoot && <p>授权目录：{approval.params.grantRoot}</p>}
+        {isCodex && approval.method === "item/permissions/requestApproval" && <pre>{JSON.stringify(approval.params.permissions || {}, null, 2)}</pre>}
         {(approval.params.command || snapshot.items.find(item => item.id === approval.params.itemId)?.command) &&
           <pre>{approval.params.command || snapshot.items.find(item => item.id === approval.params.itemId)?.command}</pre>}
         {(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes) != null &&
           <pre>{JSON.stringify(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes, null, 2)}</pre>}
-        <div>{approval.params.choices?.length ? approval.params.choices.map(choice =>
+        {isCodex && approval.method === "item/commandExecution/requestApproval"
+          && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
+          && approvalAllows(approval, "acceptWithExecpolicyAmendment")
+          && <p>建议放行的命令前缀：<code>{JSON.stringify(approval.params.proposedExecpolicyAmendment)}</code></p>}
+        <div>{!isCodex && approval.params.choices?.length ? approval.params.choices.map(choice =>
           <button type="button" key={choice.id} onClick={() => void resolve(approval.requestId, choice.id)}>{choice.label}</button>) : <>
-          <button type="button" onClick={() => void resolve(approval.requestId, false)}>拒绝</button>
-          <button type="button" onClick={() => void resolve(approval.requestId, true)}>批准一次</button></>}</div>
+          {(!isCodex || approvalAllows(approval, "decline")) && <button type="button" onClick={() => void resolve(approval.requestId, isCodex ? "decline" : false)}>拒绝</button>}
+          {isCodex && approval.method !== "item/permissions/requestApproval" && approvalAllows(approval, "cancel") &&
+            <button type="button" onClick={() => void resolve(approval.requestId, "cancel")}>取消并停止本回合</button>}
+          {(!isCodex || approvalAllows(approval, "accept")) && <button type="button" onClick={() => void resolve(approval.requestId, isCodex ? "accept" : true)}>{isCodex && approval.method === "item/permissions/requestApproval" ? "本回合允许" : "批准一次"}</button>}
+          {isCodex && approvalAllows(approval, "acceptForSession") && <button type="button" onClick={() => void resolve(approval.requestId, "acceptForSession")}>本会话允许</button>}
+          {isCodex && approval.method === "item/commandExecution/requestApproval"
+            && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
+            && approvalAllows(approval, "acceptWithExecpolicyAmendment")
+            && <button type="button" onClick={() => void resolve(approval.requestId, "acceptWithExecpolicyAmendment")}>批准并应用命令规则</button>}
+        </>}</div>
       </article>)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
-        .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question} />)}
+        .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question}
+          provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />)}
       {snapshot.elicitations?.map(request => <McpElicitationCard key={request.requestId} sessionId={sessionId} request={request} />)}
       {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
         <div className="codex-app-server-error" role="alert">

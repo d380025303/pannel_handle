@@ -434,6 +434,60 @@ describe("Codex App Server session", () => {
     service.close("run-1");
   });
 
+  it("maps command, file, and permission approval decisions explicitly", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    try {
+      const emit = (id, method, params = {}) => child.stdout.write(`${JSON.stringify({ id, method,
+        params: { threadId: "thread-1", turnId: "turn-1", ...params } })}\n`);
+      emit(41, "item/commandExecution/requestApproval", { availableDecisions: ["accept", "acceptForSession", "decline", "cancel",
+        "acceptWithExecpolicyAmendment"], proposedExecpolicyAmendment: ["pnpm", "test"] });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      expect(() => service.resolveApproval("run-1", 41, "arbitrary")).toThrow("无效的审批选择");
+      expect(service.snapshot("run-1").approvals).toHaveLength(1);
+      service.resolveApproval("run-1", 41, "acceptWithExecpolicyAmendment");
+      expect(received.at(-1)).toEqual({ id: 41, result: { decision: {
+        acceptWithExecpolicyAmendment: { execpolicy_amendment: ["pnpm", "test"] } } } });
+      emit(42, "item/commandExecution/requestApproval", { availableDecisions: ["decline", "cancel"] });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      expect(() => service.resolveApproval("run-1", 42, "acceptForSession")).toThrow("不允许");
+      service.resolveApproval("run-1", 42, "cancel");
+      expect(received.at(-1)).toEqual({ id: 42, result: { decision: "cancel" } });
+      emit(43, "item/fileChange/requestApproval");
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      expect(() => service.resolveApproval("run-1", 43, "acceptWithExecpolicyAmendment")).toThrow("无效的审批选择");
+      service.resolveApproval("run-1", 43, "acceptForSession");
+      expect(received.at(-1)).toEqual({ id: 43, result: { decision: "acceptForSession" } });
+      emit(44, "item/commandExecution/requestApproval", { proposedExecpolicyAmendment: [] });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      expect(() => service.resolveApproval("run-1", 44, "acceptWithExecpolicyAmendment")).toThrow("没有有效");
+      service.resolveApproval("run-1", 44, false);
+      expect(received.at(-1)).toEqual({ id: 44, result: { decision: "decline" } });
+      const permissions = { network: { enabled: true } };
+      emit(45, "item/permissions/requestApproval", { permissions });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      expect(() => service.resolveApproval("run-1", 45, "cancel")).toThrow("无效的权限确认选择");
+      service.resolveApproval("run-1", 45, "acceptForSession");
+      expect(received.at(-1)).toEqual({ id: 45, result: { permissions, scope: "session" } });
+      emit(46, "item/permissions/requestApproval", { permissions });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      service.resolveApproval("run-1", 46, true);
+      expect(received.at(-1)).toEqual({ id: 46, result: { permissions, scope: "turn" } });
+      emit(47, "item/permissions/requestApproval", { permissions });
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      service.resolveApproval("run-1", 47, "decline");
+      expect(received.at(-1)).toEqual({ id: 47, result: { permissions: {}, scope: "turn" } });
+      emit(48, "item/fileChange/requestApproval");
+      await vi.waitFor(() => expect(service.snapshot("run-1").approvals).toHaveLength(1));
+      child.stdin.end();
+      expect(() => service.resolveApproval("run-1", 48, "decline")).toThrow("已退出");
+      expect(service.snapshot("run-1").approvals).toHaveLength(1);
+    } finally { service.close("run-1"); }
+  });
+
   it("keeps MCP form and URL requests pending until the user responds", async () => {
     const received = [];
     const child = fakeProcess(received);

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { memo, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -55,7 +55,7 @@ function MarkdownLink({ href, children, onLinkClick, linkActions, ...props }: {
   </span>;
 }
 
-export function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false }: MarkdownBlockProps) {
+export const MarkdownBlock = memo(function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false }: MarkdownBlockProps) {
   if (!content || content === "-") {
     return <div className={className}>{content || "-"}</div>;
   }
@@ -73,4 +73,4 @@ export function MarkdownBlock({ content, className, externalLinks = false, onLin
       </ReactMarkdown>
     </div>
   );
-}
+});

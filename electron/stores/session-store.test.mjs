@@ -437,6 +437,22 @@ describe("session-store", () => {
     expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].codexAppServerEffort).toBe("high");
   });
 
+  it("keeps CodeBuddy graphical choices on the original Agent template", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({ id: "1", title: "Codex", agentProvider: "codex" });
+    store.updateLibrary("1", { codeBuddyGraphicalOptions: {
+      mode: "bypassPermissions", model: "glm-5.3", contextWindow: "1000000", multitask: false
+    } });
+
+    const reloaded = createStore(sessionsFile);
+    reloaded.loadLibrary();
+    expect(reloaded.getTemplate("1")).toMatchObject({ agentProvider: "codex", codeBuddyGraphicalOptions: {
+      mode: "bypassPermissions", model: "glm-5.3", contextWindow: "1000000", multitask: false
+    } });
+    expect(reloaded.duplicateInLibrary("1").codeBuddyGraphicalOptions).toEqual(reloaded.getTemplate("1").codeBuddyGraphicalOptions);
+  });
+
   it("returns an empty library for missing or invalid session files", () => {
     const sessionsFile = createTempSessionsFile();
     const store = createStore(sessionsFile);

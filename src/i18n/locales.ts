@@ -575,10 +575,12 @@ export type TranslationKey =
   | "skills.search"
   | "skills.empty"
   | "skills.codebuddyEmptyHint"
+  | "skills.codexInheritanceHint"
   | "skills.noMatches"
   | "mcp.title"
   | "mcp.open"
   | "mcp.description"
+  | "mcp.codexInheritanceHint"
   | "mcp.provider"
   | "mcp.scope"
   | "mcp.scopeUser"
@@ -1572,10 +1574,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.search": "搜索 Skills",
     "skills.empty": "尚未发现 Skills",
     "skills.codebuddyEmptyHint": "在 ~/.codebuddy/skills 中添加 Skill 后会显示在这里。",
+    "skills.codexInheritanceHint": "Pannel Handle 启动的 CodeBuddy 会话还会继承 Codex 用户级和项目级 Skills，使用 /codex:名称 调用；此处仅管理 CodeBuddy 原生 Skills。",
     "skills.noMatches": "没有匹配的 Skills",
     "mcp.title": "MCP 管理",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
+    "mcp.codexInheritanceHint": "Pannel Handle 启动的 CodeBuddy 会话会继承 Codex 用户级和项目级 MCP；同名时 Codex 配置优先。此处编辑的是原生配置。",
     "mcp.provider": "MCP 提供方",
     "mcp.scope": "配置作用域",
     "mcp.scopeUser": "用户级",
@@ -2561,10 +2565,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.search": "Search Skills",
     "skills.empty": "No Skills found",
     "skills.codebuddyEmptyHint": "Add a Skill under ~/.codebuddy/skills to see it here.",
+    "skills.codexInheritanceHint": "CodeBuddy sessions started by Pannel Handle also inherit Codex user and project Skills as /codex:name. This page manages native CodeBuddy Skills.",
     "skills.noMatches": "No matching Skills",
     "mcp.title": "MCP Manager",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",
+    "mcp.codexInheritanceHint": "CodeBuddy sessions started by Pannel Handle inherit Codex user and project MCP servers. Codex wins on name conflicts. This page edits native configuration.",
     "mcp.provider": "MCP provider",
     "mcp.scope": "Configuration scope",
     "mcp.scopeUser": "User",

@@ -52,6 +52,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
   graphicalSessionEnabled?: boolean;
+  codeBuddyGraphicalOptions?: { mode?: string; model?: string; contextWindow?: string; multitask?: boolean };
   codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
@@ -947,7 +948,7 @@ export type CodexExecutionPermission = "readOnly" | "askApproval" | "fullAccess"
 export type CodexQuestionAnswer = { answers: string[] };
 export type CodexQuestionRequest = { requestId: number | string; submitting: boolean; params: {
   threadId: string; turnId: string; itemId?: string; isBlocking?: boolean; autoResolutionMs?: number | null;
-  questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean;
+  questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean; multiSelect?: boolean;
     options?: Array<{ label: string; description: string }> | null }>;
 } };
 export type CodexMcpElicitation = { requestId: number | string; submitting: boolean; params: {
@@ -986,6 +987,7 @@ export type CodexAppServerSnapshot = {
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;
+  codexInheritance?: { skills: string[]; mcpServers: string[]; warnings: string[] };
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
   capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
@@ -1017,7 +1019,11 @@ export type CodexAppServerSnapshot = {
     afterItemId?: string | null;
     questions?: Array<{ id: string; header: string; question: string; answers: string[] }>;
     explanation?: string | null; plan?: Array<{ step: string; status: "pending" | "inProgress" | "completed" }> }>;
-  approvals: Array<{ requestId: number | string; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string; networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown; choices?: Array<{ id: string; label: string }> } }>;
+  approvals: Array<{ requestId: number | string; method: string; params: { itemId?: string; reason?: string; command?: string; cwd?: string;
+    networkApprovalContext?: { host?: string; protocol?: string; port?: number }; changes?: unknown; grantRoot?: string;
+    permissions?: { network?: unknown; fileSystem?: unknown }; proposedExecpolicyAmendment?: string[] | null;
+    availableDecisions?: Array<string | { acceptWithExecpolicyAmendment?: unknown }>;
+    choices?: Array<{ id: string; label: string }> } }>;
   questions?: CodexQuestionRequest[];
   elicitations?: CodexMcpElicitation[];
 };
@@ -1097,8 +1103,9 @@ export type CodexAppServerApi = {
   discardImage: (id: string, filePath: string) => Promise<void>;
   submit: (id: string, text: string, filePaths?: string[], references?: CodexCapabilityReference[]) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
-  resolveApproval: (id: string, requestId: number | string, approved: boolean | string) => Promise<void>;
+  resolveApproval: (id: string, requestId: number | string, decision: boolean | string) => Promise<void>;
   answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;
+  cancelQuestion: (id: string, requestId: number | string) => Promise<void>;
   resolveElicitation: (id: string, requestId: number | string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown> | null) => Promise<void>;
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
 };

@@ -37,6 +37,7 @@ const { createCodexVersionService } = require("./services/codex-app-server/versi
 const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/version-service.cjs");
 const { createCodexPluginService } = require("./services/codex-app-server/plugin-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
+const { createCodexInheritanceManager } = require("./services/codebuddy-acp/codex-inheritance.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
@@ -118,6 +119,7 @@ let ideaModule = null;
 let projectAssistantService = null;
 let codexSessionControl = null;
 let codexAppServerSessionService = null;
+let codexInheritanceManager = null;
 let questionAnswerStore = null;
 let diagnosticsStore = null;
 
@@ -237,6 +239,9 @@ if (!gotSingleInstanceLock) {
           dingTalkNotificationManager.handleStatus(payload);
         }
       },
+      onSessionClosing: (id) => {
+        void codexInheritanceManager?.cleanup(id).catch(error => console.error("Codex inheritance cleanup failed:", error));
+      },
       onSessionClosed: (id) => {
         codexAppServerSessionService?.close(id);
         if (agentNotificationManager) {
@@ -280,6 +285,7 @@ if (!gotSingleInstanceLock) {
       knownHostStore
     });
     const sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
+    codexInheritanceManager = createCodexInheritanceManager({ sshAgentTransport, homeDir: app.getPath("home") });
     const sshFileSystem = createSshFileSystem({ sshSessionRuntime });
     const codexGraphicalService = createCodexAppServerSessionService({
       environmentService,
@@ -293,9 +299,11 @@ if (!gotSingleInstanceLock) {
       onTokenUsage: usage => tokenUsageModule?.recordAppServerUsage(usage)
     });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
+      codexInheritanceManager,
       setBridgeReadOnly: (id, readOnly) => remoteAgentBridgeService?.setReadOnly(id, readOnly),
-      workBuddyModelCatalogService: createWorkBuddyModelCatalogService()
+      workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
+      onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage)
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
@@ -343,6 +351,8 @@ if (!gotSingleInstanceLock) {
       onStatsChanged: () => postgresBackupService?.schedule(),
       onStatsCleared: () => {
         codexGraphicalService.resetUsageBaselines();
+        tokenUsageModule?.resetGraphicalCodeBuddyBaselines();
+        codeBuddyGraphicalService.resetUsageBaselines();
         postgresBackupService?.newStatsEpoch();
       }
     });
@@ -431,6 +441,7 @@ if (!gotSingleInstanceLock) {
     agentSessionLauncher = createAgentSessionLauncher({
       terminalManager,
       codexAppServerSessionService,
+      codexInheritanceManager,
       sessionStore,
       hookConfigManager,
       remoteHookConfigService,

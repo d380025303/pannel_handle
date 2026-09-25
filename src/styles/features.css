@@ -8056,6 +8056,8 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-message { align-self: flex-start; width: fit-content; }
 .codex-app-server-message > strong { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
 .codex-app-server-message.userMessage { align-self: flex-end; max-width: min(78%, 760px); border-color: var(--color-border-strong); background: var(--color-bg-selection); }
+.codex-app-server-message.turnError { width: min(100%, 900px); border-color: var(--color-danger); color: var(--color-danger-text); background: var(--color-danger-bg); }
+.codex-app-server-message.turnError > strong { color: inherit; }
 .codex-app-server-event, .codex-app-server-approval { align-self: flex-start; width: 100%; }
 .codex-app-server-message p { margin: 0; }
 .codex-app-server-markdown { white-space: normal; }
@@ -8155,7 +8157,7 @@ button.agent-usage-status[aria-expanded="true"] {
 @media (prefers-reduced-motion: reduce) { .codex-app-server-event, .codex-app-server-event-chevron, .codex-app-server-tool-chevron { transition: none; } .codex-app-server-event[data-status="进行中"]::after, .codex-app-server-tool-spinner, .codex-app-server-event > .codex-app-server-tool { animation: none; } }
 .codex-app-server-approval { border-color: var(--color-warning-text); background: var(--color-warning-bg); }
 .codex-app-server-approval > strong { display: block; margin-bottom: 8px; }
-.codex-app-server-approval > div, .codex-app-server-plan-confirm > div { display: flex; gap: 8px; justify-content: flex-end; }
+.codex-app-server-approval > div, .codex-app-server-plan-confirm > div { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .codex-app-server-approval button, .codex-app-server-plan-confirm button { padding: 7px 13px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); }
 .codex-app-server-approval button:hover, .codex-app-server-plan-confirm button:hover { background: var(--color-bg-control-hover); }
 .codex-app-server-question { align-self: flex-start; box-sizing: border-box; width: min(100%, 760px); padding: 16px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg-panel); color: var(--color-text); font-size: 13px; }
@@ -8378,3 +8380,10 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-elicitation-url button { padding: 6px 10px; border: 1px solid var(--color-border-strong); border-radius: 6px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
 .codex-app-server-elicitation-actions button:disabled,
 .codex-app-server-elicitation-url button:disabled { opacity: .5; cursor: default; }
+.codex-inheritance-status {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+.codex-inheritance-status span { margin-left: 8px; }

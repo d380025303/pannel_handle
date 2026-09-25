@@ -138,6 +138,39 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("group", { name: "CodeBuddy CLI 更新" })).toBeNull();
   });
 
+  it("shows a CodeBuddy error in its turn after the conversation continues", async () => {
+    const detail = "429 您的使用量已超出频率限制，将在 2026-09-26 02:50:40 UTC+8 重置。\n(01a0d92020e4737f80c66dbc27673af9)";
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "thread-1", provider: "codebuddy",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const previous = [{ id: "user-1", type: "userMessage", turnId: "turn-1", text: "继续" },
+      { id: "turn-error:turn-1", type: "turnError", turnId: "turn-1", text: detail }];
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, items: previous, approvals: [] } }));
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(detail);
+    expect(alert.textContent).toContain("CodeBuddy 运行错误");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null,
+      items: [...previous, { id: "user-2", type: "userMessage", turnId: "turn-2", text: "换个模型" }], approvals: [] } }));
+    expect(screen.getByRole("alert").textContent).toContain(detail);
+  });
+
+  it("does not repeat a recorded CodeBuddy prompt error beside the composer", async () => {
+    const detail = "429 您的使用量已超出频率限制。";
+    const initial = { threadId: "thread-1", provider: "codebuddy" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce(initial).mockResolvedValue({ ...initial,
+      items: [{ id: "turn-error:turn-1", type: "turnError", turnId: "turn-1", text: detail }] });
+    submit.mockReset().mockRejectedValueOnce(new Error(detail));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "继续" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: "关闭错误提示" })).toBeNull();
+    expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("");
+  });
+
   it("hides the runtime strip while retaining diagnostics and the latest per-turn diff", async () => {
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "askApproval",
@@ -408,8 +441,34 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("menuitem", { name: "历史会话" })).toHaveProperty("disabled", true);
     expect(screen.queryByRole("menuitem", { name: /执行权限/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
-    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
     await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
+  });
+
+  it("shows Chinese descriptions for CodeBuddy native modes", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",
+      nativeModes: [
+        { id: "default", name: "Standard", description: "Autonomous coding agent" },
+        { id: "plan", name: "Plan", description: "Plan before acting" },
+        { id: "auto", name: "Auto", description: "Act without asking" },
+        { id: "dontAsk", name: "Dont Ask", description: "Never prompt" },
+        { id: "delegate", name: "Delegate", description: "Hand off to subagents" }
+      ], mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
+      capabilities: { history: false, plan: true, attachments: true, permissions: true } } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    expect(screen.getByText("自主分析并执行任务，可读取与修改文件、运行命令。")).toBeTruthy();
+    expect(screen.getByText("先制定计划并等待你确认，再开始执行（只读，不直接改动文件）。")).toBeTruthy();
+    expect(screen.getByText("自主分析并执行任务，遇到需确认的操作自动放行。")).toBeTruthy();
+    expect(screen.getByText("运行命令与修改文件均不再弹出确认。")).toBeTruthy();
+    expect(screen.getByText("将子任务委派给子 Agent 并行处理。")).toBeTruthy();
+    expect(screen.queryByText("Autonomous coding agent")).toBeNull();
+    expect(screen.queryByText("Plan before acting")).toBeNull();
+    expect(screen.queryByText("Act without asking")).toBeNull();
+    expect(screen.queryByText("Never prompt")).toBeNull();
+    expect(screen.queryByText("Hand off to subagents")).toBeNull();
   });
 
   it("shows Multitask only when CodeBuddy advertises it and renders background summaries", async () => {
@@ -751,8 +810,8 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText(/只读未生效/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
-    expect(screen.getByRole("radio", { name: "Plan" }).getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
+    expect(screen.getByRole("radio", { name: /Plan/ }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
     await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
   });
 
@@ -1003,7 +1062,47 @@ describe("CodexAppServerSession", () => {
       approvals: [{ requestId: 9, method: "item/commandExecution/requestApproval", params: { command: "pnpm test", cwd: "C:\\repo" } }] } });
     expect(await screen.findByText("pnpm test")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "批准一次" }));
-    await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith("run-1", 9, true));
+    await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith("run-1", 9, "accept"));
+  });
+
+  it("offers only allowed Codex command decisions and shows the proposed rule", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [],
+      approvals: [{ requestId: 91, method: "item/commandExecution/requestApproval", params: {
+        command: "pnpm test", proposedExecpolicyAmendment: ["pnpm", "test"],
+        availableDecisions: ["accept", "acceptForSession", "decline", "cancel", "acceptWithExecpolicyAmendment"] } }] } }));
+    expect(await screen.findByText('["pnpm","test"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消并停止本回合" }));
+    fireEvent.click(screen.getByRole("button", { name: "本会话允许" }));
+    fireEvent.click(screen.getByRole("button", { name: "批准并应用命令规则" }));
+    await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith("run-1", 91, "cancel"));
+    expect(resolveApproval).toHaveBeenCalledWith("run-1", 91, "acceptForSession");
+    expect(resolveApproval).toHaveBeenCalledWith("run-1", 91, "acceptWithExecpolicyAmendment");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [],
+      approvals: [{ requestId: 92, method: "item/commandExecution/requestApproval", params: {
+        networkApprovalContext: { host: "example.com", protocol: "https", port: 443 }, availableDecisions: ["decline", "cancel"] } }] } }));
+    expect(await screen.findByText("https://example.com:443")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "批准一次" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "本会话允许" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "批准并应用命令规则" })).toBeNull();
+  });
+
+  it("offers file decisions and explicit turn or session permission grants", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [],
+      approvals: [{ requestId: 93, method: "item/fileChange/requestApproval", params: { grantRoot: "C:\\repo" } }] } }));
+    expect(await screen.findByText("授权目录：C:\\repo")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "取消并停止本回合" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "本会话允许" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "批准并应用命令规则" })).toBeNull();
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [],
+      approvals: [{ requestId: 94, method: "item/permissions/requestApproval", params: {
+        permissions: { network: { enabled: true } } } }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "本回合允许" }));
+    fireEvent.click(screen.getByRole("button", { name: "本会话允许" }));
+    expect(resolveApproval).toHaveBeenCalledWith("run-1", 94, "accept");
+    expect(resolveApproval).toHaveBeenCalledWith("run-1", 94, "acceptForSession");
+    expect(screen.queryByRole("button", { name: "取消并停止本回合" })).toBeNull();
   });
 
   it("submits MCP form fields only after required values are entered", async () => {
@@ -1458,7 +1557,7 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
-    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
     await waitFor(() => expect(setMode).toHaveBeenCalledWith("run-1", "plan"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));

@@ -68,6 +68,15 @@ function createTokenUsageModule({
     });
   }
 
+  function recordGraphicalCodeBuddy(input) {
+    if (stopped) return Promise.resolve();
+    return statsService.recordGraphicalCodeBuddy(input);
+  }
+
+  function resetGraphicalCodeBuddyBaselines() {
+    statsService.resetGraphicalCodeBuddyBaselines();
+  }
+
   function disconnect(sessionId) {
     usageService.disconnect(sessionId);
     statsService.markEnded(sessionId);
@@ -86,6 +95,8 @@ function createTokenUsageModule({
     disconnect,
     handleHook,
     recordAppServerUsage,
+    recordGraphicalCodeBuddy,
+    resetGraphicalCodeBuddyBaselines,
     getDashboard: options => statsStore.getDashboard(options),
     shutdown
   };

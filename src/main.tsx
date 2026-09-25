@@ -5,6 +5,8 @@ import "./styles.css";
 import { App } from "./App";
 
 function renderApp() {
+  window.addEventListener("error", event => { document.title = `PH ERROR: ${event.message}`; });
+  window.addEventListener("unhandledrejection", event => { document.title = `PH REJECTION: ${String(event.reason)}`; });
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <App />
