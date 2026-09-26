@@ -55,8 +55,12 @@ function createMobileAuth({ accessStore, now, sendError, sendReady, releaseDevic
   function disconnectClient(id, reason = "desktop-disconnect") {
     const client = clients.get(id);
     if (client) {
-      sendError(client.socket, reason === "password-changed" ? "PASSWORD_CHANGED" : "CONNECTION_CLOSED",
-        reason === "password-changed" ? "移动访问密码已修改，请重新输入。" : "电脑端已断开此连接，请重新输入密码。");
+      const code = reason === "password-changed" ? "PASSWORD_CHANGED"
+        : reason === "service-stopped" ? "SERVICE_STOPPED" : "CONNECTION_CLOSED";
+      const message = reason === "password-changed" ? "移动访问密码已修改，请重新输入。"
+        : reason === "service-stopped" ? "电脑端移动服务已停止，正在等待恢复…"
+          : "电脑端已断开此连接，请重新输入密码。";
+      sendError(client.socket, code, message);
       releaseClient(client, reason);
       client.socket.close(1008, reason);
     }

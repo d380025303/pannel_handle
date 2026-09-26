@@ -1,0 +1,134 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { useRemoteConnection } from "./useRemoteConnection";
+import { PROTOCOL_VERSION } from "./types";
+
+const passwordKey = "pannel-handle-mobile-password";
+
+class FakeWebSocket extends EventTarget {
+  static OPEN = 1;
+  static instances: FakeWebSocket[] = [];
+  readyState = 0;
+  sent: string[] = [];
+
+  constructor(public url: string) {
+    super();
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string) { this.sent.push(data); }
+  open() { this.readyState = FakeWebSocket.OPEN; this.dispatchEvent(new Event("open")); }
+  receive(type: string, fields: Record<string, unknown> = {}) {
+    this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ v: PROTOCOL_VERSION, type, ...fields }) }));
+  }
+  close() { this.readyState = 3; this.dispatchEvent(new Event("close")); }
+}
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  FakeWebSocket.instances = [];
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+function setup() {
+  vi.stubGlobal("WebSocket", FakeWebSocket);
+  vi.stubGlobal("indexedDB", { deleteDatabase: vi.fn() });
+  return renderHook(() => useRemoteConnection());
+}
+
+function ready(socket: FakeWebSocket) {
+  act(() => socket.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone", sessions: [], templates: [] } }));
+}
+
+it("stores a password only after successful login and uses it after refresh", () => {
+  const first = setup();
+  expect(first.result.current.status).toBe("password-required");
+  expect(FakeWebSocket.instances).toHaveLength(0);
+  act(() => first.result.current.login("correct-password"));
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  expect(JSON.parse(socket.sent[0])).toMatchObject({ type: "password.login", password: "correct-password" });
+  expect(localStorage.getItem(passwordKey)).toBeNull();
+  ready(socket);
+  expect(first.result.current.status).toBe("connected");
+  expect(localStorage.getItem(passwordKey)).toBe("correct-password");
+  first.unmount();
+
+  const refreshed = setup();
+  expect(FakeWebSocket.instances).toHaveLength(2);
+  act(() => FakeWebSocket.instances[1].open());
+  expect(JSON.parse(FakeWebSocket.instances[1].sent[0])).toMatchObject({
+    type: "password.login", password: "correct-password"
+  });
+  refreshed.unmount();
+});
+
+it("clears a rejected saved password and waits for a new one", () => {
+  localStorage.setItem(passwordKey, "old-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  act(() => socket.receive("error", { code: "PASSWORD_INVALID", message: "密码错误" }));
+  expect(localStorage.getItem(passwordKey)).toBeNull();
+  expect(hook.result.current.status).toBe("password-required");
+});
+
+it.each(["PASSWORD_CHANGED", "CONNECTION_CLOSED"])("clears the password on %s", (code) => {
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  act(() => socket.receive("error", { code, message: "请重新输入" }));
+  expect(localStorage.getItem(passwordKey)).toBeNull();
+  expect(hook.result.current.status).toBe("password-required");
+});
+
+it("keeps the password when the service stops", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  act(() => socket.receive("error", { code: "SERVICE_STOPPED", message: "服务已停止" }));
+  act(() => socket.close());
+  expect(localStorage.getItem(passwordKey)).toBe("correct-password");
+  expect(hook.result.current.status).toBe("disconnected");
+  act(() => vi.advanceTimersByTime(500));
+  expect(FakeWebSocket.instances).toHaveLength(2);
+  act(() => FakeWebSocket.instances[1].open());
+  expect(JSON.parse(FakeWebSocket.instances[1].sent[0])).toMatchObject({ password: "correct-password" });
+});
+
+it("keeps the password after an unplanned network drop", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  act(() => socket.close());
+  expect(localStorage.getItem(passwordKey)).toBe("correct-password");
+  expect(hook.result.current.status).toBe("disconnected");
+  act(() => vi.advanceTimersByTime(500));
+  expect(FakeWebSocket.instances).toHaveLength(2);
+});
+
+it("keeps the connection usable when browser storage rejects writes", () => {
+  const original = Storage.prototype.setItem;
+  const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    if (key === passwordKey) throw new Error("storage disabled");
+    return original.call(this, key, value);
+  });
+  const hook = setup();
+  act(() => hook.result.current.login("correct-password"));
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  expect(hook.result.current.status).toBe("connected");
+  expect(hook.result.current.storageWarning).toContain("无法保存密码");
+  setItem.mockRestore();
+});

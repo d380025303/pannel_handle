@@ -101,6 +101,20 @@ describe("mobile component collaboration", () => {
     expect(f.sizes.getSizeState("run-1").owner).toBe("desktop");
   });
 
+  it("distinguishes a service stop from a desktop disconnect and password change", () => {
+    const f = fixture();
+    for (const [reason, code] of [
+      ["service-stopped", "SERVICE_STOPPED"],
+      ["desktop-disconnect", "CONNECTION_CLOSED"],
+      ["password-changed", "PASSWORD_CHANGED"]
+    ]) {
+      const client = socket();
+      f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+      f.auth.disconnectClient(client.mobileDevice.id, reason);
+      expect(f.sendError).toHaveBeenLastCalledWith(client, code, expect.any(String));
+    }
+  });
+
   it("gates commands on authentication and enforces the authentication attempt window", async () => {
     vi.useFakeTimers();
     const f = fixture();

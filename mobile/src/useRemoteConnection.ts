@@ -7,8 +7,17 @@ type TerminalMessage = Extract<ServerMessage,
 type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 
+const PASSWORD_STORAGE_KEY = "pannel-handle-mobile-password";
+
+function readSavedPassword() {
+  try { return localStorage.getItem(PASSWORD_STORAGE_KEY) || ""; }
+  catch { return ""; }
+}
+
 function defaultDeviceName() {
-  const saved = localStorage.getItem("pannel-handle-device-name");
+  let saved = "";
+  try { saved = localStorage.getItem("pannel-handle-device-name") || ""; }
+  catch { /* Browser storage may be disabled. */ }
   if (saved) return saved;
   const android = navigator.userAgent.match(/Android\s+([\d.]+)/i)?.[1];
   return android ? `Android ${android}` : "Android Chrome";
@@ -21,11 +30,12 @@ export function useRemoteConnection() {
   const [device, setDevice] = useState<{ deviceId: string; deviceName: string } | null>(null);
   const [lastLaunchedId, setLastLaunchedId] = useState<string | null>(null);
   const [commandError, setCommandError] = useState("");
+  const [storageWarning, setStorageWarning] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const stoppedRef = useRef(false);
   const retryRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
-  const passwordRef = useRef("");
+  const passwordRef = useRef(readSavedPassword());
   const terminalListenersRef = useRef(new Set<(message: TerminalMessage) => void>());
   const graphicalListenersRef = useRef(new Set<(message: GraphicalMessage) => void>());
 
@@ -57,7 +67,8 @@ export function useRemoteConnection() {
       if (socketRef.current !== socket) return;
       retryRef.current = 0;
       const deviceName = defaultDeviceName();
-      localStorage.setItem("pannel-handle-device-name", deviceName);
+      try { localStorage.setItem("pannel-handle-device-name", deviceName); }
+      catch { /* Device name is optional. */ }
       socket.send(serializeClientMessage({ v: PROTOCOL_VERSION, type: "password.login", password: passwordRef.current, deviceName }));
     });
     socket.addEventListener("message", (event) => {
@@ -65,6 +76,12 @@ export function useRemoteConnection() {
         const message = parseServerMessage(String(event.data));
         switch (message.type) {
           case "ready":
+            try {
+              localStorage.setItem(PASSWORD_STORAGE_KEY, passwordRef.current);
+              setStorageWarning("");
+            } catch {
+              setStorageWarning("浏览器无法保存密码，刷新后需要重新输入。");
+            }
             setDevice({
               deviceId: message.payload.deviceId,
               deviceName: message.payload.deviceName
@@ -104,10 +121,17 @@ export function useRemoteConnection() {
             }
             if (["PASSWORD_INVALID", "PASSWORD_CHANGED", "CONNECTION_CLOSED"].includes(message.code)) {
               passwordRef.current = "";
+              try { localStorage.removeItem(PASSWORD_STORAGE_KEY); setStorageWarning(""); }
+              catch { setStorageWarning("浏览器无法清除已保存的密码，请清除本站点数据。"); }
               setDevice(null);
               setStatus("password-required");
               setStatusMessage(message.message);
               socket.close();
+              break;
+            }
+            if (message.code === "SERVICE_STOPPED") {
+              setStatus("disconnected");
+              setStatusMessage(message.message);
               break;
             }
             if (["AUTH_RATE_LIMIT", "AUTH_REQUIRED", "PROTOCOL_MISMATCH"].includes(message.code)) {
@@ -183,6 +207,7 @@ export function useRemoteConnection() {
     device,
     lastLaunchedId,
     commandError,
+    storageWarning,
     send,
     retry,
     login,

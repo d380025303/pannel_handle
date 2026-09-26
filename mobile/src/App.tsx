@@ -72,8 +72,10 @@ export default function App() {
         {remote.status === "password-required" && <form className="mobile-login" onSubmit={(event) => { event.preventDefault(); if (password) remote.login(password); setPassword(""); }}>
           <input type="password" autoComplete="current-password" aria-label="移动访问密码" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="移动访问密码" />
           <button className="primary large" type="submit" disabled={!password}>验证并连接</button>
+          <small>验证成功后，密码会保存在此浏览器中，刷新页面可自动连接。</small>
         </form>}
         {(remote.status === "error" || remote.status === "disconnected") && <button className="primary large" type="button" onClick={remote.retry}>重新连接</button>}
+        {remote.storageWarning && <p role="alert">{remote.storageWarning}</p>}
         <aside className="security-warning">当前版本使用局域网 HTTP 明文连接。只应在你信任的私人网络中使用，不要映射到互联网。</aside>
       </main>
     );
@@ -87,6 +89,7 @@ export default function App() {
         <span className="http-badge">HTTP 局域网</span>
       </header>
       {remote.commandError && <div className="command-error" role="alert">{remote.commandError}</div>}
+      {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
 
       {activeSession?.runtimeMode === "app-server" ? (
         <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage} />
