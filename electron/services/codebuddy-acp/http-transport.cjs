@@ -4,6 +4,35 @@ const { StringDecoder } = require("node:string_decoder");
 
 const START_TIMEOUT_MS = 60000;
 const RESPONSE_LIMIT = 1024 * 1024;
+const ERROR_DETAIL_LIMIT = 4096;
+
+function sanitizeDiagnostic(value, secrets = []) {
+  let detail = String(value || "");
+  for (const secret of secrets) if (secret && String(secret).length >= 4)
+    detail = detail.split(String(secret)).join("[已隐藏]");
+  return detail.replace(/\b(Authorization\s*:\s*Bearer\s+)\S+/gi, "$1[已隐藏]")
+    .replace(/\b((?:Password|Token|Secret|API[_-]?Key)\s*(?:[:=]|\s)\s*)\S+/gi, "$1[已隐藏]");
+}
+
+function httpErrorDetail(body, headers, password) {
+  let detail = String(body || "").trim();
+  try {
+    const data = JSON.parse(detail);
+    if (data && typeof data === "object") {
+      const error = data.error && typeof data.error === "object" ? data.error : {};
+      const requestId = error.requestId || data.requestId || headers["x-request-id"];
+      detail = [error.message || (typeof data.error === "string" ? data.error : data.message),
+        error.details || error.detail || data.details || data.detail,
+        requestId ? `请求 ID：${requestId}` : "",
+        error.resetAt || data.resetAt ? `重置时间：${error.resetAt || data.resetAt}` : ""].filter(value => typeof value === "string" && value.trim()).join("；");
+    }
+  } catch {}
+  if (headers["x-request-id"] && !detail.includes(headers["x-request-id"]))
+    detail += `${detail ? "；" : ""}请求 ID：${headers["x-request-id"]}`;
+  const retryAfter = headers["retry-after"];
+  if (retryAfter) detail += `${detail ? "；" : ""}Retry-After：${retryAfter}`;
+  return sanitizeDiagnostic(detail, [password]).slice(0, ERROR_DETAIL_LIMIT);
+}
 
 function parseStartupLine(line, state) {
   const plain = String(line).replace(/\x1b\[[0-9;]*m/g, "");
@@ -113,8 +142,11 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
         headers: headers({ Accept: "application/json, text/event-stream", ...(payload ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } : {}) }) }, res => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           let detail = "";
-          res.on("data", chunk => { if (detail.length < 512) detail += chunk.toString("utf8"); });
-          res.on("end", () => reject(new Error(`CodeBuddy HTTP ACP 返回 HTTP ${res.statusCode}${res.statusCode === 401 ? "（认证失败）" : ""}。`)));
+          res.on("data", chunk => { if (detail.length < ERROR_DETAIL_LIMIT) detail += chunk.toString("utf8").slice(0, ERROR_DETAIL_LIMIT - detail.length); });
+          res.on("end", () => {
+            const explanation = httpErrorDetail(detail, res.headers, password);
+            reject(new Error(`CodeBuddy HTTP ACP 返回 HTTP ${res.statusCode}${res.statusCode === 401 ? "（认证失败）" : ""}。${explanation ? ` ${explanation}` : ""}`));
+          });
           return;
         }
         const type = String(res.headers["content-type"] || "");
@@ -198,4 +230,4 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
   };
 }
 
-module.exports = { parseStartupLine, waitForEndpoint, createSseParser, createCodeBuddyHttpTransport };
+module.exports = { parseStartupLine, waitForEndpoint, createSseParser, createCodeBuddyHttpTransport, sanitizeDiagnostic };

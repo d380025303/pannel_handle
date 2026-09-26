@@ -379,7 +379,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo);
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
     : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
-  const effectivePlan = snapshot.mode === "plan" && (snapshot.provider !== "codebuddy" || snapshot.readOnlyProtected === true);
+  const effectivePlan = snapshot.mode === "plan";
   return <section className="graphical-shell">
     <header className="graphical-header">
       <div className="graphical-header-details">
@@ -388,10 +388,9 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         <div className="graphical-current-config">
           <span>模型：{modelLabel(snapshot)}</span>
           <span>强度：{effortLabel(snapshot)}</span>
-          {snapshot.provider !== "opencode" && permissionLabel(snapshot.executionPermission)
+          {snapshot.provider === "codex" && permissionLabel(snapshot.executionPermission)
             && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
           {snapshot.fastMode && <span>快速模式</span>}
-          {snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected && <span className="graphical-mode-warning">Plan 只读未生效</span>}
         </div>
       </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}
@@ -427,6 +426,11 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
         return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong></article>;
       })}
+      {snapshot.provider === "codex" && snapshot.diagnostics?.map(event => <details className="graphical-card graphical-diagnostic" key={event.id}>
+        <summary><strong>运行错误</strong>{event.message}</summary>
+        {(event.kind || event.httpStatusCode) && <p>{event.kind || "Codex 错误"}{event.httpStatusCode ? ` · HTTP ${event.httpStatusCode}` : ""}</p>}
+        {event.additionalDetails != null && <pre>{typeof event.additionalDetails === "string" ? event.additionalDetails : JSON.stringify(event.additionalDetails, null, 2)}</pre>}
+      </details>)}
       {snapshot.pendingPlan && <article className="graphical-card"><strong>确认执行计划</strong><div className="graphical-actions">
         <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}>暂不执行</button>
         <button type="button" className="primary" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: true })}>执行计划</button>
@@ -476,8 +480,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
             <span>会话模式</span>
             <div className="graphical-mode-switch">
               <button type="button" aria-pressed={effectivePlan}
-                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")
-                  || (snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected)}
+                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")}
                 onClick={() => changeMode("plan")}>Plan</button>
               <button type="button" aria-pressed={snapshot.mode === "default"}
                 disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}

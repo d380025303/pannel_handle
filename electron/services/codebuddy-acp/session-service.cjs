@@ -7,7 +7,7 @@ const path = require("node:path");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
-const { waitForEndpoint, createCodeBuddyHttpTransport } = require("./http-transport.cjs");
+const { waitForEndpoint, createCodeBuddyHttpTransport, sanitizeDiagnostic } = require("./http-transport.cjs");
 const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
 const { codeBuddyInheritanceArgs } = require("./codex-inheritance.cjs");
 
@@ -16,14 +16,6 @@ const PUBLISH_COALESCE_MS = 50;
 const PREVIEW_LIMIT = 2 * 1024 * 1024;
 const IMAGE_LIMIT = 10 * 1024 * 1024;
 const quoteBash = value => `'${String(value).replace(/'/g, "'\\''")}'`;
-const PLAN_TOOLS = "Read,Glob,Grep";
-const PLAN_BRIDGE_DENY = "mcp__pannel_handle_remote__remote_apply_patch mcp__pannel_handle_remote__remote_exec";
-function codeBuddyPlanArgs(runtime, quote) {
-  if (!runtime.readOnlyProfile) return "";
-  return ["--permission-mode plan", "--permission-mode-before-plan dontAsk", "--subagent-permission-mode plan",
-    `--tools ${PLAN_TOOLS}`, "--strict-mcp-config",
-    ...(runtime.localBridge ? [`--disallowedTools ${quote(PLAN_BRIDGE_DENY)}`] : [])].join(" ");
-}
 function createConversationRequestId() {
   const bytes = randomBytes(16);
   bytes.writeUIntBE(Date.now(), 0, 6);
@@ -42,13 +34,13 @@ function readAvailableCommands(commands) {
   });
 }
 function safeStderr(stderr, environment) {
-  let detail = String(stderr || "");
+  let detail = String(stderr || "").split(/\r?\n/).filter(line => !/^\s*Password\s+\S+\s*$/i.test(line)).join("\n");
+  const secrets = [];
   for (const [name, value] of Object.entries({ ...process.env, ...environment })) {
     if (!/(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL)/i.test(name) || value == null) continue;
-    const secret = String(value);
-    if (secret.length >= 4) detail = detail.split(secret).join("[已隐藏]");
+    secrets.push(value);
   }
-  return detail.slice(-500);
+  return sanitizeDiagnostic(detail, secrets).trim().slice(-500);
 }
 
 function stopAgentChild(child, provider) {
@@ -61,16 +53,10 @@ function stopAgentChild(child, provider) {
 function buildInvocation(session, runtime, environment, provider = "codebuddy") {
   const commandName = provider === "opencode" ? "opencode" : "codebuddy";
   const shell = runtime.shell || session.shell || "powershell.exe";
-  const quote = session.type === "wsl" ? quoteBash
-    : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell)
-      ? value => `'${String(value).replace(/'/g, "''")}'`
-      : value => `"${String(value).replace(/"/g, '""')}"`;
-  const planArgs = provider === "codebuddy" ? codeBuddyPlanArgs(runtime,
-    quote) : "";
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance,
     session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "cmd") : "";
   const args = provider === "opencode" ? (runtime.acpArgs || "acp")
-    : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"}${planArgs ? ` ${planArgs}` : ""} --serve --acp-transport streamable-http --auth password`;
+    : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
   if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
@@ -100,7 +86,7 @@ async function createRemoteChild(transportService, session, environment, provide
   });
   const before = String(session.initialCommand || "").trim();
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance) : "";
-  const commandName = provider === "opencode" ? "opencode acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"}${runtime.readOnlyProfile ? ` ${codeBuddyPlanArgs(runtime, quoteBash)}` : ""} --serve --acp-transport streamable-http --auth password`;
+  const commandName = provider === "opencode" ? "opencode acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const script = [...exports, `cd ${quoteBash(session.cwd)}`, ...(before ? [`{ ${before}; } 1>&2`] : []), `exec ${commandName}`].join(" && ");
   const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "opencode" ? "OpenCode" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
   const child = new EventEmitter();
@@ -116,7 +102,7 @@ async function createRemoteChild(transportService, session, environment, provide
 
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
-  httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService, setBridgeReadOnly,
+  httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
   onTokenUsageCheckpoint = () => {} }) {
   const sessions = new Map();
   const publishTimers = new Map();
@@ -141,7 +127,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const option = entry.configOptions.find(item => item.id === optionId);
       const value = saved[key];
       if (!option || value === undefined || option.currentValue === value
-        || optionId === "multitask" && (entry.runtime.readOnlyProfile || !entry.multitaskSupport)
+        || optionId === "multitask" && !entry.multitaskSupport
         || optionId === "multitask" && (option.type !== "boolean" || typeof value !== "boolean")
         || optionId !== "multitask" && (option.type !== "select" || !option.options?.some(item => item.value === value))) continue;
       try {
@@ -161,7 +147,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     updateCapabilities(entry);
   }
   async function enforceRequiredMode(entry, restoreSavedMode = false) {
-    const requiredMode = entry.runtime.readOnlyProfile ? "plan" : entry.runtime.initialModeId || entry.runtime.requiredMode;
+    const requiredMode = entry.runtime.requiredMode;
     const modeId = requiredMode || (restoreSavedMode && provider === "codebuddy" ? savedOptions(entry).mode : undefined);
     if (!modeId) return;
     if (!entry.modes.some(mode => mode.id === modeId)) {
@@ -200,7 +186,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     entry.mode = /plan/i.test(entry.nativeMode || "") ? "plan" : "default";
     if (provider === "opencode") { entry.executionPermission = "askApproval"; return; }
     entry.executionPermission = entry.nativeMode === "bypassPermissions" || entry.nativeMode === "fullAccess"
-      ? "fullAccess" : entry.mode === "plan" ? "readOnly" : "askApproval";
+      ? "fullAccess" : "askApproval";
   }
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const workspace = entry => entry.runtime.workspaceCwd || entry.session.cwd;
@@ -225,10 +211,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   function snapshot(id) {
     const entry = entryFor(id);
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
-      busy: entry.busy || entry.switching, error: entry.error, pendingPlan: entry.pendingPlan, model: entry.model,
+      busy: entry.busy, error: entry.error, pendingPlan: entry.pendingPlan, model: entry.model,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
-      ...(provider === "codebuddy" ? { readOnlyProtected: entry.runtime.readOnlyProfile === true && !entry.modeViolation && entry.nativeMode === "plan" } : {}),
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
       ...(provider === "codebuddy" ? { availableCommands: entry.availableCommands } : {}),
       ...(provider === "codebuddy" ? { codexInheritance: {
@@ -389,12 +374,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     } else if (kind === "current_mode_update") {
       entry.nativeMode = update.currentModeId;
       reflectNativeMode(entry);
-      if (provider === "codebuddy" && (entry.runtime.readOnlyProfile && entry.nativeMode !== "plan"
-        || !entry.runtime.readOnlyProfile && entry.nativeMode === "plan")) {
-        entry.modeViolation = true;
-        entry.error = "CodeBuddy 模式已在会话内变化，当前轮次已停止；请重新选择模式。";
-        if (entry.busy) try { send(entry, { method: "session/cancel", params: { sessionId: entry.threadId } }); } catch {}
-      }
     } else if (kind === "available_modes_update") {
       entry.modes = update.availableModes || [];
       updateCapabilities(entry);
@@ -448,10 +427,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       return;
     }
     if (message.method === "session/request_permission") {
-      if (provider === "codebuddy" && (entry.runtime.readOnlyProfile || entry.modeViolation)) {
-        send(entry, { id: message.id, result: { outcome: { outcome: "cancelled" } } });
-        return;
-      }
       const options = message.params?.options || [];
       const allowed = options.find(option => option.kind === "allow_once");
       const declined = options.find(option => /reject/i.test(option.kind || ""));
@@ -477,17 +452,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         projectCwd: runtime.workspaceCwd || session.cwd, localBridge: runtime.localBridge === true
       }) };
     }
-    if (provider === "codebuddy" && runtime.readOnlyProfile && runtime.localBridge) {
-      if (!setBridgeReadOnly) throw new Error("远程桥接缺少计划模式只读保护。");
-      setBridgeReadOnly(session.id, true);
-    }
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
     const child = isRemote({ session, runtime })
       ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
       : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
         return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
     const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
-      threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, switching: false, modeViolation: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
+      threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
       error: null, pendingPlan: null, items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
     entry.listedThreadIds = new Set();
@@ -506,8 +477,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       status(session.id, entry, "exited", error.message);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "disconnected");
     }
-    child.on("error", fail);
-    child.on("exit", code => fail(new Error(`${agentName} ACP 已退出（代码 ${code ?? "未知"}）。${provider === "opencode" && stderr ? `启动输出：${safeStderr(stderr, environment)}` : ""}`)));
+    const withStderr = error => {
+      const detail = safeStderr(stderr, environment);
+      return detail && !String(error.message).includes(detail)
+        ? new Error(`${error.message} ${entry.threadId ? "错误输出" : "启动输出"}：${detail}`) : error;
+    };
+    child.on("error", error => fail(withStderr(error)));
+    child.on("exit", code => fail(withStderr(new Error(`${agentName} ACP 已退出（代码 ${code ?? "未知"}）。`))));
     try {
       if (provider === "codebuddy") {
         const { endpoint, password } = await resolveHttpEndpoint(child);
@@ -541,33 +517,26 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.loadingThreadId = null;
       applySessionOptions(entry, result);
       await enforceRequiredMode(entry, true);
-      if (runtime.readOnlyProfile && entry.nativeMode !== "plan") throw new Error("CodeBuddy 未确认受限计划模式。");
-      if (!runtime.readOnlyProfile) delete entry.runtime.initialModeId;
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
-      await ensureReadOnlyProfileIfPlan(session.id, entry);
       await restoreOptions(entryFor(session.id));
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
-    } catch (error) { close(session.id); throw error; }
+    } catch (error) { const failure = provider === "codebuddy" ? withStderr(error) : error; close(session.id); throw failure; }
   }
   function close(id) {
     const entry = sessions.get(id);
     if (!entry) return;
     clearPendingPublish(id);
     sessions.delete(id);
-    disposeEntry(entry, true);
+    disposeEntry(entry);
   }
-  function disposeEntry(entry, releaseBridge = false) {
+  function disposeEntry(entry) {
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
     entry.pending.clear();
     entry.questions.clear();
     const finish = () => {
       entry.httpForwarder?.close();
       stopAgentChild(entry.child, provider);
-      if (releaseBridge && entry.runtime.readOnlyProfile && entry.runtime.localBridge
-        && !sessions.get(entry.session.id)?.runtime.readOnlyProfile) {
-        try { setBridgeReadOnly?.(entry.session.id, false); } catch {}
-      }
     };
     if (entry.httpTransport) {
       void Promise.resolve(entry.httpTransport.close()).catch(() => {}).finally(finish);
@@ -593,51 +562,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     await start(session, runtime);
     return terminalManager.listSessions().find(value => value.id === id);
-  }
-  async function switchCodeBuddyProfile(id, modeId) {
-    const entry = entryFor(id);
-    if (entry.switching || entry.busy) throw new Error("当前轮次尚未结束。");
-    if (entry.team?.hasLiveMembers) throw new Error("请等待 CodeBuddy 团队成员完成后再切换模式。");
-    if (entry.approvals.size || entry.questions.size) throw new Error("请先处理当前会话的待确认请求。");
-    if (!entry.supportsLoad) throw new Error("当前 CodeBuddy CLI 不支持恢复会话，无法安全切换计划模式。");
-    const readOnly = modeId === "plan";
-    const session = terminalManager.getSession(id) || entry.session;
-    const previousReadOnly = entry.runtime.readOnlyProfile === true;
-    entry.switching = true;
-    publish(id);
-    try {
-      if (readOnly && entry.runtime.localBridge) setBridgeReadOnly?.(id, true);
-      await start(session, { ...entry.runtime, resumeThreadId: entry.threadId,
-        readOnlyProfile: readOnly, initialModeId: modeId });
-      const replacement = entryFor(id);
-      if (replacement.nativeMode !== modeId || readOnly && replacement.modeViolation) {
-        close(id);
-        throw new Error(`CodeBuddy 未确认 ${modeId} 模式。`);
-      }
-      if (!readOnly && entry.runtime.localBridge) setBridgeReadOnly?.(id, false);
-      disposeEntry(entry);
-      publish(id);
-      return snapshot(id);
-    } catch (error) {
-      if (sessions.get(id) !== entry) close(id);
-      sessions.set(id, entry);
-      entry.switching = false;
-      entry.error = error.message;
-      if (entry.runtime.localBridge) setBridgeReadOnly?.(id, previousReadOnly);
-      publish(id);
-      throw error;
-    }
-  }
-  async function ensureReadOnlyProfileIfPlan(id, entry) {
-    if (provider !== "codebuddy" || entry.nativeMode !== "plan" || entry.runtime.readOnlyProfile) return;
-    if (!entry.supportsLoad) {
-      entry.modeViolation = true;
-      entry.error = "当前 CodeBuddy CLI 不支持恢复会话，无法为计划模式启用只读保护。";
-      publish(id);
-      return;
-    }
-    try { await switchCodeBuddyProfile(id, "plan"); }
-    catch (error) { entry.modeViolation = true; entry.error = error.message; publish(id); }
   }
   async function listHistory(id, cursor = null) {
     const entry = entryFor(id);
@@ -676,7 +600,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
     publish(id);
-    await ensureReadOnlyProfileIfPlan(id, entry);
     await recordTokenUsage(entry, { resumed: true });
     return snapshot(id);
   }
@@ -701,7 +624,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { await enforceRequiredMode(entry, true); }
     catch (error) { close(id); throw error; }
     publish(id);
-    await ensureReadOnlyProfileIfPlan(id, entry);
     await restoreOptions(entryFor(id));
     return snapshot(id);
   }
@@ -711,11 +633,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (entry.busy) throw new Error("当前轮次尚未结束。");
     const native = entry.modes.find(value => mode === "plan" ? /plan/i.test(value.id) : /^(default|normal|code|ask|build)$/i.test(value.id));
     if (!native) throw new Error(`当前 ${agentName} CLI 不支持${mode === "plan" ? "计划" : "执行"}模式。`);
-    if (provider === "codebuddy" && (native.id === "plan" || entry.runtime.readOnlyProfile)) {
-      const result = await switchCodeBuddyProfile(id, native.id);
-      saveOption(entryFor(id), "mode", native.id);
-      return result;
-    }
+    if (native.id === entry.nativeMode) return snapshot(id);
     if (provider === "opencode" && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", native.id);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId: native.id });
     entry.mode = mode; entry.nativeMode = native.id; entry.pendingPlan = null;
@@ -728,12 +646,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (entry.runtime.requiredMode && modeId !== entry.runtime.requiredMode) throw new Error("本机 SSH 桥接不允许切换受限 Agent 模式。");
     if (entry.busy) throw new Error("当前轮次尚未结束。");
     if (!entry.modes.some(mode => mode.id === modeId)) throw new Error(`当前 ${agentName} CLI 不支持此模式。`);
-    if (provider === "codebuddy" && (modeId === "plan" || entry.runtime.readOnlyProfile)) {
-      if (modeId === entry.nativeMode && !entry.modeViolation) return snapshot(id);
-      const result = await switchCodeBuddyProfile(id, modeId);
-      saveOption(entryFor(id), "mode", modeId);
-      return result;
-    }
+    if (modeId === entry.nativeMode) return snapshot(id);
     if (provider === "opencode" && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", modeId);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId });
     entry.nativeMode = modeId; entry.pendingPlan = null;
@@ -748,7 +661,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!nativeMode) throw new Error("无效的执行权限。");
     const candidate = entry.modes.find(mode => mode.id === nativeMode);
     if (!candidate) throw new Error(`当前 ${agentName} CLI 不支持此权限模式。`);
-    if (provider === "codebuddy" && (nativeMode === "plan" || entry.runtime.readOnlyProfile)) return setNativeMode(id, nativeMode);
+    if (provider === "codebuddy") return setNativeMode(id, nativeMode);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId: candidate.id });
     entry.executionPermission = permission;
     entry.nativeMode = candidate.id;
@@ -779,7 +692,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   function setEffort(id, value) { return setConfigOption(id, "effort", value); }
   async function sendTeamMessage(id, teamName, memberName, text) {
     const entry = entryFor(id);
-    if (entry.runtime.readOnlyProfile || entry.switching || entry.modeViolation) throw new Error("计划模式不允许团队成员执行任务。");
     if (provider !== "codebuddy" || !entry.httpTransport?.sendTeamMessage) throw new Error("当前会话不支持团队消息。");
     const team = entry.team;
     const member = team?.members.get(memberName);
@@ -792,7 +704,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function setMultitask(id, enabled) {
     const entry = entryFor(id);
-    if (entry.runtime.readOnlyProfile || entry.switching || entry.modeViolation) throw new Error("计划模式不允许启用 Multitask。");
     const option = entry.configOptions.find(item => item.id === "multitask" && item.type === "boolean");
     if (provider !== "codebuddy" || !entry.multitaskSupport || !option || typeof enabled !== "boolean")
       throw new Error("当前 CodeBuddy 会话不支持 Multitask 配置。");
@@ -831,9 +742,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function submit(id, text, files = [], _references = [], orderedContent) {
     const entry = entryFor(id);
-    if (!entry.threadId || entry.busy || entry.switching) throw new Error(`${agentName} 会话未就绪或正在运行。`);
-    if (entry.modeViolation || provider === "codebuddy" && entry.mode === "plan" && !entry.runtime.readOnlyProfile)
-      throw new Error("CodeBuddy 计划模式尚未确认只读保护，请重新选择计划模式。");
+    if (!entry.threadId || entry.busy) throw new Error(`${agentName} 会话未就绪或正在运行。`);
     if (!String(text || "").trim() && !files.length) throw new Error("请输入消息或添加附件。");
     if (files.some(file => !entry.allowedFiles.has(file) && !entry.pastedImages.has(file))) throw new Error("附件未授权。");
     if (orderedContent !== undefined && (!Array.isArray(orderedContent) || orderedContent.length > 40

@@ -73,4 +73,27 @@ describe("CodeBuddy HTTP ACP transport", () => {
     await transport.close();
     expect(seen.at(-1).method).toBe("DELETE");
   });
+
+  it("includes HTTP failure details while hiding the ACP password", async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url.endsWith("/connect")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connectionId: "conn-1" }));
+      } else if (req.method === "GET") {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(":ok\n\n");
+      } else if (req.method === "POST") {
+        res.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+        res.end(JSON.stringify({ error: { message: "额度不足，Password secret，请稍后重试", requestId: "req-429",
+          resetAt: "2026-09-26 02:50:40 UTC+8" } }));
+      } else { res.writeHead(200); res.end(); }
+    });
+    servers.push(server);
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = createCodeBuddyHttpTransport({ endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret" });
+    await transport.connect();
+    await expect(transport.send({ jsonrpc: "2.0", id: 1, method: "session/prompt" })).rejects.toThrow(/HTTP 429.*额度不足.*req-429.*2026-09-26.*Retry-After：60/);
+    await expect(transport.send({ jsonrpc: "2.0", id: 2, method: "session/prompt" })).rejects.not.toThrow("secret");
+    await transport.close();
+  });
 });

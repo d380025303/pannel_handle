@@ -292,6 +292,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
     entry.diagnostics.push({ id: eventId, turnId, kind, at, payload });
   }
+  function recordError(entry, value, turnId) {
+    const structured = structuredError(value);
+    const details = structured || { message: String(value?.message || "Codex 运行失败。") };
+    entry.error = details.message;
+    entry.errorDetails = structured;
+    if (!entry.diagnostics.some(event => event.kind === "error" && event.turnId === turnId
+      && event.payload.message === details.message)) recordDiagnostic(entry, "error", details, turnId);
+  }
   function loadDiagnostics(entry) {
     entry.diagnostics = []; entry.turnDiffs = new Map();
     try {
@@ -569,20 +577,17 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (item) item.output = ((item.output || "") + (params.delta || "")).slice(-16000);
     }
     if (message.method === "error") {
-      entry.error = params.error?.message || "Codex 运行失败。";
-      entry.errorDetails = structuredError(params.error);
-      recordDiagnostic(entry, "error", entry.errorDetails || { message: entry.error }, params.turnId || entry.turnId || null);
+      recordError(entry, params.error, params.turnId || entry.turnId || null);
       if (entry.compacting) entry.compactionStatus = "failed";
       updateSummary(id, entry, entry.error);
     }
     if (message.method === "turn/completed") {
       entry.turnStatus = params.turn?.status || "failed";
+      const completedTurnId = params.turn?.id || entry.turnId || null;
       if (params.turn?.error) {
-        entry.errorDetails = structuredError(params.turn.error);
-        entry.error = entry.errorDetails?.message || entry.error;
-        if (!entry.diagnostics.some(event => event.kind === "error" && event.turnId === (params.turn?.id || entry.turnId)
-          && event.payload.message === entry.error))
-          recordDiagnostic(entry, "error", entry.errorDetails || { message: entry.error }, params.turn?.id || entry.turnId || null);
+        recordError(entry, params.turn.error, completedTurnId);
+      } else if (entry.turnStatus === "failed" && !entry.diagnostics.some(event => event.kind === "error" && event.turnId === completedTurnId)) {
+        recordError(entry, { message: "Codex 回合失败，服务端未提供具体原因。" }, completedTurnId);
       }
       if (entry.compacting) {
         entry.compactionStatus = params.turn?.status === "completed" && entry.compactionStatus !== "failed" ? "completed" : "failed";
@@ -648,7 +653,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     sessions.set(id, entry);
     const lines = readline.createInterface({ input: child.stdout });
     let startupStderr = "";
+    let recentStderr = "";
     child.stderr.on("data", chunk => {
+      recentStderr = (recentStderr + chunk.toString()).slice(-4096);
       if (!entry.threadId) startupStderr = (startupStderr + chunk.toString()).slice(-4096);
     });
     lines.on("line", line => {
@@ -669,7 +676,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.questions.clear();
       entry.elicitations.clear();
       const detail = session.type === "wsl" && !entry.threadId ? startupStderrDetail(startupStderr, environment) : "";
-      entry.error ||= `Codex App Server 已退出（代码 ${code ?? "未知"}）。${detail ? ` 启动输出：${detail}` : ""}`;
+      const exitMessage = `Codex App Server 已退出（代码 ${code ?? "未知"}）。${detail ? ` 启动输出：${detail}` : ""}`;
+      const exitDetail = code !== 0 ? startupStderrDetail(recentStderr, environment) : "";
+      recordError(entry, { message: exitMessage, ...(exitDetail ? { additionalDetails: exitDetail } : {}) }, entry.turnId || null);
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error(entry.error)); }
       entry.pending.clear(); publish(id);
       entry.status = "exited";

@@ -102,11 +102,10 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 
-  it("reopens a plan session with read-only tools and restores normal tools on exit", async () => {
+  it("switches CodeBuddy Plan through ACP without restricting tools or blocking approvals", async () => {
     const invocations = [];
     const messages = [];
     const children = [];
-    const setBridgeReadOnly = vi.fn();
     const spawnProcess = vi.fn((executable, args) => {
       invocations.push({ executable, args });
       const child = fakeChild((message, emit) => {
@@ -127,51 +126,47 @@ describe("CodeBuddy ACP sessions", () => {
     });
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: vi.fn(), getSession: () => ({ id: "one", type: "windows", cwd: "C:\\work" }) },
-      broadcast: vi.fn(), spawnProcess, setBridgeReadOnly });
+      broadcast: vi.fn(), spawnProcess });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" }, { localBridge: true, acpArgs: "--acp --mcp-config '{}'" });
     expect(service.snapshot("one").nativeMode).toBe("acceptEdits");
     const planned = await service.setNativeMode("one", "plan");
-    expect(planned).toMatchObject({ nativeMode: "plan", mode: "plan", executionPermission: "readOnly", readOnlyProtected: true });
-    expect(invocations[1].args.at(-1)).toContain("--tools Read,Glob,Grep");
-    expect(invocations[1].args.at(-1)).toContain("--strict-mcp-config");
-    expect(invocations[1].args.at(-1)).toContain("--disallowedTools");
-    expect(messages.filter(message => message.method === "session/load")).toHaveLength(1);
-    expect(setBridgeReadOnly).toHaveBeenCalledWith("one", true);
-    children[1].stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: 900, method: "session/request_permission",
+    expect(planned).toMatchObject({ nativeMode: "plan", mode: "plan", executionPermission: "askApproval" });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].args.at(-1)).not.toContain("--tools Read,Glob,Grep");
+    expect(messages.filter(message => message.method === "session/load")).toHaveLength(0);
+    children[0].stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: 900, method: "session/request_permission",
       params: { sessionId: "thread-1", toolCall: { title: "Edit source" }, options: [{ optionId: "yes", kind: "allow_once" }] } })}\n`);
-    await vi.waitFor(() => expect(messages.some(message => message.id === 900 && message.result?.outcome?.outcome === "cancelled")).toBe(true));
-    expect(service.snapshot("one").approvals).toEqual([]);
-    await expect(service.sendTeamMessage("one", "team", "member", "write code")).rejects.toThrow("计划模式");
-    await expect(service.setMultitask("one", true)).rejects.toThrow("计划模式");
+    await vi.waitFor(() => expect(service.snapshot("one").approvals).toHaveLength(1));
+    service.resolveApproval("one", 900, true);
+    expect(messages.find(message => message.id === 900).result).toEqual({ outcome: { outcome: "selected", optionId: "yes" } });
     const normal = await service.setNativeMode("one", "default");
     expect(normal.nativeMode).toBe("default");
-    expect(invocations[2].args.at(-1)).not.toContain("--permission-mode plan");
-    expect(setBridgeReadOnly).toHaveBeenLastCalledWith("one", false);
+    expect(invocations).toHaveLength(1);
     await service.submit("one", "继续执行");
     service.shutdown();
   });
 
-  it("keeps the previous session and rejects prompts when the plan process cannot start", async () => {
+  it("keeps the previous mode when CodeBuddy rejects an ACP Plan switch", async () => {
     let started = 0;
     const spawnProcess = () => fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
         result: { agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
         result: { sessionId: "thread-1", modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] } } });
-      else if (message.method === "session/load") emit({ jsonrpc: "2.0", id: message.id,
-        error: { code: -1, message: "restore failed" } });
+      else if (message.method === "session/set_mode") emit({ jsonrpc: "2.0", id: message.id,
+        error: { code: -1, message: "mode rejected" } });
     });
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: vi.fn(), getSession: () => ({ id: "one", type: "windows", cwd: "C:\\work" }) },
       broadcast: vi.fn(), spawnProcess: (...args) => { started++; return spawnProcess(...args); } });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
-    await expect(service.setNativeMode("one", "plan")).rejects.toThrow("restore failed");
-    expect(started).toBe(2);
+    await expect(service.setNativeMode("one", "plan")).rejects.toThrow("mode rejected");
+    expect(started).toBe(1);
     expect(service.snapshot("one")).toMatchObject({ nativeMode: "default", threadId: "thread-1", busy: false });
     service.shutdown();
   });
 
-  it("stops a plan turn if CodeBuddy changes its native mode", async () => {
+  it("reflects native mode updates from CodeBuddy during a session", async () => {
     let child;
     child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
@@ -179,6 +174,7 @@ describe("CodeBuddy ACP sessions", () => {
       else if (message.method === "session/new" || message.method === "session/load") emit({ jsonrpc: "2.0", id: message.id,
         result: { sessionId: "thread", modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] } } });
       else if (message.method === "session/set_mode") emit({ jsonrpc: "2.0", id: message.id, result: {} });
+      else if (message.method === "session/prompt") emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
     });
     const children = [];
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
@@ -191,10 +187,10 @@ describe("CodeBuddy ACP sessions", () => {
       }) : child; children.push(next); return next; } });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
     await service.setNativeMode("one", "plan");
-    children[1].stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: {
+    children[0].stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: {
       sessionId: "thread", update: { sessionUpdate: "current_mode_update", currentModeId: "default" } } })}\n`);
-    await vi.waitFor(() => expect(service.snapshot("one").error).toContain("模式已在会话内变化"));
-    await expect(service.submit("one", "继续")).rejects.toThrow("只读保护");
+    await vi.waitFor(() => expect(service.snapshot("one").nativeMode).toBe("default"));
+    await service.submit("one", "继续");
     service.shutdown();
   });
   it("receives slash commands before session/new completes and replaces them on updates and new threads", async () => {
@@ -246,11 +242,9 @@ describe("CodeBuddy ACP sessions", () => {
     expect(bridge.cwd).toBe("C:\\bridge");
     expect(bridge.args.at(-1)).toContain("--strict-mcp-config");
     expect(bridge.args.at(-1)).toContain("--acp-transport streamable-http");
-    const plannedWsl = buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, { readOnlyProfile: true }, {});
-    expect(plannedWsl.args.at(-1)).toContain("--tools Read,Glob,Grep");
-    expect(plannedWsl.args.at(-1)).toContain("--strict-mcp-config");
-    const plannedCmd = buildInvocation({ type: "windows", cwd: "C:\\work", shell: "cmd.exe" }, { readOnlyProfile: true }, {});
-    expect(plannedCmd.args.at(-1)).toContain("--tools Read,Glob,Grep");
+    expect(wsl.args.at(-1)).not.toContain("--tools Read,Glob,Grep");
+    const cmd = buildInvocation({ type: "windows", cwd: "C:\\work", shell: "cmd.exe" }, {}, {});
+    expect(cmd.args.at(-1)).not.toContain("--tools Read,Glob,Grep");
   });
 
   it("starts an SSH remote CLI over the existing stdio transport", async () => {
@@ -274,6 +268,7 @@ describe("CodeBuddy ACP sessions", () => {
     const command = createStdioTransport.mock.calls[0][1].command;
     expect(command).toContain("exec codebuddy --acp");
     expect(command).toContain("--serve --acp-transport streamable-http --auth password");
+    expect(command).not.toContain("--tools Read,Glob,Grep");
     expect(command).toContain("/srv/app");
     expect(command).toContain("export FLAG=");
     service.shutdown();
@@ -468,7 +463,7 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 
-  it("restores a saved Plan choice through the protected CodeBuddy profile", async () => {
+  it("restores a saved Plan choice through the native ACP mode", async () => {
     const invocations = [];
     const session = { id: "one", templateId: "saved", type: "windows", cwd: "C:\\work",
       codeBuddyGraphicalOptions: { mode: "plan" } };
@@ -489,9 +484,9 @@ describe("CodeBuddy ACP sessions", () => {
 
     await service.start(session);
 
-    expect(service.snapshot("one")).toMatchObject({ nativeMode: "plan", readOnlyProtected: true });
-    expect(invocations).toHaveLength(2);
-    expect(invocations[1]).toContain("--permission-mode plan");
+    expect(service.snapshot("one")).toMatchObject({ nativeMode: "plan", mode: "plan" });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).not.toContain("--tools Read,Glob,Grep");
     service.shutdown();
   });
 
@@ -529,6 +524,36 @@ describe("CodeBuddy ACP sessions", () => {
     ]);
     expect(items.filter(item => item.type === "turnError")).toHaveLength(3);
     expect(service.snapshot("one").error).toBeNull();
+    service.shutdown();
+  });
+
+  it("shows sanitized CodeBuddy stderr on startup failure and later process exit", async () => {
+    const startupChild = fakeChild(() => {});
+    const startup = createRawService({ environmentService: { resolve: () => ({ ACCESS_TOKEN: "env-secret" }) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => startupChild,
+      resolveHttpEndpoint: async child => {
+        child.stderr.write("Password  acp-password\n启动失败：env-secret\n");
+        throw new Error("等待 CodeBuddy HTTP ACP 地址超时。");
+      } });
+    await expect(startup.start({ id: "one", type: "windows", cwd: "C:\\work" })).rejects
+      .toThrow(/等待 CodeBuddy HTTP ACP 地址超时。.*启动失败：\[已隐藏\]/);
+    expect(startup.snapshot.bind(startup, "one")).toThrow();
+
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({ ACCESS_TOKEN: "env-secret" }) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    child.stderr.write("Password  acp-password\n上游失败：env-secret\nAuthorization: Bearer leaked-token\n");
+    child.emit("exit", 1);
+    const error = service.snapshot("one").error;
+    expect(error).toContain("ACP 已退出（代码 1）");
+    expect(error).toContain("上游失败：[已隐藏]");
+    expect(error).not.toContain("acp-password");
+    expect(error).not.toContain("env-secret");
+    expect(error).not.toContain("leaked-token");
     service.shutdown();
   });
 

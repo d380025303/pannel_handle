@@ -101,7 +101,7 @@ describe("mobile graphical session route", () => {
       ...fixture().snapshot, model: "gpt-6", effectiveModel: "gpt-6", effort: "high", fastMode: true,
       models: [{ id: "gpt-6", displayName: "GPT-6", private: "secret" }],
       acpOptions: [{ id: "model", currentValue: "gpt-6", options: [{ value: "gpt-6", name: "GPT-6", private: "secret" }] },
-        { id: "apiKey", currentValue: "secret" }], readOnlyProtected: true,
+        { id: "apiKey", currentValue: "secret" }],
       nativeModes: [{ id: "default", name: "Default", private: "secret" }]
     });
     expect(projected).toMatchObject({ model: "gpt-6", effort: "high", fastMode: true,
@@ -153,6 +153,17 @@ describe("mobile graphical session route", () => {
       { id: "file-1", changes: [{ path: "src/App.tsx" }] },
       { id: "search-1", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 } }
     ]);
+    expect(JSON.stringify(projected)).not.toContain("secret");
+  });
+
+  it("projects Codex error diagnostics without exposing unrelated diagnostic data", () => {
+    const projected = toMobileGraphicalSnapshot({ ...fixture().snapshot, provider: "codex", diagnostics: [
+      { id: "error-1", turnId: "turn-1", kind: "error", at: 1000,
+        payload: { message: "额度不足", kind: "UsageLimitExceeded", httpStatusCode: 429, additionalDetails: "稍后重试", private: "secret" } },
+      { id: "warning-1", turnId: "turn-1", kind: "warning", at: 1001, payload: { message: "其他诊断" } }
+    ] });
+    expect(projected.diagnostics).toEqual([{ id: "error-1", turnId: "turn-1", at: 1000,
+      message: "额度不足", kind: "UsageLimitExceeded", httpStatusCode: 429, additionalDetails: "稍后重试" }]);
     expect(JSON.stringify(projected)).not.toContain("secret");
   });
 

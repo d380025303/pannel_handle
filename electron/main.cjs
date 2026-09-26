@@ -301,7 +301,6 @@ if (!gotSingleInstanceLock) {
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
       environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
       codexInheritanceManager,
-      setBridgeReadOnly: (id, readOnly) => remoteAgentBridgeService?.setReadOnly(id, readOnly),
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage)
     });

@@ -969,6 +969,7 @@ describe("agent-session-launcher", () => {
     expect(runtime).toMatchObject({ localBridge: true, workspaceCwd: "C:\\runtime\\run-1" });
     expect(runtime.acpArgs).toContain("--acp --mcp-config");
     expect(runtime.acpArgs).toContain("--strict-mcp-config");
+    expect(runtime.acpArgs).not.toContain("--tools Read,Glob,Grep");
     expect(runtime.acpArgs).toContain("Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}");
     expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS).toBe("Use remote tools.");
     expect(runtime.acpArgs).not.toContain("secret-token");

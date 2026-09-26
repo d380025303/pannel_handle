@@ -108,6 +108,9 @@ button { color: inherit; }
 .graphical-card, .graphical-tool-group { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #344459; border-radius: 10px; background: #101827; overflow-wrap: anywhere; }
 .graphical-card strong { display: block; margin-bottom: 5px; }
 .graphical-card small { color: #8fa4bc; }
+.graphical-diagnostic { border-color: #9f354a; }
+.graphical-diagnostic summary { cursor: pointer; white-space: pre-wrap; }
+.graphical-diagnostic pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .graphical-tool-group[data-status="有失败"] { border-color: #9f354a; }
 .graphical-tool-group-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 0; border: 0; color: #d8e2f0; background: none; text-align: left; font: inherit; font-size: 12px; }
 .graphical-tool-group-toggle strong { flex: 1; }

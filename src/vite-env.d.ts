@@ -981,7 +981,6 @@ export type CodexAppServerSnapshot = {
     items: CodexAppServerSnapshot["items"];
   }> } | null;
   nativeMode?: string | null;
-  readOnlyProtected?: boolean;
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;

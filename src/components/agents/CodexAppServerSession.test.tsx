@@ -237,6 +237,19 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText(/"message": "注意"/)).toBeTruthy();
   });
 
+  it("keeps a Codex error card after the transient error clears", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: null, approvals: [], items: [{ id: "user-1", turnId: "turn-1", type: "userMessage", text: "检查" }],
+      diagnostics: [{ id: "error-1", turnId: "turn-1", kind: "error", at: 1000,
+        payload: { message: "额度不足", kind: "UsageLimitExceeded", httpStatusCode: 429 } }] } }));
+    expect(screen.getByText("运行错误")).toBeTruthy();
+    expect(screen.getByText("额度不足")).toBeTruthy();
+    fireEvent.click(screen.getByText("运行错误"));
+    expect(screen.getByText("类别：用量限制 · HTTP 429")).toBeTruthy();
+  });
+
   it("starts compaction from the Codex menu and prevents another submission while it runs", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
@@ -802,18 +815,16 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(onLinkClick).toHaveBeenCalledWith("src/App.tsx:42"));
   });
 
-  it("lets CodeBuddy reapply Plan when read-only protection is missing", async () => {
+  it("shows CodeBuddy native Plan as the selected mode", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy",
       nativeMode: "plan", nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }],
-      mode: "plan", readOnlyProtected: false, executionPermission: "readOnly", busy: false,
-      error: "只读保护未生效", pendingPlan: null, items: [], approvals: [] } }));
-    expect(screen.getByText(/只读未生效/)).toBeTruthy();
+      mode: "plan", executionPermission: "askApproval", busy: false,
+      error: null, pendingPlan: null, items: [], approvals: [] } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
-    expect(screen.getByRole("radio", { name: /Plan/ }).getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
-    await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
+    expect(screen.getByRole("radio", { name: /Plan/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByText(/只读未生效/)).toBeNull();
   });
 
   it("shows conversation content without user or Codex role labels", async () => {

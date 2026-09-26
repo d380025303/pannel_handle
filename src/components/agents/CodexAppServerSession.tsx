@@ -1040,8 +1040,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
   }
   async function changeNativeMode(modeId: string) {
-    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode
-      && !(snapshot.provider === "codebuddy" && modeId === "plan" && !snapshot.readOnlyProtected)) return false;
+    if (!snapshot.threadId || snapshot.busy || changingModeRef.current || modeId === snapshot.nativeMode) return false;
     changingModeRef.current = true;
     setChangingMode(true); setError("");
     try {
@@ -1195,7 +1194,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         value: mode.id,
         label: mode.name,
         description: snapshot.provider === "codebuddy" ? (translation ?? mode.description) : mode.description,
-        selected: snapshot.nativeMode === mode.id && !(snapshot.provider === "codebuddy" && mode.id === "plan" && !snapshot.readOnlyProtected),
+        selected: snapshot.nativeMode === mode.id,
         disabled: snapshot.busy || changingMode
       };
     })
@@ -1580,8 +1579,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
                 <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
-              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.provider === "codebuddy" && snapshot.nativeMode === "plan" && !snapshot.readOnlyProtected
-                ? "Plan · 只读未生效" : snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
+              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
                 : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
               {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
               {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
@@ -1593,7 +1591,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </div>}
           </div>
           <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy" || snapshot.provider === "opencode"
-            ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}${snapshot.provider === "codebuddy" && snapshot.nativeMode === "plan" && !snapshot.readOnlyProtected ? " · 只读未生效" : ""}`
+            ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}`
             : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>
           {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}

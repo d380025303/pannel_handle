@@ -287,7 +287,7 @@ function buildLocalCodeBuddyStartCommand(binding, inheritance) {
 function buildLocalCodeBuddyAcpArgs(binding, inheritance, instructions) {
   return [
     "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
-    "--strict-mcp-config", "--tools", "Read,Glob,Grep",
+    "--strict-mcp-config",
     ...(instructions ? ["--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`] : [])
   ].join(" ");
 }

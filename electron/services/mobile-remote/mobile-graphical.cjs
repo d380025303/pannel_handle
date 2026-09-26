@@ -37,7 +37,6 @@ function toMobileGraphicalSnapshot(value) {
     mode: snapshot.mode || "default",
     nativeMode: snapshot.nativeMode || null,
     nativeModes: (snapshot.nativeModes || []).map(mode => ({ id: mode.id, name: mode.name })),
-    readOnlyProtected: snapshot.readOnlyProtected,
     model: snapshot.model || null,
     backend: snapshot.backend || null,
     effectiveModel: snapshot.effectiveModel || null,
@@ -59,6 +58,12 @@ function toMobileGraphicalSnapshot(value) {
       plan: item.plan, questions: item.questions,
       attachments: (item.attachments || []).map(file => ({ name: file.name || "附件" }))
     })),
+    diagnostics: snapshot.provider === "codex" ? (snapshot.diagnostics || [])
+      .filter(event => event.kind === "error")
+      .map(event => ({ id: event.id, turnId: event.turnId, at: event.at,
+        message: String(event.payload?.message || "Codex 运行失败。"),
+        kind: event.payload?.kind || null, httpStatusCode: event.payload?.httpStatusCode ?? null,
+        additionalDetails: event.payload?.additionalDetails ?? null })) : [],
     approvals: (snapshot.approvals || []).map(value => ({
       requestId: value.requestId, method: value.method,
       params: {

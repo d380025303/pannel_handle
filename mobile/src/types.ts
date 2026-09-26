@@ -63,12 +63,14 @@ export type GraphicalQuestion = { requestId: number | string; submitting: boolea
 export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
   nativeModes?: Array<{ id: string; name?: string }>;
-  readOnlyProtected?: boolean; model?: string | null; effectiveModel?: string | null; backend?: string | null;
+  model?: string | null; effectiveModel?: string | null; backend?: string | null;
   models?: Array<{ id: string; displayName: string }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
   acpOptions?: Array<{ id: string; currentValue?: string | boolean; options: Array<{ value: string; name: string }> }>;
   capabilities: { history?: boolean; plan?: boolean } | null; pendingPlan: { itemId: string } | null;
-  items: GraphicalItem[]; approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
+  items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
+    message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
+  approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
 export type GraphicalHistory = { data: Array<{ id: string; title: string; updatedAt: number; archived?: boolean }>;
   nextCursor: string | null };
 export type GraphicalUsageLimit = { id: string; name: string; usedPercent: number; remainingPercent: number;

@@ -70,6 +70,7 @@ describe("Codex App Server diagnostics", () => {
       emit("error", { turnId: "turn-1", error: { message: "limit", codexErrorInfo: { type: "UsageLimitExceeded", httpStatusCode: 429 }, additionalDetails: "try later" } });
       emit("turn/completed", { turn: { id: "turn-1", status: "failed" } });
       await vi.waitFor(() => expect(service.snapshot("run-1").turnStatus).toBe("failed"));
+      expect(service.snapshot("run-1").diagnostics.filter(event => event.kind === "error" && event.turnId === "turn-1")).toHaveLength(1);
       expect(service.snapshot("run-1")).toMatchObject({ threadStatus: { type: "active", activeFlags: ["waitingOnApproval"] },
         effectiveModel: "fallback", errorDetails: { kind: "UsageLimitExceeded", httpStatusCode: 429 },
         turnDiffs: [{ turnId: "turn-1", diff: "new diff" }] });
@@ -96,5 +97,39 @@ describe("Codex App Server diagnostics", () => {
       service.close("run-1");
       fs.rmSync(userData, { recursive: true, force: true });
     }
+  });
+
+  it("records a durable error when a turn fails without an error object", async () => {
+    const userData = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-codex-failed-turn-"));
+    const store = createDiagnosticsStore({ userData });
+    const child = fakeProcess();
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {},
+      spawnProcess: () => child, diagnosticsStore: store });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      child.emitNotification("turn/started", { threadId: "thread-1", turn: { id: "turn-2" } });
+      child.emitNotification("turn/completed", { threadId: "thread-1", turn: { id: "turn-2", status: "failed" } });
+      await vi.waitFor(() => expect(service.snapshot("run-1").turnStatus).toBe("failed"));
+      expect(service.snapshot("run-1").error).toContain("未提供具体原因");
+      expect(store.list("thread-1").events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "error", turnId: "turn-2", payload: expect.objectContaining({ message: expect.stringContaining("未提供具体原因") }) })
+      ]));
+    } finally { service.close("run-1"); store.close(); fs.rmSync(userData, { recursive: true, force: true }); }
+  });
+
+  it("records an unexpected exit with redacted stderr", async () => {
+    const child = fakeProcess();
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({ API_TOKEN: "private-token-value" }) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      child.stderr.write("failed with private-token-value\n");
+      child.emit("exit", 2);
+      const error = service.snapshot("run-1").diagnostics.at(-1);
+      expect(error).toMatchObject({ kind: "error", payload: { message: expect.stringContaining("代码 2"),
+        additionalDetails: expect.stringContaining("[已隐藏]") } });
+      expect(JSON.stringify(error)).not.toContain("private-token-value");
+    } finally { service.close("run-1"); }
   });
 });

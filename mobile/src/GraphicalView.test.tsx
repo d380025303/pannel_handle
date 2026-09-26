@@ -43,6 +43,18 @@ it("subscribes to the selected graphical session and sends text with its thread 
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
 });
 
+it("keeps Codex errors visible in the timeline after the transient error clears", () => {
+  const { emit } = fixture();
+  const failed = { ...snapshot, error: "额度不足", diagnostics: [{ id: "error-1", turnId: "turn-1", at: 1000,
+    message: "额度不足", kind: "UsageLimitExceeded", httpStatusCode: 429, additionalDetails: "稍后重试" }] };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: failed });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...failed, error: null } });
+  expect(screen.getByText("额度不足")).toBeTruthy();
+  fireEvent.click(screen.getByText("运行错误"));
+  expect(screen.getByText("UsageLimitExceeded · HTTP 429")).toBeTruthy();
+  expect(screen.getByText("稍后重试")).toBeTruthy();
+});
+
 it("shows Codex quota details and refreshes the current thread", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
@@ -162,10 +174,10 @@ it("switches Plan and Exec over LAN HTTP without crypto.randomUUID", () => {
   expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
 });
 
-it("shows CodeBuddy Plan only when read-only protection is active", () => {
+it("shows CodeBuddy native Plan as active", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
-    ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan", readOnlyProtected: false,
+    ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan",
     nativeModes: [{ id: "default" }, { id: "plan" }],
     acpOptions: [{ id: "model", currentValue: "glm-5", options: [{ value: "glm-5", name: "GLM 5" }] }]
   } });
@@ -173,10 +185,10 @@ it("shows CodeBuddy Plan only when read-only protection is active", () => {
   const models = openSheet("切换模型");
   expect(within(models).getByRole("button", { name: /GLM 5/ }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));
-  expect(screen.getByText("Plan 只读未生效")).toBeTruthy();
-  expect(modeButton("Plan").getAttribute("aria-pressed")).toBe("false");
-  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
-  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("default");
+  expect(screen.queryByText("Plan 只读未生效")).toBeNull();
+  expect(modeButton("Plan").getAttribute("aria-pressed")).toBe("true");
+  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(false);
+  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("plan");
   fireEvent.click(modeButton("Exec"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "default" }));
 });
