@@ -59,7 +59,7 @@ describe("OpenCode ACP sessions", () => {
 
   it("uses advertised model and effort options and handles a streamed turn", async () => {
     const child = fakeChild((message, emit) => {
-      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions } });
       else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
         result: { configOptions: configOptions.map(option => option.id === message.params.configId ? { ...option, currentValue: message.params.value } : option) } });

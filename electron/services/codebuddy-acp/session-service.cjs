@@ -530,8 +530,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.multitaskSupport = initialized?.agentCapabilities?.multitaskSupport === true;
       if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
         throw new Error(`当前 ${agentName} CLI 不支持恢复断开的会话。`);
-      entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true
-        && Boolean(initialized?.agentCapabilities?.sessionCapabilities?.list);
+      entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true;
       const result = await request(entry, runtime.resumeThreadId ? "session/load" : "session/new", runtime.resumeThreadId
         ? { sessionId: runtime.resumeThreadId, cwd: workspace(entry), mcpServers: [] }
         : { cwd: workspace(entry), mcpServers: [] });
