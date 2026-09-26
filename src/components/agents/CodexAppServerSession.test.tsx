@@ -1320,6 +1320,30 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("构建成功")).toBeTruthy();
   });
 
+  it("shows concise CodeBuddy tool summaries and keeps full titles in details", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    const command = "`cd /c/mine/crm/personal/pannel_handle && git diff electron/services/codebuddy-acp/session-service.cjs`";
+    changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default", busy: false,
+      error: null, approvals: [], items: [
+        { id: "read-1", type: "toolCall", toolKind: "read", toolName: "Read C:\\work\\session-service.cjs (2 - 71)", status: "completed" },
+        { id: "run-1", type: "toolCall", toolKind: "execute", toolName: command, output: "Show diffs of the two test files", status: "completed" },
+        { id: "run-2", type: "toolCall", toolKind: "execute", toolName: "grep -n important src", output: "first line\nsecond line", status: "completed" },
+        { id: "run-3", type: "toolCall", toolKind: "execute", toolName: "node -e run", output: "x".repeat(81), status: "completed" }
+      ] } });
+    fireEvent.click(await screen.findByRole("button", { name: /工具调用 · 4 项/ }));
+    const read = screen.getByRole("button", { name: /读取文件.*session-service.cjs/ });
+    const run = screen.getByRole("button", { name: /执行命令.*Show diffs of the two test files/ });
+    const [multiline, longOutput] = screen.getAllByRole("button", { name: /^执行命令.*已完成$/ });
+    expect(read.textContent).not.toContain("C:\\work");
+    expect(run.textContent).not.toContain(command);
+    expect(multiline.textContent).not.toContain("first line");
+    expect(longOutput.textContent).not.toContain("x".repeat(81));
+    fireEvent.click(run);
+    expect(screen.getByText(command)).toBeTruthy();
+    expect(screen.getAllByText("Show diffs of the two test files")).toHaveLength(2);
+  });
+
   it("groups adjacent tool calls and keeps the group open during output updates", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");

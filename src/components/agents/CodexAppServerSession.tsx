@@ -321,6 +321,20 @@ function toolPresentation(item: SessionItem) {
   return { kind, Icon, label };
 }
 
+function codeBuddyToolPresentation(item: SessionItem) {
+  const labels: Record<string, string> = {
+    read: "读取文件", write: "写入文件", edit: "编辑文件", delete: "删除文件", move: "移动文件",
+    search: "搜索", fetch: "网页读取", execute: "执行命令"
+  };
+  const label = labels[item.toolKind || ""] || toolPresentation(item).label;
+  if (!item.toolName && item.command) return { label, summary: item.command.trim().split(/\r?\n/, 1)[0] };
+  const output = item.output?.trim() || "";
+  if (output && output.length <= 80 && !/[\r\n]/.test(output)) return { label, summary: output };
+  const titlePath = item.toolName?.replace(/\s+\(\d+\s*-\s*\d+\)$/, "").match(/^(?:Read|Edit|Write|Delete|Move)\s+(.+)$/i)?.[1];
+  const target = item.locations?.[0]?.path || item.locations?.[0]?.uri || titlePath || "";
+  return { label, summary: target.split(/[\\/]/).pop() || "" };
+}
+
 function toolDetails(item: SessionItem) {
   if (item.type === "fileChange" && Array.isArray(item.changes)) return <><div className="codex-app-server-tool-files">{item.changes.map((change, index) => {
     const value = change && typeof change === "object" ? change as Record<string, unknown> : {};
@@ -330,21 +344,23 @@ function toolDetails(item: SessionItem) {
   return null;
 }
 
-function ToolCard({ item }: { item: SessionItem }) {
+function ToolCard({ item, codeBuddy = false }: { item: SessionItem; codeBuddy?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
   const { kind, Icon, label } = toolPresentation(item);
   const firstChange = Array.isArray(item.changes) ? item.changes[0] : null;
   const changedFile = firstChange && typeof firstChange === "object" ? String((firstChange as Record<string, unknown>).path || (firstChange as Record<string, unknown>).filePath || "") : "";
-  const summary = item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
+  const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
+  const summary = presentation?.summary ?? (item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "");
   return <div className="codex-app-server-tool">
     <button type="button" className="codex-app-server-tool-heading" data-kind={kind} data-status={item.status}
       aria-expanded={expanded} aria-controls={expanded ? detailsId : undefined} onClick={() => setExpanded(current => !current)}>
       <ChevronRight className="codex-app-server-tool-chevron" aria-hidden="true" /><Icon aria-hidden="true" />
-      <strong>{item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
+      <strong>{presentation?.label || item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
       <span className="codex-app-server-tool-status">{item.status === "completed" ? <CircleCheck aria-hidden="true" /> : item.status === "failed" || item.status === "declined" ? <CircleX aria-hidden="true" /> : <span className="codex-app-server-tool-spinner" aria-hidden="true" />}{statusLabel(item.status)}</span>
     </button>
     {expanded && <div id={detailsId} className="codex-app-server-tool-details">
+      {codeBuddy && item.toolName && <pre className="codex-app-server-tool-command">{item.toolName}</pre>}
       {item.command && <pre className="codex-app-server-tool-command">{item.command}</pre>}
       {item.server && <p className="codex-app-server-tool-query">{item.server}</p>}
       {item.query && <p className="codex-app-server-tool-query">{item.query}</p>}
@@ -353,12 +369,12 @@ function ToolCard({ item }: { item: SessionItem }) {
       {item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
       {item.result != null && <pre className="codex-app-server-tool-output">{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
       {item.changes != null && !Array.isArray(item.changes) && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-      {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
+      {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && !(codeBuddy && item.toolName) && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
     </div>}
   </div>;
 }
 
-function ToolGroup({ items, expanded, onToggle }: { items: SessionItem[]; expanded: boolean; onToggle: () => void }) {
+function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { items: SessionItem[]; expanded: boolean; onToggle: () => void; codeBuddy?: boolean }) {
   const status = toolGroupStatus(items);
   return <section className="codex-app-server-event" data-status={status}>
     <button type="button" className="codex-app-server-event-summary" aria-expanded={expanded} onClick={onToggle}>
@@ -366,7 +382,7 @@ function ToolGroup({ items, expanded, onToggle }: { items: SessionItem[]; expand
       <span className="codex-app-server-event-glyph"><Code2 aria-hidden="true" /></span>
       <strong>工具调用 · {items.length} 项</strong><span className="codex-app-server-event-status">{status}</span>
     </button>
-    {expanded && items.map(item => <ToolCard item={item} key={item.id} />)}
+    {expanded && items.map(item => <ToolCard item={item} codeBuddy={codeBuddy} key={item.id} />)}
   </section>;
 }
 
@@ -382,7 +398,7 @@ function TeamMemberTimeline({ member, onLinkClick }: { member: TeamMember; onLin
     {groupTools(member.items).map(entry => {
       if (entry.kind === "tools") {
         const groupId = entry.items[0].id;
-        return <ToolGroup key={groupId} items={entry.items} expanded={expandedGroupId === groupId}
+        return <ToolGroup key={groupId} items={entry.items} codeBuddy expanded={expandedGroupId === groupId}
           onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
       }
       const item = entry.item;
@@ -1338,7 +1354,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
         if (entry.kind === "tools") {
           const groupId = entry.items[0].id;
-          return <ToolGroup key={groupId} items={entry.items} expanded={expandedGroupId === groupId}
+          return <ToolGroup key={groupId} items={entry.items} codeBuddy={snapshot.provider === "codebuddy"} expanded={expandedGroupId === groupId}
             onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
         }
         const item = entry.item;

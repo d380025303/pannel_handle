@@ -43,6 +43,32 @@ it("subscribes to the selected graphical session and sends text with its thread 
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
 });
 
+it("shows concise CodeBuddy tool summaries and full titles on expansion", () => {
+  const { emit } = fixture();
+  const command = "`cd /c/mine/crm/personal/pannel_handle && git diff electron/services/codebuddy-acp/session-service.cjs`";
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", items: [
+      { id: "read", type: "toolCall", toolKind: "read", toolName: "Read C:\\work\\session-service.cjs (2 - 71)", status: "completed" },
+      { id: "run", type: "toolCall", toolKind: "execute", toolName: command, output: "Show diffs of the two test files", status: "completed" },
+      { id: "multiline", type: "toolCall", toolKind: "execute", toolName: "grep -n important src", output: "first line\nsecond line", status: "completed" },
+      { id: "long", type: "toolCall", toolKind: "execute", toolName: "node -e run", output: "x".repeat(81), status: "completed" }
+    ]
+  } });
+  fireEvent.click(screen.getByRole("button", { name: /工具调用 · 4 项/ }));
+  const summaries = document.querySelectorAll(".graphical-tool summary");
+  expect(summaries).toHaveLength(4);
+  expect(summaries[0].textContent).toContain("读取文件");
+  expect(summaries[0].textContent).toContain("session-service.cjs");
+  expect(summaries[0].textContent).not.toContain("C:\\work");
+  expect(summaries[1].textContent).toContain("Show diffs of the two test files");
+  expect(summaries[1].textContent).not.toContain(command);
+  expect(summaries[2].textContent).not.toContain("first line");
+  expect(summaries[3].textContent).not.toContain("x".repeat(81));
+  fireEvent.click(summaries[1]);
+  expect(screen.getByText(command)).toBeTruthy();
+  expect(screen.getAllByText("Show diffs of the two test files")).toHaveLength(2);
+});
+
 it("keeps Codex errors visible in the timeline after the transient error clears", () => {
   const { emit } = fixture();
   const failed = { ...snapshot, error: "额度不足", diagnostics: [{ id: "error-1", turnId: "turn-1", at: 1000,

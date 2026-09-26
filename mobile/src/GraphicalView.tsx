@@ -90,18 +90,33 @@ function toolSummary(item: GraphicalItem) {
   const changedFile = change && typeof change === "object" ? String((change as Record<string, unknown>).path || (change as Record<string, unknown>).filePath || "") : "";
   return item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
 }
-function ToolItem({ item }: { item: GraphicalItem }) {
+function codeBuddyToolPresentation(item: GraphicalItem) {
+  const labels: Record<string, string> = {
+    read: "读取文件", write: "写入文件", edit: "编辑文件", delete: "删除文件", move: "移动文件",
+    search: "搜索", fetch: "网页读取", execute: "执行命令"
+  };
+  const label = labels[item.toolKind || ""] || toolLabel({ ...item, toolName: undefined, tool: undefined });
+  if (!item.toolName && item.command) return { label, summary: item.command.trim().split(/\r?\n/, 1)[0] };
+  const output = item.output?.trim() || "";
+  if (output && output.length <= 80 && !/[\r\n]/.test(output)) return { label, summary: output };
+  const titlePath = item.toolName?.replace(/\s+\(\d+\s*-\s*\d+\)$/, "").match(/^(?:Read|Edit|Write|Delete|Move)\s+(.+)$/i)?.[1];
+  const target = item.locations?.[0]?.path || item.locations?.[0]?.uri || titlePath || "";
+  return { label, summary: target.split(/[\\/]/).pop() || "" };
+}
+function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; codeBuddy?: boolean }) {
+  const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
   return <details className="graphical-tool">
-    <summary><span className="graphical-tool-label">{toolLabel(item)}</span><span className="graphical-tool-summary">{toolSummary(item)}</span>
+    <summary><span className="graphical-tool-label">{presentation?.label || toolLabel(item)}</span><span className="graphical-tool-summary">{presentation?.summary ?? toolSummary(item)}</span>
       <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
     <div className="graphical-tool-details">
+      {codeBuddy && item.toolName && <pre>{item.toolName}</pre>}
       {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
       {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
       {item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}
       {item.result != null && <pre>{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
       {item.changes != null && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
       {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}</p>)}
-      {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output
+      {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output && !(codeBuddy && item.toolName)
         && item.result == null && item.changes == null && !item.locations?.length && <p>等待工具返回内容…</p>}
     </div>
   </details>;
@@ -413,7 +428,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
               <span className="graphical-tool-group-chevron" aria-hidden="true">›</span>
               <strong>工具调用 · {entry.items.length} 项</strong><span>{status}</span>
             </button>
-            {expanded && <div className="graphical-tool-list">{entry.items.map(item => <ToolItem item={item} key={item.id} />)}</div>}
+            {expanded && <div className="graphical-tool-list">{entry.items.map(item => <ToolItem item={item} codeBuddy={snapshot.provider === "codebuddy"} key={item.id} />)}</div>}
           </section>;
         }
         const item = entry.item;
