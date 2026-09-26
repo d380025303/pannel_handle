@@ -83,6 +83,16 @@ button { color: inherit; }
 .graphical-header .graphical-switching { flex: none; }
 .graphical-header .graphical-current-config { display: flex; min-width: 0; flex-wrap: wrap; gap: 2px 10px; overflow-wrap: anywhere; }
 .graphical-header .graphical-mode-warning { color: #fbbf24; }
+.graphical-usage { border-bottom: 1px solid #263244; background: #101b2b; }
+.graphical-usage-trigger { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 0; color: #c8e8f4; background: transparent; text-align: left; font-size: 13px; }
+.graphical-usage-details { max-height: 38dvh; overflow-y: auto; padding: 8px 12px 12px; border-top: 1px solid #263244; font-size: 12px; }
+.graphical-usage-details p { margin: 5px 0 10px; }
+.graphical-usage-limit { display: flex; flex-direction: column; gap: 5px; padding: 9px 0; border-top: 1px solid #263244; }
+.graphical-usage-limit div { display: flex; justify-content: space-between; gap: 8px; }
+.graphical-usage-limit div span, .graphical-usage-limit small, .graphical-usage-details > small { color: #9fb5ce; }
+.graphical-usage-limit progress { width: 100%; height: 7px; accent-color: #22d3ee; }
+.graphical-usage-error { color: #fecdd3; }
+.graphical-usage-refresh { min-height: 40px; margin-top: 10px; padding: 8px 12px; border: 1px solid #36506e; border-radius: 8px; color: #e2e8f0; background: #19283b; }
 .graphical-shell button:disabled { opacity: .45; }
 .graphical-error { padding: 8px 12px; color: #fecdd3; background: #4c0519; font-size: 12px; }
 .graphical-timeline { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 10px; overscroll-behavior: contain; }

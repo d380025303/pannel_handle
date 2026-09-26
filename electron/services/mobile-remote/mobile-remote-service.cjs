@@ -15,6 +15,7 @@ function createMobileRemoteService({
   terminalManager,
   agentSessionLauncher,
   graphicalService,
+  getAgentUsage,
   sessionStore,
   accessStore,
   stateHub,
@@ -46,7 +47,7 @@ function createMobileRemoteService({
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
-    terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now,
+    terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now,
     auth, sizes, uploads, send, sendError
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({

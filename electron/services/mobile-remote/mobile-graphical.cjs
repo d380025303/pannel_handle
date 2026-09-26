@@ -1,5 +1,31 @@
 const MAX_TEXT_BYTES = 16 * 1024;
 
+function toMobileUsageSnapshot(value) {
+  return {
+    provider: value.provider,
+    fetchedAt: value.fetchedAt,
+    primaryLimitId: value.primaryLimitId,
+    ...(value.summary?.kind === "credits" ? { summary: {
+      kind: "credits", total: value.summary.total, used: value.summary.used,
+      remaining: value.summary.remaining, usedPercent: value.summary.usedPercent,
+      remainingPercent: value.summary.remainingPercent, unit: value.summary.unit
+    } } : value.summary?.kind === "currency" ? { summary: {
+      kind: "currency", currency: value.summary.currency, available: value.summary.available,
+      cash: value.summary.cash, voucher: value.summary.voucher,
+      credit: value.summary.credit, owed: value.summary.owed
+    } } : {}),
+    limits: (value.limits || []).map(limit => ({
+      id: limit.id, name: limit.name, usedPercent: limit.usedPercent,
+      remainingPercent: limit.remainingPercent, windowDurationMins: limit.windowDurationMins,
+      resetsAt: limit.resetsAt, category: limit.category, totalAmount: limit.totalAmount,
+      usedAmount: limit.usedAmount, remainingAmount: limit.remainingAmount,
+      total: limit.total, used: limit.used, remaining: limit.remaining,
+      unit: limit.unit, expiresAt: limit.expiresAt, available: limit.available,
+      unlimited: limit.unlimited
+    }))
+  };
+}
+
 function toMobileGraphicalSnapshot(value) {
   const snapshot = value || {};
   return {
@@ -52,7 +78,7 @@ function toMobileGraphicalSnapshot(value) {
   };
 }
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, uploads, send }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send }) {
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -82,7 +108,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, uplo
 
   async function handle(socket, message) {
     const sessionId = String(message.sessionId || "");
-    assertSession(sessionId);
+    const session = assertSession(sessionId);
     if (message.type === "graphical.subscribe") {
       socket.subscriptions.clear();
       socket.graphicalSessionId = sessionId;
@@ -91,6 +117,16 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, uplo
     }
     if (socket.graphicalSessionId !== sessionId) throw new Error("请先打开此图形会话。");
     const current = graphicalService.snapshot(sessionId);
+    if (message.type === "graphical.usage") {
+      if (!["codex", "codebuddy"].includes(session.agentProvider)) throw new Error("当前 Agent 不提供额度查询。");
+      if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
+      if (!getAgentUsage) throw new Error("额度服务不可用。");
+      const usage = await getAgentUsage(sessionId, { force: message.force === true });
+      if (socket.graphicalSessionId === sessionId && graphicalService.snapshot(sessionId).threadId === message.threadId)
+        send(socket, { type: "graphical.usage", sessionId, threadId: message.threadId,
+          requestId: message.requestId, usage: toMobileUsageSnapshot(usage) });
+      return;
+    }
     if (message.type === "graphical.upload.discard") {
       uploads?.discard(socket, Array.isArray(message.fileIds) ? message.fileIds : []);
       send(socket, { type: "command.ok", requestId: message.requestId });
@@ -187,4 +223,4 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, uplo
   return { handle, handleChanged, assertSwitchAllowed };
 }
 
-module.exports = { createMobileGraphicalHandlers, toMobileGraphicalSnapshot };
+module.exports = { createMobileGraphicalHandlers, toMobileGraphicalSnapshot, toMobileUsageSnapshot };

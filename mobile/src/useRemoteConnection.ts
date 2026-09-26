@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, type ClientMessage, type ConnectionStatus, type Runti
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 
 function defaultDeviceName() {
   const saved = localStorage.getItem("pannel-handle-device-name");
@@ -91,6 +91,7 @@ export function useRemoteConnection() {
             terminalListenersRef.current.forEach((listener) => listener(message));
             break;
           case "graphical.snapshot":
+          case "graphical.usage":
           case "graphical.history":
           case "graphical.upload.ready":
           case "command.ok":

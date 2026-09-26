@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
+import { GraphicalUsage } from "./GraphicalUsage";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalItem, type GraphicalQuestion, type GraphicalSnapshot,
   type GraphicalHistory, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 type Props = {
   session: RuntimeSession;
   send: (message: ClientMessage) => boolean;
@@ -397,6 +398,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
       <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
         aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}>···</button>
     </header>
+    <GraphicalUsage sessionId={session.id} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
     <div className="graphical-timeline" ref={scrollRef}>

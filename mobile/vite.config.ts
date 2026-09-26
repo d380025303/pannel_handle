@@ -3,7 +3,7 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-const PROTOCOL_VERSION = 5;
+const PROTOCOL_VERSION = 6;
 
 export default defineConfig({
   plugins: [

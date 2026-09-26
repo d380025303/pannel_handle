@@ -14,9 +14,11 @@ const snapshot: GraphicalSnapshot = {
 
 function fixture() {
   const send = vi.fn((_message: ClientMessage) => true);
-  let listener: ((message: Extract<ServerMessage, { type: "graphical.snapshot" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>) => void) | undefined;
-  render(<GraphicalView session={session} send={send} onGraphicalMessage={callback => { listener = callback; return () => { listener = undefined; }; }} />);
-  const emit = (message: Parameters<NonNullable<typeof listener>>[0]) => act(() => { listener?.(message); });
+  type GraphicalMessage = Extract<ServerMessage,
+    { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  const listeners = new Set<(message: GraphicalMessage) => void>();
+  render(<GraphicalView session={session} send={send} onGraphicalMessage={callback => { listeners.add(callback); return () => { listeners.delete(callback); }; }} />);
+  const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
   return { send, emit };
 }
 
@@ -39,6 +41,65 @@ it("subscribes to the selected graphical session and sends text with its thread 
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
   fireEvent.click(screen.getByText("发送"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
+});
+
+it("shows Codex quota details and refreshes the current thread", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const request = send.mock.calls.map(([message]) => message)
+    .find((message): message is Extract<ClientMessage, { type: "graphical.usage" }> => message.type === "graphical.usage");
+  expect(request).toMatchObject({ sessionId: "graph-1", threadId: "thread-1", force: false });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.usage", sessionId: "graph-1", threadId: "thread-1",
+    requestId: request!.requestId, usage: { provider: "codex", fetchedAt: 1000, primaryLimitId: "main",
+      limits: [{ id: "main", name: "Codex", usedPercent: 25, remainingPercent: 75, resetsAt: 2000 }] } });
+  fireEvent.click(screen.getByRole("button", { name: /Codex 剩余 75%/ }));
+  expect(screen.getByRole("region", { name: "额度详情" })).toBeTruthy();
+  expect(screen.getByText(/重置时间/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "刷新额度" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.usage", force: true,
+    sessionId: "graph-1", threadId: "thread-1" }));
+});
+
+it("shows CodeBuddy credits and a retryable quota error", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, provider: "codebuddy" } });
+  const request = send.mock.calls.map(([message]) => message)
+    .find((message): message is Extract<ClientMessage, { type: "graphical.usage" }> => message.type === "graphical.usage");
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "GRAPHICAL_COMMAND_FAILED", message: "暂不可用",
+    requestId: request!.requestId });
+  fireEvent.click(screen.getByRole("button", { name: /额度暂不可用/ }));
+  expect(screen.getByRole("alert").textContent).toContain("暂不可用");
+  fireEvent.click(screen.getByRole("button", { name: "刷新额度" }));
+  const retry = send.mock.calls.map(([message]) => message)
+    .filter((message): message is Extract<ClientMessage, { type: "graphical.usage" }> => message.type === "graphical.usage").at(-1)!;
+  emit({ v: PROTOCOL_VERSION, type: "graphical.usage", sessionId: "graph-1", threadId: "thread-1",
+    requestId: retry.requestId, usage: { provider: "codebuddy", fetchedAt: 1000, primaryLimitId: "base",
+      summary: { kind: "credits", total: 100, used: 30, remaining: 70, usedPercent: 30, remainingPercent: 70, unit: "Credits" },
+      limits: [{ id: "base", name: "基础额度", usedPercent: 30, remainingPercent: 70, totalAmount: 100,
+        remainingAmount: 70, unit: "Credits" }] } });
+  expect(screen.getByRole("button", { name: /剩余 70 \/ 100 Credits/ })).toBeTruthy();
+  expect(screen.getByText(/基础额度/)).toBeTruthy();
+});
+
+it("discards quota replies for a previous thread", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const previous = send.mock.calls.map(([message]) => message)
+    .find((message): message is Extract<ClientMessage, { type: "graphical.usage" }> => message.type === "graphical.usage")!;
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, threadId: "thread-2" } });
+  const current = send.mock.calls.map(([message]) => message)
+    .filter((message): message is Extract<ClientMessage, { type: "graphical.usage" }> => message.type === "graphical.usage").at(-1)!;
+  expect(current.threadId).toBe("thread-2");
+  emit({ v: PROTOCOL_VERSION, type: "graphical.usage", sessionId: "graph-1", threadId: "thread-1",
+    requestId: previous.requestId, usage: { provider: "codex", fetchedAt: 1000, primaryLimitId: "old",
+      limits: [{ id: "old", name: "旧额度", usedPercent: 10, remainingPercent: 90 }] } });
+  expect(screen.queryByText(/旧额度/)).toBeNull();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.usage", sessionId: "graph-1", threadId: "thread-2",
+    requestId: current.requestId, usage: { provider: "codex", fetchedAt: 2000, primaryLimitId: "new",
+      limits: [{ id: "new", name: "新额度", usedPercent: 20, remainingPercent: 80 }] } });
+  expect(screen.getByRole("button", { name: /新额度 剩余 80%/ })).toBeTruthy();
 });
 
 it("shows current approval choices and ignores another session's snapshot", () => {

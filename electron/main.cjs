@@ -481,6 +481,7 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher,
       sessionStore,
       graphicalService: codexAppServerSessionService,
+      getAgentUsage: (sessionId, options) => tokenUsageModule.getUsage(sessionId, options),
       accessStore: mobileAccessStore,
       stateHub: terminalStateHub,
       getStaticRoot: () => app.isPackaged

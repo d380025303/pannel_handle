@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 5 as const;
+export const PROTOCOL_VERSION = 6 as const;
 export type RuntimeMode = "terminal" | "app-server";
 export type AgentProvider = "codex" | "codebuddy" | "opencode";
 
@@ -71,46 +71,59 @@ export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvid
   items: GraphicalItem[]; approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
 export type GraphicalHistory = { data: Array<{ id: string; title: string; updatedAt: number; archived?: boolean }>;
   nextCursor: string | null };
+export type GraphicalUsageLimit = { id: string; name: string; usedPercent: number; remainingPercent: number;
+  windowDurationMins?: number; resetsAt?: number; category?: string; totalAmount?: number;
+  usedAmount?: number; remainingAmount?: number; total?: number; used?: number; remaining?: number;
+  unit?: "Credits"; expiresAt?: number;
+  available?: boolean; unlimited?: boolean };
+export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax"; fetchedAt: number; primaryLimitId: string;
+  summary?: { kind: "credits"; total: number; used: number; remaining: number;
+    usedPercent: number; remainingPercent: number; unit: "Credits" }
+    | { kind: "currency"; currency: "CNY"; available: number; cash: number; voucher: number;
+      credit: number; owed: number };
+  limits: GraphicalUsageLimit[] };
 
 export type ServerMessage =
-  | { v: 5; type: "ready"; payload: ReadyPayload }
-  | { v: 5; type: "sessions.changed"; sessions: RuntimeSession[] }
-  | { v: 5; type: "templates.changed"; templates: SavedTemplate[] }
-  | { v: 5; type: "session.launched"; sessionId: string }
-  | { v: 5; type: "terminal.snapshot"; snapshot: TerminalSnapshot }
-  | { v: 5; type: "terminal.data"; sessionId: string; data: string; seq: number }
-  | { v: 5; type: "terminal.exit"; sessionId: string; exitCode?: number }
-  | { v: 5; type: "terminal.size-owner"; sessionId: string; owner: SizeOwner; cols: number; rows: number }
-  | { v: 5; type: "graphical.snapshot"; sessionId: string; snapshot: GraphicalSnapshot }
-  | { v: 5; type: "graphical.history"; sessionId: string; threadId: string | null; requestId: string; history: GraphicalHistory }
-  | { v: 5; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }
-  | { v: 5; type: "command.ok"; requestId: string }
-  | { v: 5; type: "pong"; at: number }
-  | { v: 5; type: "error"; code: string; message: string; requestId?: string };
+  | { v: 6; type: "ready"; payload: ReadyPayload }
+  | { v: 6; type: "sessions.changed"; sessions: RuntimeSession[] }
+  | { v: 6; type: "templates.changed"; templates: SavedTemplate[] }
+  | { v: 6; type: "session.launched"; sessionId: string }
+  | { v: 6; type: "terminal.snapshot"; snapshot: TerminalSnapshot }
+  | { v: 6; type: "terminal.data"; sessionId: string; data: string; seq: number }
+  | { v: 6; type: "terminal.exit"; sessionId: string; exitCode?: number }
+  | { v: 6; type: "terminal.size-owner"; sessionId: string; owner: SizeOwner; cols: number; rows: number }
+  | { v: 6; type: "graphical.snapshot"; sessionId: string; snapshot: GraphicalSnapshot }
+  | { v: 6; type: "graphical.usage"; sessionId: string; threadId: string | null; requestId: string; usage: GraphicalUsage }
+  | { v: 6; type: "graphical.history"; sessionId: string; threadId: string | null; requestId: string; history: GraphicalHistory }
+  | { v: 6; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }
+  | { v: 6; type: "command.ok"; requestId: string }
+  | { v: 6; type: "pong"; at: number }
+  | { v: 6; type: "error"; code: string; message: string; requestId?: string };
 
 export type ClientMessage =
-  | { v: 5; type: "password.login"; password: string; deviceName: string }
-  | { v: 5; type: "terminal.subscribe"; sessionId: string; lastSeq?: number }
-  | { v: 5; type: "terminal.input"; sessionId: string; data: string }
-  | { v: 5; type: "terminal.claim-size"; sessionId: string; cols: number; rows: number }
-  | { v: 5; type: "terminal.resize"; sessionId: string; cols: number; rows: number }
-  | { v: 5; type: "template.launch"; templateId: string; cols: number; rows: number; requestId: string }
-  | { v: 5; type: "session.rename"; sessionId: string; title: string; requestId: string }
-  | { v: 5; type: "session.close"; sessionId: string; requestId: string }
-  | { v: 5; type: "session.switch-agent"; sessionId: string; threadId: string | null; provider: AgentProvider; requestId: string }
-  | { v: 5; type: "graphical.subscribe"; sessionId: string }
-  | { v: 5; type: "graphical.submit"; sessionId: string; threadId: string | null; text: string; fileIds?: string[]; requestId: string }
-  | { v: 5; type: "graphical.upload.prepare"; sessionId: string; threadId: string | null; name: string; size: number; requestId: string }
-  | { v: 5; type: "graphical.upload.discard"; sessionId: string; threadId: string | null; fileIds: string[]; requestId: string }
-  | { v: 5; type: "graphical.model"; sessionId: string; threadId: string | null; modelId: string; requestId: string }
-  | { v: 5; type: "graphical.interrupt" | "graphical.new-thread"; sessionId: string; threadId: string | null; requestId: string }
-  | { v: 5; type: "graphical.history"; sessionId: string; threadId: string | null; cursor?: string | null; requestId: string }
-  | { v: 5; type: "graphical.resume"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
-  | { v: 5; type: "graphical.approval"; sessionId: string; threadId: string | null; approvalId: number | string; decision: boolean | string; requestId: string }
-  | { v: 5; type: "graphical.answer"; sessionId: string; threadId: string | null; questionId: number | string;
+  | { v: 6; type: "password.login"; password: string; deviceName: string }
+  | { v: 6; type: "terminal.subscribe"; sessionId: string; lastSeq?: number }
+  | { v: 6; type: "terminal.input"; sessionId: string; data: string }
+  | { v: 6; type: "terminal.claim-size"; sessionId: string; cols: number; rows: number }
+  | { v: 6; type: "terminal.resize"; sessionId: string; cols: number; rows: number }
+  | { v: 6; type: "template.launch"; templateId: string; cols: number; rows: number; requestId: string }
+  | { v: 6; type: "session.rename"; sessionId: string; title: string; requestId: string }
+  | { v: 6; type: "session.close"; sessionId: string; requestId: string }
+  | { v: 6; type: "session.switch-agent"; sessionId: string; threadId: string | null; provider: AgentProvider; requestId: string }
+  | { v: 6; type: "graphical.subscribe"; sessionId: string }
+  | { v: 6; type: "graphical.usage"; sessionId: string; threadId: string | null; force?: boolean; requestId: string }
+  | { v: 6; type: "graphical.submit"; sessionId: string; threadId: string | null; text: string; fileIds?: string[]; requestId: string }
+  | { v: 6; type: "graphical.upload.prepare"; sessionId: string; threadId: string | null; name: string; size: number; requestId: string }
+  | { v: 6; type: "graphical.upload.discard"; sessionId: string; threadId: string | null; fileIds: string[]; requestId: string }
+  | { v: 6; type: "graphical.model"; sessionId: string; threadId: string | null; modelId: string; requestId: string }
+  | { v: 6; type: "graphical.interrupt" | "graphical.new-thread"; sessionId: string; threadId: string | null; requestId: string }
+  | { v: 6; type: "graphical.history"; sessionId: string; threadId: string | null; cursor?: string | null; requestId: string }
+  | { v: 6; type: "graphical.resume"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
+  | { v: 6; type: "graphical.approval"; sessionId: string; threadId: string | null; approvalId: number | string; decision: boolean | string; requestId: string }
+  | { v: 6; type: "graphical.answer"; sessionId: string; threadId: string | null; questionId: number | string;
     answers: Record<string, { answers: string[] }>; requestId: string }
-  | { v: 5; type: "graphical.plan"; sessionId: string; threadId: string | null; itemId: string; execute: boolean; requestId: string }
-  | { v: 5; type: "graphical.mode"; sessionId: string; threadId: string | null; mode: "default" | "plan"; requestId: string }
-  | { v: 5; type: "ping"; at: number };
+  | { v: 6; type: "graphical.plan"; sessionId: string; threadId: string | null; itemId: string; execute: boolean; requestId: string }
+  | { v: 6; type: "graphical.mode"; sessionId: string; threadId: string | null; mode: "default" | "plan"; requestId: string }
+  | { v: 6; type: "ping"; at: number };
 
 export type ConnectionStatus = "connecting" | "password-required" | "connected" | "disconnected" | "error";

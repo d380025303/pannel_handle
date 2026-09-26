@@ -93,6 +93,7 @@ function createTokenUsageModule({
 
   return {
     disconnect,
+    getUsage: (sessionId, options) => usageService.getUsage(sessionId, options),
     handleHook,
     recordAppServerUsage,
     recordGraphicalCodeBuddy,

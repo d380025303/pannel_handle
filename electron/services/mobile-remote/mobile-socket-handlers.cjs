@@ -2,9 +2,9 @@ const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = requir
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now, auth, sizes, uploads, send, sendError }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, send, sendError }) {
   const { getSizeState, applySize } = sizes;
-  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, uploads, send });
+  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send });
 
   function sendReady(socket) {
     send(socket, {

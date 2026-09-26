@@ -62,6 +62,31 @@ describe("mobile graphical session route", () => {
     expect(f.graphicalService.answerQuestion).toHaveBeenCalledWith("graph-1", 4, { q1: { answers: ["yes"] } });
   });
 
+  it("reads only the subscribed graphical session's quota and projects display fields", async () => {
+    const f = fixture();
+    const getAgentUsage = vi.fn(async () => ({ provider: "codex", fetchedAt: 100, primaryLimitId: "main",
+      limits: [{ id: "main", name: "Codex", usedPercent: 25, remainingPercent: 75, resetsAt: 200,
+        credential: "secret" }], resetCredits: { credits: [{ id: "private-credit" }] } }));
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager,
+      graphicalService: f.graphicalService, getAgentUsage, send: f.send });
+    await expect(handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "u1" })).rejects.toThrow("先打开");
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await expect(handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "old", requestId: "u2" })).rejects.toThrow("已切换");
+    await handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "u3", force: true });
+    expect(getAgentUsage).toHaveBeenCalledWith("graph-1", { force: true });
+    const response = f.send.mock.calls.at(-1)[1];
+    expect(response).toMatchObject({ type: "graphical.usage", sessionId: "graph-1", requestId: "u3",
+      usage: { provider: "codex", limits: [{ remainingPercent: 75 }] } });
+    expect(JSON.stringify(response)).not.toContain("secret");
+    expect(JSON.stringify(response)).not.toContain("private-credit");
+    f.session.agentProvider = "opencode";
+    await expect(handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "u4" })).rejects.toThrow("不提供额度");
+  });
+
   it("rejects terminal sessions and allows history only for the active graphical session", async () => {
     const f = fixture();
     f.terminalManager.getSession.mockImplementation(id => id === "terminal-1" ? { id, runtimeMode: "terminal" } : id === "graph-1" ? { id, runtimeMode: "app-server" } : null);
