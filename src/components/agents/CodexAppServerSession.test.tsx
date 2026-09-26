@@ -45,8 +45,8 @@ describe("CodexAppServerSession", () => {
   const resume = vi.fn().mockResolvedValue({ threadId: "old-thread", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const setMode = vi.fn().mockImplementation(async (_id, mode) => ({ threadId: "thread-1", mode, busy: false, error: null, items: [], approvals: [] }));
   const setNativeMode = vi.fn().mockImplementation(async (_id, modeId) => ({ threadId: "thread-1", provider: "codebuddy", nativeMode: modeId,
-    nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }], mode: modeId === "plan" ? "plan" : "default",
-    executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }));
+    nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }], mode: modeId === "plan" ? "plan" : "default",
+    executionPermission: modeId === "bypassPermissions" ? "fullAccess" : "askApproval", busy: false, error: null, items: [], approvals: [] }));
   const setModel = vi.fn();
   const listModelMetadata = vi.fn().mockResolvedValue([]);
   const setContextWindow = vi.fn();
@@ -1697,6 +1697,24 @@ describe("CodexAppServerSession", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
     expect(input.value).toBe("保留草稿");
 
+  });
+
+  it("toggles Plan and Full Access with Shift+Tab in a CodeBuddy session", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",
+      nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }],
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] } }));
+    input.focus();
+
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
+    expect(await screen.findByText("模式：Plan")).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(setNativeMode).toHaveBeenLastCalledWith("run-1", "bypassPermissions"));
+    expect(await screen.findByText("模式：Full Access")).toBeTruthy();
   });
 
   it("adds pasted images as removable attachments and sends them with text", async () => {

@@ -1532,9 +1532,21 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           }
           if (event.key === "Escape") { event.preventDefault(); closeFileMention(); return; }
         }
-        if (snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          void changeMode(snapshot.mode === "plan" ? "default" : "plan");
+        if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) {
+          if (snapshot.provider === "codebuddy") {
+            event.preventDefault();
+            const modes = snapshot.nativeModes || [];
+            const inPlan = /plan/i.test(snapshot.nativeMode || "");
+            const target = inPlan
+              ? modes.find(mode => /^(bypasspermissions|fullaccess)$/i.test(normalizeModeKey(mode.id)))
+              : modes.find(mode => /plan/i.test(mode.id));
+            if (target) void changeNativeMode(target.id);
+            return;
+          }
+          if (snapshot.provider !== "opencode") {
+            event.preventDefault();
+            void changeMode(snapshot.mode === "plan" ? "default" : "plan");
+          }
           return;
         }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
