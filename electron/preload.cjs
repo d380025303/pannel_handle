@@ -86,7 +86,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   previewAttachment: (id, filePath) => ipcRenderer.invoke("codex-app-server:preview-attachment", id, filePath),
   pasteImage: id => ipcRenderer.invoke("codex-app-server:paste-image", id),
   discardImage: (id, filePath) => ipcRenderer.invoke("codex-app-server:discard-image", id, filePath),
-  submit: (id, text, filePaths, references) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths, references),
+  submit: (id, text, filePaths, references, orderedContent) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths, references, orderedContent),
   interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
   resolveApproval: (id, requestId, decision) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, decision),
   answerQuestion: (id, requestId, answers) => ipcRenderer.invoke("codex-app-server:answer-question", id, requestId, answers),

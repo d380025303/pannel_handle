@@ -1014,6 +1014,7 @@ export type CodexAppServerSnapshot = {
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
     result?: unknown; locations?: Array<{ path?: string; uri?: string }>;
     attachments?: Array<{ path: string; name: string }>;
+    parts?: Array<{ type: "text"; text: string } | { type: "image"; path: string; name: string }>;
     afterItemId?: string | null;
     questions?: Array<{ id: string; header: string; question: string; answers: string[] }>;
     explanation?: string | null; plan?: Array<{ step: string; status: "pending" | "inProgress" | "completed" }> }>;
@@ -1099,7 +1100,8 @@ export type CodexAppServerApi = {
     | { kind: "unsupported" } | { kind: "too_large"; size: number; limit: number }>;
   pasteImage: (id: string) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
   discardImage: (id: string, filePath: string) => Promise<void>;
-  submit: (id: string, text: string, filePaths?: string[], references?: CodexCapabilityReference[]) => Promise<void>;
+  submit: (id: string, text: string, filePaths?: string[], references?: CodexCapabilityReference[],
+    orderedContent?: Array<{ type: "text"; text: string } | { type: "image"; path: string }>) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
   resolveApproval: (id: string, requestId: number | string, decision: boolean | string) => Promise<void>;
   answerQuestion: (id: string, requestId: number | string, answers: Record<string, CodexQuestionAnswer>) => Promise<void>;

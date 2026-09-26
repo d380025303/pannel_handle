@@ -109,7 +109,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     });
     ipcMain.handle("codex-app-server:discard-image", (_event, id, filePath) =>
       codexAppServerSessionService.discardPastedImage(String(id || ""), filePath));
-    ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths, references) => codexAppServerSessionService.submit(String(id || ""), text, filePaths, references));
+    ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths, references, orderedContent) => codexAppServerSessionService.submit(String(id || ""), text, filePaths, references, orderedContent));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, decision) => {
       if (typeof decision !== "string" && typeof decision !== "boolean") throw new Error("无效的审批选择。");

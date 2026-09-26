@@ -21,7 +21,7 @@ const PLAN_BRIDGE_DENY = "mcp__pannel_handle_remote__remote_apply_patch mcp__pan
 function codeBuddyPlanArgs(runtime, quote) {
   if (!runtime.readOnlyProfile) return "";
   return ["--permission-mode plan", "--permission-mode-before-plan dontAsk", "--subagent-permission-mode plan",
-    `--tools ${quote(PLAN_TOOLS)}`, "--strict-mcp-config",
+    `--tools ${PLAN_TOOLS}`, "--strict-mcp-config",
     ...(runtime.localBridge ? [`--disallowedTools ${quote(PLAN_BRIDGE_DENY)}`] : [])].join(" ");
 }
 function createConversationRequestId() {
@@ -830,15 +830,25 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(buffer) }; }
     catch { return { kind: "unsupported" }; }
   }
-  async function submit(id, text, files = []) {
+  async function submit(id, text, files = [], _references = [], orderedContent) {
     const entry = entryFor(id);
     if (!entry.threadId || entry.busy || entry.switching) throw new Error(`${agentName} 会话未就绪或正在运行。`);
     if (entry.modeViolation || provider === "codebuddy" && entry.mode === "plan" && !entry.runtime.readOnlyProfile)
       throw new Error("CodeBuddy 计划模式尚未确认只读保护，请重新选择计划模式。");
     if (!String(text || "").trim() && !files.length) throw new Error("请输入消息或添加附件。");
     if (files.some(file => !entry.allowedFiles.has(file) && !entry.pastedImages.has(file))) throw new Error("附件未授权。");
-    const prompt = [{ type: "text", text: String(text || "").trim() }];
+    if (orderedContent !== undefined && (!Array.isArray(orderedContent) || orderedContent.length > 40
+      || orderedContent.some(part => !part || (part.type !== "text" && part.type !== "image")
+        || part.type === "text" && typeof part.text !== "string"
+        || part.type === "image" && typeof part.path !== "string"))) throw new Error("无效的消息内容顺序。");
+    const imageFiles = files.filter(file => IMAGE_MIME[path.extname(file).toLowerCase()]);
+    const suppliedImages = orderedContent?.filter(part => part.type === "image").map(part => part.path);
+    if (orderedContent && (orderedContent.filter(part => part.type === "text").map(part => part.text).join("").trim() !== String(text || "").trim()
+      || suppliedImages.length !== imageFiles.length || new Set(suppliedImages).size !== imageFiles.length
+      || suppliedImages.some(file => !imageFiles.includes(file)))) throw new Error("图片顺序与附件不一致。");
+    const prompt = orderedContent ? [] : [{ type: "text", text: String(text || "").trim() }];
     const attachments = [];
+    const imageBlocks = new Map();
     for (const file of files) {
       let agentPath = file;
       if (isRemote(entry) && path.win32.isAbsolute(file)) {
@@ -857,18 +867,23 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         const hostPath = entry.session.type === "wsl" && agentPath.startsWith("/") ? toWslHostPath(entry.session.wslDistro, agentPath) : file;
         const data = isRemote(entry) && agentPath.startsWith("/") ? await sshFileSystem.get(id, agentPath) : await fs.promises.readFile(hostPath);
         if (data.length > IMAGE_LIMIT) throw new Error("图片超过 10 MB。");
-        prompt.push({ type: "image", mimeType: mime, data: Buffer.from(data).toString("base64") });
+        const block = { type: "image", mimeType: mime, data: Buffer.from(data).toString("base64") };
+        if (orderedContent) imageBlocks.set(file, block);
+        else prompt.push(block);
       } else prompt.push({ type: "text", text: `\n请读取以下附件文件：${JSON.stringify(agentPath)}` });
       attachments.push({ path: agentPath, name: path.basename(file) });
-      entry.allowedFiles.delete(file);
     }
+    if (orderedContent) prompt.unshift(...orderedContent.map(part => part.type === "text" ? { type: "text", text: part.text } : imageBlocks.get(part.path)));
     entry.error = null; entry.busy = true; entry.foregroundBusy = true;
     entry.turnId = provider === "codebuddy" ? createConversationRequestId() : randomUUID(); entry.pendingPlan = null;
-    entry.items.push({ id: randomUUID(), type: "userMessage", turnId: entry.turnId, text: String(text || "").trim(), attachments });
+    entry.items.push({ id: randomUUID(), type: "userMessage", turnId: entry.turnId, text: String(text || "").trim(), attachments,
+      ...(orderedContent ? { parts: orderedContent.map(part => part.type === "text" ? part : {
+        type: "image", path: attachments[files.indexOf(part.path)].path, name: attachments[files.indexOf(part.path)].name }) } : {}) });
     publish(id); status(id, entry, "running", text);
     try {
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
         ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
+      for (const file of files) entry.allowedFiles.delete(file);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       for (const item of entry.items) if (item.turnId === entry.turnId) delete item.streaming;
       if (provider === "codebuddy") {

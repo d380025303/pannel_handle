@@ -71,7 +71,26 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
 type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" };
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
+type InlineImage = { token: string; path: string | null };
+function orderedDraft(draft: string, images: InlineImage[]) {
+  const byToken = new Map(images.filter(image => image.path).map(image => [image.token, image.path!]));
+  const parts: Array<{ type: "text"; text: string } | { type: "image"; path: string }> = [];
+  const pattern = /〔图片 \d+〕/g;
+  let offset = 0;
+  const seen = new Set<string>();
+  for (const match of draft.matchAll(pattern)) {
+    const imagePath = byToken.get(match[0]);
+    if (!imagePath || seen.has(match[0])) continue;
+    if (match.index > offset) parts.push({ type: "text", text: draft.slice(offset, match.index) });
+    parts.push({ type: "image", path: imagePath });
+    seen.add(match[0]);
+    offset = match.index + match[0].length;
+  }
+  if (offset < draft.length) parts.push({ type: "text", text: draft.slice(offset) });
+  return { text: parts.filter(part => part.type === "text").map(part => part.text).join("").trim(), parts };
+}
 function userMessageCopyText(item: { text?: string; attachments?: Array<{ path: string }> }) {
   const attachments = item.attachments?.map(file => file.path) || [];
   return [item.text || "", attachments.length ? `附件：\n${attachments.join("\n")}` : ""].filter(Boolean).join("\n\n");
@@ -469,6 +488,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [historyCopyingThreadId, setHistoryCopyingThreadId] = useState<string | null>(null);
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [inlineImages, setInlineImages] = useState<InlineImage[]>([]);
   const [previewFile, setPreviewFile] = useState<{ path: string; name: string } | null>(null);
   const [preview, setPreview] = useState<AttachmentPreview | null>(null);
   const [previewError, setPreviewError] = useState("");
@@ -527,6 +547,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const modelMetadataRequestRef = useRef(0);
   const loadedSessionIdRef = useRef<string | null>(null);
   const pastedImagesRef = useRef(new Set<string>());
+  const inlineImagesRef = useRef<InlineImage[]>([]);
+  const imageTokenCounterRef = useRef(0);
   const pastingRef = useRef(false);
   const changingModeRef = useRef(false);
   const changingModelRef = useRef(false);
@@ -605,6 +627,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setError("");
     setDismissedSnapshotError(null);
     setAttachments([]);
+    setInlineImages([]);
+    inlineImagesRef.current = [];
+    setDraft(current => current.replace(/〔图片 \d+〕/g, ""));
     setPreviewFile(null);
     setSending(false);
     setChangingMode(false);
@@ -786,6 +811,31 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setFileSearchError("");
     setSelectedFileIndex(0);
   }
+  function addInlineImage(start: number, end: number, path: string | null) {
+    const number = ++imageTokenCounterRef.current;
+    const token = `〔图片 ${number}〕`;
+    const image = { token, path };
+    inlineImagesRef.current = [...inlineImagesRef.current, image];
+    setInlineImages(inlineImagesRef.current);
+    setDraft(current => current.slice(0, start) + token + current.slice(end));
+    window.requestAnimationFrame(() => {
+      const caret = start + token.length;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(caret, caret);
+    });
+    return token;
+  }
+  function changeDraft(next: string) {
+    const removed = inlineImagesRef.current.filter(image => !next.includes(image.token));
+    if (removed.length) {
+      inlineImagesRef.current = inlineImagesRef.current.filter(image => next.includes(image.token));
+      setInlineImages(inlineImagesRef.current);
+      setAttachments(current => current.filter(filePath => !removed.some(image => image.path === filePath)));
+      for (const image of removed) if (image.path && pastedImagesRef.current.delete(image.path))
+        void window.codexAppServerApi.discardImage(sessionId, image.path).catch(cause => setError(message(cause)));
+    }
+    setDraft(next);
+  }
   function selectFile(entry: WorkspaceEntrySearchResult) {
     if (!fileMention) return;
     const token = `@${entry.relativePath} `;
@@ -798,20 +848,27 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
 
   async function submit() {
-    const text = draft.trim();
+    const submittedDraft = draft;
+    const ordered = orderedDraft(draft, inlineImages);
+    const text = ordered.text;
     const knownErrorIds = new Set(snapshot.items.filter(item => item.type === "turnError").map(item => item.id));
     if (snapshot.archived || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || pastingRef.current) return;
     setSending(true);
     closeFileMention();
     setDraft(""); setError("");
-    try { await window.codexAppServerApi.submit(sessionId, text, attachments, draftReferences.filter(value => text.includes(value.token))); if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); } }
+    try {
+      const references = draftReferences.filter(value => text.includes(value.token));
+      if (inlineImages.length) await window.codexAppServerApi.submit(sessionId, text, attachments, references, ordered.parts);
+      else await window.codexAppServerApi.submit(sessionId, text, attachments, references);
+      if (currentSessionRef.current === sessionId) { setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); }
+    }
     catch (cause) {
       const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause), knownErrorIds);
       if (recorded) {
-        if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); }
+        if (currentSessionRef.current === sessionId) { setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); }
       } else {
-        setDraft(current => current || text);
+        setDraft(current => current || submittedDraft);
         if (currentSessionRef.current === sessionId) setError(message(cause));
       }
     }
@@ -856,7 +913,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   async function selectHistory(threadId: string) {
     setResumingHistory(true); setHistoryError("");
     try { const value = await window.codexAppServerApi.resume(sessionId, threadId);
-      if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); pastedImagesRef.current.clear(); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
+      if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
     catch (cause) { if (currentSessionRef.current === sessionId) setHistoryError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) setResumingHistory(false); }
   }
@@ -883,7 +940,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         const next = await window.codexAppServerApi.forkThread(sessionId, threadId);
         if (currentSessionRef.current === sessionId) {
           timelineRef.current = next; setExpandedGroupId(null); setSnapshot(next);
-          setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear();
+          setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear();
           setCapabilities(null); setCapabilityOpen(false); closeHistory();
         }
       } else if (currentSessionRef.current === sessionId) {
@@ -895,8 +952,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   async function addFiles() {
     setError("");
+    const input = textareaRef.current;
+    const start = input?.selectionStart ?? draft.length;
+    const end = input?.selectionEnd ?? start;
     try { const paths = await window.codexAppServerApi.chooseFiles(sessionId);
-      if (currentSessionRef.current === sessionId) setAttachments(current => [...new Set([...current, ...paths])].slice(0, 10)); }
+      if (currentSessionRef.current === sessionId) {
+        const added = paths.filter(filePath => !attachments.includes(filePath)).slice(0, Math.max(0, 10 - attachments.length));
+        setAttachments(current => [...new Set([...current, ...added])].slice(0, 10));
+        let caret = start;
+        for (const filePath of added.filter(sendableImageFile)) {
+          const token = addInlineImage(caret, caret === start ? end : caret, filePath);
+          caret += token.length;
+        }
+      } }
     catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
   }
   async function pasteImage() {
@@ -906,22 +974,39 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     pastingRef.current = true;
     setPastingImage(true);
     setError("");
+    const input = textareaRef.current;
+    const token = addInlineImage(input?.selectionStart ?? draft.length, input?.selectionEnd ?? draft.length, null);
     try {
       const result = await window.codexAppServerApi.pasteImage(sessionId);
       if (result.status === "no_image") throw new Error("剪贴板中没有可用的图片。");
-      if (currentSessionRef.current !== sessionId) {
+      if (currentSessionRef.current !== sessionId || !inlineImagesRef.current.some(image => image.token === token)) {
         await window.codexAppServerApi.discardImage(sessionId, result.path);
         return;
       }
       pastedImagesRef.current.add(result.path);
+      inlineImagesRef.current = inlineImagesRef.current.map(image => image.token === token ? { ...image, path: result.path } : image);
+      setInlineImages(inlineImagesRef.current);
       setAttachments(current => [...current, result.path]);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId) {
+        setError(message(cause));
+        inlineImagesRef.current = inlineImagesRef.current.filter(image => image.token !== token);
+        setInlineImages(inlineImagesRef.current);
+        setDraft(current => current.replace(token, ""));
+      }
+    }
     finally { pastingRef.current = false; if (currentSessionRef.current === sessionId) setPastingImage(false); }
   }
   async function removeAttachment(filePath: string) {
     if (pastedImagesRef.current.has(filePath)) {
       try { await window.codexAppServerApi.discardImage(sessionId, filePath); pastedImagesRef.current.delete(filePath); }
       catch (cause) { setError(message(cause)); return; }
+    }
+    const image = inlineImagesRef.current.find(value => value.path === filePath);
+    if (image) {
+      inlineImagesRef.current = inlineImagesRef.current.filter(value => value !== image);
+      setInlineImages(inlineImagesRef.current);
+      setDraft(current => current.replace(image.token, ""));
     }
     setAttachments(current => current.filter(value => value !== filePath));
   }
@@ -1159,7 +1244,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function startNewConversation() {
     void window.codexAppServerApi.newThread(sessionId)
-      .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
+      .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
       .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); });
   }
   function closeSelection() { if (selectionPending) return; setSelectionKind(null); setSelectionError(""); menuButtonRef.current?.focus(); }
@@ -1264,8 +1349,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         </article>;
         if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
           {item.type === "plan" && <strong>计划</strong>}
-          {item.type === "userMessage" ? <>{item.text && <p>{item.text}</p>}{Boolean(item.attachments?.length) &&
-            <div className="codex-app-server-attachments">{item.attachments?.map(file => <AttachmentTile key={file.path} sessionId={sessionId} file={file} onPreview={() => setPreviewFile(file)} />)}</div>}</>
+          {item.type === "userMessage" ? <>{item.parts?.length ? item.parts.map((part, index) => part.type === "text"
+            ? <p key={`text-${index}`}>{part.text}</p>
+            : <div className="codex-app-server-attachments" key={`image-${index}`}><AttachmentTile sessionId={sessionId}
+                file={{ path: part.path, name: part.name }} onPreview={() => setPreviewFile({ path: part.path, name: part.name })} /></div>)
+            : item.text && <p>{item.text}</p>}{Boolean(item.attachments?.length) &&
+            <div className="codex-app-server-attachments">{item.attachments?.filter(file => !item.parts?.some(part => part.type === "image" && part.path === file.path))
+              .map(file => <AttachmentTile key={file.path} sessionId={sessionId} file={file} onPreview={() => setPreviewFile(file)} />)}</div>}</>
             : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
           {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
             <p>计划已完成。确认后将在当前会话中执行。</p>
@@ -1375,7 +1465,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       </div>}
       <div className={`codex-app-server-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={snapshot.mode}><textarea ref={textareaRef} value={draft} onChange={event => {
         const next = event.target.value;
-        setDraft(next);
+        changeDraft(next);
         setSlashDismissed(false); setSelectedSlashIndex(0);
         setDraftReferences(current => current.filter(value => next.includes(value.token)));
         const mention = fileMentionAtCaret(next, event.target.selectionStart);

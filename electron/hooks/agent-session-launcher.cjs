@@ -276,7 +276,7 @@ function buildLocalCodeBuddyStartCommand(binding, inheritance) {
     powerShellQuote(buildLocalCodeBuddyConfig(binding, inheritance)),
     "--strict-mcp-config",
     "--tools",
-    powerShellQuote("Read,Glob,Grep")
+    "Read,Glob,Grep"
   ];
   if (instructions) args.push("--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`);
   const inheritedArgs = codeBuddyInheritanceArgs(inheritance && { ...inheritance, mcpFile: undefined }, "powershell");
@@ -287,7 +287,7 @@ function buildLocalCodeBuddyStartCommand(binding, inheritance) {
 function buildLocalCodeBuddyAcpArgs(binding, inheritance, instructions) {
   return [
     "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
-    "--strict-mcp-config", "--tools", "'Read,Glob,Grep'",
+    "--strict-mcp-config", "--tools", "Read,Glob,Grep",
     ...(instructions ? ["--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`] : [])
   ].join(" ");
 }

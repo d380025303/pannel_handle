@@ -260,7 +260,8 @@ describe("Codex App Server session", () => {
       if (request.method === "thread/resume") return { thread: { id: "old-thread", turns: [{ items: [{
         id: "history-user", type: "userMessage", content: [
           { type: "text", text: `检查\n\n请读取以下附件文件：${JSON.stringify(textPath)}` },
-          { type: "localImage", path: imagePath }
+          { type: "localImage", path: imagePath },
+          { type: "text", text: "然后继续" }
         ] }] }] } };
     });
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
@@ -274,9 +275,10 @@ describe("Codex App Server session", () => {
       expect(await service.previewAttachment("run-1", largePath)).toMatchObject({ kind: "too_large", limit: 2 * 1024 * 1024 });
       expect(await service.previewAttachment("run-1", binaryPath)).toEqual({ kind: "unsupported" });
       await service.resume("run-1", "old-thread");
-      expect(service.snapshot("run-1").items[0]).toMatchObject({ text: "检查", attachments: [
+      expect(service.snapshot("run-1").items[0]).toMatchObject({ text: "检查然后继续", attachments: [
         { path: textPath, name: "notes.txt" }, { path: imagePath, name: "picture.png" }
       ] });
+      expect(service.snapshot("run-1").items[0].parts.map(part => part.type)).toEqual(["text", "image", "text"]);
       expect(await service.previewAttachment("run-1", textPath)).toEqual({ kind: "text", text: "hello preview" });
       await expect(service.previewAttachment("run-1", secretPath)).rejects.toThrow("当前会话");
       fs.rmSync(textPath);
@@ -566,6 +568,32 @@ describe("Codex App Server session", () => {
       expect(service.snapshot("run-1").items.find(item => item.id === "user-2").attachments).toEqual([
         { path: image, name: "steer.png" }
       ]);
+    } finally { service.close("run-1"); }
+  });
+
+  it("preserves interleaved text and images in the request and restored user message", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    await service.start({ id: "run-1", type: "wsl", wslDistro: "Ubuntu", shell: "bash", cwd: "/repo" });
+    try {
+      const first = "/repo/.pannel-handle-images/first.png";
+      const second = "/repo/.pannel-handle-images/second.png";
+      service.allowPastedImage("run-1", first);
+      service.allowPastedImage("run-1", second);
+      await service.submit("run-1", "甲乙丙", [first, second], [], [
+        { type: "text", text: "甲" }, { type: "image", path: first }, { type: "text", text: "乙" },
+        { type: "image", path: second }, { type: "text", text: "丙" }]);
+      const content = received.find(item => item.method === "turn/start").params.input;
+      expect(content).toEqual([{ type: "text", text: "甲" }, { type: "localImage", path: first },
+        { type: "text", text: "乙" }, { type: "localImage", path: second }, { type: "text", text: "丙" }]);
+      child.stdout.write(`${JSON.stringify({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1",
+        item: { id: "user-1", type: "userMessage", content } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").items.find(item => item.id === "user-1")?.parts).toHaveLength(5));
+      expect(service.snapshot("run-1").items.filter(item => item.type === "userMessage")).toHaveLength(1);
+      expect(service.snapshot("run-1").items.find(item => item.id === "user-1").parts.map(part => part.type)).toEqual([
+        "text", "image", "text", "image", "text"]);
     } finally { service.close("run-1"); }
   });
 

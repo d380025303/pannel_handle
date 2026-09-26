@@ -484,7 +484,7 @@ describe("agent-session-launcher", () => {
       headers: { Authorization: "Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}" }
     });
     expect(command).toContain("--strict-mcp-config");
-    expect(command).toContain("--tools 'Read,Glob,Grep'");
+    expect(command).toContain("--tools Read,Glob,Grep");
     expect(command).toContain('--append-system-prompt "$env:PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS"');
     expect(command).not.toMatch(/[\r\n]/);
     expect(command).not.toContain(binding.runtimeInstructions);

@@ -99,30 +99,42 @@ function buildInvocation(session, runtime, environment) {
 function displayItem(item) {
   if (item?.type !== "userMessage") return item;
   const attachments = [];
+  const parts = [];
   const text = item.content?.map(part => {
     if (part.type === "localImage" && typeof part.path === "string") {
       attachments.push({ path: part.path, name: path.basename(part.path) });
+      parts.push({ type: "image", path: part.path, name: path.basename(part.path) });
       return "";
     }
-    if (part.type === "image") return "[图片]";
+    if (part.type === "image") { parts.push({ type: "text", text: "[图片]" }); return "[图片]"; }
     if (part.type !== "text") return "";
     const raw = String(part.text || "");
     const marker = "请读取以下附件文件：";
     const position = raw.lastIndexOf(marker);
-    if (position < 0 || (position > 0 && raw.slice(position - 2, position) !== "\n\n")) return raw;
+    if (position < 0 || (position > 0 && raw.slice(position - 2, position) !== "\n\n")) {
+      if (raw) parts.push({ type: "text", text: raw });
+      return raw;
+    }
     const references = raw.slice(position + marker.length);
     const matches = [...references.matchAll(/"(?:\\.|[^"\\])*"/g)];
-    if (!matches.length || matches.map(match => match[0]).join("、") !== references) return raw;
+    if (!matches.length || matches.map(match => match[0]).join("、") !== references) {
+      parts.push({ type: "text", text: raw });
+      return raw;
+    }
     try {
       for (const match of matches) {
         const filePath = JSON.parse(match[0]);
-        if (typeof filePath !== "string") return raw;
+        if (typeof filePath !== "string") { parts.push({ type: "text", text: raw }); return raw; }
         attachments.push({ path: filePath, name: path.basename(filePath) });
       }
-      return raw.slice(0, position).trimEnd();
-    } catch { return raw; }
+      const cleaned = raw.slice(0, position).trimEnd();
+      if (cleaned) parts.push({ type: "text", text: cleaned });
+      return cleaned;
+    } catch { parts.push({ type: "text", text: raw }); return raw; }
   }).filter(Boolean).join("\n");
-  return { ...item, text: Array.isArray(item.content) ? text : item.text || "", attachments };
+  return { ...item, text: Array.isArray(item.content) ? (parts.some(part => part.type === "image")
+    ? parts.filter(part => part.type === "text").map(part => part.text).join("") : text) : item.text || "", attachments,
+    ...(Array.isArray(item.content) ? { parts } : {}) };
 }
 
 function historyItems(thread) {
@@ -1266,7 +1278,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       await sshFileSystem.remove(entry.session.id, path.posix.dirname(filePath)).catch(() => {});
     }));
   }
-  async function submit(id, text, filePaths = [], references = []) {
+  async function submit(id, text, filePaths = [], references = [], orderedContent) {
     const entry = sessions.get(id);
     const expectedThreadId = entry?.threadId;
     if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
@@ -1276,6 +1288,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (entry.compacting) throw new Error("会话正在压缩，请等待完成。");
     if (entry.busy && !entry.turnId) throw new Error("当前回合尚未就绪，请稍后重试。");
     if (filePaths.some(filePath => !entry.allowedFiles.has(filePath))) throw new Error("只能发送通过文件选择器附加的文件。");
+    if (orderedContent !== undefined && (!Array.isArray(orderedContent) || orderedContent.length > 40
+      || orderedContent.some(part => !part || (part.type !== "text" && part.type !== "image")
+        || part.type === "text" && typeof part.text !== "string"
+        || part.type === "image" && typeof part.path !== "string"))) throw new Error("无效的消息内容顺序。");
     const activeReferences = references.filter(value => value && typeof value.token === "string" && text.includes(value.token));
     const capabilities = activeReferences.length ? await listCapabilities(id) : null;
     const referenceInput = activeReferences.map(value => {
@@ -1295,8 +1311,21 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     let startingTurn = false;
     try {
       if (sessions.get(id) !== entry) throw new Error("会话已关闭。");
+      const imagePaths = filePaths.filter((_, index) => files[index].image);
+      const suppliedImages = orderedContent?.filter(part => part.type === "image").map(part => part.path);
+      if (orderedContent && (orderedContent.filter(part => part.type === "text").map(part => part.text).join("").trim() !== text.trim()
+        || new Set(suppliedImages).size !== suppliedImages.length
+        || suppliedImages.some(filePath => !imagePaths.includes(filePath))))
+        throw new Error("图片顺序与附件不一致。");
       const fileReferences = files.filter(file => !file.image).map(file => JSON.stringify(file.path));
-      const messageText = [text.trim(), ...(fileReferences.length ? [`请读取以下附件文件：${fileReferences.join("、")}`] : [])].filter(Boolean).join("\n\n");
+      const legacyText = [text.trim(), ...(fileReferences.length ? [`请读取以下附件文件：${fileReferences.join("、")}`] : [])].filter(Boolean).join("\n\n");
+      const messageParts = orderedContent || [...(legacyText ? [{ type: "text", text: legacyText }] : []),
+        ...imagePaths.map(filePath => ({ type: "image", path: filePath }))];
+      const orderedInput = messageParts.map(part => part.type === "text" ? { type: "text", text: part.text }
+        : { type: "localImage", path: files[filePaths.indexOf(part.path)].path });
+      if (orderedContent && fileReferences.length) orderedInput.push({ type: "text", text: `\n\n请读取以下附件文件：${fileReferences.join("、")}` });
+      if (orderedContent) orderedInput.push(...imagePaths.filter(filePath => !suppliedImages.includes(filePath))
+        .map(filePath => ({ type: "localImage", path: files[filePaths.indexOf(filePath)].path })));
       if (!entry.busy && !entry.model) {
         const models = await request(entry, "model/list", {});
         entry.model = models.data?.find(model => model.isDefault)?.id || models.data?.[0]?.id;
@@ -1315,14 +1344,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const localId = `local-${randomUUID()}`;
       entry.items.push({ id: localId, type: "userMessage",
         turnId: entry.turnId || undefined, text: text.trim(),
-        attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })) });
+        attachments: files.map(file => ({ path: file.path, name: path.basename(file.path) })),
+        ...(orderedContent ? { parts: messageParts.map(part => part.type === "text" ? part : { type: "image",
+          path: files[filePaths.indexOf(part.path)].path, name: path.basename(files[filePaths.indexOf(part.path)].path) }) } : {}) });
       publish(id);
       if (startingTurn || (!entry.approvals.size && !entry.questions.size)) entry.status = "running";
       entry.activitySummary = activitySummary(text.trim() || entry.items.at(-1).text);
       broadcastStatus(id, entry, true);
       try {
-        const input = [...(messageText ? [{ type: "text", text: messageText }] : []), ...referenceInput,
-          ...files.filter(file => file.image).map(file => ({ type: "localImage", path: file.path }))];
+        const input = [...orderedInput, ...referenceInput];
         turnRequestSent = true;
         let result;
         if (startingTurn) {

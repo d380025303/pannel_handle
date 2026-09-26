@@ -3,6 +3,9 @@ import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import readline from "node:readline";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const { createCodeBuddyAcpSessionService: createRawService, buildInvocation } = require("./session-service.cjs");
@@ -129,7 +132,7 @@ describe("CodeBuddy ACP sessions", () => {
     expect(service.snapshot("one").nativeMode).toBe("acceptEdits");
     const planned = await service.setNativeMode("one", "plan");
     expect(planned).toMatchObject({ nativeMode: "plan", mode: "plan", executionPermission: "readOnly", readOnlyProtected: true });
-    expect(invocations[1].args.at(-1)).toContain("--tools 'Read,Glob,Grep'");
+    expect(invocations[1].args.at(-1)).toContain("--tools Read,Glob,Grep");
     expect(invocations[1].args.at(-1)).toContain("--strict-mcp-config");
     expect(invocations[1].args.at(-1)).toContain("--disallowedTools");
     expect(messages.filter(message => message.method === "session/load")).toHaveLength(1);
@@ -244,10 +247,10 @@ describe("CodeBuddy ACP sessions", () => {
     expect(bridge.args.at(-1)).toContain("--strict-mcp-config");
     expect(bridge.args.at(-1)).toContain("--acp-transport streamable-http");
     const plannedWsl = buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, { readOnlyProfile: true }, {});
-    expect(plannedWsl.args.at(-1)).toContain("--tools 'Read,Glob,Grep'");
+    expect(plannedWsl.args.at(-1)).toContain("--tools Read,Glob,Grep");
     expect(plannedWsl.args.at(-1)).toContain("--strict-mcp-config");
     const plannedCmd = buildInvocation({ type: "windows", cwd: "C:\\work", shell: "cmd.exe" }, { readOnlyProfile: true }, {});
-    expect(plannedCmd.args.at(-1)).toContain('--tools "Read,Glob,Grep"');
+    expect(plannedCmd.args.at(-1)).toContain("--tools Read,Glob,Grep");
   });
 
   it("starts an SSH remote CLI over the existing stdio transport", async () => {
@@ -275,6 +278,37 @@ describe("CodeBuddy ACP sessions", () => {
     expect(command).toContain("export FLAG=");
     service.shutdown();
     await vi.waitFor(() => expect(transport.close).toHaveBeenCalled());
+  });
+
+  it("sends ACP image blocks between the surrounding text", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-acp-image-order-"));
+    const first = path.join(directory, "first.png");
+    const second = path.join(directory, "second.png");
+    fs.writeFileSync(first, Buffer.from([137, 80, 78, 71]));
+    fs.writeFileSync(second, Buffer.from([137, 80, 78, 71]));
+    const received = [];
+    const child = fakeChild((message, emit) => {
+      received.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+        result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
+        result: { sessionId: "thread-1", modes: { currentModeId: "default", availableModes: [{ id: "default" }] } } });
+      else if (message.method === "session/prompt") emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn(), getSession: () => ({ id: "one", type: "windows", cwd: directory }) },
+      broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: directory, shell: "powershell.exe" });
+      service.allowFiles("one", [first, second]);
+      await service.submit("one", "甲乙丙", [first, second], [], [
+        { type: "text", text: "甲" }, { type: "image", path: first }, { type: "text", text: "乙" },
+        { type: "image", path: second }, { type: "text", text: "丙" }]);
+      expect(received.find(message => message.method === "session/prompt").params.prompt.map(part => part.type)).toEqual([
+        "text", "image", "text", "image", "text"]);
+      expect(service.snapshot("one").items.find(item => item.type === "userMessage").parts.map(part => part.type)).toEqual([
+        "text", "image", "text", "image", "text"]);
+    } finally { service.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("streams messages, requests approval once, and completes a turn", async () => {

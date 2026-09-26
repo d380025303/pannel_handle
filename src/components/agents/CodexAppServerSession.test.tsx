@@ -1668,11 +1668,37 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
     await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "检查这张图" } });
+    input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
     expect(await screen.findByText("capture.png")).toBeTruthy();
-    fireEvent.change(input, { target: { value: "检查这张图" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "检查这张图", ["C:\\project\\.pannel-handle-images\\capture.png"], []));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "检查这张图", ["C:\\project\\.pannel-handle-images\\capture.png"], [], [
+      { type: "text", text: "检查这张图" }, { type: "image", path: "C:\\project\\.pannel-handle-images\\capture.png" }]));
+    expect(discardImage).not.toHaveBeenCalled();
+  });
+
+  it("sends two pasted images in their text positions and retains the draft after failure", async () => {
+    const first = "C:\\project\\.pannel-handle-images\\first.png";
+    const second = "C:\\project\\.pannel-handle-images\\second.png";
+    pasteImage.mockResolvedValueOnce({ status: "saved", path: first, size: 3 })
+      .mockResolvedValueOnce({ status: "saved", path: second, size: 3 });
+    submit.mockRejectedValueOnce(new Error("send failed"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "甲乙丙" } });
+    input.setSelectionRange(1, 1);
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    await screen.findByText("first.png");
+    input.setSelectionRange(input.value.length - 1, input.value.length - 1);
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    await screen.findByText("second.png");
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "甲乙丙", [first, second], [], [
+      { type: "text", text: "甲" }, { type: "image", path: first }, { type: "text", text: "乙" },
+      { type: "image", path: second }, { type: "text", text: "丙" }]));
+    await waitFor(() => expect(input.value).toContain("〔图片 1〕"));
+    expect(input.value).toContain("〔图片 2〕");
     expect(discardImage).not.toHaveBeenCalled();
   });
 
@@ -1685,6 +1711,19 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(discardImage).toHaveBeenCalledWith("run-1", "C:\\project\\.pannel-handle-images\\capture.png"));
     await waitFor(() => expect(screen.queryByText("capture.png")).toBeNull());
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("renders restored user text and images in their original order", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const first = { path: "C:\\project\\first.png", name: "first.png" };
+    const second = { path: "C:\\project\\second.png", name: "second.png" };
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false,
+      error: null, approvals: [], items: [{ id: "user-1", type: "userMessage", text: "甲乙丙",
+        attachments: [first, second], parts: [{ type: "text", text: "甲" }, { type: "image", ...first },
+          { type: "text", text: "乙" }, { type: "image", ...second }, { type: "text", text: "丙" }] }] } }));
+    await waitFor(() => expect(document.querySelector(".codex-app-server-message.userMessage")?.textContent)
+      .toBe("甲first.png乙second.png丙"));
+    expect(screen.getAllByRole("button", { name: /预览 (first|second)\.png/ })).toHaveLength(2);
   });
 
   it("shows an attachment preview before sending and in the user message", async () => {
