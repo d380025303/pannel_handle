@@ -33,6 +33,68 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("shows AskUserQuestion permission requests as questions and submits answers through CodeBuddy", async () => {
+    const messages = [];
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "_codebuddy.ai/resolveInterruption") emit({ id: message.id, result: { resolved: true, queued: false } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    emitMessage({ id: 91, method: "session/request_permission", params: { sessionId: "thread",
+      toolCall: { toolCallId: "call-1", _meta: { "codebuddy.ai/toolName": "AskUserQuestion" }, rawInput: { questions: [
+        { header: "方案", question: "选择方案", options: [{ label: "A" }, { label: "B" }] },
+        { header: "范围", question: "选择范围", multiSelect: true, options: [{ label: "前端" }, { label: "后端" }] }
+      ] } }, options: [{ kind: "allow_once", optionId: "allow", name: "允许" }] } });
+    expect(service.snapshot("one").approvals).toEqual([]);
+    expect(service.snapshot("one").questions).toMatchObject([{ requestId: 91, params: { questions: [
+      { id: "q_0", question: "选择方案" }, { id: "q_1", question: "选择范围", multiSelect: true }
+    ] } }]);
+    emitMessage({ method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "session_end" } } });
+    expect(service.snapshot("one").questions).toHaveLength(1);
+    await expect(service.newThread("one")).rejects.toThrow("待确认请求");
+    await service.answerQuestion("one", 91, { q_0: { answers: ["A"] }, q_1: { answers: ["前端", "后端"] } });
+    expect(messages.find(message => message.method === "_codebuddy.ai/resolveInterruption").params).toEqual({
+      sessionId: "thread", toolCallId: "call-1", decision: "allow", answers: { q_0: ["A"], q_1: ["前端", "后端"] }
+    });
+    expect(messages.find(message => message.id === 91).result).toEqual({ outcome: { outcome: "selected", optionId: "allow" } });
+    expect(service.snapshot("one").questions).toEqual([]);
+    expect(service.snapshot("one").items.at(-1)).toMatchObject({ type: "questionAnswer", status: "submitted" });
+    service.shutdown();
+  });
+
+  it("keeps permission-backed questions retryable and cancels them through CodeBuddy", async () => {
+    const messages = [];
+    let emitMessage;
+    let fail = true;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "_codebuddy.ai/resolveInterruption") emit({ id: message.id,
+        result: fail ? { resolved: false, queued: false } : { resolved: true, queued: false } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    emitMessage({ id: 92, method: "session/request_permission", params: { sessionId: "thread",
+      toolCall: { toolCallId: "call-2", _meta: { "codebuddy.ai/toolName": "AskUserQuestion" },
+        rawInput: { questions: [{ question: "继续吗？" }] } }, options: [{ kind: "allow_once", optionId: "allow" }] } });
+    await expect(service.answerQuestion("one", 92, { q_0: { answers: ["继续"] } })).rejects.toThrow("已失效");
+    expect(service.snapshot("one").questions).toMatchObject([{ requestId: 92, submitting: false }]);
+    fail = false;
+    await service.cancelQuestion("one", 92);
+    expect(messages.find(message => message.method === "_codebuddy.ai/resolveInterruption" && message.params.decision === "deny")?.params)
+      .toEqual({ sessionId: "thread", toolCallId: "call-2", decision: "deny" });
+    expect(messages.find(message => message.id === 92)?.result).toEqual({ outcome: { outcome: "cancelled" } });
+    expect(service.snapshot("one").questions).toEqual([]);
+    service.shutdown();
+  });
+
   it("advertises and answers native questions, then cancels a later question", async () => {
     const messages = [];
     let emitMessage;
@@ -766,7 +828,7 @@ describe("CodeBuddy ACP sessions", () => {
   it("loads only listed history for this workspace and restores replayed messages", async () => {
     const child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: {
-        agentCapabilities: { loadSession: true } } });
+        agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "new" } });
       else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [
         { sessionId: "old", cwd: "C:\\work", title: "Previous", updatedAt: "2026-09-24T00:00:00Z" },
@@ -800,7 +862,7 @@ describe("CodeBuddy ACP sessions", () => {
     const child = fakeChild((message, emit) => {
       emitUpdate = emit;
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
-        result: { agentCapabilities: { loadSession: true } } });
+        result: { agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "current" } });
       else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [{ sessionId: "saved", cwd: "C:\\work" }] } });
       else if (message.method === "session/load") {

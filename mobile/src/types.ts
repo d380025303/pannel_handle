@@ -59,7 +59,7 @@ export type GraphicalApproval = { requestId: number | string; method: string; pa
   choices?: Array<{ id: string; label: string }> } };
 export type GraphicalQuestion = { requestId: number | string; submitting: boolean; params: {
   threadId: string; turnId: string; questions: Array<{ id: string; header: string; question: string;
-    isOther?: boolean; isSecret?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
+    isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
 export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
   nativeModes?: Array<{ id: string; name?: string }>;
@@ -124,6 +124,7 @@ export type ClientMessage =
   | { v: 6; type: "graphical.approval"; sessionId: string; threadId: string | null; approvalId: number | string; decision: boolean | string; requestId: string }
   | { v: 6; type: "graphical.answer"; sessionId: string; threadId: string | null; questionId: number | string;
     answers: Record<string, { answers: string[] }>; requestId: string }
+  | { v: 6; type: "graphical.cancelQuestion"; sessionId: string; threadId: string | null; questionId: number | string; requestId: string }
   | { v: 6; type: "graphical.plan"; sessionId: string; threadId: string | null; itemId: string; execute: boolean; requestId: string }
   | { v: 6; type: "graphical.mode"; sessionId: string; threadId: string | null; mode: "default" | "plan"; requestId: string }
   | { v: 6; type: "ping"; at: number };

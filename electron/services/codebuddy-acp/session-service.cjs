@@ -435,6 +435,27 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         return;
       }
       const call = message.params.toolCall || {};
+      if (provider === "codebuddy" && call._meta?.["codebuddy.ai/toolName"] === "AskUserQuestion") {
+        const raw = typeof call.rawInput === "string" ? (() => { try { return JSON.parse(call.rawInput); } catch { return null; } })() : call.rawInput;
+        const prompts = raw?.questions;
+        if (!call.toolCallId || !Array.isArray(prompts) || !prompts.length
+          || !prompts.every(prompt => typeof prompt?.question === "string" && prompt.question.trim())) {
+          entry.error = "CodeBuddy 提问数据无效，无法显示问题。";
+          send(entry, { id: message.id, result: { outcome: { outcome: "cancelled" } } });
+          publish(id);
+          return;
+        }
+        entry.questions.set(message.id, { requestId: message.id, submitting: false,
+          permissionRequest: { toolCallId: call.toolCallId, allowedOptionId: allowed?.optionId },
+          params: { threadId: entry.threadId, turnId: entry.turnId || "", itemId: call.toolCallId,
+            questions: prompts.map((prompt, index) => ({ id: `q_${index}`, header: prompt.header || "", question: prompt.question,
+              multiSelect: prompt.multiSelect === true, isOther: true,
+              options: Array.isArray(prompt.options) ? prompt.options.filter(option => typeof option?.label === "string" && option.label.trim())
+                .map(option => ({ label: option.label, description: typeof option.description === "string" ? option.description : "" })) : null })) } });
+        status(id, entry, "e_prompt", prompts[0].question);
+        publish(id);
+        return;
+      }
       entry.approvals.set(message.id, { allowed: allowed?.optionId, declined: declined?.optionId,
         options: new Set(options.map(option => option.optionId)),
         display: { requestId: message.id, method: "session/request_permission", params: { itemId: call.toolCallId,
@@ -506,7 +527,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.multitaskSupport = initialized?.agentCapabilities?.multitaskSupport === true;
       if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
         throw new Error(`当前 ${agentName} CLI 不支持恢复断开的会话。`);
-      entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true;
+      entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true
+        && Boolean(initialized?.agentCapabilities?.sessionCapabilities?.list);
       const result = await request(entry, runtime.resumeThreadId ? "session/load" : "session/new", runtime.resumeThreadId
         ? { sessionId: runtime.resumeThreadId, cwd: workspace(entry), mcpServers: [] }
         : { cwd: workspace(entry), mcpServers: [] });
@@ -606,7 +628,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function newThread(id) {
     const entry = entryFor(id);
     if (entry.busy) throw new Error("当前轮次尚未结束。");
-    if (entry.approvals.size) throw new Error("请先处理当前会话的待确认请求。");
+    if (entry.approvals.size || entry.questions.size) throw new Error("请先处理当前会话的待确认请求。");
     const previousCommands = entry.availableCommands;
     entry.availableCommands = []; entry.earlyCommands.clear(); entry.awaitingSession = true;
     let result;
@@ -830,10 +852,19 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       })) throw new Error("问题答案无效。");
     question.submitting = true; publish(id);
     try {
-      const result = { id: requestId, result: { outcome: "submitted",
-        answers: Object.fromEntries(prompts.map(prompt => [prompt.id, answers[prompt.id].answers])) } };
-      if (entry.httpTransport) await entry.httpTransport.send({ jsonrpc: "2.0", ...result });
-      else send(entry, result);
+      if (question.permissionRequest) {
+        const { toolCallId, allowedOptionId } = question.permissionRequest;
+        const result = await request(entry, "_codebuddy.ai/resolveInterruption", { sessionId: entry.threadId, toolCallId,
+          decision: "allow", answers: Object.fromEntries(prompts.map(prompt => [prompt.id, answers[prompt.id].answers])) });
+        if (result?.resolved !== true) throw new Error("CodeBuddy 提问请求已失效。");
+        send(entry, { id: requestId, result: { outcome: allowedOptionId
+          ? { outcome: "selected", optionId: allowedOptionId } : { outcome: "cancelled" } } });
+      } else {
+        const result = { id: requestId, result: { outcome: "submitted",
+          answers: Object.fromEntries(prompts.map(prompt => [prompt.id, answers[prompt.id].answers])) } };
+        if (entry.httpTransport) await entry.httpTransport.send({ jsonrpc: "2.0", ...result });
+        else send(entry, result);
+      }
       if (sessions.get(id) !== entry) return;
       entry.questions.delete(requestId);
       entry.items.push({ id: `question-answer:${question.params.turnId}:${requestId}`, type: "questionAnswer", status: "submitted",
@@ -849,9 +880,16 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!question || question.submitting || question.params.threadId !== entry.threadId) throw new Error("问题请求已失效。");
     question.submitting = true; publish(id);
     try {
-      const result = { id: requestId, result: { outcome: "cancelled" } };
-      if (entry.httpTransport) await entry.httpTransport.send({ jsonrpc: "2.0", ...result });
-      else send(entry, result);
+      if (question.permissionRequest) {
+        const result = await request(entry, "_codebuddy.ai/resolveInterruption", { sessionId: entry.threadId,
+          toolCallId: question.permissionRequest.toolCallId, decision: "deny" });
+        if (result?.resolved !== true && result?.queued !== true) throw new Error("CodeBuddy 提问请求已失效。");
+        send(entry, { id: requestId, result: { outcome: { outcome: "cancelled" } } });
+      } else {
+        const result = { id: requestId, result: { outcome: "cancelled" } };
+        if (entry.httpTransport) await entry.httpTransport.send({ jsonrpc: "2.0", ...result });
+        else send(entry, result);
+      }
       if (sessions.get(id) !== entry) return;
       entry.questions.delete(requestId);
       publish(id); status(id, entry, "running");

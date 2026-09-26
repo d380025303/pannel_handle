@@ -1018,6 +1018,20 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("article", { name: "已回答的 Codex 提问" }).textContent).toContain("补充说明：保持简单");
   });
 
+  it("shows CodeBuddy questions as answer cards without an approval step", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "plan",
+      busy: true, error: null, items: [], approvals: [], questions: [{ requestId: 92, submitting: false,
+        params: { threadId: "thread-1", turnId: "turn-1", questions: [{ id: "q_0", header: "方案",
+          question: "选择方案", isOther: true, options: [{ label: "A", description: "" }] }] } }] } }));
+    expect(screen.getByRole("article", { name: "CodeBuddy 提问" })).toBeTruthy();
+    expect(screen.queryByText("操作确认")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "自定义回答" }), { target: { value: "采用 B" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", 92, { q_0: { answers: ["采用 B"] } }));
+  });
+
   it("switches to the first unanswered question before submission", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await screen.findByPlaceholderText("向 Codex 发送消息");

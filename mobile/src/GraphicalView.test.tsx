@@ -152,6 +152,25 @@ it("shows current approval choices and ignores another session's snapshot", () =
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.approval", approvalId: "a1", decision: "allow_once" }));
 });
 
+it("sends CodeBuddy answers without a Codex note prefix and can cancel", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", questions: [{ requestId: 7, submitting: false, params: { threadId: "thread-1", turnId: "turn-1", questions: [
+      { id: "q_0", header: "范围", question: "选择范围", multiSelect: true,
+        options: [{ label: "前端", description: "" }, { label: "后端", description: "" }] },
+      { id: "q_1", header: "说明", question: "补充说明", options: null }
+    ] } }]
+  } });
+  fireEvent.click(screen.getByLabelText("前端"));
+  fireEvent.click(screen.getByLabelText("后端"));
+  fireEvent.change(screen.getByLabelText("补充说明的自定义回答"), { target: { value: "只改页面" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.answer", questionId: 7,
+    answers: { q_0: { answers: ["前端", "后端"] }, q_1: { answers: ["只改页面"] } } }));
+  fireEvent.click(screen.getByRole("button", { name: "取消提问" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.cancelQuestion", questionId: 7 }));
+});
+
 it("shows current model and effort and sends a Plan mode change", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {

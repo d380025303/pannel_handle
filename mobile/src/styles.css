@@ -133,6 +133,8 @@ button { color: inherit; }
 .graphical-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .graphical-question { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-size: 13px; }
 .graphical-question input, .graphical-question select { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #36506e; border-radius: 8px; color: #d8e2f0; background: #080d16; }
+.graphical-question-choice { display: flex; align-items: center; gap: 8px; }
+.graphical-question input[type="checkbox"] { width: auto; min-height: 0; padding: 0; }
 .graphical-composer { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 7px; padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); border-top: 1px solid #263244; background: #101827; }
 .graphical-attachments { width: 100%; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 .graphical-attachments > div { display: flex; align-items: center; gap: 6px; }

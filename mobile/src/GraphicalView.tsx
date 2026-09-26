@@ -122,42 +122,58 @@ function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; codeBuddy?
   </details>;
 }
 
-function QuestionCard({ question, onAnswer }: {
+function QuestionCard({ question, provider, onAnswer, onCancel }: {
   question: GraphicalQuestion;
+  provider: AgentProvider;
   onAnswer: (id: number | string, answers: Record<string, { answers: string[] }>) => void;
+  onCancel: (id: number | string) => void;
 }) {
-  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [choices, setChoices] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const submit = () => {
     const answers: Record<string, { answers: string[] }> = {};
     for (const entry of question.params.questions) {
-      const choice = choices[entry.id];
+      const choice = choices[entry.id] || [];
       const note = (notes[entry.id] || "").trim();
-      if ((!choice && !note) || (entry.options?.length && !choice && !entry.isOther)) {
+      if ((!choice.length && !note) || (entry.options?.length && !choice.length && !entry.isOther)) {
         setError(`请回答「${entry.header || entry.question}」。`);
         return;
       }
-      answers[entry.id] = { answers: [...(choice ? [choice] : []), ...(note ? [`user_note: ${note}`] : [])] };
+      answers[entry.id] = { answers: provider === "codebuddy"
+        ? [...(entry.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
+        : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
     setError("");
     onAnswer(question.requestId, answers);
   };
   return <article className="graphical-card" aria-label="待回答问题">
     <strong>需要回答</strong>
-    {question.params.questions.map(entry => <label className="graphical-question" key={entry.id}>
+    {question.params.questions.map(entry => <div className="graphical-question" key={entry.id}>
       <span>{entry.question}</span>
-      {entry.options?.length ? <select value={choices[entry.id] || ""} onChange={event => setChoices(current => ({ ...current, [entry.id]: event.target.value }))}>
+      {entry.options?.length && entry.multiSelect ? entry.options.map(option => <label className="graphical-question-choice" key={option.label}>
+        <input type="checkbox" checked={choiceIncludes(choices[entry.id], option.label)}
+          onChange={() => setChoices(current => ({ ...current, [entry.id]: choiceIncludes(current[entry.id], option.label)
+            ? current[entry.id].filter(value => value !== option.label) : [...(current[entry.id] || []), option.label] }))} />
+        {option.label}{option.description ? ` · ${option.description}` : ""}
+      </label>) : entry.options?.length ? <select aria-label={entry.question} value={choices[entry.id]?.[0] || ""} onChange={event => {
+        setChoices(current => ({ ...current, [entry.id]: event.target.value ? [event.target.value] : [] }));
+        if (provider === "codebuddy") setNotes(current => ({ ...current, [entry.id]: "" }));
+      }}>
         <option value="">请选择</option>
         {entry.options.map(option => <option key={option.label} value={option.label}>{option.label}{option.description ? ` · ${option.description}` : ""}</option>)}
       </select> : null}
-      <input type={entry.isSecret ? "password" : "text"} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
-        onChange={event => setNotes(current => ({ ...current, [entry.id]: event.target.value }))} />
-    </label>)}
+      <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
+        onChange={event => { setNotes(current => ({ ...current, [entry.id]: event.target.value }));
+          if (provider === "codebuddy" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />
+    </div>)}
     {error && <p role="alert">{error}</p>}
     <button type="button" className="primary" disabled={question.submitting} onClick={submit}>提交回答</button>
+    {provider === "codebuddy" && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}>取消提问</button>}
   </article>;
 }
+
+function choiceIncludes(choices: string[] | undefined, label: string) { return choices?.includes(label) || false; }
 
 export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
@@ -461,8 +477,9 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
           : <div className="graphical-actions"><button type="button" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: false })}>拒绝</button>
             <button type="button" className="primary" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: true })}>批准一次</button></div>}
       </article>)}
-      {snapshot.questions.map(question => <QuestionCard key={question.requestId} question={question}
-        onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })} />)}
+      {snapshot.questions.map(question => <QuestionCard key={question.requestId} question={question} provider={snapshot.provider}
+        onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })}
+        onCancel={questionId => action({ type: "graphical.cancelQuestion", questionId })} />)}
     </div>
     <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>

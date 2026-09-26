@@ -16,7 +16,7 @@ function fixture() {
     newThread: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
     listHistory: vi.fn(() => ({ data: [{ id: "thread-2", title: "Old" }], nextCursor: null })),
     resume: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
-    resolveApproval: vi.fn(), answerQuestion: vi.fn(), setMode: vi.fn(), setNativeMode: vi.fn(), setModel: vi.fn(), allowFiles: vi.fn(),
+    resolveApproval: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn(), setMode: vi.fn(), setNativeMode: vi.fn(), setModel: vi.fn(), allowFiles: vi.fn(),
     executePlan: vi.fn(), dismissPlan: vi.fn()
   };
   const terminalManager = { getSession: vi.fn(id => id === session.id ? session : null) };
@@ -60,6 +60,11 @@ describe("mobile graphical session route", () => {
     await f.handlers.handle(f.socket, { type: "graphical.answer", sessionId: "graph-1", threadId: "thread-1", questionId: 4,
       answers: { q1: { answers: ["yes"] } } });
     expect(f.graphicalService.answerQuestion).toHaveBeenCalledWith("graph-1", 4, { q1: { answers: ["yes"] } });
+    await expect(f.handlers.handle(f.socket, { type: "graphical.cancelQuestion", sessionId: "graph-1", threadId: "thread-1", questionId: 4 }))
+      .rejects.toThrow("已失效");
+    f.snapshot.provider = "codebuddy";
+    await f.handlers.handle(f.socket, { type: "graphical.cancelQuestion", sessionId: "graph-1", threadId: "thread-1", questionId: 4 });
+    expect(f.graphicalService.cancelQuestion).toHaveBeenCalledWith("graph-1", 4);
   });
 
   it("reads only the subscribed graphical session's quota and projects display fields", async () => {

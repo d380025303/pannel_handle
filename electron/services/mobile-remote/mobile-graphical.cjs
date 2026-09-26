@@ -188,6 +188,10 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       if (!current.questions?.some(value => String(value.requestId) === String(message.questionId)))
         throw new Error("问题请求已失效。");
       await graphicalService.answerQuestion(sessionId, message.questionId, message.answers);
+    } else if (message.type === "graphical.cancelQuestion") {
+      if (current.provider !== "codebuddy" || !current.questions?.some(value => String(value.requestId) === String(message.questionId)))
+        throw new Error("问题请求已失效。");
+      await graphicalService.cancelQuestion(sessionId, message.questionId);
     } else if (message.type === "graphical.mode") {
       if (current.busy || current.archived) throw new Error("当前会话不可切换模式。");
       if (message.mode !== "plan" && message.mode !== "default") throw new Error("无效的图形会话模式。");
