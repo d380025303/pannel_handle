@@ -7,6 +7,7 @@ const NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 function bashQuote(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function psQuote(value) { return `'${String(value).replace(/'/g, "''")}'`; }
+function isPowerShell(shell) { return /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(String(shell || "")); }
 function requiredName(value, label) {
   if (typeof value !== "string" || !NAME.test(value)) throw new Error(`${label}无效。`);
   return value;
@@ -64,9 +65,21 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
       return runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", script],
         { env: process.env }, spawnProcess);
     }
-    const script = `Set-Location -LiteralPath ${psQuote(value.cwd)}; ${before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; ` : ""}& codex ${args.map(psQuote).join(" ")}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`;
-    return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
-      { env: { ...process.env, ...environment } }, spawnProcess);
+    const script = `Set-Location -LiteralPath ${psQuote(value.cwd)}; & codex ${args.map(psQuote).join(" ")}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`;
+    return runWindows(value, script, environment);
+  }
+  function runWindows(value, script, environment) {
+    const before = String(value.session.initialCommand || "").trim();
+    const env = { ...process.env, ...environment };
+    if (before && !isPowerShell(value.session.shell)) {
+      const encoded = Buffer.from(script, "utf16le").toString("base64");
+      return runProcess("cmd.exe", ["/d", "/s", "/c",
+        `(${before}) 1>&2 && powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`],
+      { cwd: value.cwd, env }, spawnProcess);
+    }
+    const command = `Set-Location -LiteralPath ${psQuote(value.cwd)}; ${before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; ` : ""}${script}`;
+    return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+      { env }, spawnProcess);
   }
   async function json(value, args) {
     const output = await run(value, [...args, "--json"]);
@@ -80,7 +93,7 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     ]);
     const marketplaces = sources.marketplaces || [];
     const known = new Set(marketplaces.map(item => item.name));
-    return { installed: (plugins.installed || []).filter(item => known.has(item.marketplaceName)),
+    return { installed: plugins.installed || [],
       available: (plugins.available || []).filter(item => known.has(item.marketplaceName)), marketplaces,
       environment: value.remote ? `SSH: ${value.session.title || value.session.id}` : value.linux ? `WSL: ${value.session.wslDistro}` : "Windows" };
   }
@@ -128,9 +141,7 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
       ? sshAgentTransport.exec(value.session.id, `bash -lic ${bashQuote(linuxCommand(script))}`, { actionName: "Codex plugin configuration", timeoutMs: TIMEOUT_MS })
       : value.linux
         ? runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", linuxCommand(script)], { env: process.env }, spawnProcess)
-        : runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
-          `Set-Location -LiteralPath ${psQuote(value.cwd)}; ${before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; ` : ""}${script}`],
-          { env: { ...process.env, ...environment } }, spawnProcess);
+        : runWindows(value, script, environment);
     const encoded = (await shell(readScript)).trim();
     const original = encoded ? Buffer.from(encoded, "base64").toString("utf8") : "";
     let document;

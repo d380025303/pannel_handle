@@ -26,17 +26,34 @@ function harness(session = { id: "one", type: "windows", runtimeMode: "app-serve
 }
 
 describe("Codex plugin service", () => {
-  it("lists configured marketplace plugins in the current Windows environment", async () => {
+  it("lists installed plugins from all sources and limits available plugins to configured marketplaces", async () => {
     const { service, calls } = harness(undefined, [
       JSON.stringify({ installed: [{ name: "demo", marketplaceName: "local", enabled: true }, { name: "remote", marketplaceName: "global" }],
         available: [{ name: "other", marketplaceName: "local" }] }),
       JSON.stringify({ marketplaces: [{ name: "local", path: "C:/plugins" }] })
     ]);
     const result = await service.list("one");
-    expect(result.installed.map(plugin => plugin.name)).toEqual(["demo"]);
+    expect(result.installed.map(plugin => plugin.name)).toEqual(["demo", "remote"]);
     expect(result.available.map(plugin => plugin.name)).toEqual(["other"]);
     expect(calls.every(call => call.executable === "powershell.exe")).toBe(true);
     expect(calls[0].args.at(-1)).toContain("'plugin' 'list' '--available' '--json'");
+  });
+
+  it("runs cmd startup commands in cmd before reading the plugin list and config", async () => {
+    const session = { id: "cmd", type: "windows", shell: "cmd.exe", runtimeMode: "app-server",
+      agentProvider: "codex", cwd: "C:\\project", initialCommand: 'chcp 65001 && set "HTTP_PROXY=http://127.0.0.1:7892"' };
+    const { service, calls } = harness(session, [
+      JSON.stringify({ installed: [], available: [] }), JSON.stringify({ marketplaces: [] }), ""
+    ]);
+    await service.list("cmd");
+    await service.readConfig("cmd", "project");
+    expect(calls.map(call => call.executable)).toEqual(["cmd.exe", "cmd.exe", "cmd.exe"]);
+    for (const call of calls) {
+      expect(call.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+      expect(call.args[3]).toContain(session.initialCommand);
+      expect(call.args[3]).toContain("-EncodedCommand");
+      expect(call.args[3]).not.toContain("& { chcp");
+    }
   });
 
   it("routes WSL and SSH plugin commands to their own environments", async () => {
@@ -80,7 +97,8 @@ describe("Codex plugin service", () => {
       const configPath = path.join(root, ".codex", "config.toml");
       fs.mkdirSync(path.dirname(configPath));
       fs.writeFileSync(configPath, 'model = "gpt-6-sol"\n');
-      const session = { id: "local", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: root };
+      const session = { id: "local", type: "windows", shell: "cmd.exe", runtimeMode: "app-server",
+        agentProvider: "codex", cwd: root, initialCommand: 'chcp 65001 && set "PANNEL_PLUGIN_TEST=1"' };
       const service = createCodexPluginService({ terminalManager: { getSession: () => session },
         graphicalService: { getWorkspaceCwd: () => root }, environmentService: { resolve: () => ({}) } });
       await service.setEnabled("local", "project", { plugin: "review", marketplace: "team", enabled: false });
