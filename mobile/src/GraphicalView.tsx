@@ -378,32 +378,25 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo);
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
     : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
+  const effectivePlan = snapshot.mode === "plan" && (snapshot.provider !== "codebuddy" || snapshot.readOnlyProtected === true);
   return <section className="graphical-shell">
     <header className="graphical-header">
-      <div><strong>{session.title}</strong><span>{providerLabel(snapshot.provider)} · {snapshot.busy ? "运行中" : "就绪"}</span></div>
+      <div className="graphical-header-details">
+        <strong>{session.title}</strong>
+        <span>{providerLabel(snapshot.provider)} · {snapshot.busy ? "运行中" : "就绪"}</span>
+        <div className="graphical-current-config">
+          <span>模型：{modelLabel(snapshot)}</span>
+          <span>强度：{effortLabel(snapshot)}</span>
+          {snapshot.provider !== "opencode" && permissionLabel(snapshot.executionPermission)
+            && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
+          {snapshot.fastMode && <span>快速模式</span>}
+          {snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected && <span className="graphical-mode-warning">Plan 只读未生效</span>}
+        </div>
+      </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}
       <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
         aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}>···</button>
     </header>
-    <div className="graphical-session-settings">
-      <div className="graphical-mode-switch" role="group" aria-label="会话模式">
-        <button type="button" aria-pressed={snapshot.mode === "plan" && (snapshot.provider !== "codebuddy" || snapshot.readOnlyProtected === true)}
-          disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")
-            || (snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected)}
-          onClick={() => changeMode("plan")}>Plan</button>
-        <button type="button" aria-pressed={snapshot.mode === "default"}
-          disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}
-          onClick={() => changeMode("default")}>Exec</button>
-      </div>
-      <div className="graphical-current-config">
-        <span>模型：{modelLabel(snapshot)}</span>
-        <span>强度：{effortLabel(snapshot)}</span>
-        {snapshot.provider !== "opencode" && permissionLabel(snapshot.executionPermission)
-          && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
-        {snapshot.fastMode && <span>快速模式</span>}
-        {snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected && <span className="graphical-mode-warning">Plan 只读未生效</span>}
-      </div>
-    </div>
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
     <div className="graphical-timeline" ref={scrollRef}>
@@ -458,10 +451,14 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
       </div>)}</div>}
       <input ref={fileInputRef} className="graphical-file-input" aria-label="添加文件" type="file" multiple
         disabled={addFileDisabled} onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />
-      <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
-        disabled={!snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")} />
-      {snapshot.busy && <button type="button" onClick={() => action({ type: "graphical.interrupt" })}>停止</button>}
-      <button type="submit" className="primary" disabled={sending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
+      <div className={`graphical-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={effectivePlan ? "plan" : "default"}>
+        <div className="graphical-input-row">
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
+            disabled={!snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")} />
+          {snapshot.busy && <button type="button" onClick={() => action({ type: "graphical.interrupt" })}>停止</button>}
+          <button type="submit" className="primary" disabled={sending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
+        </div>
+      </div>
     </form>
     {activeSheet && <div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
       <div ref={sheetRef} className="graphical-sheet" role="dialog" aria-modal="true"
@@ -473,6 +470,18 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
           <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}>×</button></header>
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
         {activeSheet === "menu" && <div className="graphical-sheet-list">
+          <div className="graphical-menu-mode" role="group" aria-label="会话模式">
+            <span>会话模式</span>
+            <div className="graphical-mode-switch">
+              <button type="button" aria-pressed={effectivePlan}
+                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")
+                  || (snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected)}
+                onClick={() => changeMode("plan")}>Plan</button>
+              <button type="button" aria-pressed={snapshot.mode === "default"}
+                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}
+                onClick={() => changeMode("default")}>Exec</button>
+            </div>
+          </div>
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span>切换模型</span><small>{modelLabel(snapshot)}</small></button>
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>

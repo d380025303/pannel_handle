@@ -75,18 +75,14 @@ button { color: inherit; }
 .graphical-shell { min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .graphical-loading { align-items: center; justify-content: center; color: #91a4bc; }
 .graphical-header { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 12px; border-bottom: 1px solid #263244; background: #0d1522; }
-.graphical-header div { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.graphical-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphical-header > .graphical-header-details { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.graphical-header-details > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .graphical-header span { color: #8fa4bc; font-size: 11px; }
 .graphical-header button, .graphical-actions button, .graphical-composer button { padding: 7px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; }
 .graphical-header .graphical-more-button { flex: none; width: 44px; height: 44px; padding: 0; border-radius: 12px; font-size: 24px; line-height: 1; }
 .graphical-header .graphical-switching { flex: none; }
-.graphical-session-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 7px 12px; border-bottom: 1px solid #263244; background: #101827; }
-.graphical-mode-switch { display: flex; gap: 4px; }
-.graphical-mode-switch button { padding: 5px 10px; border: 1px solid #36506e; border-radius: 7px; color: #d8e2f0; background: #172235; }
-.graphical-mode-switch button[aria-pressed="true"] { border-color: #22d3ee; color: #a5f3fc; background: #083344; }
-.graphical-current-config { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 3px 10px; color: #8fa4bc; font-size: 11px; overflow-wrap: anywhere; }
-.graphical-mode-warning { color: #fbbf24; }
+.graphical-header .graphical-current-config { display: flex; min-width: 0; flex-wrap: wrap; gap: 2px 10px; overflow-wrap: anywhere; }
+.graphical-header .graphical-mode-warning { color: #fbbf24; }
 .graphical-shell button:disabled { opacity: .45; }
 .graphical-error { padding: 8px 12px; color: #fecdd3; background: #4c0519; font-size: 12px; }
 .graphical-timeline { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 10px; overscroll-behavior: contain; }
@@ -130,7 +126,14 @@ button { color: inherit; }
 .graphical-attachments span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .graphical-file-input { display: none; }
 .graphical-attachment-history { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; font-size: 11px; color: #9fb5ce; }
-.graphical-composer textarea { min-width: 0; flex: 1; min-height: 42px; max-height: 145px; padding: 9px; resize: vertical; border: 1px solid #36506e; border-radius: 9px; color: #d8e2f0; background: #080d16; }
+@property --graphical-border-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes graphical-border-run { to { --graphical-border-angle: 360deg; } }
+.graphical-input-border { --graphical-mode-border: #50d9f2; --graphical-mode-trail: #0b91ae; --graphical-mode-highlight: #f7fdff; width: 100%; min-width: 0; padding: 2px; border-radius: 10px; background: var(--graphical-mode-border); }
+.graphical-input-border[data-mode="plan"] { --graphical-mode-border: #a47bff; --graphical-mode-trail: #6f44ce; --graphical-mode-highlight: #fff8ff; }
+.graphical-input-border.is-running { background: conic-gradient(from var(--graphical-border-angle), var(--graphical-mode-border) 0deg 195deg, var(--graphical-mode-trail) 235deg, var(--graphical-mode-highlight) 275deg 315deg, var(--graphical-mode-border) 355deg 360deg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--graphical-mode-trail) 55%, transparent), 0 0 12px color-mix(in srgb, var(--graphical-mode-border) 50%, transparent); animation: graphical-border-run 1.8s linear infinite; }
+.graphical-input-row { display: flex; align-items: flex-end; gap: 7px; padding: 4px; border-radius: 8px; background: #080d16; }
+.graphical-composer textarea { min-width: 0; flex: 1; min-height: 42px; max-height: 145px; padding: 7px 5px; resize: vertical; border: 0; border-radius: 6px; outline: none; color: #d8e2f0; background: #080d16; }
+@media (prefers-reduced-motion: reduce) { .graphical-input-border.is-running { background: linear-gradient(120deg, var(--graphical-mode-border), var(--graphical-mode-highlight) 50%, var(--graphical-mode-trail)); animation: none; } }
 .graphical-sheet-backdrop { position: fixed; inset: 0; z-index: 25; display: flex; align-items: flex-end; justify-content: center; background: #020617bb; backdrop-filter: blur(3px); }
 .graphical-sheet { width: min(100%, 520px); max-height: min(82dvh, 720px); display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); border: 1px solid #334155; border-bottom: 0; border-radius: 20px 20px 0 0; outline: none; color: #d8e2f0; background: #111c2c; box-shadow: 0 -18px 54px #0009; }
 .graphical-sheet::before { content: ""; align-self: center; width: 36px; height: 4px; margin: 9px 0 2px; border-radius: 99px; background: #50627b; }
@@ -139,6 +142,12 @@ button { color: inherit; }
 .graphical-sheet-error { margin: 0; padding: 9px 16px; color: #fecdd3; background: #4c0519; font-size: 12px; }
 .graphical-sheet-close { width: 38px; height: 38px; border: 0; border-radius: 10px; color: #a8bdd4; background: #1d2b3e; font-size: 26px; line-height: 1; }
 .graphical-sheet-list { min-height: 0; overflow-y: auto; padding: 10px 12px 14px; overscroll-behavior: contain; }
+.graphical-menu-mode { margin-bottom: 10px; padding: 4px 2px 12px; border-bottom: 1px solid #344459; }
+.graphical-menu-mode > span { display: block; margin: 0 0 8px 4px; color: #9fb5ce; font-size: 12px; }
+.graphical-mode-switch { display: flex; gap: 8px; }
+.graphical-sheet-list .graphical-mode-switch button { flex: 1; width: auto; min-height: 44px; justify-content: center; margin-bottom: 0; }
+.graphical-sheet-list .graphical-mode-switch button[aria-pressed="true"] { border-color: #22d3ee; color: #a5f3fc; background: #083344; }
+.graphical-sheet-list .graphical-mode-switch button[aria-pressed="true"]:first-child { border-color: #a47bff; color: #e9ddff; background: #352254; }
 .graphical-sheet-list button { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; padding: 10px 13px; border: 1px solid #344459; border-radius: 12px; color: #e2e8f0; background: #19283b; text-align: left; }
 .graphical-sheet-list button[aria-pressed="true"] { border-color: #0e7490; background: #123747; }
 .graphical-sheet-list button:disabled { opacity: .48; }

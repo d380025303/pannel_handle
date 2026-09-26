@@ -26,6 +26,11 @@ function openSheet(name: string) {
   return screen.getByRole("dialog", { name });
 }
 
+function modeButton(name: "Plan" | "Exec") {
+  if (!screen.queryByRole("dialog", { name: "更多操作" })) fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  return within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name });
+}
+
 it("subscribes to the selected graphical session and sends text with its thread identity", () => {
   const { send, emit } = fixture();
   expect(send).toHaveBeenCalledWith({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: "graph-1" });
@@ -53,15 +58,18 @@ it("shows current model and effort and sends a Plan mode change", () => {
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
     ...snapshot, model: "gpt-6", models: [{ id: "gpt-6", displayName: "GPT-6" }], effort: "high"
   } });
-  expect(screen.getByText("模型：GPT-6")).toBeTruthy();
-  expect(screen.getByText("强度：高")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+  const header = document.querySelector(".graphical-header")!;
+  expect(within(header as HTMLElement).getByText("模型：GPT-6")).toBeTruthy();
+  expect(within(header as HTMLElement).getByText("强度：高")).toBeTruthy();
+  expect(document.querySelector(".graphical-session-settings")).toBeNull();
+  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("default");
+  fireEvent.click(modeButton("Plan"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", threadId: "thread-1", mode: "plan" }));
-  expect((screen.getByRole("button", { name: "Plan" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
   const requestId = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")?.requestId;
   emit({ v: PROTOCOL_VERSION, type: "error", requestId, code: "GRAPHICAL_COMMAND_FAILED", message: "切换失败" });
   expect(screen.getByText("切换失败")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Plan" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("switches Plan and Exec over LAN HTTP without crypto.randomUUID", () => {
@@ -70,22 +78,27 @@ it("switches Plan and Exec over LAN HTTP without crypto.randomUUID", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
 
-  fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+  fireEvent.click(modeButton("Plan"));
   const modeMessages = () => send.mock.calls.map(([message]) => message)
     .filter((message): message is Extract<ClientMessage, { type: "graphical.mode" }> => message.type === "graphical.mode");
   const plan = modeMessages().find(message => message.mode === "plan");
   expect(plan).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", requestId: expect.any(String) }));
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, mode: "plan" } });
   emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: plan!.requestId });
-  expect(screen.getByRole("button", { name: "Plan" }).getAttribute("aria-pressed")).toBe("true");
+  expect(modeButton("Plan").getAttribute("aria-pressed")).toBe("true");
+  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("plan");
 
-  fireEvent.click(screen.getByRole("button", { name: "Exec" }));
+  fireEvent.click(modeButton("Exec"));
   const exec = modeMessages().find(message => message.mode === "default");
   expect(exec).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", requestId: expect.any(String) }));
   expect(exec!.requestId).not.toBe(plan!.requestId);
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
   emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: exec!.requestId });
-  expect(screen.getByRole("button", { name: "Exec" }).getAttribute("aria-pressed")).toBe("true");
+  expect(modeButton("Exec").getAttribute("aria-pressed")).toBe("true");
+  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("default");
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, busy: true } });
+  expect(document.querySelector(".graphical-input-border")?.classList.contains("is-running")).toBe(true);
+  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("shows CodeBuddy Plan only when read-only protection is active", () => {
@@ -100,8 +113,10 @@ it("shows CodeBuddy Plan only when read-only protection is active", () => {
   expect(within(models).getByRole("button", { name: /GLM 5/ }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));
   expect(screen.getByText("Plan 只读未生效")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Plan" }).getAttribute("aria-pressed")).toBe("false");
-  fireEvent.click(screen.getByRole("button", { name: "Exec" }));
+  expect(modeButton("Plan").getAttribute("aria-pressed")).toBe("false");
+  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
+  expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("default");
+  fireEvent.click(modeButton("Exec"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "default" }));
 });
 
@@ -177,8 +192,9 @@ it("opens history and starts a new conversation from the single menu", () => {
   fireEvent.click(more);
   expect(more.getAttribute("aria-expanded")).toBe("true");
   const menu = screen.getByRole("dialog", { name: "更多操作" });
+  expect(within(menu).getByRole("group", { name: "会话模式" })).toBeTruthy();
   expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
-    .toEqual(["×", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
+    .toEqual(["×", "Plan", "Exec", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
   fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
   expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
   const historyRequest = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.history");
