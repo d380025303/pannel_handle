@@ -18,10 +18,12 @@ it("stages user and project Codex skills and MCP for a Windows CodeBuddy session
   fs.mkdirSync(path.join(home, ".codex", "skills", "review"), { recursive: true });
   fs.mkdirSync(path.join(project, ".agents", "skills", "review"), { recursive: true });
   fs.mkdirSync(path.join(project, ".agents", "skills", "project"), { recursive: true });
+  fs.mkdirSync(path.join(project, ".agents", "skills", "group", "nested"), { recursive: true });
   fs.mkdirSync(path.join(project, ".codex"), { recursive: true });
   fs.writeFileSync(path.join(home, ".codex", "skills", "review", "SKILL.md"), "user review");
   fs.writeFileSync(path.join(project, ".agents", "skills", "review", "SKILL.md"), "project review");
   fs.writeFileSync(path.join(project, ".agents", "skills", "project", "SKILL.md"), "project skill");
+  fs.writeFileSync(path.join(project, ".agents", "skills", "group", "nested", "SKILL.md"), "nested skill");
   fs.writeFileSync(path.join(home, ".codex", "config.toml"), '[mcp_servers.sample]\ncommand = "node"\nargs = ["user"]\n');
   fs.writeFileSync(path.join(project, ".codex", "config.toml"), '[mcp_servers.sample]\ncommand = "node"\nargs = ["project"]\n');
   const result = await prepareCodexInheritance({ id: "session", type: "windows", cwd: project }, { homeDir: home });
@@ -29,6 +31,7 @@ it("stages user and project Codex skills and MCP for a Windows CodeBuddy session
     expect(result.pluginDir).toBeTruthy();
     expect(fs.readFileSync(path.join(result.pluginDir, "skills", "review", "SKILL.md"), "utf8")).toBe("project review");
     expect(fs.readFileSync(path.join(result.pluginDir, "skills", "project", "SKILL.md"), "utf8")).toBe("project skill");
+    expect(result.skillNames).toContain("group:nested");
     expect(JSON.parse(fs.readFileSync(result.mcpFile, "utf8")).mcpServers.sample.args).toEqual(["project"]);
     expect(codeBuddyInheritanceArgs(result, "powershell")).toContain("--plugin-dir");
   } finally { await result.cleanup(); }
@@ -56,4 +59,6 @@ it("adds the same staged configuration to graphical and terminal CodeBuddy launc
   expect(terminal).toContain("--mcp-config 'C:\\work\\codex mcp.json'");
   expect(graphical).toContain("--plugin-dir 'C:\\tmp\\codex skills'");
   expect(graphical).toContain("--mcp-config 'C:\\work\\codex mcp.json'");
+  expect(graphical.indexOf("--plugin-dir")).toBeLessThan(graphical.indexOf("--serve"));
+  expect(graphical.indexOf("--mcp-config")).toBeLessThan(graphical.indexOf("--serve"));
 });

@@ -130,10 +130,10 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
         </div>
       </div>
       {mobileAccessState?.running && (
-        <button className={`titlebar-mobile-status${mobileAccessState.activeDevice?.connected ? " connected" : ""}`} type="button" title={mobileAccessState.activeDevice?.name || "局域网移动终端已启用"} onClick={onOpenSettings}>
+        <button className={`titlebar-mobile-status${mobileAccessState.activeConnections.length ? " connected" : ""}`} type="button" title={mobileAccessState.activeConnections.map(connection => connection.name).join("、") || "局域网移动终端已启用"} onClick={onOpenSettings}>
           <span className="titlebar-mobile-dot" aria-hidden="true" />
           <span className="titlebar-mobile-label">
-            {mobileAccessState.activeDevice?.connected ? mobileAccessState.activeDevice.name : "移动访问"}
+            {mobileAccessState.activeConnections.length ? `移动访问 ${mobileAccessState.activeConnections.length}` : "移动访问"}
           </span>
         </button>
       )}

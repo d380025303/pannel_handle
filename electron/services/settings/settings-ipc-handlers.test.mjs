@@ -63,9 +63,9 @@ function createHarness() {
   const mobileRemoteService = {
     getState: vi.fn(() => "mobile-state"),
     updateConfig: vi.fn(input => input),
-    createPairing: vi.fn(() => "pairing"),
+    setPassword: vi.fn(() => "password-state"),
     listAudit: vi.fn(() => "audit"),
-    revokeDevice: vi.fn(input => input),
+    disconnectConnection: vi.fn(input => input),
     disconnectActiveDevice: vi.fn(() => "disconnected")
   };
   const unregister = registerSettingsIpcHandlers({
@@ -151,8 +151,9 @@ describe("settings IPC handlers", () => {
     expect(harness.ipcMain.handlers.get("minimax:test")()).toBe("minimax-tested");
     expect(harness.ipcMain.handlers.get("codebuddy-codex:verify-model")({}, { modelId: "glm" })).toEqual({ modelId: "glm" });
     expect(harness.ipcMain.handlers.get("dingtalk:set-config")({}, { enabled: true })).toEqual({ enabled: true });
-    expect(harness.ipcMain.handlers.get("mobile-access:revoke-device")({}, "phone-1")).toBe("phone-1");
-    expect(harness.mobileRemoteService.revokeDevice).toHaveBeenCalledWith("phone-1");
+    expect(harness.ipcMain.handlers.get("mobile-access:disconnect-connection")({}, "phone-1")).toBe("phone-1");
+    expect(harness.mobileRemoteService.disconnectConnection).toHaveBeenCalledWith("phone-1");
+    expect(harness.ipcMain.handlers.get("mobile-access:set-password")({}, "new-password")).toBe("password-state");
   });
 
   it("registers and unregisters every owned channel", () => {

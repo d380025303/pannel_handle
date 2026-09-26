@@ -116,7 +116,7 @@ export type AppConfig = {
 };
 
 export type MobileAccessInterface = { name: string; address: string };
-export type MobileAccessDevice = { id: string; name: string; createdAt: number; lastSeenAt: number };
+export type MobileAccessConnection = { id: string; name: string; remoteAddress: string };
 export type MobileAccessAuditEntry = {
   id: string;
   at: number;
@@ -127,7 +127,7 @@ export type MobileAccessAuditEntry = {
   remoteAddress?: string;
 };
 export type MobileAccessState = {
-  config: { enabled: boolean; interfaceName: string; port: number };
+  config: { enabled: boolean; interfaceName: string; port: number; hasPassword: boolean };
   interfaces: MobileAccessInterface[];
   running: boolean;
   hostname: string;
@@ -135,10 +135,8 @@ export type MobileAccessState = {
   canonicalUrl: string;
   fallbackUrl: string;
   lastError: string;
-  devices: MobileAccessDevice[];
-  activeDevice: { id: string; name: string; connected: boolean; graceUntil?: number } | null;
+  activeConnections: MobileAccessConnection[];
 };
-export type MobilePairingInfo = { url: string; fallbackUrl: string; expiresAt: number; qrDataUrl: string };
 
 export type DingTalkConfig = {
   enabled: boolean;
@@ -1222,10 +1220,9 @@ export type ScreenshotApi = {
 export type MobileAccessApi = {
   getState: () => Promise<MobileAccessState>;
   updateConfig: (partial: Partial<MobileAccessState["config"]>) => Promise<MobileAccessState>;
-  createPairing: () => Promise<MobilePairingInfo>;
+  setPassword: (password: string) => Promise<MobileAccessState>;
   listAudit: () => Promise<MobileAccessAuditEntry[]>;
-  revokeDevice: (deviceId: string) => Promise<MobileAccessState>;
-  disconnectDevice: () => Promise<MobileAccessState>;
+  disconnectConnection: (connectionId: string) => Promise<MobileAccessState>;
   onStateChanged: (callback: (state: MobileAccessState) => void) => () => void;
 };
 

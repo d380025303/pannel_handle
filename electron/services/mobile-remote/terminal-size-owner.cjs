@@ -1,4 +1,4 @@
-function createTerminalSizeOwner({ terminalManager, stateHub, desktopBroadcast, getActiveSocket, send }) {
+function createTerminalSizeOwner({ terminalManager, stateHub, desktopBroadcast, getSubscribedSockets, send }) {
   const sizes = new Map();
 
   function getSizeState(sessionId) {
@@ -17,8 +17,7 @@ function createTerminalSizeOwner({ terminalManager, stateHub, desktopBroadcast, 
     const state = getSizeState(sessionId);
     const payload = { sessionId, owner: state.owner, cols: state.cols, rows: state.rows };
     desktopBroadcast("terminal:size-owner", payload);
-    const socket = getActiveSocket();
-    if (socket?.subscriptions?.has(sessionId)) send(socket, { type: "terminal.size-owner", ...payload });
+    for (const socket of getSubscribedSockets(sessionId)) send(socket, { type: "terminal.size-owner", ...payload });
   }
 
   function applySize(sessionId, owner, cols, rows) {

@@ -1,20 +1,109 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { PROTOCOL_VERSION, type ClientMessage, type GraphicalQuestion, type GraphicalSnapshot,
+import { createRequestId } from "./protocol";
+import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalItem, type GraphicalQuestion, type GraphicalSnapshot,
   type GraphicalHistory, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.history" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 type Props = {
   session: RuntimeSession;
   send: (message: ClientMessage) => boolean;
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void;
 };
 
-function requestId() { return crypto.randomUUID(); }
 function providerLabel(provider?: string) {
   return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : "Codex";
+}
+
+const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];
+const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode"];
+type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | null;
+function canSwitchMode(snapshot: GraphicalSnapshot, mode: "default" | "plan") {
+  if (snapshot.provider === "codex") return mode === "default" || snapshot.capabilities?.plan !== false;
+  const modes = snapshot.nativeModes || [];
+  return mode === "plan" ? modes.some(value => /plan/i.test(value.id))
+    : modes.some(value => execModeIds.some(id => id.toLowerCase() === value.id.toLowerCase()));
+}
+function configLabel(snapshot: GraphicalSnapshot, id: "model" | "effort") {
+  const option = snapshot.acpOptions?.find(value => value.id === id);
+  const value = typeof option?.currentValue === "string" ? option.currentValue : null;
+  return value ? option?.options.find(entry => entry.value === value)?.name || value : null;
+}
+function modelLabel(snapshot: GraphicalSnapshot) {
+  const model = configLabel(snapshot, "model");
+  if (model) return model;
+  const id = snapshot.model || snapshot.effectiveModel;
+  return id ? snapshot.models?.find(value => value.id === id)?.displayName || id : "未提供";
+}
+function modelOptions(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider === "codex") return snapshot.backend === "openai"
+    ? (snapshot.models || []).map(model => ({ value: model.id, name: model.displayName })) : [];
+  return snapshot.acpOptions?.find(option => option.id === "model")?.options || [];
+}
+function effortLabel(snapshot: GraphicalSnapshot) {
+  const effort = configLabel(snapshot, "effort") || snapshot.effort;
+  const labels: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" };
+  return effort ? labels[effort] || effort : "未提供";
+}
+function permissionLabel(permission?: string | null) {
+  const labels: Record<string, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
+  return permission ? labels[permission] || permission : null;
+}
+
+type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
+const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
+const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"]);
+function groupTimeline(items: GraphicalItem[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+  for (const item of items) {
+    if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)) continue;
+    const previous = entries.at(-1);
+    if (toolTypes.has(item.type)) {
+      if (previous?.kind === "tools" && (!previous.items[0].turnId || !item.turnId || previous.items[0].turnId === item.turnId))
+        previous.items.push(item);
+      else entries.push({ kind: "tools", items: [item] });
+    } else entries.push({ kind: "item", item });
+  }
+  return entries;
+}
+function toolStatus(items: GraphicalItem[]) {
+  if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
+  if (items.every(item => item.status === "completed")) return "已完成";
+  return "进行中";
+}
+function itemStatus(status?: string) {
+  return status === "completed" ? "已完成" : status === "failed" ? "失败" : status === "declined" ? "已拒绝"
+    : status === "inProgress" ? "进行中" : status === "pending" ? "等待中" : status || "进行中";
+}
+function toolLabel(item: GraphicalItem) {
+  if (item.toolName || item.tool) return item.toolName || item.tool;
+  if (item.type === "fileChange") return "文件变更";
+  if (item.type === "webSearch") return "搜索";
+  if (item.type === "commandExecution" || item.toolKind === "execute") return "执行命令";
+  return "工具调用";
+}
+function toolSummary(item: GraphicalItem) {
+  const change = Array.isArray(item.changes) ? item.changes[0] : null;
+  const changedFile = change && typeof change === "object" ? String((change as Record<string, unknown>).path || (change as Record<string, unknown>).filePath || "") : "";
+  return item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
+}
+function ToolItem({ item }: { item: GraphicalItem }) {
+  return <details className="graphical-tool">
+    <summary><span className="graphical-tool-label">{toolLabel(item)}</span><span className="graphical-tool-summary">{toolSummary(item)}</span>
+      <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
+    <div className="graphical-tool-details">
+      {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
+      {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
+      {item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}
+      {item.result != null && <pre>{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
+      {item.changes != null && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
+      {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}</p>)}
+      {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output
+        && item.result == null && item.changes == null && !item.locations?.length && <p>等待工具返回内容…</p>}
+    </div>
+  </details>;
 }
 
 function QuestionCard({ question, onAnswer }: {
@@ -59,28 +148,63 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeSheet, setActiveSheet] = useState<ActionSheet>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AgentProvider | null>(null);
   const [history, setHistory] = useState<GraphicalHistory | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
   const submitIdRef = useRef<string | null>(null);
   const historyIdRef = useRef<string | null>(null);
+  const modeIdRef = useRef<string | null>(null);
+  const [changingMode, setChangingMode] = useState(false);
+  const [changingModel, setChangingModel] = useState(false);
+  const modelIdRef = useRef<string | null>(null);
+  const uploadRequests = useRef(new Map<string, { resolve: (value: { fileId: string; url: string }) => void; reject: (reason: Error) => void }>());
+  const cancelledUploads = useRef(new Set<string>());
+  const [attachments, setAttachments] = useState<Array<{ key: string; file: File; fileId?: string; status: "uploading" | "ready" | "failed" }>>([]);
+  const attachmentsRef = useRef<typeof attachments>([]);
+  const switchIdRef = useRef<string | null>(null);
+  const [switchingTo, setSwitchingTo] = useState<AgentProvider | null>(null);
   const threadRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   useEffect(() => {
     setSnapshot(null);
     setHistory(null);
-    setHistoryOpen(false);
+    setActiveSheet(null);
+    setSelectedProvider(null);
     setError("");
     setSending(false);
+    setChangingMode(false);
+    setChangingModel(false);
+    setAttachments([]);
+    setSwitchingTo(null);
+    setExpandedGroupId(null);
     pendingRef.current.clear();
+    modeIdRef.current = null;
+    modelIdRef.current = null;
+    switchIdRef.current = null;
     threadRef.current = null;
     const unsubscribe = onGraphicalMessage(message => {
       if (message.type === "graphical.snapshot" && message.sessionId === session.id) {
         if (threadRef.current !== message.snapshot.threadId) {
+          for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
+          const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
+          if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+            threadId: threadRef.current, fileIds, requestId: createRequestId() });
           setHistory(null);
-          setHistoryOpen(false);
+          setActiveSheet(null);
+          setSelectedProvider(null);
+          setExpandedGroupId(null);
+          setAttachments([]);
         }
         threadRef.current = message.snapshot.threadId;
         setSnapshot(message.snapshot);
@@ -91,25 +215,62 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
           ? { data: [...current.data, ...message.history.data], nextCursor: message.history.nextCursor }
           : message.history);
         setHistoryLoading(false);
+      } else if (message.type === "graphical.upload.ready") {
+        const pending = uploadRequests.current.get(message.requestId);
+        if (pending) { uploadRequests.current.delete(message.requestId); pending.resolve({ fileId: message.fileId, url: message.url }); }
       } else if (message.type === "command.ok" && pendingRef.current.delete(message.requestId)) {
-        if (submitIdRef.current === message.requestId) { setDraft(""); setSending(false); submitIdRef.current = null; }
+        if (submitIdRef.current === message.requestId) { setDraft(""); setAttachments([]); setSending(false); submitIdRef.current = null; }
+        if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
+        if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
         setError("");
       } else if (message.type === "error" && message.requestId && pendingRef.current.delete(message.requestId)) {
+        const upload = uploadRequests.current.get(message.requestId);
+        if (upload) { uploadRequests.current.delete(message.requestId); upload.reject(new Error(message.message)); }
         setError(message.message);
         if (submitIdRef.current === message.requestId) { setSending(false); submitIdRef.current = null; }
+        if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
+        if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
+        if (switchIdRef.current === message.requestId) { setSwitchingTo(null); switchIdRef.current = null; }
         if (historyIdRef.current === message.requestId) setHistoryLoading(false);
       }
     });
     send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
+      const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
+      if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+        threadId: threadRef.current, fileIds, requestId: createRequestId() });
+      for (const pending of uploadRequests.current.values()) pending.reject(new Error("会话已切换。"));
+      uploadRequests.current.clear();
+    };
   }, [session.id, send, onGraphicalMessage]);
 
   const lastItem = snapshot?.items.at(-1);
   useEffect(() => { scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight }); }, [snapshot?.items.length, lastItem?.text, lastItem?.output]);
 
+  useEffect(() => {
+    if (!activeSheet) return;
+    sheetRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveSheet(null);
+      if (event.key !== "Tab" || !sheetRef.current) return;
+      const elements = [...sheetRef.current.querySelectorAll<HTMLElement>("button:not(:disabled)")];
+      const first = elements[0], last = elements.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === sheetRef.current)) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); moreButtonRef.current?.focus(); };
+  }, [activeSheet]);
+
   const action = (payload: { type: `graphical.${string}`; [key: string]: unknown }) => {
     if (!snapshot) return;
-    const id = requestId();
+    const id = createRequestId();
     const message = { v: PROTOCOL_VERSION, sessionId: session.id, threadId: snapshot.threadId,
       requestId: id, ...payload } as ClientMessage;
     if (!send(message)) { setError("连接已断开，请重试。"); return; }
@@ -119,9 +280,86 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || !snapshot?.threadId || sending) return;
-    submitIdRef.current = action({ type: "graphical.submit", text }) || null;
+    const ready = attachments.filter(item => item.status === "ready" && item.fileId);
+    if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || sending) return;
+    submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId) }) || null;
     if (submitIdRef.current) setSending(true);
+  };
+  const changeModel = (modelId: string) => {
+    if (!snapshot || snapshot.busy || snapshot.archived || changingModel || attachments.length || !modelOptions(snapshot).some(option => option.value === modelId)) return;
+    modelIdRef.current = action({ type: "graphical.model", modelId }) || null;
+    if (modelIdRef.current) { setChangingModel(true); setActiveSheet(null); }
+  };
+  const uploadFile = async (file: File, key: string) => {
+    if (!snapshot?.threadId) return;
+    const requestId = createRequestId();
+    const prepared = new Promise<{ fileId: string; url: string }>((resolve, reject) => uploadRequests.current.set(requestId, { resolve, reject }));
+    pendingRef.current.add(requestId);
+    if (!send({ v: PROTOCOL_VERSION, type: "graphical.upload.prepare", sessionId: session.id,
+      threadId: snapshot.threadId, name: file.name, size: file.size, requestId })) {
+      uploadRequests.current.delete(requestId); pendingRef.current.delete(requestId);
+      setAttachments(current => current.map(item => item.key === key ? { ...item, status: "failed" } : item));
+      setError("连接已断开，请重试。");
+      return;
+    }
+    let uploadedId: string | null = null;
+    try {
+      const { fileId, url } = await prepared;
+      uploadedId = fileId;
+      pendingRef.current.delete(requestId);
+      const response = await fetch(url, { method: "POST", body: file, cache: "no-store" });
+      if (!response.ok) throw new Error("附件上传失败，请重试。");
+      if (threadRef.current !== snapshot.threadId || cancelledUploads.current.has(key)) {
+        send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+          threadId: snapshot.threadId, fileIds: [fileId], requestId: createRequestId() });
+        return;
+      }
+      setAttachments(current => current.map(item => item.key === key ? { ...item, fileId, status: "ready" } : item));
+    } catch (cause) {
+      if (uploadedId) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
+        threadId: snapshot.threadId, fileIds: [uploadedId], requestId: createRequestId() });
+      setAttachments(current => current.map(item => item.key === key ? { ...item, status: "failed" } : item));
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    const chosen = [...files].slice(0, Math.max(0, 10 - attachments.length));
+    if (chosen.length < files.length) setError("最多附加 10 个文件。");
+    for (const file of chosen) {
+      if (file.size > 10 * 1024 * 1024) { setError("单个附件必须在 10 MB 以内。"); continue; }
+      const key = createRequestId();
+      setAttachments(current => [...current, { key, file, status: "uploading" }]);
+      void uploadFile(file, key);
+    }
+  };
+  const removeAttachment = (key: string) => {
+    cancelledUploads.current.add(key);
+    const item = attachments.find(value => value.key === key);
+    if (item?.fileId) action({ type: "graphical.upload.discard", fileIds: [item.fileId] });
+    setAttachments(current => current.filter(value => value.key !== key));
+  };
+  const changeMode = (mode: "default" | "plan") => {
+    if (!snapshot || snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, mode)) return;
+    if (snapshot.mode === mode) return;
+    modeIdRef.current = action({ type: "graphical.mode", mode }) || null;
+    if (modeIdRef.current) setChangingMode(true);
+  };
+  const switchAgent = (provider: AgentProvider) => {
+    if (!snapshot || snapshot.busy || snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo
+      || provider === snapshot.provider) return;
+    const id = createRequestId();
+    if (!send({ v: PROTOCOL_VERSION, type: "session.switch-agent", sessionId: session.id,
+      threadId: snapshot.threadId, provider, requestId: id })) {
+      setError("连接已断开，请重试。");
+      return;
+    }
+    pendingRef.current.add(id);
+    switchIdRef.current = id;
+    setError("");
+    setSwitchingTo(provider);
+    setActiveSheet(null);
+    setSelectedProvider(null);
   };
   const loadHistory = (cursor: string | null = null) => {
     if (!snapshot) return;
@@ -131,25 +369,68 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
     if (!historyIdRef.current) setHistoryLoading(false);
   };
 
+  const openHistory = () => { setActiveSheet("history"); loadHistory(); };
+
   if (!snapshot) return <section className="graphical-shell graphical-loading">正在加载图形会话…</section>;
+  const addFileDisabled = !snapshot.threadId || snapshot.archived || sending || attachments.length >= 10
+    || (snapshot.busy && snapshot.provider !== "codex");
+  const modelDisabled = !modelOptions(snapshot).length || snapshot.busy || snapshot.archived || changingModel || attachments.length > 0;
+  const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo);
+  const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
+    : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
   return <section className="graphical-shell">
     <header className="graphical-header">
       <div><strong>{session.title}</strong><span>{providerLabel(snapshot.provider)} · {snapshot.busy ? "运行中" : "就绪"}</span></div>
-      <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={() => { setHistoryOpen(true); loadHistory(); }}>历史</button>
-      <button type="button" disabled={snapshot.busy} onClick={() => action({ type: "graphical.new-thread" })}>新对话</button>
+      {switchingTo && <span className="graphical-switching">切换中…</span>}
+      <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
+        aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}>···</button>
     </header>
+    <div className="graphical-session-settings">
+      <div className="graphical-mode-switch" role="group" aria-label="会话模式">
+        <button type="button" aria-pressed={snapshot.mode === "plan" && (snapshot.provider !== "codebuddy" || snapshot.readOnlyProtected === true)}
+          disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")
+            || (snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected)}
+          onClick={() => changeMode("plan")}>Plan</button>
+        <button type="button" aria-pressed={snapshot.mode === "default"}
+          disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}
+          onClick={() => changeMode("default")}>Exec</button>
+      </div>
+      <div className="graphical-current-config">
+        <span>模型：{modelLabel(snapshot)}</span>
+        <span>强度：{effortLabel(snapshot)}</span>
+        {snapshot.provider !== "opencode" && permissionLabel(snapshot.executionPermission)
+          && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
+        {snapshot.fastMode && <span>快速模式</span>}
+        {snapshot.provider === "codebuddy" && snapshot.mode === "plan" && !snapshot.readOnlyProtected && <span className="graphical-mode-warning">Plan 只读未生效</span>}
+      </div>
+    </div>
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
-    {error && <div className="graphical-error" role="alert">{error}</div>}
+    {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
     <div className="graphical-timeline" ref={scrollRef}>
       {snapshot.items.length === 0 && <p className="graphical-empty">向 {providerLabel(snapshot.provider)} 发送消息以开始对话。</p>}
-      {snapshot.items.map(item => {
+      {groupTimeline(snapshot.items).map(entry => {
+        if (entry.kind === "tools") {
+          const groupId = entry.items[0].id;
+          const expanded = expandedGroupId === groupId;
+          const status = toolStatus(entry.items);
+          return <section className="graphical-tool-group" data-status={status} key={groupId}>
+            <button type="button" className="graphical-tool-group-toggle" aria-expanded={expanded}
+              onClick={() => setExpandedGroupId(current => current === groupId ? null : groupId)}>
+              <span className="graphical-tool-group-chevron" aria-hidden="true">›</span>
+              <strong>工具调用 · {entry.items.length} 项</strong><span>{status}</span>
+            </button>
+            {expanded && <div className="graphical-tool-list">{entry.items.map(item => <ToolItem item={item} key={item.id} />)}</div>}
+          </section>;
+        }
+        const item = entry.item;
         if (item.type === "userMessage" || item.type === "agentMessage")
           return <article className={`graphical-message ${item.type}`} key={item.id}><small>{item.type === "userMessage" ? "你" : providerLabel(snapshot.provider)}</small>
-            <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div></article>;
+            <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div>
+            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}>📎 {file.name}</span>)}</div> : null}</article>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;
         if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p key={index}>{step.status === "completed" ? "✓" : "•"} {step.step}</p>)}</article>;
-        return <details className="graphical-tool" key={item.id}><summary>{item.toolName || item.type}{item.status ? ` · ${item.status}` : ""}</summary>
-          {item.command && <pre>{item.command}</pre>}{item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}</details>;
+        if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
+        return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong></article>;
       })}
       {snapshot.pendingPlan && <article className="graphical-card"><strong>确认执行计划</strong><div className="graphical-actions">
         <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}>暂不执行</button>
@@ -170,20 +451,61 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })} />)}
     </div>
     <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
+      {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>
+        <span>{item.file.name} · {item.status === "uploading" ? "上传中" : item.status === "failed" ? "上传失败" : "已上传"}</span>
+        {item.status === "failed" && <button type="button" onClick={() => { setAttachments(current => current.map(value => value.key === item.key ? { ...value, status: "uploading" } : value)); void uploadFile(item.file, item.key); }}>重试</button>}
+        <button type="button" disabled={sending} onClick={() => removeAttachment(item.key)}>移除</button>
+      </div>)}</div>}
+      <input ref={fileInputRef} className="graphical-file-input" aria-label="添加文件" type="file" multiple
+        disabled={addFileDisabled} onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />
       <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
         disabled={!snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")} />
       {snapshot.busy && <button type="button" onClick={() => action({ type: "graphical.interrupt" })}>停止</button>}
-      <button type="submit" className="primary" disabled={sending || !draft.trim() || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
+      <button type="submit" className="primary" disabled={sending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
     </form>
-    {historyOpen && <div className="graphical-history-backdrop" onClick={() => setHistoryOpen(false)}><aside className="graphical-history" onClick={event => event.stopPropagation()}>
-      <header><strong>历史对话</strong><button type="button" onClick={() => setHistoryOpen(false)}>关闭</button></header>
-      {history?.data.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || thread.archived || thread.id === snapshot.threadId}
-        onClick={() => { action({ type: "graphical.resume", targetThreadId: thread.id }); setHistoryOpen(false); }}>
-        <strong>{thread.title}</strong><small>{new Date(thread.updatedAt * 1000).toLocaleString()}</small>
-      </button>)}
-      {historyLoading && <p>正在加载…</p>}
-      {!historyLoading && history?.data.length === 0 && <p>暂无历史对话</p>}
-      {history?.nextCursor && <button type="button" disabled={historyLoading} onClick={() => loadHistory(history.nextCursor)}>加载更多</button>}
-    </aside></div>}
+    {activeSheet && <div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
+      <div ref={sheetRef} className="graphical-sheet" role="dialog" aria-modal="true"
+        aria-label={activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
+          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型" : "历史对话"}
+        tabIndex={-1} onClick={event => event.stopPropagation()}>
+        <header><strong>{activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
+          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型" : "历史对话"}</strong>
+          <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}>×</button></header>
+        {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
+        {activeSheet === "menu" && <div className="graphical-sheet-list">
+          <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span>切换模型</span><small>{modelLabel(snapshot)}</small></button>
+          <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
+          <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>
+          <button type="button" disabled={snapshot.busy} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span>新对话</span></button>
+          <button type="button" disabled={addFileDisabled} onClick={() => { setActiveSheet(null); fileInputRef.current?.click(); }}><span>添加文件</span><small>{attachments.length}/10</small></button>
+        </div>}
+        {activeSheet === "agent" && <div className="graphical-sheet-list">
+          {graphicalProviders.map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
+            aria-pressed={provider === snapshot.provider} onClick={() => { setSelectedProvider(provider); setActiveSheet("agent-confirm"); }}>
+            <span>{providerLabel(provider)}</span>{provider === snapshot.provider && <small>当前使用</small>}
+          </button>)}
+        </div>}
+        {activeSheet === "agent-confirm" && selectedProvider && <div className="graphical-sheet-confirm">
+          <p>切换到 {providerLabel(selectedProvider)} 会关闭当前运行会话并启动新会话，是否继续？</p>
+          <div><button type="button" onClick={() => setActiveSheet("agent")}>返回</button>
+            <button type="button" className="primary" disabled={agentDisabled} onClick={() => switchAgent(selectedProvider)}>确认切换</button></div>
+        </div>}
+        {activeSheet === "model" && <div className="graphical-sheet-list">
+          {modelOptions(snapshot).map(option => <button type="button" key={option.value} disabled={modelDisabled || option.value === currentModel}
+            aria-pressed={option.value === currentModel} onClick={() => changeModel(option.value)}>
+            <span>{option.name}</span>{option.value === currentModel && <small>当前使用</small>}
+          </button>)}
+        </div>}
+        {activeSheet === "history" && <div className="graphical-sheet-list graphical-history-list">
+          {history?.data.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || thread.archived || thread.id === snapshot.threadId}
+            onClick={() => { if (action({ type: "graphical.resume", targetThreadId: thread.id })) setActiveSheet(null); }}>
+            <span>{thread.title}</span><small>{new Date(thread.updatedAt * 1000).toLocaleString()}{thread.archived ? " · 已归档" : ""}</small>
+          </button>)}
+          {historyLoading && <p role="status">正在加载…</p>}
+          {!historyLoading && history?.data.length === 0 && <p>暂无历史对话</p>}
+          {history?.nextCursor && <button type="button" disabled={historyLoading} onClick={() => loadHistory(history.nextCursor)}>加载更多</button>}
+        </div>}
+      </div>
+    </div>}
   </section>;
 }

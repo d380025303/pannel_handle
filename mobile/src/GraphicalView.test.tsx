@@ -1,9 +1,9 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { GraphicalView } from "./GraphicalView";
-import type { GraphicalSnapshot, RuntimeSession, ServerMessage } from "./types";
+import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type RuntimeSession, type ServerMessage } from "./types";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const session: RuntimeSession = { id: "graph-1", title: "Agent", type: "windows", runtimeMode: "app-server", agentProvider: "codex" };
 const snapshot: GraphicalSnapshot = {
@@ -13,17 +13,23 @@ const snapshot: GraphicalSnapshot = {
 };
 
 function fixture() {
-  const send = vi.fn(() => true);
-  let listener: ((message: Extract<ServerMessage, { type: "graphical.snapshot" | "graphical.history" | "command.ok" | "error" }>) => void) | undefined;
+  const send = vi.fn((_message: ClientMessage) => true);
+  let listener: ((message: Extract<ServerMessage, { type: "graphical.snapshot" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>) => void) | undefined;
   render(<GraphicalView session={session} send={send} onGraphicalMessage={callback => { listener = callback; return () => { listener = undefined; }; }} />);
   const emit = (message: Parameters<NonNullable<typeof listener>>[0]) => act(() => { listener?.(message); });
   return { send, emit };
 }
 
+function openSheet(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: new RegExp(name) }));
+  return screen.getByRole("dialog", { name });
+}
+
 it("subscribes to the selected graphical session and sends text with its thread identity", () => {
   const { send, emit } = fixture();
-  expect(send).toHaveBeenCalledWith({ v: 2, type: "graphical.subscribe", sessionId: "graph-1" });
-  emit({ v: 2, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  expect(send).toHaveBeenCalledWith({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: "graph-1" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
   expect(screen.getByText("完成")).toBeTruthy();
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
   fireEvent.click(screen.getByText("发送"));
@@ -32,12 +38,213 @@ it("subscribes to the selected graphical session and sends text with its thread 
 
 it("shows current approval choices and ignores another session's snapshot", () => {
   const { send, emit } = fixture();
-  emit({ v: 2, type: "graphical.snapshot", sessionId: "other", snapshot });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "other", snapshot });
   expect(screen.queryByText("完成")).toBeNull();
-  emit({ v: 2, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
     ...snapshot, approvals: [{ requestId: "a1", method: "session/request_permission",
       params: { reason: "运行命令", choices: [{ id: "allow_once", label: "允许一次" }, { id: "deny", label: "拒绝" }] } }]
   } });
   fireEvent.click(screen.getByText("允许一次"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.approval", approvalId: "a1", decision: "allow_once" }));
+});
+
+it("shows current model and effort and sends a Plan mode change", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, model: "gpt-6", models: [{ id: "gpt-6", displayName: "GPT-6" }], effort: "high"
+  } });
+  expect(screen.getByText("模型：GPT-6")).toBeTruthy();
+  expect(screen.getByText("强度：高")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", threadId: "thread-1", mode: "plan" }));
+  expect((screen.getByRole("button", { name: "Plan" }) as HTMLButtonElement).disabled).toBe(true);
+  const requestId = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")?.requestId;
+  emit({ v: PROTOCOL_VERSION, type: "error", requestId, code: "GRAPHICAL_COMMAND_FAILED", message: "切换失败" });
+  expect(screen.getByText("切换失败")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Plan" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("switches Plan and Exec over LAN HTTP without crypto.randomUUID", () => {
+  const getRandomValues = crypto.getRandomValues.bind(crypto);
+  vi.stubGlobal("crypto", { getRandomValues });
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+
+  fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+  const modeMessages = () => send.mock.calls.map(([message]) => message)
+    .filter((message): message is Extract<ClientMessage, { type: "graphical.mode" }> => message.type === "graphical.mode");
+  const plan = modeMessages().find(message => message.mode === "plan");
+  expect(plan).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", requestId: expect.any(String) }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, mode: "plan" } });
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: plan!.requestId });
+  expect(screen.getByRole("button", { name: "Plan" }).getAttribute("aria-pressed")).toBe("true");
+
+  fireEvent.click(screen.getByRole("button", { name: "Exec" }));
+  const exec = modeMessages().find(message => message.mode === "default");
+  expect(exec).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", requestId: expect.any(String) }));
+  expect(exec!.requestId).not.toBe(plan!.requestId);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: exec!.requestId });
+  expect(screen.getByRole("button", { name: "Exec" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("shows CodeBuddy Plan only when read-only protection is active", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan", readOnlyProtected: false,
+    nativeModes: [{ id: "default" }, { id: "plan" }],
+    acpOptions: [{ id: "model", currentValue: "glm-5", options: [{ value: "glm-5", name: "GLM 5" }] }]
+  } });
+  expect(screen.getByText("模型：GLM 5")).toBeTruthy();
+  const models = openSheet("切换模型");
+  expect(within(models).getByRole("button", { name: /GLM 5/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));
+  expect(screen.getByText("Plan 只读未生效")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Plan" }).getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Exec" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "default" }));
+});
+
+it("switches advertised Codex and ACP models while idle", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, backend: "openai", model: "a", models: [{ id: "a", displayName: "A" }, { id: "b", displayName: "B" }]
+  } });
+  let models = openSheet("切换模型");
+  fireEvent.click(within(models).getByRole("button", { name: "B" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.model", modelId: "b", threadId: "thread-1" }));
+  const requestId = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.model")?.requestId;
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "GRAPHICAL_COMMAND_FAILED", message: "切换失败", requestId });
+  models = openSheet("切换模型");
+  expect(within(models).getByRole("button", { name: /A.*当前使用/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "opencode", acpOptions: [{ id: "model", currentValue: "x", options: [{ value: "x", name: "X" }, { value: "y", name: "Y" }] }]
+  } });
+  models = openSheet("切换模型");
+  fireEvent.click(within(models).getByRole("button", { name: "Y" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.model", modelId: "y" }));
+});
+
+it("uploads a phone file and sends an attachment-only message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const file = new File(["hello"], "note.txt", { type: "text/plain" });
+  const picker = screen.getByLabelText("添加文件") as HTMLInputElement;
+  const clickPicker = vi.spyOn(picker, "click").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /添加文件/ }));
+  expect(clickPicker).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.change(screen.getByLabelText("添加文件"), { target: { files: [file] } });
+  const prepare = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.upload.prepare");
+  expect(prepare).toEqual(expect.objectContaining({ name: "note.txt", size: 5, threadId: "thread-1" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: prepare!.requestId, fileId: "file-1", url: "/api/v1/upload/file-1?ticket=abc" });
+  await waitFor(() => expect(screen.getByText(/note.txt · 已上传/)).toBeTruthy());
+  expect(fetch).toHaveBeenCalledWith("/api/v1/upload/file-1?ticket=abc", expect.objectContaining({ method: "POST", body: file }));
+  fireEvent.click(screen.getByText("发送"));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", text: "", fileIds: ["file-1"] }));
+});
+
+it("confirms a graphical Agent switch in a sheet, tracks failure, and blocks pending work", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const agents = openSheet("切换 Agent");
+  fireEvent.click(within(agents).getByRole("button", { name: "CodeBuddy" }));
+  expect(screen.getByText(/关闭当前运行会话并启动新会话/)).toBeTruthy();
+  expect(send.mock.calls.map(([message]) => message).some(message => message.type === "session.switch-agent")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  const switchMessage = send.mock.calls.map(([message]) => message).find(message => message.type === "session.switch-agent");
+  expect(switchMessage).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", provider: "codebuddy" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /切换 Agent/ }).hasAttribute("disabled")).toBe(true);
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "COMMAND_FAILED", message: "目标 Agent 不可用", requestId: switchMessage!.requestId });
+  expect(screen.getByText("目标 Agent 不可用")).toBeTruthy();
+  expect(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /切换 Agent/ }).hasAttribute("disabled")).toBe(false);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, busy: true } });
+  expect(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /切换 Agent/ }).hasAttribute("disabled")).toBe(true);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, pendingPlan: { itemId: "plan-1" }
+  } });
+  expect(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /切换 Agent/ }).hasAttribute("disabled")).toBe(true);
+});
+
+it("opens history and starts a new conversation from the single menu", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const more = screen.getByRole("button", { name: "更多操作" });
+  fireEvent.click(more);
+  expect(more.getAttribute("aria-expanded")).toBe("true");
+  const menu = screen.getByRole("dialog", { name: "更多操作" });
+  expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
+    .toEqual(["×", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
+  fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
+  expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
+  const historyRequest = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.history");
+  expect(historyRequest).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.history", sessionId: "graph-1", threadId: "thread-1",
+    requestId: historyRequest!.requestId, history: { data: [{ id: "old-1", title: "以前的对话", updatedAt: 1700000000 }], nextCursor: null } });
+  fireEvent.click(within(screen.getByRole("dialog", { name: "历史对话" })).getByRole("button", { name: /以前的对话/ }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.resume", targetThreadId: "old-1" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(more);
+  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: "新对话" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.new-thread", threadId: "thread-1" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("groups adjacent commands and file changes while keeping approvals visible", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, items: [
+      { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pwd", status: "completed" },
+      { id: "file-1", turnId: "turn-1", type: "fileChange", changes: [{ path: "src/App.tsx" }], status: "completed" },
+      { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "pnpm test", status: "failed" }
+    ], approvals: [{ requestId: "approval-1", method: "item/fileChange/requestApproval", params: { reason: "修改文件" } }]
+  } });
+  const group = screen.getByRole("button", { name: /工具调用 · 3 项/ });
+  expect(group.getAttribute("aria-expanded")).toBe("false");
+  expect(group.textContent).toContain("有失败");
+  expect(screen.queryByText("pwd")).toBeNull();
+  expect(screen.getByText("文件修改确认")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "批准一次" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.approval", approvalId: "approval-1", decision: true }));
+  fireEvent.click(group);
+  expect(group.getAttribute("aria-expanded")).toBe("true");
+  expect(Array.from(document.querySelectorAll(".graphical-tool-label")).map(node => node.textContent))
+    .toEqual(["执行命令", "文件变更", "执行命令"]);
+  expect(document.querySelectorAll(".graphical-tool[open]")).toHaveLength(0);
+  fireEvent.click(screen.getByText("文件变更"));
+  const fileTool = screen.getByText("文件变更").closest("details") as HTMLDetailsElement | null;
+  expect(fileTool?.open).toBe(true);
+  expect(fileTool?.querySelector("pre")?.textContent).toContain("src/App.tsx");
+});
+
+it("separates groups at messages and turns, and preserves expansion through updates", () => {
+  const { emit } = fixture();
+  const first = { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pwd", status: "inProgress" };
+  const second = { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "dir", status: "completed" };
+  const items = [first, second, { id: "reply", turnId: "turn-1", type: "agentMessage", text: "检查完成" },
+    { id: "cmd-3", turnId: "turn-1", type: "commandExecution", command: "git status", status: "completed" },
+    { id: "cmd-4", turnId: "turn-2", type: "commandExecution", command: "pnpm build", status: "completed" }];
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, items } });
+  expect(document.querySelectorAll(".graphical-tool-group")).toHaveLength(3);
+  const firstGroup = screen.getByRole("button", { name: /工具调用 · 2 项/ });
+  fireEvent.click(firstGroup);
+  expect(screen.getAllByText("pwd")).toHaveLength(2);
+  const firstTool = screen.getAllByText("pwd")[0].closest("details") as HTMLDetailsElement;
+  fireEvent.click(firstTool.querySelector("summary")!);
+  expect(firstTool.open).toBe(true);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, items: [{ ...first, output: "done", status: "completed" }, ...items.slice(1)]
+  } });
+  expect(firstGroup.getAttribute("aria-expanded")).toBe("true");
+  expect(firstTool.open).toBe(true);
+  expect(firstTool.querySelector(".graphical-tool-details")?.textContent).toContain("done");
+  expect(firstGroup.textContent).toContain("已完成");
+  expect(screen.getByText("检查完成")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /工具调用 · 1 项/ })).toHaveLength(2);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, threadId: "thread-2", items } });
+  expect(screen.getByRole("button", { name: /工具调用 · 2 项/ }).getAttribute("aria-expanded")).toBe("false");
 });

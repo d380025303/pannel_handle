@@ -16,9 +16,9 @@ function declarationsForSelector(styles: string, selector: string) {
     .join("\n");
 }
 
-function createMobileAccessState(activeDevice: MobileAccessState["activeDevice"] = null): MobileAccessState {
+function createMobileAccessState(activeConnections: MobileAccessState["activeConnections"] = []): MobileAccessState {
   return {
-    config: { enabled: true, interfaceName: "Ethernet", port: 6174 },
+    config: { enabled: true, interfaceName: "Ethernet", port: 6174, hasPassword: true },
     interfaces: [],
     running: true,
     hostname: "pannel-handle.local",
@@ -26,8 +26,7 @@ function createMobileAccessState(activeDevice: MobileAccessState["activeDevice"]
     canonicalUrl: "http://pannel-handle.local:6174",
     fallbackUrl: "http://192.168.1.10:6174",
     lastError: "",
-    devices: [],
-    activeDevice
+    activeConnections
   };
 }
 
@@ -91,18 +90,19 @@ describe("TitleBar mobile access layout", () => {
       <TitleBar
         activeTitle="PowerShell"
         isMaximized={false}
-        mobileAccessState={createMobileAccessState({ id: "device-1", name: deviceName, connected: true })}
+        mobileAccessState={createMobileAccessState([{ id: "device-1", name: deviceName, remoteAddress: "192.168.1.20" }])}
         onOpenSettings={onOpenSettings}
         onOpenPicker={() => undefined}
         onOpenCreate={() => undefined}
       />
     );
 
-    const statusButton = screen.getByRole("button", { name: deviceName });
+    const statusButton = screen.getByRole("button", { name: "移动访问 1" });
     const label = container.querySelector<HTMLElement>(".titlebar-mobile-label");
 
     expect(statusButton.classList.contains("connected")).toBe(true);
-    expect(label?.textContent).toBe(deviceName);
+    expect(statusButton.title).toBe(deviceName);
+    expect(label?.textContent).toBe("移动访问 1");
     expect(featureStyles).toMatch(/\.titlebar-mobile-label\s*{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
 
     fireEvent.click(statusButton);

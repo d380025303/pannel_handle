@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyTerminalModifiers, getPairingNonce, getWebSocketUrl, parseServerMessage } from "./protocol";
+import { applyTerminalModifiers, getWebSocketUrl, parseServerMessage } from "./protocol";
 
 describe("mobile remote protocol helpers", () => {
   it("uses ws for the selected LAN origin", () => {
     expect(getWebSocketUrl({ protocol: "http:", host: "pannel-handle-pc.local:43123" } as Location))
       .toBe("ws://pannel-handle-pc.local:43123/api/v1/ws");
-  });
-
-  it("accepts only bounded URL-safe pairing nonces", () => {
-    expect(getPairingNonce("#pair=abcdefghijklmnopqrstuvwx")).toBe("abcdefghijklmnopqrstuvwx");
-    expect(getPairingNonce("#pair=bad token")).toBeNull();
   });
 
   it("encodes Ctrl and Alt terminal input", () => {

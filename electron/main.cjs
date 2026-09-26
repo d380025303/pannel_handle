@@ -487,18 +487,6 @@ if (!gotSingleInstanceLock) {
         ? path.join(process.resourcesPath, "mobile")
         : path.resolve(__dirname, "..", "mobile", "dist"),
       desktopBroadcast: windowManager.broadcast,
-      confirmPairing: async ({ deviceName, verificationCode }) => {
-        const result = await dialog.showMessageBox(windowManager.focusWindow(), {
-          type: "question",
-          buttons: ["允许", "拒绝"],
-          defaultId: 0,
-          cancelId: 1,
-          title: "移动设备配对",
-          message: `允许“${deviceName}”控制终端吗？`,
-          detail: `请核对手机上的校验码：${verificationCode}\n\n移动访问使用局域网 HTTP 明文连接。`
-        });
-        return result.response === 0;
-      },
       notifyConnection: (device) => {
         if (Notification.isSupported()) {
           new Notification({

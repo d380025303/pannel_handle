@@ -33,10 +33,11 @@ const effortLabels: Record<string, string> = {
 };
 const effortLabel = (effort: string) => effortLabels[effort] || effort;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
-async function hasRecordedCodeBuddyError(sessionId: string, detail: string) {
+async function hasRecordedCodeBuddyError(sessionId: string, detail: string, knownErrorIds: Set<string>) {
   try {
     const current = await window.codexAppServerApi.snapshot(sessionId);
-    return current.provider === "codebuddy" && current.items.some(item => item.type === "turnError" && item.text === detail);
+    return current.provider === "codebuddy" && current.items.some(item => item.type === "turnError"
+      && !knownErrorIds.has(item.id) && item.text === detail);
   } catch { return false; }
 }
 type FileMention = { start: number; end: number; query: string };
@@ -573,12 +574,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         return true;
       }
       if (snapshot.compacting || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null) || sending || pastingImage) return false;
+      const knownErrorIds = new Set(snapshot.items.filter(item => item.type === "turnError").map(item => item.id));
       setSending(true); setError("");
       try {
         await window.codexAppServerApi.submit(sessionId, command.command, []);
         return true;
       } catch (cause) {
-        const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause));
+        const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause), knownErrorIds);
         if (currentSessionRef.current === sessionId && !recorded) setError(message(cause));
         return false;
       } finally {
@@ -797,6 +799,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
 
   async function submit() {
     const text = draft.trim();
+    const knownErrorIds = new Set(snapshot.items.filter(item => item.type === "turnError").map(item => item.id));
     if (snapshot.archived || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || pastingRef.current) return;
     setSending(true);
@@ -804,7 +807,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setDraft(""); setError("");
     try { await window.codexAppServerApi.submit(sessionId, text, attachments, draftReferences.filter(value => text.includes(value.token))); if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); } }
     catch (cause) {
-      const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause));
+      const recorded = snapshot.provider === "codebuddy" && await hasRecordedCodeBuddyError(sessionId, message(cause), knownErrorIds);
       if (recorded) {
         if (currentSessionRef.current === sessionId) { setAttachments([]); setDraftReferences(current => current.filter(value => !text.includes(value.token))); pastedImagesRef.current.clear(); }
       } else {

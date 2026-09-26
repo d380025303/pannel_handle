@@ -26,11 +26,4 @@ function listPrivateInterfaces(networkInterfaces = os.networkInterfaces()) {
   return result.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function createPairingUrls(state, nonce) {
-  return {
-    url: `${state.fallbackUrl}/#pair=${nonce}`,
-    fallbackUrl: `${state.canonicalUrl}/#pair=${nonce}`
-  };
-}
-
-module.exports = { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces, createPairingUrls };
+module.exports = { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces };

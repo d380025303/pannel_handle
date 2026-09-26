@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { TerminalView } from "./TerminalView";
 import { GraphicalView } from "./GraphicalView";
+import { createRequestId } from "./protocol";
 import { PROTOCOL_VERSION, type RuntimeSession } from "./types";
 import { useRemoteConnection } from "./useRemoteConnection";
 
-function requestId() {
-  return crypto.randomUUID();
-}
 function kindLabel(type: RuntimeSession["type"]) {
   if (type === "windows") return "Windows";
   if (type === "wsl") return "WSL";
@@ -22,6 +20,7 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
   const activeSession = useMemo(
     () => remote.sessions.find((session) => session.id === activeId) ?? null,
     [activeId, remote.sessions]
@@ -48,7 +47,7 @@ export default function App() {
       templateId,
       cols: width,
       rows: height,
-      requestId: requestId()
+      requestId: createRequestId()
     });
     setDrawerTab("running");
   };
@@ -56,12 +55,12 @@ export default function App() {
   const renameSession = (session: RuntimeSession) => {
     const title = window.prompt("新的会话名称", session.title)?.trim();
     if (!title || title === session.title) return;
-    remote.send({ v: PROTOCOL_VERSION, type: "session.rename", sessionId: session.id, title, requestId: requestId() });
+    remote.send({ v: PROTOCOL_VERSION, type: "session.rename", sessionId: session.id, title, requestId: createRequestId() });
   };
 
   const closeSession = (session: RuntimeSession) => {
     if (!window.confirm(`关闭“${session.title}”会终止正在运行的会话，是否继续？`)) return;
-    remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: requestId() });
+    remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: createRequestId() });
   };
 
   if (remote.status !== "connected") {
@@ -70,8 +69,10 @@ export default function App() {
         <div className="brand-mark">PH</div>
         <h1>Pannel Handle</h1>
         <p className="connection-state">{remote.statusMessage}</p>
-        {remote.verificationCode && <div className="verification-code">{remote.verificationCode}</div>}
-        {remote.status === "waiting-approval" && <p>请核对电脑弹窗中的设备名称和校验码，然后点击允许。</p>}
+        {remote.status === "password-required" && <form className="mobile-login" onSubmit={(event) => { event.preventDefault(); if (password) remote.login(password); setPassword(""); }}>
+          <input type="password" autoComplete="current-password" aria-label="移动访问密码" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="移动访问密码" />
+          <button className="primary large" type="submit" disabled={!password}>验证并连接</button>
+        </form>}
         {(remote.status === "error" || remote.status === "disconnected") && <button className="primary large" type="button" onClick={remote.retry}>重新连接</button>}
         <aside className="security-warning">当前版本使用局域网 HTTP 明文连接。只应在你信任的私人网络中使用，不要映射到互联网。</aside>
       </main>

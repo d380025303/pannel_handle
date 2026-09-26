@@ -10,13 +10,28 @@ function toMobileGraphicalSnapshot(value) {
     error: snapshot.error || null,
     mode: snapshot.mode || "default",
     nativeMode: snapshot.nativeMode || null,
+    nativeModes: (snapshot.nativeModes || []).map(mode => ({ id: mode.id, name: mode.name })),
+    readOnlyProtected: snapshot.readOnlyProtected,
+    model: snapshot.model || null,
+    backend: snapshot.backend || null,
+    effectiveModel: snapshot.effectiveModel || null,
+    models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName })),
+    effort: snapshot.effort || null,
+    fastMode: Boolean(snapshot.fastMode),
+    executionPermission: snapshot.executionPermission || null,
+    acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort")
+      .map(option => ({ id: option.id, currentValue: option.currentValue,
+        options: (option.options || []).map(value => ({ value: value.value, name: value.name })) })),
     capabilities: snapshot.capabilities || null,
     pendingPlan: snapshot.pendingPlan || null,
     items: (snapshot.items || []).map(item => ({
       id: item.id, type: item.type, turnId: item.turnId, text: item.text,
       command: item.command, output: item.output, status: item.status,
       toolName: item.toolName, toolKind: item.toolKind, explanation: item.explanation,
-      plan: item.plan, questions: item.questions
+      tool: item.tool, server: item.server, query: item.query,
+      arguments: item.arguments, result: item.result, changes: item.changes, locations: item.locations,
+      plan: item.plan, questions: item.questions,
+      attachments: (item.attachments || []).map(file => ({ name: file.name || "附件" }))
     })),
     approvals: (snapshot.approvals || []).map(value => ({
       requestId: value.requestId, method: value.method,
@@ -37,7 +52,7 @@ function toMobileGraphicalSnapshot(value) {
   };
 }
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, send }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, uploads, send }) {
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -48,6 +63,21 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, send
   function sendSnapshot(socket, sessionId, snapshot) {
     if (socket.graphicalSessionId === sessionId)
       send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot) });
+  }
+
+  function assertSwitchAllowed(socket, message) {
+    const sessionId = String(message.sessionId || "");
+    const session = assertSession(sessionId);
+    if (socket.graphicalSessionId !== sessionId) throw new Error("请先打开此图形会话。");
+    const current = graphicalService.snapshot(sessionId);
+    if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
+    if (!["codex", "codebuddy", "opencode"].includes(session.agentProvider))
+      throw new Error("当前会话不支持切换图形 Agent。");
+    if (!["codex", "codebuddy", "opencode"].includes(message.provider) || message.provider === session.agentProvider)
+      throw new Error("无效的目标 Agent。");
+    if (current.busy || current.approvals?.length || current.questions?.length || current.pendingPlan)
+      throw new Error("当前会话正在执行或有待处理操作，请处理后再切换 Agent。");
+    return sessionId;
   }
 
   async function handle(socket, message) {
@@ -61,11 +91,36 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, send
     }
     if (socket.graphicalSessionId !== sessionId) throw new Error("请先打开此图形会话。");
     const current = graphicalService.snapshot(sessionId);
+    if (message.type === "graphical.upload.discard") {
+      uploads?.discard(socket, Array.isArray(message.fileIds) ? message.fileIds : []);
+      send(socket, { type: "command.ok", requestId: message.requestId });
+      return;
+    }
     if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
-    if (message.type === "graphical.submit") {
+    if (message.type === "graphical.upload.prepare") {
+      if (!uploads || !current.threadId || current.archived || current.busy && current.provider !== "codex")
+        throw new Error("当前会话不可上传附件。");
+      const upload = uploads.prepare(socket, sessionId, current.threadId, message.name, message.size);
+      send(socket, { type: "graphical.upload.ready", requestId: message.requestId, ...upload });
+      return;
+    } else if (message.type === "graphical.model") {
+      if (!current.threadId || current.busy || current.archived) throw new Error("当前会话不可切换模型。");
+      const modelId = message.modelId;
+      const options = current.provider === "codex" && current.backend === "openai"
+        ? (current.models || []).map(model => model.id)
+        : current.provider !== "codex" ? (current.acpOptions || []).find(option => option.id === "model")?.options?.map(option => option.value) || [] : [];
+      if (typeof modelId !== "string" || !options.includes(modelId)) throw new Error("请选择当前会话可用的模型。");
+      await graphicalService.setModel(sessionId, modelId);
+      sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
+    } else if (message.type === "graphical.submit") {
       const text = typeof message.text === "string" ? message.text.trim() : "";
-      if (!text || Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) throw new Error("消息为空或过长。");
-      await graphicalService.submit(sessionId, text);
+      const fileIds = message.fileIds === undefined ? [] : message.fileIds;
+      const filePaths = uploads ? uploads.paths(socket, sessionId, current.threadId, fileIds) : [];
+      if ((!text && !filePaths.length) || Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES)
+        throw new Error("消息为空或过长。");
+      if (filePaths.length) graphicalService.allowFiles(sessionId, filePaths);
+      await graphicalService.submit(sessionId, text, filePaths);
+      uploads?.consume(fileIds);
     } else if (message.type === "graphical.interrupt") {
       await graphicalService.interrupt(sessionId);
     } else if (message.type === "graphical.new-thread") {
@@ -92,6 +147,22 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, send
       if (!current.questions?.some(value => String(value.requestId) === String(message.questionId)))
         throw new Error("问题请求已失效。");
       await graphicalService.answerQuestion(sessionId, message.questionId, message.answers);
+    } else if (message.type === "graphical.mode") {
+      if (current.busy || current.archived) throw new Error("当前会话不可切换模式。");
+      if (message.mode !== "plan" && message.mode !== "default") throw new Error("无效的图形会话模式。");
+      if (message.mode === "plan" && current.capabilities?.plan === false) throw new Error("当前图形会话不支持 Plan 模式。");
+      const provider = current.provider || "codex";
+      if (provider === "codex") {
+        await graphicalService.setMode(sessionId, message.mode);
+      } else {
+        const modes = current.nativeModes || [];
+        const choices = message.mode === "plan" ? ["plan"] : ["default", "normal", "code", "ask", "build", "acceptEdits"];
+        const native = message.mode === "plan" ? modes.find(value => /plan/i.test(value.id))
+          : choices.map(id => modes.find(value => value.id.toLowerCase() === id.toLowerCase())).find(Boolean);
+        if (!native) throw new Error(`当前图形会话不支持 ${message.mode === "plan" ? "Plan" : "Exec"} 模式。`);
+        await graphicalService.setNativeMode(sessionId, native.id);
+      }
+      sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.plan") {
       if (!current.pendingPlan || current.pendingPlan.itemId !== message.itemId)
         throw new Error("计划确认已失效。");
@@ -113,7 +184,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, send
     } catch { /* The session ended while a change was queued. */ }
   }
 
-  return { handle, handleChanged };
+  return { handle, handleChanged, assertSwitchAllowed };
 }
 
 module.exports = { createMobileGraphicalHandlers, toMobileGraphicalSnapshot };

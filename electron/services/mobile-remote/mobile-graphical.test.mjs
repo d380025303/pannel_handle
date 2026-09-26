@@ -16,14 +16,14 @@ function fixture() {
     newThread: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
     listHistory: vi.fn(() => ({ data: [{ id: "thread-2", title: "Old" }], nextCursor: null })),
     resume: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
-    resolveApproval: vi.fn(), answerQuestion: vi.fn(),
+    resolveApproval: vi.fn(), answerQuestion: vi.fn(), setMode: vi.fn(), setNativeMode: vi.fn(), setModel: vi.fn(), allowFiles: vi.fn(),
     executePlan: vi.fn(), dismissPlan: vi.fn()
   };
   const terminalManager = { getSession: vi.fn(id => id === session.id ? session : null) };
   const send = vi.fn();
   const handlers = createMobileGraphicalHandlers({ terminalManager, graphicalService, send });
   const socket = { graphicalSessionId: null, subscriptions: new Set(["terminal-1"]), authenticated: true };
-  return { handlers, socket, send, snapshot, graphicalService, terminalManager };
+  return { handlers, socket, send, session, snapshot, graphicalService, terminalManager };
 }
 
 describe("mobile graphical session route", () => {
@@ -51,7 +51,7 @@ describe("mobile graphical session route", () => {
     await expect(f.handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "old", text: "hi" }))
       .rejects.toThrow("已切换");
     await f.handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: " hi ", requestId: "r1" });
-    expect(f.graphicalService.submit).toHaveBeenCalledWith("graph-1", "hi");
+    expect(f.graphicalService.submit).toHaveBeenCalledWith("graph-1", "hi", []);
     expect(f.send).toHaveBeenCalledWith(f.socket, { type: "command.ok", requestId: "r1" });
     await f.handlers.handle(f.socket, { type: "graphical.approval", sessionId: "graph-1", threadId: "thread-1", approvalId: 3, decision: false });
     expect(f.graphicalService.resolveApproval).toHaveBeenCalledWith("graph-1", 3, false);
@@ -69,5 +69,118 @@ describe("mobile graphical session route", () => {
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     await f.handlers.handle(f.socket, { type: "graphical.history", sessionId: "graph-1", threadId: "thread-1", requestId: "h1" });
     expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.history", requestId: "h1" }));
+  });
+
+  it("projects current configuration without leaking unrelated state", () => {
+    const projected = toMobileGraphicalSnapshot({
+      ...fixture().snapshot, model: "gpt-6", effectiveModel: "gpt-6", effort: "high", fastMode: true,
+      models: [{ id: "gpt-6", displayName: "GPT-6", private: "secret" }],
+      acpOptions: [{ id: "model", currentValue: "gpt-6", options: [{ value: "gpt-6", name: "GPT-6", private: "secret" }] },
+        { id: "apiKey", currentValue: "secret" }], readOnlyProtected: true,
+      nativeModes: [{ id: "default", name: "Default", private: "secret" }]
+    });
+    expect(projected).toMatchObject({ model: "gpt-6", effort: "high", fastMode: true,
+      models: [{ id: "gpt-6", displayName: "GPT-6" }], acpOptions: [{ id: "model", currentValue: "gpt-6" }] });
+    expect(projected.acpOptions).toHaveLength(1);
+    expect(JSON.stringify(projected)).not.toContain("secret");
+  });
+
+  it("switches only advertised models for each provider", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    f.snapshot.backend = "openai";
+    f.snapshot.models = [{ id: "gpt-6" }];
+    await f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "gpt-6" });
+    expect(f.graphicalService.setModel).toHaveBeenCalledWith("graph-1", "gpt-6");
+    f.snapshot.backend = "other";
+    await expect(f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "gpt-6" })).rejects.toThrow("可用的模型");
+    for (const provider of ["codebuddy", "opencode"]) {
+      f.snapshot.provider = provider;
+      f.snapshot.acpOptions = [{ id: "model", options: [{ value: "model-a" }] }];
+      await f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "model-a" });
+      await expect(f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "other" })).rejects.toThrow("可用的模型");
+    }
+    f.snapshot.busy = true;
+    await expect(f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "model-a" })).rejects.toThrow("不可切换");
+  });
+
+  it("sends only uploaded files belonging to this socket and thread", async () => {
+    const f = fixture();
+    const uploads = { prepare: vi.fn(() => ({ fileId: "file-1", url: "/upload" })),
+      paths: vi.fn(() => ["C:\\temp\\photo.png"]), consume: vi.fn(), discard: vi.fn() };
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager, graphicalService: f.graphicalService, uploads, send: f.send });
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await handlers.handle(f.socket, { type: "graphical.upload.prepare", sessionId: "graph-1", threadId: "thread-1", name: "photo.png", size: 3, requestId: "u1" });
+    expect(uploads.prepare).toHaveBeenCalledWith(f.socket, "graph-1", "thread-1", "photo.png", 3);
+    await handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "", fileIds: ["file-1"] });
+    expect(uploads.paths).toHaveBeenCalledWith(f.socket, "graph-1", "thread-1", ["file-1"]);
+    expect(f.graphicalService.allowFiles).toHaveBeenCalledWith("graph-1", ["C:\\temp\\photo.png"]);
+    expect(f.graphicalService.submit).toHaveBeenCalledWith("graph-1", "", ["C:\\temp\\photo.png"]);
+    expect(uploads.consume).toHaveBeenCalledWith(["file-1"]);
+  });
+
+  it("projects tool details needed by the mobile timeline", () => {
+    const projected = toMobileGraphicalSnapshot({ ...fixture().snapshot, items: [
+      { id: "file-1", type: "fileChange", changes: [{ path: "src/App.tsx" }], private: "secret" },
+      { id: "search-1", type: "mcpToolCall", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 } }
+    ] });
+    expect(projected.items).toMatchObject([
+      { id: "file-1", changes: [{ path: "src/App.tsx" }] },
+      { id: "search-1", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 } }
+    ]);
+    expect(JSON.stringify(projected)).not.toContain("secret");
+  });
+
+  it("routes Codex mode changes and allows only advertised safe ACP modes", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan", requestId: "m1" });
+    expect(f.graphicalService.setMode).toHaveBeenCalledWith("graph-1", "plan");
+    f.snapshot.provider = "codebuddy";
+    f.snapshot.nativeModes = [{ id: "acceptEdits" }, { id: "plan" }, { id: "bypassPermissions" }];
+    await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "default", requestId: "m2" });
+    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "acceptEdits");
+    await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan", requestId: "m3" });
+    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "plan");
+    f.snapshot.provider = "opencode";
+    f.snapshot.nativeModes = [{ id: "build" }, { id: "plan" }];
+    await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "default", requestId: "m4" });
+    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "build");
+    f.snapshot.nativeModes = [{ id: "bypassPermissions" }];
+    await expect(f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "default" }))
+      .rejects.toThrow("不支持 Exec");
+    f.snapshot.busy = true;
+    await expect(f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan" }))
+      .rejects.toThrow("不可切换");
+  });
+
+  it("allows only idle graphical Agent switches with the current thread", async () => {
+    const f = fixture();
+    f.snapshot.approvals = [];
+    f.snapshot.questions = [];
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    for (const current of ["codex", "codebuddy", "opencode"]) {
+      f.session.agentProvider = current;
+      f.snapshot.provider = current;
+      for (const provider of ["codex", "codebuddy", "opencode"].filter(value => value !== current)) {
+        expect(f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
+          .toBe("graph-1");
+      }
+    }
+    f.session.agentProvider = "codex";
+    f.snapshot.provider = "codex";
+    expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "old", provider: "codebuddy" }))
+      .toThrow("已切换");
+    for (const provider of ["codex", "claude", "invalid"]) {
+      expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
+        .toThrow("无效的目标");
+    }
+    for (const pending of [{ busy: true }, { approvals: [{ requestId: 1 }] },
+      { questions: [{ requestId: 2 }] }, { pendingPlan: { itemId: "plan-1" } }]) {
+      Object.assign(f.snapshot, pending);
+      expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider: "opencode" }))
+        .toThrow("待处理操作");
+      Object.assign(f.snapshot, { busy: false, approvals: [], questions: [], pendingPlan: null });
+    }
   });
 });

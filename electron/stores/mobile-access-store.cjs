@@ -5,10 +5,10 @@ const DEFAULT_PORT = 43123;
 const AUDIT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const AUDIT_MAX_ENTRIES = 1000;
 
-function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () => Date.now() }) {
+function createMobileAccessStore({ accessFile, dataStore, now = () => Date.now() }) {
   let state = {
     config: { enabled: false, interfaceName: "", port: DEFAULT_PORT },
-    devices: [],
+    password: null,
     audit: []
   };
 
@@ -22,7 +22,7 @@ function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () 
     return {
       schemaVersion: 1,
       config: state.config,
-      devices: state.devices,
+      password: state.password,
       audit: state.audit
     };
   }
@@ -36,28 +36,32 @@ function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () 
       const parsed = readJson(dataStore, accessFile);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
       const port = Number(parsed.config?.port);
+      const password = parsed.password && typeof parsed.password.salt === "string" && typeof parsed.password.hash === "string"
+        && Buffer.from(parsed.password.salt, "base64").length === 16
+        && Buffer.from(parsed.password.hash, "base64").length === 64
+        ? parsed.password : null;
       state = {
         config: {
-          enabled: parsed.config?.enabled === true,
+          enabled: parsed.config?.enabled === true && Boolean(password),
           interfaceName: typeof parsed.config?.interfaceName === "string" ? parsed.config.interfaceName : "",
           port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : DEFAULT_PORT
         },
-        devices: Array.isArray(parsed.devices)
-          ? parsed.devices.filter((device) => device && typeof device.id === "string" && typeof device.encryptedToken === "string")
-          : [],
+        password,
         audit: Array.isArray(parsed.audit) ? parsed.audit.filter((entry) => entry && typeof entry.type === "string") : []
       };
       pruneAudit();
+      if (Array.isArray(parsed.devices) || (!password && parsed.config?.enabled === true)) save();
     } catch (error) {
       if (error.code !== "ENOENT") console.error("Failed to load mobile access state:", error);
     }
   }
 
   function getConfig() {
-    return { ...state.config };
+    return { ...state.config, hasPassword: Boolean(state.password) };
   }
 
   function updateConfig(partial = {}) {
+    if (partial.enabled === true && !state.password) throw new Error("请先设置移动访问密码。");
     if (typeof partial.enabled === "boolean") state.config.enabled = partial.enabled;
     if (typeof partial.interfaceName === "string") state.config.interfaceName = partial.interfaceName.trim();
     if (typeof partial.port !== "undefined") {
@@ -71,59 +75,30 @@ function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () 
     return getConfig();
   }
 
-  function encryptToken(token) {
-    if (!safeStorage?.isEncryptionAvailable?.()) {
-      throw new Error("Windows 安全存储不可用，无法保存移动设备令牌。");
+  function setPassword(value) {
+    if (typeof value !== "string" || value.length < 8 || value.length > 128 || value.trim() !== value) {
+      throw new Error("移动访问密码需为 8 到 128 个字符，且首尾不能有空格。");
     }
-    return safeStorage.encryptString(token).toString("base64");
-  }
-
-  function decryptToken(encryptedToken) {
+    const salt = crypto.randomBytes(16).toString("base64");
+    const hash = crypto.scryptSync(value, Buffer.from(salt, "base64"), 64).toString("base64");
+    const previous = { password: state.password, audit: state.audit.slice() };
+    state.password = { salt, hash };
+    addAudit("password.changed");
     try {
-      return safeStorage.decryptString(Buffer.from(encryptedToken, "base64"));
-    } catch {
-      return "";
+      save();
+    } catch (error) {
+      state.password = previous.password;
+      state.audit = previous.audit;
+      throw error;
     }
+    return getConfig();
   }
 
-  function listDevices() {
-    return state.devices.map(({ encryptedToken: _encryptedToken, ...device }) => ({ ...device }));
-  }
-
-  function addDevice(name) {
-    const token = crypto.randomBytes(32).toString("base64url");
-    const device = {
-      id: crypto.randomUUID(),
-      name: String(name || "Android Chrome").trim().slice(0, 80) || "Android Chrome",
-      encryptedToken: encryptToken(token),
-      createdAt: now(),
-      lastSeenAt: now()
-    };
-    state.devices.push(device);
-    addAudit("pair.approved", { deviceId: device.id, deviceName: device.name });
-    save();
-    return { device: listDevices().find((item) => item.id === device.id), token };
-  }
-
-  function verifyDevice(deviceId, token) {
-    const device = state.devices.find((item) => item.id === deviceId);
-    if (!device || typeof token !== "string") return null;
-    const expected = Buffer.from(decryptToken(device.encryptedToken), "utf8");
-    const actual = Buffer.from(token, "utf8");
-    if (expected.length === 0 || expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
-    device.lastSeenAt = now();
-    save();
-    const { encryptedToken: _encryptedToken, ...safeDevice } = device;
-    return safeDevice;
-  }
-
-  function revokeDevice(deviceId) {
-    const device = state.devices.find((item) => item.id === deviceId);
-    if (!device) return false;
-    state.devices = state.devices.filter((item) => item.id !== deviceId);
-    addAudit("device.revoked", { deviceId: device.id, deviceName: device.name });
-    save();
-    return true;
+  function verifyPassword(value) {
+    if (!state.password || typeof value !== "string" || value.length > 128) return false;
+    const expected = Buffer.from(state.password.hash, "base64");
+    const actual = crypto.scryptSync(value, Buffer.from(state.password.salt, "base64"), expected.length);
+    return expected.length > 0 && crypto.timingSafeEqual(expected, actual);
   }
 
   function addAudit(type, details = {}) {
@@ -146,10 +121,8 @@ function createMobileAccessStore({ accessFile, safeStorage, dataStore, now = () 
     save,
     getConfig,
     updateConfig,
-    listDevices,
-    addDevice,
-    verifyDevice,
-    revokeDevice,
+    setPassword,
+    verifyPassword,
     recordAudit,
     listAudit
   };

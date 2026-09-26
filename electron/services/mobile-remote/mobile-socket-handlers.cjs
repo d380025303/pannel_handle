@@ -2,9 +2,9 @@ const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = requir
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now, accessStore, auth, sizes, send, sendError }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now, auth, sizes, uploads, send, sendError }) {
   const { getSizeState, applySize } = sizes;
-  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, send });
+  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, uploads, send });
 
   function sendReady(socket) {
     send(socket, {
@@ -78,11 +78,22 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
           applySize(session.id, socket.mobileDevice.id, cols, rows);
           await subscribeTerminal(socket, session.id);
         }
+      } else if (message.type === "session.switch-agent") {
+        const sessionId = graphical.assertSwitchAllowed(socket, message);
+        const replacement = await agentSessionLauncher.switchAgent(sessionId, message.provider);
+        uploads?.releaseSession(sessionId);
+        if (replacement.agentProvider !== message.provider || replacement.runtimeMode !== "app-server")
+          throw new Error("目标图形 Agent 未能启动，请查看当前会话状态。");
+        socket.subscriptions.clear();
+        socket.graphicalSessionId = replacement.id;
+        send(socket, { type: "session.launched", sessionId: replacement.id });
+        await graphical.handle(socket, { type: "graphical.subscribe", sessionId: replacement.id });
       } else if (message.type === "session.rename") {
         const title = String(message.title || "").trim();
         if (!title || title.length > 120) throw new Error("会话名称必须为 1 到 120 个字符。");
         terminalManager.updateSession(String(message.sessionId || ""), { title });
       } else if (message.type === "session.close") {
+        uploads?.releaseSession(String(message.sessionId || ""));
         terminalManager.closeSession(String(message.sessionId || ""));
       } else if (message.type === "ping") {
         send(socket, { type: "pong", at: Number(message.at) || now() });
@@ -110,24 +121,10 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       return;
     }
     if (!socket.authenticated) {
-      if (message.type === "pair.request") {
-        void auth.handlePairRequest(socket, message);
-      } else if (message.type === "auth") {
-        if (!auth.allowAuthAttempt(socket.remoteAddress)) {
-          sendError(socket, "AUTH_RATE_LIMIT", "认证尝试过多，请稍后再试。");
-          socket.close(1008, "Rate limited");
-          return;
-        }
-        const device = accessStore.verifyDevice(String(message.deviceId || ""), String(message.token || ""));
-        if (!device) {
-          sendError(socket, "AUTH_INVALID", "设备凭据无效或已被撤销。");
-          accessStore.recordAudit("connection.rejected", { remoteAddress: socket.remoteAddress, reason: "invalid-auth" });
-          socket.close(1008, "Invalid credentials");
-          return;
-        }
-        auth.authenticateSocket(socket, device);
+      if (message.type === "password.login") {
+        auth.handlePasswordLogin(socket, message);
       } else {
-        sendError(socket, "AUTH_REQUIRED", "请先完成设备认证。");
+        sendError(socket, "AUTH_REQUIRED", "请先输入移动访问密码。");
       }
       return;
     }
@@ -143,6 +140,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.on("pong", () => { socket.isAlive = true; });
     socket.on("message", (raw) => handleSocketMessage(socket, raw));
     socket.on("close", () => {
+      uploads?.releaseSocket(socket);
       auth.handleSocketClosed(socket);
     });
   }

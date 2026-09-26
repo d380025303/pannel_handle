@@ -41,10 +41,9 @@ const SETTINGS_IPC_CHANNELS = [
   "codebuddy-codex:set-experimental-acknowledged",
   "mobile-access:get-state",
   "mobile-access:update-config",
-  "mobile-access:create-pairing",
+  "mobile-access:set-password",
   "mobile-access:list-audit",
-  "mobile-access:revoke-device",
-  "mobile-access:disconnect-device"
+  "mobile-access:disconnect-connection"
 ];
 
 function registerRouterIpcHandlers(ipcMain, prefix, service) {
@@ -138,10 +137,9 @@ function registerSettingsIpcHandlers({
 
   ipcMain.handle("mobile-access:get-state", () => getMobileRemoteService().getState());
   ipcMain.handle("mobile-access:update-config", (_event, partial) => getMobileRemoteService().updateConfig(partial));
-  ipcMain.handle("mobile-access:create-pairing", () => getMobileRemoteService().createPairing());
+  ipcMain.handle("mobile-access:set-password", (_event, password) => getMobileRemoteService().setPassword(password));
   ipcMain.handle("mobile-access:list-audit", () => getMobileRemoteService().listAudit());
-  ipcMain.handle("mobile-access:revoke-device", (_event, deviceId) => getMobileRemoteService().revokeDevice(deviceId));
-  ipcMain.handle("mobile-access:disconnect-device", () => getMobileRemoteService().disconnectActiveDevice());
+  ipcMain.handle("mobile-access:disconnect-connection", (_event, connectionId) => getMobileRemoteService().disconnectConnection(connectionId));
 
   return () => {
     for (const channel of SETTINGS_IPC_CHANNELS) {

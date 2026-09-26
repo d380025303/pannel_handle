@@ -37,5 +37,23 @@ it("serves HEAD metadata, blocks writes and returns unavailable when the static 
   expect(head.end).toHaveBeenCalledWith();
   expect(head.setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
   expect(request("POST").writeHead).toHaveBeenCalledWith(405, { Allow: "GET, HEAD" });
-  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 2 }));
+  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 5 }));
+});
+
+it("routes only same-origin upload POST requests to the ticket handler", () => {
+  const uploads = { receive: vi.fn(async () => undefined) };
+  const { handleHttp } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port: 43123 }) }, getAddress: () => "192.168.1.1",
+    getStaticRoot: () => ".", uploads
+  });
+  const id = "12345678-1234-1234-1234-123456789abc";
+  const response = () => ({ setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn() });
+  const allowed = { method: "POST", url: `/api/v1/upload/${id}?ticket=secret`,
+    headers: { host: "192.168.1.1:43123", origin: "http://192.168.1.1:43123" } };
+  handleHttp(allowed, response());
+  expect(uploads.receive).toHaveBeenCalledWith(allowed, expect.any(Object), id, "secret");
+  const denied = response();
+  handleHttp({ ...allowed, headers: { ...allowed.headers, origin: "http://evil.example" } }, denied);
+  expect(denied.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+  expect(uploads.receive).toHaveBeenCalledTimes(1);
 });

@@ -1,10 +1,11 @@
 const { createMobileSocketHandlers } = require("./mobile-socket-handlers.cjs");
 const { createMobileAuth } = require("./mobile-auth.cjs");
 const { createMobileHttpHandler } = require("./mobile-http.cjs");
+const { createMobileUploads } = require("./mobile-uploads.cjs");
 const { createTerminalSizeOwner } = require("./terminal-size-owner.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
-const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces, createPairingUrls } = require("./mobile-network.cjs");
-const { PROTOCOL_VERSION, PAIRING_TTL_MS, MOBILE_GRACE_MS, HEARTBEAT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
+const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces } = require("./mobile-network.cjs");
+const { PROTOCOL_VERSION, HEARTBEAT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
 const http = require("node:http");
 const os = require("node:os");
 const { Bonjour } = require("bonjour-service");
@@ -19,7 +20,6 @@ function createMobileRemoteService({
   stateHub,
   getStaticRoot,
   desktopBroadcast,
-  confirmPairing,
   notifyConnection,
   now = () => Date.now(),
   networkInterfaces = () => os.networkInterfaces(),
@@ -34,23 +34,23 @@ function createMobileRemoteService({
   let heartbeatTimer = null;
   let currentAddress = "";
   let lastError = "";
+  const uploads = createMobileUploads({ now });
 
   const sizes = createTerminalSizeOwner({
     terminalManager, stateHub, desktopBroadcast, send,
-    getActiveSocket: () => auth.getActiveClient()?.socket
+    getSubscribedSockets: sessionId => auth.getClients().map(client => client.socket).filter(socket => socket.subscriptions?.has(sessionId))
   });
   const auth = createMobileAuth({
-    accessStore, now, send, sendError, confirmPairing, notifyConnection,
-    currentState, broadcastState,
+    accessStore, now, send, sendError, notifyConnection, broadcastState, currentState,
     releaseDeviceSizes: sizes.releaseDeviceSizes,
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, stateHub, now,
-    accessStore, auth, sizes, send, sendError
+    auth, sizes, uploads, send, sendError
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
-    accessStore, getAddress: () => currentAddress, getStaticRoot
+    accessStore, getAddress: () => currentAddress, getStaticRoot, uploads
   });
 
   function send(socket, message) {
@@ -69,7 +69,6 @@ function createMobileRemoteService({
   }
 
   function currentState() {
-    const activeClient = auth.getActiveClient();
     const config = accessStore.getConfig();
     const interfaces = listPrivateInterfaces(networkInterfaces());
     const hostname = getMobileHostname();
@@ -83,13 +82,9 @@ function createMobileRemoteService({
       canonicalUrl: running ? `http://${hostname}:${config.port}` : "",
       fallbackUrl: running ? `http://${currentAddress}:${config.port}` : "",
       lastError,
-      devices: accessStore.listDevices(),
-      activeDevice: activeClient ? {
-        id: activeClient.device.id,
-        name: activeClient.device.name,
-        connected: Boolean(activeClient.socket?.readyState === WebSocket.OPEN),
-        graceUntil: activeClient.graceUntil || undefined
-      } : null
+      activeConnections: auth.getClients().map(client => ({
+        id: client.id, name: client.name, remoteAddress: client.remoteAddress
+      }))
     };
   }
 
@@ -149,7 +144,6 @@ function createMobileRemoteService({
         socket.isAlive = false;
         socket.ping();
       }
-      auth.expirePairings();
     }, HEARTBEAT_MS);
     broadcastState();
     return currentState();
@@ -158,8 +152,8 @@ function createMobileRemoteService({
   async function stop() {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
-    auth.getActiveClient()?.socket?.close(1001, "电脑端已关闭移动访问");
-    auth.releaseActiveClient("service-stopped", true);
+    auth.disconnectAll("service-stopped");
+    uploads.stop();
     for (const socket of webSocketServer?.clients || []) socket.terminate();
     await new Promise((resolve) => server?.close(() => resolve()) || resolve());
     webSocketServer?.close();
@@ -170,7 +164,6 @@ function createMobileRemoteService({
     bonjourService = null;
     bonjour = null;
     currentAddress = "";
-    auth.clearPairings();
     broadcastState();
   }
 
@@ -184,9 +177,16 @@ function createMobileRemoteService({
     return currentState();
   }
 
+  function setPassword(password) {
+    accessStore.setPassword(password);
+    auth.disconnectAll("password-changed");
+    broadcastState();
+    return currentState();
+  }
+
   function handleDesktopEvent(channel, payload) {
     if (channel === "codex-app-server:changed") {
-      socketHandlers.handleGraphicalChanged(auth.getActiveClient()?.socket, payload);
+      for (const client of auth.getClients()) socketHandlers.handleGraphicalChanged(client.socket, payload);
       return;
     }
     if (channel === "terminal:started") {
@@ -194,19 +194,25 @@ function createMobileRemoteService({
       sizes.start(payload);
     } else if (channel === "terminal:data") {
       const seq = stateHub.write(payload.id, payload.data);
-      const socket = auth.getActiveClient()?.socket;
-      if (socket?.subscriptions?.has(payload.id)) send(socket, { type: "terminal.data", sessionId: payload.id, data: payload.data, seq });
+      for (const client of auth.getClients()) {
+        const socket = client.socket;
+        if (socket.subscriptions?.has(payload.id)) send(socket, { type: "terminal.data", sessionId: payload.id, data: payload.data, seq });
+      }
     } else if (channel === "terminal:resized") {
       stateHub.resize(payload.id, payload.cols, payload.rows);
       sizes.observeResize(payload);
     } else if (channel === "terminal:exit") {
-      const socket = auth.getActiveClient()?.socket;
-      if (socket?.subscriptions?.has(payload.id)) send(socket, { type: "terminal.exit", sessionId: payload.id, exitCode: payload.exitCode });
+      for (const client of auth.getClients()) {
+        const socket = client.socket;
+        if (socket.subscriptions?.has(payload.id)) send(socket, { type: "terminal.exit", sessionId: payload.id, exitCode: payload.exitCode });
+      }
       stateHub.remove(payload.id);
       sizes.remove(payload.id);
+      uploads.releaseSession(payload.id);
     } else if (channel === "sessions:changed") {
-      const socket = auth.getActiveClient()?.socket;
-      if (socket?.readyState === WebSocket.OPEN) {
+      for (const client of auth.getClients()) {
+        const socket = client.socket;
+        if (socket.readyState !== WebSocket.OPEN) continue;
         send(socket, { type: "sessions.changed", sessions: payload.map(toRuntimeSession) });
         send(socket, { type: "templates.changed", templates: toSavedTemplates(sessionStore, terminalManager) });
       }
@@ -217,23 +223,20 @@ function createMobileRemoteService({
     start,
     stop,
     updateConfig,
+    setPassword,
     getState: currentState,
-    createPairing: auth.createPairing,
     listAudit: accessStore.listAudit,
-    revokeDevice: auth.revokeDevice,
-    disconnectActiveDevice: auth.disconnectActiveDevice,
+    disconnectConnection: auth.disconnectClient,
     resizeFromDesktop: sizes.resizeFromDesktop,
     claimDesktopSize: sizes.claimDesktopSize,
     handleDesktopEvent,
     handleTerminalEvent: handleDesktopEvent,
-    constants: { PROTOCOL_VERSION, PAIRING_TTL_MS, MOBILE_GRACE_MS }
+    constants: { PROTOCOL_VERSION }
   };
 }
 
 module.exports = {
   PROTOCOL_VERSION,
-  PAIRING_TTL_MS,
-  MOBILE_GRACE_MS,
   MAX_INPUT_BYTES,
   MAX_INPUT_BYTES_PER_SECOND,
   MAX_BUFFERED_OUTPUT_BYTES,
@@ -241,7 +244,6 @@ module.exports = {
   getMobileHostname,
   isPrivateIpv4,
   listPrivateInterfaces,
-  createPairingUrls,
   launchMobileTemplate,
   createMobileRemoteService
 };

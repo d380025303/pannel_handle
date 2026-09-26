@@ -164,6 +164,7 @@ describe("CodexAppServerSession", () => {
       items: [{ id: "turn-error:turn-1", type: "turnError", turnId: "turn-1", text: detail }] });
     submit.mockReset().mockRejectedValueOnce(new Error(detail));
     render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 CodeBuddy 发送消息");
     fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "继续" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));

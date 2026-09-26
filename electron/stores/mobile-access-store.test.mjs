@@ -22,19 +22,42 @@ function fixture(now = () => Date.now()) {
 }
 
 describe("mobile access store", () => {
-  it("persists configuration and never exposes device tokens", () => {
+  it("persists configuration without storing the plaintext password", () => {
     const store = fixture();
+    store.setPassword("strong-password");
     store.updateConfig({ enabled: true, interfaceName: "Wi-Fi", port: 43123 });
-    const approved = store.addDevice("Pixel");
-    expect(store.verifyDevice(approved.device.id, approved.token)?.name).toBe("Pixel");
-    expect(JSON.stringify(store.listDevices())).not.toContain(approved.token);
-    expect(store.getConfig()).toEqual({ enabled: true, interfaceName: "Wi-Fi", port: 43123 });
+    expect(store.getConfig()).toEqual({ enabled: true, interfaceName: "Wi-Fi", port: 43123, hasPassword: true });
+    expect(store.verifyPassword("strong-password")).toBe(true);
+    expect(store.verifyPassword("wrong-password")).toBe(false);
+    expect(fs.readFileSync(path.join(roots.at(-1), "mobile.json"), "utf8")).not.toContain("strong-password");
   });
 
-  it("rejects an invalid token with constant-length comparison", () => {
+  it("requires a password to enable access and replaces the old password", () => {
     const store = fixture();
-    const approved = store.addDevice("Pixel");
-    expect(store.verifyDevice(approved.device.id, "wrong")).toBeNull();
+    expect(() => store.updateConfig({ enabled: true })).toThrow("请先设置");
+    store.setPassword("first-password");
+    store.setPassword("second-password");
+    expect(store.verifyPassword("first-password")).toBe(false);
+    expect(store.verifyPassword("second-password")).toBe(true);
+  });
+
+  it("disables legacy access and clears devices from the old pairing scheme", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mobile-access-legacy-"));
+    roots.push(root);
+    const accessFile = path.join(root, "mobile.json");
+    fs.writeFileSync(accessFile, JSON.stringify({ schemaVersion: 1,
+      config: { enabled: true, interfaceName: "Wi-Fi", port: 43123 },
+      devices: [{ id: "old-phone", encryptedToken: "old-token" }], audit: [] }));
+    const store = createMobileAccessStore({ accessFile });
+    store.load();
+    expect(store.getConfig()).toMatchObject({ enabled: false, hasPassword: false });
+    expect(fs.readFileSync(accessFile, "utf8")).not.toContain("old-token");
+  });
+
+  it("rejects an invalid password", () => {
+    const store = fixture();
+    store.setPassword("strong-password");
+    expect(store.verifyPassword("wrong-password")).toBe(false);
   });
 
   it("retains at most 1000 recent audit entries", () => {

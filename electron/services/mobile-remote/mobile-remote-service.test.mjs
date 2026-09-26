@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
-import { createPairingUrls, getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
+import { getMobileHostname, isPrivateIpv4, launchMobileTemplate, listPrivateInterfaces, sanitizeHostLabel } from "./mobile-remote-service.cjs";
 import sessionValues from "./mobile-session-values.cjs";
 
 const { toRuntimeSession, toSavedTemplates } = sessionValues;
@@ -37,16 +37,6 @@ describe("mobile remote network helpers", () => {
   it("creates an mDNS-safe host label", () => {
     expect(sanitizeHostLabel("My PC_01")).toBe("my-pc-01");
     expect(getMobileHostname()).toMatch(/^pannel-handle-[a-z0-9-]+\.local$/);
-  });
-
-  it("uses the LAN IP address for the primary pairing URL", () => {
-    expect(createPairingUrls({
-      canonicalUrl: "http://pannel-handle-dx.local:43123",
-      fallbackUrl: "http://192.168.3.9:43123"
-    }, "pairing-token")).toEqual({
-      url: "http://192.168.3.9:43123/#pair=pairing-token",
-      fallbackUrl: "http://pannel-handle-dx.local:43123/#pair=pairing-token"
-    });
   });
 
   it("marks successful mobile template launches for usage tracking", async () => {

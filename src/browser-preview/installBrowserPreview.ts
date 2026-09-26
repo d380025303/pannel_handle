@@ -177,7 +177,7 @@ export function installBrowserPreview() {
   let config = copy(initialConfig);
   let transfers = copy(initialTransfers);
   let mobileState: MobileAccessState = {
-    config: { enabled: true, interfaceName: "Wi-Fi", port: 43110 },
+    config: { enabled: true, interfaceName: "Wi-Fi", port: 43110, hasPassword: true },
     interfaces: [{ name: "Wi-Fi", address: "192.168.1.20" }],
     running: true,
     hostname: "preview-pc",
@@ -185,8 +185,7 @@ export function installBrowserPreview() {
     canonicalUrl: "http://preview-pc:43110",
     fallbackUrl: "http://192.168.1.20:43110",
     lastError: "",
-    devices: [{ id: "phone-1", name: "预览手机", createdAt: now - 86_400_000, lastSeenAt: now }],
-    activeDevice: { id: "phone-1", name: "预览手机", connected: true }
+    activeConnections: [{ id: "phone-1", name: "预览手机", remoteAddress: "192.168.1.88" }]
   };
   let clipboardText = "";
   let isMaximized = false;
@@ -492,10 +491,9 @@ export function installBrowserPreview() {
     mobileAccessApi: {
       getState: async () => copy(mobileState),
       updateConfig: async (partial) => { mobileState = { ...mobileState, config: { ...mobileState.config, ...partial }, running: partial.enabled ?? mobileState.running }; mobileChanged.emit(copy(mobileState)); return copy(mobileState); },
-      createPairing: async () => ({ url: mobileState.canonicalUrl, fallbackUrl: mobileState.fallbackUrl, expiresAt: Date.now() + 300_000, qrDataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='160' height='160' fill='white'/%3E%3Cpath d='M15 15h50v50H15zm80 0h50v50H95zM15 95h50v50H15zm80 0h15v15H95zm20 20h30v30h-30z' fill='black'/%3E%3C/svg%3E" }),
+      setPassword: async () => { mobileState = { ...mobileState, config: { ...mobileState.config, hasPassword: true }, activeConnections: [] }; mobileChanged.emit(copy(mobileState)); return copy(mobileState); },
       listAudit: async () => [{ id: "preview-audit", at: now, type: "connected", deviceId: "phone-1", deviceName: "预览手机", remoteAddress: "192.168.1.88" }],
-      revokeDevice: async (deviceId) => { mobileState = { ...mobileState, devices: mobileState.devices.filter((item) => item.id !== deviceId), activeDevice: mobileState.activeDevice?.id === deviceId ? null : mobileState.activeDevice }; mobileChanged.emit(copy(mobileState)); return copy(mobileState); },
-      disconnectDevice: async () => { mobileState = { ...mobileState, activeDevice: mobileState.activeDevice ? { ...mobileState.activeDevice, connected: false } : null }; mobileChanged.emit(copy(mobileState)); return copy(mobileState); },
+      disconnectConnection: async (connectionId) => { mobileState = { ...mobileState, activeConnections: mobileState.activeConnections.filter((item) => item.id !== connectionId) }; mobileChanged.emit(copy(mobileState)); return copy(mobileState); },
       onStateChanged: mobileChanged.subscribe
     } satisfies Window["mobileAccessApi"],
     hookConfigApi: {

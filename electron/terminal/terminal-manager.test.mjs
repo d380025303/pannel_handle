@@ -125,6 +125,14 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("runs session closing cleanup while the session is still addressable", () => {
+    let manager;
+    const onSessionClosing = vi.fn(id => expect(manager.getSession(id)).toBeDefined());
+    ({ manager } = createManager({ onSessionClosing }));
+    const session = manager.createSession({ cwd: "C:\\Users\\tester", persist: false });
+    manager.closeSession(session.id);
+    expect(onSessionClosing).toHaveBeenCalledWith(session.id);
+  });
   it("uses PowerShell 7 when selected and runnable", () => {
     const resolveExecutable = vi.fn(() => "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
 

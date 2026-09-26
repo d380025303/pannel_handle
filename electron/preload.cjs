@@ -251,10 +251,9 @@ contextBridge.exposeInMainWorld("launchTemplateApi", {
 contextBridge.exposeInMainWorld("mobileAccessApi", {
   getState: () => ipcRenderer.invoke("mobile-access:get-state"),
   updateConfig: (partial) => ipcRenderer.invoke("mobile-access:update-config", partial),
-  createPairing: () => ipcRenderer.invoke("mobile-access:create-pairing"),
+  setPassword: (password) => ipcRenderer.invoke("mobile-access:set-password", password),
   listAudit: () => ipcRenderer.invoke("mobile-access:list-audit"),
-  revokeDevice: (deviceId) => ipcRenderer.invoke("mobile-access:revoke-device", deviceId),
-  disconnectDevice: () => ipcRenderer.invoke("mobile-access:disconnect-device"),
+  disconnectConnection: (connectionId) => ipcRenderer.invoke("mobile-access:disconnect-connection", connectionId),
   onStateChanged: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("mobile-access:state-changed", listener);

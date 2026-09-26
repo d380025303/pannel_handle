@@ -68,9 +68,9 @@ function buildInvocation(session, runtime, environment, provider = "codebuddy") 
   const planArgs = provider === "codebuddy" ? codeBuddyPlanArgs(runtime,
     quote) : "";
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance,
-    session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "bash") : "";
+    session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "cmd") : "";
   const args = provider === "opencode" ? (runtime.acpArgs || "acp")
-    : `${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password${planArgs ? ` ${planArgs}` : ""}${inheritedArgs ? ` ${inheritedArgs}` : ""}`;
+    : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"}${planArgs ? ` ${planArgs}` : ""} --serve --acp-transport streamable-http --auth password`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
   if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
@@ -100,7 +100,7 @@ async function createRemoteChild(transportService, session, environment, provide
   });
   const before = String(session.initialCommand || "").trim();
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance) : "";
-  const commandName = provider === "opencode" ? "opencode acp" : `codebuddy ${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password${runtime.readOnlyProfile ? ` ${codeBuddyPlanArgs(runtime, quoteBash)}` : ""}${inheritedArgs ? ` ${inheritedArgs}` : ""}`;
+  const commandName = provider === "opencode" ? "opencode acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"}${runtime.readOnlyProfile ? ` ${codeBuddyPlanArgs(runtime, quoteBash)}` : ""} --serve --acp-transport streamable-http --auth password`;
   const script = [...exports, `cd ${quoteBash(session.cwd)}`, ...(before ? [`{ ${before}; } 1>&2`] : []), `exec ${commandName}`].join(" && ");
   const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "opencode" ? "OpenCode" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
   const child = new EventEmitter();
@@ -586,8 +586,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const runtime = { ...entry.runtime, resumeThreadId: entry.threadId };
     close(id);
     if (provider === "codebuddy" && codexInheritanceManager) {
-      await codexInheritanceManager.cleanup(id);
-      delete runtime.inheritance;
+      if (runtime.refreshInheritance) Object.assign(runtime, await runtime.refreshInheritance());
+      else {
+        await codexInheritanceManager.cleanup(id);
+        delete runtime.inheritance;
+      }
     }
     await start(session, runtime);
     return terminalManager.listSessions().find(value => value.id === id);

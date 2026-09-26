@@ -50,6 +50,11 @@ function readMcpDocuments(documents, warnings = []) {
 }
 
 function copySkillsLocal(sources, pluginRoot) {
+  const containsSkill = directory => {
+    if (fs.existsSync(path.join(directory, "SKILL.md"))) return true;
+    return fs.readdirSync(directory, { withFileTypes: true }).some(entry => entry.isDirectory()
+      && containsSkill(path.join(directory, entry.name)));
+  };
   const destination = path.join(pluginRoot, "skills");
   for (const source of sources) {
     if (!fs.existsSync(source)) continue;
@@ -57,7 +62,7 @@ function copySkillsLocal(sources, pluginRoot) {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (entry.name === ".system" || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
       const directory = fs.realpathSync(path.join(root, entry.name));
-      if (!isWithin(root, directory) || !fs.existsSync(path.join(directory, "SKILL.md"))) continue;
+      if (!isWithin(root, directory) || !containsSkill(directory)) continue;
       fs.mkdirSync(destination, { recursive: true });
       const target = path.join(destination, entry.name);
       fs.rmSync(target, { recursive: true, force: true });
@@ -77,7 +82,14 @@ function localAdapter(homeDir = os.homedir()) {
       const pluginRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pannel-codex-skills-"));
       try {
         const hasSkills = copySkillsLocal(sources, pluginRoot);
-        const skillNames = hasSkills ? fs.readdirSync(path.join(pluginRoot, "skills")) : [];
+        const skillNames = [];
+        const collect = (directory, parts = []) => {
+          if (fs.existsSync(path.join(directory, "SKILL.md"))) skillNames.push(parts.join(":"));
+          for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            if (entry.isDirectory()) collect(path.join(directory, entry.name), [...parts, entry.name]);
+          }
+        };
+        if (hasSkills) collect(path.join(pluginRoot, "skills"));
         return { pluginRoot, hasSkills, skillNames };
       } catch (error) { await fs.promises.rm(pluginRoot, { recursive: true, force: true }); throw error; }
     },
@@ -94,7 +106,8 @@ function localAdapter(homeDir = os.homedir()) {
 function createRemoteAdapter(session, { sshAgentTransport, homeDir }) {
   async function run(script) {
     if (session.type === "wsl") {
-      const result = await execFileAsync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc", script],
+      const encoded = Buffer.from(script).toString("base64");
+      const result = await execFileAsync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lc", `printf %s ${encoded} | base64 -d | bash`],
         { windowsHide: true, timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
       return result.stdout;
     }
@@ -115,11 +128,12 @@ function createRemoteAdapter(session, { sshAgentTransport, homeDir }) {
         "set -eu", "root=$(mktemp -d /tmp/pannel-codex-skills-XXXXXX)",
         "mkdir -p \"$root/.codebuddy-plugin\" \"$root/skills\"",
         "printf '%s' '{\"name\":\"codex\",\"version\":\"1.0.0\",\"description\":\"Codex skills inherited by Pannel Handle\"}' > \"$root/.codebuddy-plugin/plugin.json\"",
-        ...sources.map(source => `if [ -d ${quoteBash(source)} ]; then for item in ${quoteBash(source)}/*; do [ -L \"$item\" ] && continue; [ -f \"$item/SKILL.md\" ] || continue; name=$(basename \"$item\"); [ \"$name\" = .system ] && continue; rm -rf -- \"$root/skills/$name\"; cp -a \"$item\" \"$root/skills/$name\"; done; fi`),
-        "printf '%s\\n' \"$root\"", "find \"$root/skills\" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'"
+        ...sources.map(source => `if [ -d ${quoteBash(source)} ]; then for item in ${quoteBash(source)}/*; do [ -L \"$item\" ] && continue; find \"$item\" -name SKILL.md -type f -print -quit | grep -q . || continue; name=$(basename \"$item\"); [ \"$name\" = .system ] && continue; rm -rf -- \"$root/skills/$name\"; cp -a \"$item\" \"$root/skills/$name\"; done; fi`),
+        "printf '%s\\n' \"$root\"", "find \"$root/skills\" -name SKILL.md -type f -printf '%h\\n'"
       ].join("\n");
       const lines = (await run(script)).trim().split(/\r?\n/);
-      return { pluginRoot: lines[0], hasSkills: lines.length > 1, skillNames: lines.slice(1) };
+      return { pluginRoot: lines[0], hasSkills: lines.length > 1,
+        skillNames: lines.slice(1).map(value => value.slice(`${lines[0]}/skills/`.length).replace(/\//g, ":")) };
     },
     async writeMcp(project, content) {
       const file = join(project, `.pannel-handle-codex-${randomUUID()}.json`);
@@ -174,7 +188,7 @@ async function prepareCodexInheritance(session, options = {}) {
 function codeBuddyInheritanceArgs(inheritance, shell = "bash") {
   if (!inheritance) return "";
   const quote = shell === "powershell" ? quotePowerShell : shell === "cmd"
-    ? value => `"${String(value).replace(/"/g, '""')}"` : quoteBash;
+    ? value => `"${String(value).replace(/%/g, "%%").replace(/"/g, '""')}"` : quoteBash;
   return [inheritance.pluginDir ? `--plugin-dir ${quote(inheritance.pluginDir)}` : "",
     inheritance.mcpFile ? `--mcp-config ${quote(inheritance.mcpFile)}` : ""].filter(Boolean).join(" ");
 }

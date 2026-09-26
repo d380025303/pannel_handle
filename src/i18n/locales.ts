@@ -119,18 +119,16 @@ export type TranslationKey =
   | "settings.mobileHttpWarning"
   | "settings.mobileInterface"
   | "settings.mobilePort"
-  | "settings.mobilePair"
-  | "settings.mobilePairQr"
-  | "settings.mobilePairHint"
-  | "settings.mobilePairExpiry"
+  | "settings.mobilePassword"
+  | "settings.mobileSetPassword"
+  | "settings.mobileChangePassword"
+  | "settings.mobilePasswordSet"
+  | "settings.mobilePasswordNeeded"
+  | "settings.mobilePasswordSaved"
+  | "settings.mobileOpenHint"
   | "settings.mobileActiveDevice"
-  | "settings.mobileConnected"
-  | "settings.mobileReconnectGrace"
   | "settings.mobileDisconnect"
   | "settings.mobileNoActiveDevice"
-  | "settings.mobileTrustedDevices"
-  | "settings.mobileRevoke"
-  | "settings.mobileNoTrustedDevices"
   | "settings.mobileAudit"
   | "settings.open"
   | "settings.generalTitle"
@@ -1072,7 +1070,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentNavDescription": "集中管理可供会话复用的普通环境变量配置。",
     "settings.modelsTitle": "模型服务",
     "settings.modelsDescription": "配置模型服务凭据、在线模型和默认选择。",
-    "settings.mobileNavDescription": "配置局域网访问、设备配对与连接安全。",
+    "settings.mobileNavDescription": "配置局域网访问、设备密码与连接安全。",
     "settings.notificationsTitle": "通知",
     "settings.notificationsDescription": "配置会话状态的外部通知渠道。",
     "settings.environmentProfiles": "配置组",
@@ -1115,21 +1113,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileTitle": "局域网移动终端",
     "settings.mobileRunning": "运行中",
     "settings.mobileStopped": "已停止",
-    "settings.mobileHttpWarning": "当前使用 HTTP 明文传输，只能在可信私人局域网中启用，禁止映射到互联网。",
+    "settings.mobileHttpWarning": "当前使用 HTTP 明文传输，移动访问密码也会经局域网明文发送。只能在可信私人局域网中启用，禁止映射到互联网。",
     "settings.mobileInterface": "局域网网卡",
     "settings.mobilePort": "端口",
-    "settings.mobilePair": "配对新设备",
-    "settings.mobilePairQr": "移动设备配对二维码",
-    "settings.mobilePairHint": "使用 Android Chrome 扫码，然后在电脑端确认设备和校验码。",
-    "settings.mobilePairExpiry": "二维码 2 分钟内有效且只能使用一次。",
-    "settings.mobileActiveDevice": "当前移动设备",
-    "settings.mobileConnected": "已连接",
-    "settings.mobileReconnectGrace": "30 秒重连等待中",
+    "settings.mobilePassword": "移动访问密码（8–128 个字符）",
+    "settings.mobileSetPassword": "设置密码",
+    "settings.mobileChangePassword": "修改密码",
+    "settings.mobilePasswordSet": "密码已设置。修改后，所有在线连接须重新验证。",
+    "settings.mobilePasswordNeeded": "请先设置密码，再启用移动访问。",
+    "settings.mobilePasswordSaved": "密码已保存，在线连接已断开。",
+    "settings.mobileOpenHint": "在手机浏览器打开以上地址，输入移动访问密码。",
+    "settings.mobileActiveDevice": "在线连接",
     "settings.mobileDisconnect": "断开",
     "settings.mobileNoActiveDevice": "当前没有手机在线。",
-    "settings.mobileTrustedDevices": "受信任设备",
-    "settings.mobileRevoke": "撤销",
-    "settings.mobileNoTrustedDevices": "尚未配对移动设备。",
     "settings.mobileAudit": "安全事件",
     "settings.open": "打开设置",
     "settings.generalTitle": "常用配置",
@@ -2063,7 +2059,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentNavDescription": "Manage reusable non-secret environment variables for sessions.",
     "settings.modelsTitle": "Model services",
     "settings.modelsDescription": "Configure provider credentials, online models, and defaults.",
-    "settings.mobileNavDescription": "Configure LAN access, device pairing, and connection security.",
+    "settings.mobileNavDescription": "Configure LAN access, the device password, and connection security.",
     "settings.notificationsTitle": "Notifications",
     "settings.notificationsDescription": "Configure external notifications for session states.",
     "settings.environmentProfiles": "Profiles",
@@ -2106,21 +2102,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileTitle": "LAN Mobile Terminal",
     "settings.mobileRunning": "Running",
     "settings.mobileStopped": "Stopped",
-    "settings.mobileHttpWarning": "Traffic is unencrypted HTTP. Enable this only on a trusted private LAN and never expose it to the Internet.",
+    "settings.mobileHttpWarning": "Traffic, including the mobile access password, is sent over unencrypted HTTP. Enable this only on a trusted private LAN and never expose it to the Internet.",
     "settings.mobileInterface": "LAN adapter",
     "settings.mobilePort": "Port",
-    "settings.mobilePair": "Pair device",
-    "settings.mobilePairQr": "Mobile device pairing QR code",
-    "settings.mobilePairHint": "Scan with Android Chrome, then confirm the device and verification code on this PC.",
-    "settings.mobilePairExpiry": "The QR code expires after two minutes and is single-use.",
-    "settings.mobileActiveDevice": "Active mobile device",
-    "settings.mobileConnected": "Connected",
-    "settings.mobileReconnectGrace": "Waiting 30 seconds for reconnection",
+    "settings.mobilePassword": "Mobile access password (8–128 characters)",
+    "settings.mobileSetPassword": "Set password",
+    "settings.mobileChangePassword": "Change password",
+    "settings.mobilePasswordSet": "Password is set. Changing it disconnects all mobile connections.",
+    "settings.mobilePasswordNeeded": "Set a password before enabling mobile access.",
+    "settings.mobilePasswordSaved": "Password saved. Active connections were disconnected.",
+    "settings.mobileOpenHint": "Open either address in your phone browser and enter the mobile password.",
+    "settings.mobileActiveDevice": "Active connections",
     "settings.mobileDisconnect": "Disconnect",
     "settings.mobileNoActiveDevice": "No mobile device is online.",
-    "settings.mobileTrustedDevices": "Trusted devices",
-    "settings.mobileRevoke": "Revoke",
-    "settings.mobileNoTrustedDevices": "No mobile devices have been paired.",
     "settings.mobileAudit": "Security events",
     "settings.open": "Open settings",
     "settings.generalTitle": "General settings",

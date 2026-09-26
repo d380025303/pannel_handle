@@ -3,7 +3,7 @@ const path = require("node:path");
 const { getMobileHostname } = require("./mobile-network.cjs");
 const { PROTOCOL_VERSION } = require("./mobile-protocol.cjs");
 
-function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot }) {
+function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploads }) {
   function verifyRequestHost(request) {
     const config = accessStore.getConfig();
     const allowed = new Set([`${getAddress()}:${config.port}`, `${getMobileHostname()}:${config.port}`]);
@@ -37,12 +37,17 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot }) {
       response.end("Forbidden");
       return;
     }
+    const requestUrl = new URL(request.url || "/", `http://${request.headers.host}`);
+    const upload = /^\/api\/v1\/upload\/([a-f0-9-]{36})$/.exec(requestUrl.pathname);
+    if (request.method === "POST" && upload && uploads) {
+      void uploads.receive(request, response, upload[1], requestUrl.searchParams.get("ticket"));
+      return;
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405, { Allow: "GET, HEAD" });
       response.end();
       return;
     }
-    const requestUrl = new URL(request.url || "/", `http://${request.headers.host}`);
     if (requestUrl.pathname === "/health") {
       response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
       response.end(JSON.stringify({ ok: true, protocolVersion: PROTOCOL_VERSION }));

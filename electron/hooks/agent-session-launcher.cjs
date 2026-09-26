@@ -284,6 +284,14 @@ function buildLocalCodeBuddyStartCommand(binding, inheritance) {
   return args.join(" ");
 }
 
+function buildLocalCodeBuddyAcpArgs(binding, inheritance, instructions) {
+  return [
+    "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
+    "--strict-mcp-config", "--tools", "'Read,Glob,Grep'",
+    ...(instructions ? ["--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`] : [])
+  ].join(" ");
+}
+
 function createAgentSessionLauncher({
   terminalManager,
   sessionStore,
@@ -598,11 +606,8 @@ function createAgentSessionLauncher({
       const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
         ? await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true }) : undefined;
       const openCodeConfig = session.agentProvider === "opencode" ? buildLocalOpenCodeConfig(binding) : undefined;
-      const acpArgs = session.agentProvider === "codebuddy" ? [
-        "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
-        "--strict-mcp-config", "--tools", "'Read,Glob,Grep'",
-        ...(codeBuddyInstructions ? ["--append-system-prompt", `\"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}\"`] : [])
-      ].join(" ") : undefined;
+      const acpArgs = session.agentProvider === "codebuddy"
+        ? buildLocalCodeBuddyAcpArgs(binding, inheritance, codeBuddyInstructions) : undefined;
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), {
         localBridge: true,
         workspaceCwd: binding.workspacePath,
@@ -610,6 +615,11 @@ function createAgentSessionLauncher({
         codexCommand: session.agentProvider === "codex" ? buildLocalCodexAppServerCommand(binding) : undefined,
         acpArgs,
         inheritance: inheritance ? { ...inheritance, mcpFile: undefined } : undefined,
+        refreshInheritance: session.agentProvider === "codebuddy" && codexInheritanceManager ? async () => {
+          const next = await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true });
+          return { inheritance: { ...next, mcpFile: undefined },
+            acpArgs: buildLocalCodeBuddyAcpArgs(binding, next, codeBuddyInstructions) };
+        } : undefined,
         requiredMode: session.agentProvider === "opencode" ? OPENCODE_REMOTE_AGENT : undefined,
         runtimeEnv: { [binding.tokenEnv]: binding.token,
           ...(openCodeConfig ? { [OPENCODE_CONFIG_ENV]: openCodeConfig } : {}),
