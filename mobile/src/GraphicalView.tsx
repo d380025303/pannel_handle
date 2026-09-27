@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
@@ -15,14 +15,20 @@ type Props = {
   session: RuntimeSession;
   send: (message: ClientMessage) => boolean;
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void;
+  draft: string;
+  setDraft: Dispatch<SetStateAction<string>>;
+  submissionPending: boolean;
+  onSubmitRequest: (requestId: string) => void;
 };
 
 const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | null;
-export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
+export function GraphicalView({ session, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const setDraftRef = useRef(setDraft);
+  setDraftRef.current = setDraft;
+  const isSending = sending || submissionPending;
   const [error, setError] = useState("");
   const [activeSheet, setActiveSheet] = useState<ActionSheet>(null);
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider | null>(null);
@@ -103,10 +109,10 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         const pending = uploadRequests.current.get(message.requestId);
         if (pending) { uploadRequests.current.delete(message.requestId); pending.resolve({ fileId: message.fileId, url: message.url }); }
       } else if (message.type === "command.ok" && pendingRef.current.delete(message.requestId)) {
-        if (submitIdRef.current === message.requestId) { setDraft(""); setAttachments([]); setSending(false); submitIdRef.current = null; }
+        if (submitIdRef.current === message.requestId) { setAttachments([]); setSending(false); submitIdRef.current = null; }
         if (quickIdRef.current === message.requestId) {
           const quickDraft = quickDraftRef.current;
-          if (quickDraft) setDraft(current => current + quickDraft);
+          if (quickDraft) setDraftRef.current(current => current + quickDraft);
           quickDraftRef.current = "";
           quickIdRef.current = null;
           setSending(false);
@@ -173,14 +179,14 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const submit = () => {
     const text = draft.trim();
     const ready = attachments.filter(item => item.status === "ready" && item.fileId);
-    if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || sending) return;
+    if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending) return;
     submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId) }) || null;
-    if (submitIdRef.current) setSending(true);
+    if (submitIdRef.current) { onSubmitRequest(submitIdRef.current); setSending(true); }
   };
   const runQuickCommand = (command: QuickCommand) => {
     if (!snapshot?.threadId || snapshot.archived) return false;
     if ((command.mode || "write") === "write") { setDraft(current => current + command.command); return true; }
-    if (sending || quickIdRef.current) return false;
+    if (isSending || quickIdRef.current) return false;
     const id = createRequestId();
     if (!send({ v: PROTOCOL_VERSION, type: "quick-command.invoke", sessionId: session.id,
       commandId: command.id, threadId: snapshot.threadId, requestId: id })) {
@@ -280,7 +286,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const openHistory = () => { setActiveSheet("history"); loadHistory(); };
 
   if (!snapshot) return <section className="graphical-shell graphical-loading">正在加载图形会话…</section>;
-  const addFileDisabled = !snapshot.threadId || snapshot.archived || sending || attachments.length >= 10
+  const addFileDisabled = !snapshot.threadId || snapshot.archived || isSending || attachments.length >= 10
     || (snapshot.busy && snapshot.provider !== "codex");
   const modelDisabled = !modelOptions(snapshot).length || snapshot.busy || snapshot.archived || changingModel || attachments.length > 0;
   const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo);
@@ -358,13 +364,13 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         onCancel={questionId => action({ type: "graphical.cancelQuestion", questionId })} />)}
     </div>
     <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand}
-      disabled={command => !snapshot?.threadId || !!snapshot.archived || (command.mode !== "write" && sending)
+      disabled={command => !snapshot?.threadId || !!snapshot.archived || (command.mode !== "write" && isSending)
         || (command.mode === "auto-enter" && !!snapshot.busy && snapshot.provider !== "codex")} />
     <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>
         <span>{item.file.name} · {item.status === "uploading" ? "上传中" : item.status === "failed" ? "上传失败" : "已上传"}</span>
         {item.status === "failed" && <button type="button" onClick={() => { setAttachments(current => current.map(value => value.key === item.key ? { ...value, status: "uploading" } : value)); void uploadFile(item.file, item.key); }}>重试</button>}
-        <button type="button" disabled={sending} onClick={() => removeAttachment(item.key)}>移除</button>
+        <button type="button" disabled={isSending} onClick={() => removeAttachment(item.key)}>移除</button>
       </div>)}</div>}
       <input ref={fileInputRef} className="graphical-file-input" aria-label="添加文件" type="file" multiple
         disabled={addFileDisabled} onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />
@@ -373,7 +379,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
           <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
             disabled={!snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")} />
           {snapshot.busy && <button type="button" onClick={() => action({ type: "graphical.interrupt" })}>停止</button>}
-          <button type="submit" className="primary" disabled={sending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
+          <button type="submit" className="primary" disabled={isSending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
         </div>
       </div>
     </form>

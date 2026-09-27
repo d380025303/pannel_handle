@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { TerminalView } from "./TerminalView";
 import { GraphicalView } from "./GraphicalView";
 import { createRequestId } from "./protocol";
 import { PROTOCOL_VERSION, type RuntimeSession } from "./types";
 import { useRemoteConnection } from "./useRemoteConnection";
+
+const ACTIVE_SESSION_STORAGE_KEY = "pannel-handle-mobile-active-session";
+type TextDraft = { text: string; version: number };
+
+function readActiveSessionId() {
+  try { return localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY); }
+  catch { return null; }
+}
 
 function kindLabel(type: RuntimeSession["type"]) {
   if (type === "windows") return "Windows";
@@ -19,24 +27,90 @@ export default function App() {
   const remote = useRemoteConnection();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(readActiveSessionId);
+  const handledLaunchedId = useRef<string | null>(null);
   const [password, setPassword] = useState("");
+  const [graphicalDrafts, setGraphicalDrafts] = useState<Record<string, TextDraft>>({});
+  const [pasteDrafts, setPasteDrafts] = useState<Record<string, string>>({});
+  const [pasteOpenBySession, setPasteOpenBySession] = useState<Record<string, boolean>>({});
+  const [pendingBySession, setPendingBySession] = useState<Record<string, string>>({});
+  const pendingSubmissions = useRef(new Map<string, { sessionId: string; version: number }>());
   const activeSession = useMemo(
     () => remote.sessions.find((session) => session.id === activeId) ?? null,
     [activeId, remote.sessions]
   );
 
   useEffect(() => {
+    if (remote.status !== "connected") return;
     if (activeId && remote.sessions.some((session) => session.id === activeId)) return;
     setActiveId(remote.sessions[0]?.id ?? null);
-  }, [activeId, remote.sessions]);
+  }, [activeId, remote.sessions, remote.status]);
 
   useEffect(() => {
-    if (remote.lastLaunchedId && remote.sessions.some((session) => session.id === remote.lastLaunchedId)) {
+    if (remote.lastLaunchedId && handledLaunchedId.current !== remote.lastLaunchedId
+      && remote.sessions.some((session) => session.id === remote.lastLaunchedId)) {
+      handledLaunchedId.current = remote.lastLaunchedId;
       setActiveId(remote.lastLaunchedId);
       setDrawerOpen(false);
     }
   }, [remote.lastLaunchedId, remote.sessions]);
+
+  useEffect(() => {
+    if (remote.status !== "connected") return;
+    if (activeId && !remote.sessions.some((session) => session.id === activeId)) return;
+    try {
+      if (activeId) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, activeId);
+      else localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+    } catch { /* Session selection still works when browser storage is unavailable. */ }
+  }, [activeId, remote.sessions, remote.status]);
+
+  const updateGraphicalDraft = useCallback((sessionId: string, update: SetStateAction<string>) => {
+    setGraphicalDrafts(current => {
+      const previous = current[sessionId] ?? { text: "", version: 0 };
+      const text = typeof update === "function" ? update(previous.text) : update;
+      if (text === previous.text) return current;
+      return { ...current, [sessionId]: { text, version: previous.version + 1 } };
+    });
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = remote.onGraphicalMessage(message => {
+      if (message.type !== "command.ok" && message.type !== "error") return;
+      if (!message.requestId) return;
+      const pending = pendingSubmissions.current.get(message.requestId);
+      if (!pending) return;
+      pendingSubmissions.current.delete(message.requestId);
+      setPendingBySession(current => {
+        if (current[pending.sessionId] !== message.requestId) return current;
+        const next = { ...current };
+        delete next[pending.sessionId];
+        return next;
+      });
+      if (message.type === "command.ok") setGraphicalDrafts(current => {
+        const draft = current[pending.sessionId];
+        if (!draft || draft.version !== pending.version) return current;
+        return { ...current, [pending.sessionId]: { text: "", version: draft.version + 1 } };
+      });
+    });
+    return () => { unsubscribe(); };
+  }, [remote.onGraphicalMessage]);
+
+  useEffect(() => {
+    if (remote.status !== "connected") return;
+    const ids = new Set(remote.sessions.map(session => session.id));
+    setGraphicalDrafts(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+    setPasteDrafts(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+    setPasteOpenBySession(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+    setPendingBySession(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+    for (const [requestId, pending] of pendingSubmissions.current) {
+      if (!ids.has(pending.sessionId)) pendingSubmissions.current.delete(requestId);
+    }
+  }, [remote.sessions, remote.status]);
+
+  const trackGraphicalSubmit = (sessionId: string, requestId: string) => {
+    pendingSubmissions.current.set(requestId, { sessionId, version: graphicalDrafts[sessionId]?.version ?? 0 });
+    setPendingBySession(current => ({ ...current, [sessionId]: requestId }));
+  };
 
   const launchTemplate = (templateId: string) => {
     const width = Math.max(20, Math.floor(window.innerWidth / 8));
@@ -92,7 +166,11 @@ export default function App() {
       {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
 
       {activeSession?.runtimeMode === "app-server" ? (
-        <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage} />
+        <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
+          draft={graphicalDrafts[activeSession.id]?.text ?? ""}
+          setDraft={update => updateGraphicalDraft(activeSession.id, update)}
+          submissionPending={Boolean(pendingBySession[activeSession.id])}
+          onSubmitRequest={requestId => trackGraphicalSubmit(activeSession.id, requestId)} />
       ) : activeSession ? (
         <TerminalView
           key={activeSession.id}
@@ -100,6 +178,10 @@ export default function App() {
           deviceId={remote.device?.deviceId}
           send={remote.send}
           onTerminalMessage={remote.onTerminalMessage}
+          pasteText={pasteDrafts[activeSession.id] ?? ""}
+          setPasteText={update => setPasteDrafts(current => ({ ...current, [activeSession.id]: typeof update === "function" ? update(current[activeSession.id] ?? "") : update }))}
+          pasteOpen={Boolean(pasteOpenBySession[activeSession.id])}
+          setPasteOpen={open => setPasteOpenBySession(current => ({ ...current, [activeSession.id]: open }))}
         />
       ) : (
         <section className="empty-terminal">

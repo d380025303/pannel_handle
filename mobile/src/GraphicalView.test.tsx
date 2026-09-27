@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { GraphicalView } from "./GraphicalView";
 import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type RuntimeSession, type ServerMessage } from "./types";
@@ -17,7 +18,14 @@ function fixture(viewSession = session) {
   type GraphicalMessage = Extract<ServerMessage,
     { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
   const listeners = new Set<(message: GraphicalMessage) => void>();
-  render(<GraphicalView session={viewSession} send={send} onGraphicalMessage={callback => { listeners.add(callback); return () => { listeners.delete(callback); }; }} />);
+  const subscribe = (callback: (message: GraphicalMessage) => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
+  function TestView() {
+    const [draft, setDraft] = useState("");
+    return <GraphicalView session={viewSession} send={send}
+      onGraphicalMessage={subscribe}
+      draft={draft} setDraft={setDraft} submissionPending={false} onSubmitRequest={() => {}} />;
+  }
+  render(<TestView />);
   const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
   return { send, emit };
 }

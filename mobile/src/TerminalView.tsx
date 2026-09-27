@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -15,6 +15,10 @@ type TerminalViewProps = {
   deviceId?: string;
   send: (message: ClientMessage) => boolean;
   onTerminalMessage: (listener: (message: TerminalMessage) => void) => () => void;
+  pasteText: string;
+  setPasteText: Dispatch<SetStateAction<string>>;
+  pasteOpen: boolean;
+  setPasteOpen: (open: boolean) => void;
 };
 
 const KEYS = [
@@ -23,7 +27,7 @@ const KEYS = [
   ["Pg↑", "\x1b[5~"], ["Pg↓", "\x1b[6~"], ["Enter", "\r"], ["⌫", "\x7f"]
 ] as const;
 
-export function TerminalView({ session, deviceId, send, onTerminalMessage }: TerminalViewProps) {
+export function TerminalView({ session, deviceId, send, onTerminalMessage, pasteText, setPasteText, pasteOpen, setPasteOpen }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -34,19 +38,19 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
   const [owner, setOwner] = useState("desktop");
   const [ctrl, setCtrl] = useState(false);
   const [alt, setAlt] = useState(false);
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
   const [copyText, setCopyText] = useState<string | null>(null);
   const [quickError, setQuickError] = useState("");
+  const [pasteError, setPasteError] = useState("");
 
   useEffect(() => { ctrlRef.current = ctrl; }, [ctrl]);
   useEffect(() => { altRef.current = alt; }, [alt]);
 
   const sendInput = useCallback((data: string) => {
     const modified = applyTerminalModifiers(data, ctrlRef.current, altRef.current);
-    send({ v: PROTOCOL_VERSION, type: "terminal.input", sessionId: session.id, data: modified });
-    if (ctrlRef.current) setCtrl(false);
-    if (altRef.current) setAlt(false);
+    const sent = send({ v: PROTOCOL_VERSION, type: "terminal.input", sessionId: session.id, data: modified });
+    if (sent && ctrlRef.current) setCtrl(false);
+    if (sent && altRef.current) setAlt(false);
+    return sent;
   }, [send, session.id]);
 
   useEffect(() => {
@@ -190,14 +194,19 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
         <button className={ctrl ? "latched" : ""} type="button" onClick={() => setCtrl((value) => !value)}>Ctrl</button>
         <button className={alt ? "latched" : ""} type="button" onClick={() => setAlt((value) => !value)}>Alt</button>
         {KEYS.map(([label, value]) => <button key={label} type="button" onClick={() => sendInput(value)}>{label}</button>)}
-        <button type="button" onClick={() => setPasteOpen(true)}>粘贴</button>
+        <button type="button" onClick={() => { setPasteError(""); setPasteOpen(true); }}>粘贴</button>
         <button type="button" onClick={copySelection}>复制</button>
       </div>
       {pasteOpen && (
         <div className="sheet-backdrop">
-          <form className="text-sheet" onSubmit={(event) => { event.preventDefault(); if (pasteText) sendInput(pasteText); setPasteText(""); setPasteOpen(false); }}>
+          <form className="text-sheet" onSubmit={(event) => {
+            event.preventDefault();
+            if (pasteText && !sendInput(pasteText)) { setPasteError("连接已断开，请重试。"); return; }
+            setPasteError(""); setPasteText(""); setPasteOpen(false);
+          }}>
             <h3>粘贴到终端</h3>
             <p>请长按下方文本框，使用系统或输入法剪贴板粘贴。</p>
+            {pasteError && <p role="alert">{pasteError}</p>}
             <textarea autoFocus value={pasteText} onChange={(event) => setPasteText(event.target.value)} />
             <div><button type="button" onClick={() => setPasteOpen(false)}>取消</button><button type="submit" className="primary">发送</button></div>
           </form>
