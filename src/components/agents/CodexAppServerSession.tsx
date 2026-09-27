@@ -1,13 +1,16 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, CircleCheck, CircleX, Code2, Copy, Ellipsis, File as FileIcon, FileDiff, FileSearch, FileText, Globe2, History, Image as ImageIcon, Minimize2, Package, Paperclip, Plus, RefreshCw, Search, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, CodexQuestionRequest, CodexQuestionAnswer, CodexMcpElicitation, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
+import { ArrowUp, BookOpen, Cable, ChevronRight, Copy, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
+import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
 import { CodexVersionControl } from "./CodexVersionControl";
 import { CodexPluginDialog } from "./CodexPluginDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
+import { DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
+import { AttachmentTile, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
+import { subscribeGraphicalSession } from "./graphicalSessionSubscription";
 
 const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
 const permissionLabels: Record<CodexExecutionPermission, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
@@ -47,16 +50,6 @@ function fileMentionAtCaret(value: string, caret: number): FileMention | null {
   if (!match) return null;
   return { start: prefix.length - match[0].length + match[0].lastIndexOf("@"), end: caret, query: match[1] };
 }
-const statusLabels: Record<string, string> = { completed: "已完成", inProgress: "进行中", in_progress: "进行中", pending: "待处理", failed: "失败", declined: "已拒绝" };
-const statusLabel = (status?: string) => statusLabels[status || ""] || status || "进行中";
-type SessionItem = CodexAppServerSnapshot["items"][number];
-type TeamMember = NonNullable<CodexAppServerSnapshot["team"]>["members"][number];
-type ToolDisplayItem = { kind: "item"; item: SessionItem } | { kind: "tools"; items: SessionItem[] };
-type DisplayItem = ToolDisplayItem
-  | { kind: "diagnostic"; event: Diagnostic }
-  | { kind: "diff"; diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] };
-const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
-const isTool = (item: SessionItem) => toolTypes.has(item.type);
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
 type Approval = CodexAppServerSnapshot["approvals"][number];
 function approvalAllows(approval: Approval, decision: string) {
@@ -70,7 +63,6 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
 }
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
 type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" };
-const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
 const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 type InlineImage = { token: string; path: string | null };
@@ -94,386 +86,6 @@ function orderedDraft(draft: string, images: InlineImage[]) {
 function userMessageCopyText(item: { text?: string; attachments?: Array<{ path: string }> }) {
   const attachments = item.attachments?.map(file => file.path) || [];
   return [item.text || "", attachments.length ? `附件：\n${attachments.join("\n")}` : ""].filter(Boolean).join("\n\n");
-}
-
-function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled }: {
-  sessionId: string; file: { path: string; name: string }; onPreview: () => void;
-  onRemove?: () => void; disabled?: boolean;
-}) {
-  const [thumbnail, setThumbnail] = useState("");
-  useEffect(() => {
-    if (!imageFile(file.name)) return;
-    let active = true;
-    void window.codexAppServerApi.previewAttachment(sessionId, file.path).then(result => {
-      if (active && result.kind === "image") setThumbnail(result.dataUrl);
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [sessionId, file.path, file.name]);
-  return <div className="codex-app-server-attachment-tile">
-    <button type="button" className="codex-app-server-attachment-open" title={file.name} aria-label={`预览 ${file.name}`} onClick={onPreview}>
-      {thumbnail ? <img src={thumbnail} alt="" /> : imageFile(file.name) ? <ImageIcon aria-hidden="true" /> : <FileText aria-hidden="true" />}
-      <span>{file.name}</span>
-    </button>
-    {onRemove && <button type="button" className="codex-app-server-attachment-remove" disabled={disabled} aria-label={`移除 ${file.name}`} onClick={onRemove}><X aria-hidden="true" /></button>}
-  </div>;
-}
-
-function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" }) {
-  const tabId = useId();
-  const [choices, setChoices] = useState<Record<string, string[]>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const questions = request.params.questions || [];
-  const hasAnswer = (question: typeof questions[number]) => {
-    const choice = choices[question.id]?.length;
-    const note = notes[question.id]?.trim();
-    return Boolean((choice || note) && (!question.options?.length || choice || question.isOther));
-  };
-  async function answer() {
-    if (sending || request.submitting) return;
-    const answers: Record<string, CodexQuestionAnswer> = {};
-    for (const [index, question] of questions.entries()) {
-      const choice = choices[question.id] || [];
-      const note = notes[question.id]?.trim();
-      if (!choice.length && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
-      if (question.options?.length && !choice.length && !question.isOther) {
-        setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
-      }
-      answers[question.id] = { answers: provider === "codebuddy"
-        ? [...(question.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
-        : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
-    }
-    setSending(true); setError("");
-    try { await window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers); }
-    catch (cause) { setError(message(cause)); }
-    finally { setSending(false); }
-  }
-  async function cancel() {
-    if (sending || request.submitting) return;
-    setSending(true); setError("");
-    try { await window.codexAppServerApi.cancelQuestion(sessionId, request.requestId); }
-    catch (cause) { setError(message(cause)); }
-    finally { setSending(false); }
-  }
-  const agentName = provider === "codebuddy" ? "CodeBuddy" : "Codex";
-  return <article className="codex-app-server-question" aria-label={`${agentName} 提问`}>
-    <strong>{agentName} 提问</strong>
-    {questions.length > 1 && <div className="codex-app-server-question-tabs" role="tablist" aria-label="切换问题">
-      {questions.map((question, index) => <button key={question.id} type="button" role="tab"
-        id={`${tabId}-tab-${index}`} aria-controls={`${tabId}-panel`} aria-selected={index === activeIndex}
-        onClick={() => { setActiveIndex(index); setError(""); }}>
-        <span>{index + 1}. {question.header || "问题"}</span>
-        <small>{hasAnswer(question) ? "已回答" : "待回答"}</small>
-      </button>)}
-    </div>}
-    {questions.slice(activeIndex, activeIndex + 1).map(question => <fieldset key={question.id} role={questions.length > 1 ? "tabpanel" : undefined}
-      id={questions.length > 1 ? `${tabId}-panel` : undefined}
-      aria-labelledby={questions.length > 1 ? `${tabId}-tab-${activeIndex}` : undefined}>
-      <legend><span>{question.header}</span>{question.question}</legend>
-      {question.options?.map(option => <label className="codex-app-server-question-option" key={option.label}>
-         <input type={question.multiSelect ? "checkbox" : "radio"} name={`question-${request.requestId}-${question.id}`} value={option.label}
-           checked={choices[question.id]?.includes(option.label) || false} disabled={sending || request.submitting}
-           onChange={() => { setChoices(current => ({ ...current, [question.id]: question.multiSelect
-             ? current[question.id]?.includes(option.label) ? current[question.id].filter(value => value !== option.label) : [...(current[question.id] || []), option.label]
-             : [option.label] })); if (provider === "codebuddy" && !question.multiSelect) setNotes(current => ({ ...current, [question.id]: "" })); setError(""); }} />
-        <span><strong>{option.label}</strong><small>{option.description}</small></span>
-      </label>)}
-      <label className="codex-app-server-question-note">
-        <span>{question.options?.length ? provider === "codebuddy" ? "自定义回答" : "补充说明或自定义回答" : "回答"}</span>
-         {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
-           onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
-             if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />
-          : <textarea value={notes[question.id] || ""} disabled={sending || request.submitting}
-             onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
-               if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />}
-      </label>
-    </fieldset>)}
-    {error && <p role="alert">{error}</p>}
-    <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
-      {sending || request.submitting ? "正在提交…" : "提交回答"}
-    </button>
-    {provider === "codebuddy" && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
-  </article>;
-}
-
-function McpElicitationCard({ sessionId, request }: { sessionId: string; request: CodexMcpElicitation }) {
-  const { params } = request;
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [rawJson, setRawJson] = useState("{}");
-  const [sending, setSending] = useState(false);
-  const [opened, setOpened] = useState(false);
-  const [error, setError] = useState("");
-  const schema = params.requestedSchema;
-  const properties = schema?.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
-    ? Object.entries(schema.properties as Record<string, unknown>) : [];
-  const required = Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
-  const isForm = params.mode !== "url";
-
-  function formContent(): Record<string, unknown> {
-    if (!properties.length) {
-      const parsed: unknown = JSON.parse(rawJson);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("请输入 JSON 对象。");
-      for (const name of required) if (!Object.prototype.hasOwnProperty.call(parsed, name)) throw new Error(`请填写「${name}」。`);
-      return parsed as Record<string, unknown>;
-    }
-    const content: Record<string, unknown> = Object.create(null);
-    for (const [name, rawField] of properties) {
-      const field = rawField && typeof rawField === "object" ? rawField as Record<string, unknown> : {};
-      const value = values[name] ?? "";
-      if (!value.trim()) { if (required.includes(name)) throw new Error(`请填写「${String(field.title || name)}」。`); continue; }
-      if (field.type === "boolean") content[name] = value === "true";
-      else if (field.type === "number" || field.type === "integer") {
-        const number = Number(value);
-        if (!Number.isFinite(number) || (field.type === "integer" && !Number.isInteger(number))) throw new Error(`「${String(field.title || name)}」需要有效数字。`);
-        content[name] = number;
-      } else if (field.type === "object" || field.type === "array") {
-        let parsed: unknown;
-        try { parsed = JSON.parse(value); } catch { throw new Error(`「${String(field.title || name)}」需要有效 JSON。`); }
-        if (field.type === "array" ? !Array.isArray(parsed) : !parsed || typeof parsed !== "object" || Array.isArray(parsed))
-          throw new Error(`「${String(field.title || name)}」的数据类型不正确。`);
-        content[name] = parsed;
-      } else content[name] = value;
-      if (Array.isArray(field.enum) && !field.enum.includes(content[name])) throw new Error(`「${String(field.title || name)}」不在可选范围内。`);
-      if (typeof field.minLength === "number" && typeof content[name] === "string" && content[name].length < field.minLength)
-        throw new Error(`「${String(field.title || name)}」内容太短。`);
-      if (typeof field.maxLength === "number" && typeof content[name] === "string" && content[name].length > field.maxLength)
-        throw new Error(`「${String(field.title || name)}」内容太长。`);
-      if (typeof field.minimum === "number" && typeof content[name] === "number" && content[name] < field.minimum)
-        throw new Error(`「${String(field.title || name)}」小于允许值。`);
-      if (typeof field.maximum === "number" && typeof content[name] === "number" && content[name] > field.maximum)
-        throw new Error(`「${String(field.title || name)}」大于允许值。`);
-    }
-    return content;
-  }
-  async function respond(action: "accept" | "decline" | "cancel") {
-    if (sending || request.submitting) return;
-    let content: Record<string, unknown> | null = null;
-    try { if (action === "accept" && isForm) content = formContent(); }
-    catch (cause) { setError(message(cause)); return; }
-    setSending(true); setError("");
-    try { await window.codexAppServerApi.resolveElicitation(sessionId, request.requestId, action, content); }
-    catch (cause) { setError(message(cause)); }
-    finally { setSending(false); }
-  }
-  async function openUrl() {
-    if (!params.url) return;
-    await window.externalLinkApi.open(params.url);
-    setOpened(true); setError("");
-  }
-  return <article className="codex-app-server-elicitation" aria-label="MCP 交互请求">
-    <strong>{params.serverName} · {isForm ? "需要填写信息" : "需要打开链接"}</strong>
-    <p>{params.message}</p>
-    {isForm ? properties.length ? <div className="codex-app-server-elicitation-fields">{properties.map(([name, rawField]) => {
-      const field = rawField && typeof rawField === "object" ? rawField as Record<string, unknown> : {};
-      const label = String(field.title || name);
-      const value = values[name] ?? "";
-      const disabled = sending || request.submitting;
-      const update = (next: string) => { setValues(current => ({ ...current, [name]: next })); setError(""); };
-      return <label key={name}><span>{label}{required.includes(name) ? " *" : ""}</span>
-        {typeof field.description === "string" && <small>{field.description}</small>}
-        {Array.isArray(field.enum) ? <select value={value} disabled={disabled} onChange={event => update(event.target.value)}>
-          <option value="">请选择</option>{field.enum.map(option => <option key={JSON.stringify(option)} value={String(option)}>{String(option)}</option>)}
-        </select> : field.type === "boolean" ? <select value={value} disabled={disabled} onChange={event => update(event.target.value)}>
-          <option value="">请选择</option><option value="true">是</option><option value="false">否</option>
-        </select> : field.type === "object" || field.type === "array" ? <textarea value={value} disabled={disabled}
-          placeholder={field.type === "array" ? "[]" : "{}"} onChange={event => update(event.target.value)} />
-          : <input type={field.writeOnly === true || field.format === "password" ? "password" : field.type === "number" || field.type === "integer" ? "number" : "text"}
-            value={value} disabled={disabled} onChange={event => update(event.target.value)} />}
-      </label>;
-    })}</div> : <label className="codex-app-server-elicitation-fields"><span>JSON 表单内容</span>
-      <textarea value={rawJson} disabled={sending || request.submitting} onChange={event => { setRawJson(event.target.value); setError(""); }} />
-    </label> : <div className="codex-app-server-elicitation-url"><code>{params.url}</code>
-      <button type="button" disabled={sending || request.submitting} onClick={() => void openUrl().catch(cause => setError(message(cause)))}>打开链接</button>
-      {opened && <small>链接已打开。完成外部操作后再确认。</small>}
-    </div>}
-    {error && <p role="alert">{error}</p>}
-    <div className="codex-app-server-elicitation-actions">
-      <button type="button" disabled={sending || request.submitting} onClick={() => void respond("cancel")}>取消</button>
-      <button type="button" disabled={sending || request.submitting} onClick={() => void respond("decline")}>拒绝</button>
-      <button type="button" className="primary" disabled={sending || request.submitting || (!isForm && !opened)} onClick={() => void respond("accept")}>{isForm ? "提交" : "已完成"}</button>
-    </div>
-  </article>;
-}
-
-function groupTools(items: SessionItem[]): ToolDisplayItem[] {
-  const result: ToolDisplayItem[] = [];
-  const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
-  const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
-  for (const item of items) {
-    if (isHidden(item)) continue;
-    const previous = result.at(-1);
-    if (isTool(item)) {
-      if (previous?.kind === "tools" && sameTurn(previous.items[0], item)) previous.items.push(item);
-      else result.push({ kind: "tools", items: [item] });
-    } else result.push({ kind: "item", item });
-  }
-  return result;
-}
-
-function toolPresentation(item: SessionItem) {
-  const kind = item.type === "fileChange" || ["read", "edit", "delete", "move"].includes(item.toolKind || "") ? "file"
-    : item.type === "webSearch" || item.toolKind === "search" ? "search"
-      : item.toolKind === "fetch" ? "web" : item.type === "commandExecution" || item.toolKind === "execute" ? "command" : "other";
-  const Icon = kind === "file" ? FileDiff : kind === "search" ? Search : kind === "web" ? Globe2 : kind === "command" ? Terminal : Wrench;
-  const label = kind === "file" ? "文件变更" : kind === "search" ? "搜索" : kind === "web" ? "网页读取" : kind === "command" ? "执行命令" : "工具调用";
-  return { kind, Icon, label };
-}
-
-function codeBuddyToolPresentation(item: SessionItem) {
-  const labels: Record<string, string> = {
-    read: "读取文件", write: "写入文件", edit: "编辑文件", delete: "删除文件", move: "移动文件",
-    search: "搜索", fetch: "网页读取", execute: "执行命令"
-  };
-  const label = labels[item.toolKind || ""] || toolPresentation(item).label;
-  if (!item.toolName && item.command) return { label, summary: item.command.trim().split(/\r?\n/, 1)[0] };
-  const output = item.output?.trim() || "";
-  if (output && output.length <= 80 && !/[\r\n]/.test(output)) return { label, summary: output };
-  const titlePath = item.toolName?.replace(/\s+\(\d+\s*-\s*\d+\)$/, "").match(/^(?:Read|Edit|Write|Delete|Move)\s+(.+)$/i)?.[1];
-  const target = item.locations?.[0]?.path || item.locations?.[0]?.uri || titlePath || "";
-  return { label, summary: target.split(/[\\/]/).pop() || "" };
-}
-
-function toolDetails(item: SessionItem) {
-  if (item.type === "fileChange" && Array.isArray(item.changes)) return <><div className="codex-app-server-tool-files">{item.changes.map((change, index) => {
-    const value = change && typeof change === "object" ? change as Record<string, unknown> : {};
-    return <div key={`${String(value.path || "file")}-${index}`}><FileText aria-hidden="true" /><span>{String(value.path || value.filePath || "未知文件")}</span><small>{String(value.kind || value.type || "变更")}</small></div>;
-  })}</div><details className="codex-app-server-tool-raw"><summary>原始变更</summary><pre>{JSON.stringify(item.changes, null, 2)}</pre></details></>;
-  if (item.locations?.length) return <div className="codex-app-server-tool-files">{item.locations.map((location, index) => <div key={index}><FileSearch aria-hidden="true" /><span>{location.path || location.uri || "相关位置"}</span></div>)}</div>;
-  return null;
-}
-
-function ToolCard({ item, codeBuddy = false }: { item: SessionItem; codeBuddy?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const detailsId = useId();
-  const { kind, Icon, label } = toolPresentation(item);
-  const firstChange = Array.isArray(item.changes) ? item.changes[0] : null;
-  const changedFile = firstChange && typeof firstChange === "object" ? String((firstChange as Record<string, unknown>).path || (firstChange as Record<string, unknown>).filePath || "") : "";
-  const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
-  const summary = presentation?.summary ?? (item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "");
-  return <div className="codex-app-server-tool">
-    <button type="button" className="codex-app-server-tool-heading" data-kind={kind} data-status={item.status}
-      aria-expanded={expanded} aria-controls={expanded ? detailsId : undefined} onClick={() => setExpanded(current => !current)}>
-      <ChevronRight className="codex-app-server-tool-chevron" aria-hidden="true" /><Icon aria-hidden="true" />
-      <strong>{presentation?.label || item.toolName || item.tool || label}</strong>{summary && <span className="codex-app-server-tool-summary" title={summary}>{summary}</span>}
-      <span className="codex-app-server-tool-status">{item.status === "completed" ? <CircleCheck aria-hidden="true" /> : item.status === "failed" || item.status === "declined" ? <CircleX aria-hidden="true" /> : <span className="codex-app-server-tool-spinner" aria-hidden="true" />}{statusLabel(item.status)}</span>
-    </button>
-    {expanded && <div id={detailsId} className="codex-app-server-tool-details">
-      {codeBuddy && item.toolName && <pre className="codex-app-server-tool-command">{item.toolName}</pre>}
-      {item.command && <pre className="codex-app-server-tool-command">{item.command}</pre>}
-      {item.server && <p className="codex-app-server-tool-query">{item.server}</p>}
-      {item.query && <p className="codex-app-server-tool-query">{item.query}</p>}
-      {item.arguments != null && <pre className="codex-app-server-tool-command">{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
-      {toolDetails(item)}
-      {item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
-      {item.result != null && <pre className="codex-app-server-tool-output">{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
-      {item.changes != null && !Array.isArray(item.changes) && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-      {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && !(codeBuddy && item.toolName) && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
-    </div>}
-  </div>;
-}
-
-function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { items: SessionItem[]; expanded: boolean; onToggle: () => void; codeBuddy?: boolean }) {
-  const status = toolGroupStatus(items);
-  return <section className="codex-app-server-event" data-status={status}>
-    <button type="button" className="codex-app-server-event-summary" aria-expanded={expanded} onClick={onToggle}>
-      <ChevronRight className="codex-app-server-event-chevron" aria-hidden="true" />
-      <span className="codex-app-server-event-glyph"><Code2 aria-hidden="true" /></span>
-      <strong>工具调用 · {items.length} 项</strong><span className="codex-app-server-event-status">{status}</span>
-    </button>
-    {expanded && items.map(item => <ToolCard item={item} codeBuddy={codeBuddy} key={item.id} />)}
-  </section>;
-}
-
-const teamStatusLabels: Record<string, string> = {
-  running: "运行中", idle: "空闲", paused: "已暂停", completed: "已完成", failed: "失败",
-  cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
-};
-
-function TeamMemberTimeline({ member, onLinkClick }: { member: TeamMember; onLinkClick?: (href: string) => void }) {
-  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
-  return <div className="codex-app-server-team-timeline" aria-label={`${member.name} 的消息时间线`}>
-    {!member.items.length && <p className="codex-app-server-team-empty">暂无成员消息。</p>}
-    {groupTools(member.items).map(entry => {
-      if (entry.kind === "tools") {
-        const groupId = entry.items[0].id;
-        return <ToolGroup key={groupId} items={entry.items} codeBuddy expanded={expandedGroupId === groupId}
-          onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
-      }
-      const item = entry.item;
-      if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
-        {item.type === "userMessage" ? <p>{item.text}</p>
-          : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
-      </article>;
-      if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
-        <strong>计划进度</strong><ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
-      </article>;
-      return null;
-    })}
-  </div>;
-}
-
-function toolGroupStatus(items: SessionItem[]) {
-  if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
-  if (items.every(item => item.status === "completed")) return "已完成";
-  return "进行中";
-}
-
-type Diagnostic = NonNullable<CodexAppServerSnapshot["diagnostics"]>[number];
-const diagnosticNames: Record<string, string> = {
-  configWarning: "配置警告", warning: "运行警告",
-  "model/rerouted": "模型重路由", "model/safetyBuffering/updated": "模型安全缓冲",
-  "model/verification": "模型验证", error: "运行错误"
-};
-const errorNames: Record<string, string> = {
-  ContextWindowExceeded: "上下文窗口已满", UsageLimitExceeded: "用量限制", HttpConnectionFailed: "上游连接失败",
-  ResponseStreamConnectionFailed: "响应流连接失败", ResponseStreamDisconnected: "响应流中断",
-  ResponseTooManyFailedAttempts: "重试次数过多", BadRequest: "请求无效", Unauthorized: "身份验证失败",
-  SandboxError: "沙箱错误", InternalServerError: "服务内部错误", Other: "其他错误"
-};
-function diagnosticSummary(event: Diagnostic) {
-  const data = event.payload;
-  if (event.kind === "configWarning") return String(data.summary || "配置需要检查");
-  if (event.kind === "warning" || event.kind === "error") return String(data.message || "运行遇到问题");
-  if (event.kind === "model/rerouted") return `${String(data.fromModel || "原模型")} → ${String(data.toModel || "目标模型")}`;
-  if (event.kind === "model/verification") return "需要额外账户验证";
-  return event.kind === "model/safetyBuffering/updated" ? "响应正在安全缓冲" : "查看详情";
-}
-function DiagnosticCard({ event }: { event: Diagnostic }) {
-  const data = event.payload;
-  const kind = event.kind === "error" || event.kind.includes("Warning") || event.kind === "warning" ? "warning" : "info";
-  return <details className="codex-app-server-diagnostic" data-kind={kind}>
-    <summary><span>{diagnosticNames[event.kind] || event.kind}</span><strong>{diagnosticSummary(event)}</strong>
-      <time dateTime={new Date(event.at).toISOString()}>{new Date(event.at).toLocaleTimeString()}</time></summary>
-    {event.kind === "error" && typeof data.kind === "string" && <p>类别：{errorNames[data.kind] || data.kind}{typeof data.httpStatusCode === "number" ? ` · HTTP ${data.httpStatusCode}` : ""}</p>}
-    {event.kind === "configWarning" && typeof data.path === "string" && <p>配置文件：{data.path}</p>}
-    {event.kind === "configWarning" && typeof data.details === "string" && <p>{data.details}</p>}
-    <pre>{JSON.stringify(data, null, 2)}</pre>
-  </details>;
-}
-function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
-  const groups = groupTools(snapshot.items);
-  const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
-  const diffs = snapshot.turnDiffs || [];
-  const lastIndex = new Map<string, number>();
-  groups.forEach((group, index) => {
-    const turnId = group.kind === "tools" ? group.items.at(-1)?.turnId : group.item.turnId;
-    if (turnId) lastIndex.set(turnId, index);
-  });
-  const result: DisplayItem[] = events.filter(event => !event.turnId).map(event => ({ kind: "diagnostic", event }));
-  groups.forEach((group, index) => {
-    result.push(group);
-    const turnId = group.kind === "tools" ? group.items.at(-1)?.turnId : group.item.turnId;
-    if (!turnId || lastIndex.get(turnId) !== index) return;
-    result.push(...events.filter(event => event.turnId === turnId).map(event => ({ kind: "diagnostic" as const, event })));
-    const diff = diffs.find(value => value.turnId === turnId);
-    if (diff) result.push({ kind: "diff", diff });
-  });
-  const seenTurns = new Set(lastIndex.keys());
-  result.push(...events.filter(event => event.turnId && !seenTurns.has(event.turnId)).map(event => ({ kind: "diagnostic", event } as DisplayItem)));
-  result.push(...diffs.filter(diff => !seenTurns.has(diff.turnId)).map(diff => ({ kind: "diff", diff } as DisplayItem)));
-  return result;
 }
 
 export type CodexAppServerSessionHandle = {
@@ -628,8 +240,6 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }));
 
   useEffect(() => {
-    let active = true;
-    let receivedChange = false;
     loadedSessionIdRef.current = null;
     timelineRef.current = null;
     setSnapshot(empty);
@@ -684,20 +294,15 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setLoadingHistory(false);
     setResumingHistory(false);
     historyRequestRef.current += 1;
-    void window.codexAppServerApi.snapshot(sessionId).then(value => { if (active && !receivedChange) { loadedSessionIdRef.current = sessionId; timelineRef.current = value; setSnapshot(value); } })
-      .catch(cause => { if (active) setError(message(cause)); });
-    const off = window.codexAppServerApi.onChanged(payload => {
-      if (active && payload.id === sessionId) {
-        receivedChange = true;
+    return subscribeGraphicalSession(sessionId, {
+      onSnapshot(next) {
         loadedSessionIdRef.current = sessionId;
-        const next = payload.snapshot;
-        const previous = timelineRef.current;
-        if (previous?.threadId !== next.threadId) setExpandedGroupId(null);
+        if (timelineRef.current?.threadId !== next.threadId) setExpandedGroupId(null);
         timelineRef.current = next;
         setSnapshot(next);
-      }
+      },
+      onError(cause) { setError(message(cause)); }
     });
-    return () => { active = false; off(); };
   }, [sessionId]);
   useEffect(() => {
     if (!snapshot.error) setDismissedSnapshotError(null);

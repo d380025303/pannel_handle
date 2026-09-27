@@ -3,8 +3,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
 import { GraphicalUsage } from "./GraphicalUsage";
+import { GraphicalQuestionCard } from "./GraphicalQuestionCard";
+import { canSwitchMode, effortLabel, groupTimeline, modelLabel, modelOptions, permissionLabel, providerLabel, ToolItem, toolStatus } from "./GraphicalPresentation";
 import { QuickCommandPicker } from "./QuickCommandPicker";
-import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalItem, type GraphicalQuestion, type GraphicalSnapshot,
+import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalSnapshot,
   type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
@@ -15,167 +17,8 @@ type Props = {
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void;
 };
 
-function providerLabel(provider?: string) {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : "Codex";
-}
-
-const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];
 const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | null;
-function canSwitchMode(snapshot: GraphicalSnapshot, mode: "default" | "plan") {
-  if (snapshot.provider === "codex") return mode === "default" || snapshot.capabilities?.plan !== false;
-  const modes = snapshot.nativeModes || [];
-  return mode === "plan" ? modes.some(value => /plan/i.test(value.id))
-    : modes.some(value => execModeIds.some(id => id.toLowerCase() === value.id.toLowerCase()));
-}
-function configLabel(snapshot: GraphicalSnapshot, id: "model" | "effort") {
-  const option = snapshot.acpOptions?.find(value => value.id === id);
-  const value = typeof option?.currentValue === "string" ? option.currentValue : null;
-  return value ? option?.options.find(entry => entry.value === value)?.name || value : null;
-}
-function modelLabel(snapshot: GraphicalSnapshot) {
-  const model = configLabel(snapshot, "model");
-  if (model) return model;
-  const id = snapshot.model || snapshot.effectiveModel;
-  return id ? snapshot.models?.find(value => value.id === id)?.displayName || id : "未提供";
-}
-function modelOptions(snapshot: GraphicalSnapshot) {
-  if (snapshot.provider === "codex") return snapshot.backend === "openai"
-    ? (snapshot.models || []).map(model => ({ value: model.id, name: model.displayName })) : [];
-  return snapshot.acpOptions?.find(option => option.id === "model")?.options || [];
-}
-function effortLabel(snapshot: GraphicalSnapshot) {
-  const effort = configLabel(snapshot, "effort") || snapshot.effort;
-  const labels: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" };
-  return effort ? labels[effort] || effort : "未提供";
-}
-function permissionLabel(permission?: string | null) {
-  const labels: Record<string, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
-  return permission ? labels[permission] || permission : null;
-}
-
-type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
-const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
-const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"]);
-function groupTimeline(items: GraphicalItem[]): TimelineEntry[] {
-  const entries: TimelineEntry[] = [];
-  for (const item of items) {
-    if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)) continue;
-    const previous = entries.at(-1);
-    if (toolTypes.has(item.type)) {
-      if (previous?.kind === "tools" && (!previous.items[0].turnId || !item.turnId || previous.items[0].turnId === item.turnId))
-        previous.items.push(item);
-      else entries.push({ kind: "tools", items: [item] });
-    } else entries.push({ kind: "item", item });
-  }
-  return entries;
-}
-function toolStatus(items: GraphicalItem[]) {
-  if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
-  if (items.every(item => item.status === "completed")) return "已完成";
-  return "进行中";
-}
-function itemStatus(status?: string) {
-  return status === "completed" ? "已完成" : status === "failed" ? "失败" : status === "declined" ? "已拒绝"
-    : status === "inProgress" ? "进行中" : status === "pending" ? "等待中" : status || "进行中";
-}
-function toolLabel(item: GraphicalItem) {
-  if (item.toolName || item.tool) return item.toolName || item.tool;
-  if (item.type === "fileChange") return "文件变更";
-  if (item.type === "webSearch") return "搜索";
-  if (item.type === "commandExecution" || item.toolKind === "execute") return "执行命令";
-  return "工具调用";
-}
-function toolSummary(item: GraphicalItem) {
-  const change = Array.isArray(item.changes) ? item.changes[0] : null;
-  const changedFile = change && typeof change === "object" ? String((change as Record<string, unknown>).path || (change as Record<string, unknown>).filePath || "") : "";
-  return item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
-}
-function codeBuddyToolPresentation(item: GraphicalItem) {
-  const labels: Record<string, string> = {
-    read: "读取文件", write: "写入文件", edit: "编辑文件", delete: "删除文件", move: "移动文件",
-    search: "搜索", fetch: "网页读取", execute: "执行命令"
-  };
-  const label = labels[item.toolKind || ""] || toolLabel({ ...item, toolName: undefined, tool: undefined });
-  if (!item.toolName && item.command) return { label, summary: item.command.trim().split(/\r?\n/, 1)[0] };
-  const output = item.output?.trim() || "";
-  if (output && output.length <= 80 && !/[\r\n]/.test(output)) return { label, summary: output };
-  const titlePath = item.toolName?.replace(/\s+\(\d+\s*-\s*\d+\)$/, "").match(/^(?:Read|Edit|Write|Delete|Move)\s+(.+)$/i)?.[1];
-  const target = item.locations?.[0]?.path || item.locations?.[0]?.uri || titlePath || "";
-  return { label, summary: target.split(/[\\/]/).pop() || "" };
-}
-function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; codeBuddy?: boolean }) {
-  const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
-  return <details className="graphical-tool">
-    <summary><span className="graphical-tool-label">{presentation?.label || toolLabel(item)}</span><span className="graphical-tool-summary">{presentation?.summary ?? toolSummary(item)}</span>
-      <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
-    <div className="graphical-tool-details">
-      {codeBuddy && item.toolName && <pre>{item.toolName}</pre>}
-      {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
-      {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
-      {item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}
-      {item.result != null && <pre>{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
-      {item.changes != null && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-      {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}</p>)}
-      {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output && !(codeBuddy && item.toolName)
-        && item.result == null && item.changes == null && !item.locations?.length && <p>等待工具返回内容…</p>}
-    </div>
-  </details>;
-}
-
-function QuestionCard({ question, provider, onAnswer, onCancel }: {
-  question: GraphicalQuestion;
-  provider: AgentProvider;
-  onAnswer: (id: number | string, answers: Record<string, { answers: string[] }>) => void;
-  onCancel: (id: number | string) => void;
-}) {
-  const [choices, setChoices] = useState<Record<string, string[]>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [error, setError] = useState("");
-  const submit = () => {
-    const answers: Record<string, { answers: string[] }> = {};
-    for (const entry of question.params.questions) {
-      const choice = choices[entry.id] || [];
-      const note = (notes[entry.id] || "").trim();
-      if ((!choice.length && !note) || (entry.options?.length && !choice.length && !entry.isOther)) {
-        setError(`请回答「${entry.header || entry.question}」。`);
-        return;
-      }
-      answers[entry.id] = { answers: provider === "codebuddy"
-        ? [...(entry.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
-        : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
-    }
-    setError("");
-    onAnswer(question.requestId, answers);
-  };
-  return <article className="graphical-card" aria-label="待回答问题">
-    <strong>需要回答</strong>
-    {question.params.questions.map(entry => <div className="graphical-question" key={entry.id}>
-      <span>{entry.question}</span>
-      {entry.options?.length && entry.multiSelect ? entry.options.map(option => <label className="graphical-question-choice" key={option.label}>
-        <input type="checkbox" checked={choiceIncludes(choices[entry.id], option.label)}
-          onChange={() => setChoices(current => ({ ...current, [entry.id]: choiceIncludes(current[entry.id], option.label)
-            ? current[entry.id].filter(value => value !== option.label) : [...(current[entry.id] || []), option.label] }))} />
-        {option.label}{option.description ? ` · ${option.description}` : ""}
-      </label>) : entry.options?.length ? <select aria-label={entry.question} value={choices[entry.id]?.[0] || ""} onChange={event => {
-        setChoices(current => ({ ...current, [entry.id]: event.target.value ? [event.target.value] : [] }));
-        if (provider === "codebuddy") setNotes(current => ({ ...current, [entry.id]: "" }));
-      }}>
-        <option value="">请选择</option>
-        {entry.options.map(option => <option key={option.label} value={option.label}>{option.label}{option.description ? ` · ${option.description}` : ""}</option>)}
-      </select> : null}
-      <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
-        onChange={event => { setNotes(current => ({ ...current, [entry.id]: event.target.value }));
-          if (provider === "codebuddy" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />
-    </div>)}
-    {error && <p role="alert">{error}</p>}
-    <button type="button" className="primary" disabled={question.submitting} onClick={submit}>提交回答</button>
-    {provider === "codebuddy" && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}>取消提问</button>}
-  </article>;
-}
-
-function choiceIncludes(choices: string[] | undefined, label: string) { return choices?.includes(label) || false; }
-
 export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const [draft, setDraft] = useState("");
@@ -510,7 +353,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
           : <div className="graphical-actions"><button type="button" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: false })}>拒绝</button>
             <button type="button" className="primary" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: true })}>批准一次</button></div>}
       </article>)}
-      {snapshot.questions.map(question => <QuestionCard key={question.requestId} question={question} provider={snapshot.provider}
+      {snapshot.questions.map(question => <GraphicalQuestionCard key={question.requestId} question={question} provider={snapshot.provider}
         onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })}
         onCancel={questionId => action({ type: "graphical.cancelQuestion", questionId })} />)}
     </div>

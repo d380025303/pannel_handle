@@ -10,6 +10,7 @@ const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const { waitForEndpoint, createCodeBuddyHttpTransport, sanitizeDiagnostic } = require("./http-transport.cjs");
 const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
 const { codeBuddyInheritanceArgs } = require("./codex-inheritance.cjs");
+const { createAcpProviderPolicy } = require("./provider-policy.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PUBLISH_COALESCE_MS = 50;
@@ -106,7 +107,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   onTokenUsageCheckpoint = () => {} }) {
   const sessions = new Map();
   const publishTimers = new Map();
-  const agentName = provider === "opencode" ? "OpenCode" : "CodeBuddy";
+  const policy = createAcpProviderPolicy(provider);
+  const agentName = policy.agentName;
   function savedOptions(entry) {
     if (provider !== "codebuddy") return {};
     return (entry.session.templateId && sessionStore?.getTemplate(entry.session.templateId)?.codeBuddyGraphicalOptions)
@@ -170,23 +172,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     reflectNativeMode(entry);
   }
   function updateCapabilities(entry) {
-    entry.capabilities.plan = entry.modes.some(mode => /plan/i.test(mode.id));
-    entry.capabilities.multitask = provider === "codebuddy" && entry.multitaskSupport === true;
-    if (provider === "opencode") {
-      entry.capabilities.supportedPermissions = [];
-      return;
-    }
-    entry.capabilities.supportedPermissions = [
-      ...(entry.modes.some(mode => mode.id === "plan") ? ["readOnly"] : []),
-      ...(entry.modes.some(mode => mode.id === "default") ? ["askApproval"] : []),
-      ...(entry.modes.some(mode => mode.id === "bypassPermissions") ? ["fullAccess"] : [])
-    ];
+    policy.updateCapabilities(entry);
   }
   function reflectNativeMode(entry) {
-    entry.mode = /plan/i.test(entry.nativeMode || "") ? "plan" : "default";
-    if (provider === "opencode") { entry.executionPermission = "askApproval"; return; }
-    entry.executionPermission = entry.nativeMode === "bypassPermissions" || entry.nativeMode === "fullAccess"
-      ? "fullAccess" : "askApproval";
+    policy.reflectNativeMode(entry);
   }
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const workspace = entry => entry.runtime.workspaceCwd || entry.session.cwd;
@@ -653,7 +642,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const entry = entryFor(id);
     if (entry.runtime.requiredMode) throw new Error("本机 SSH 桥接不允许切换受限 Agent 模式。");
     if (entry.busy) throw new Error("当前轮次尚未结束。");
-    const native = entry.modes.find(value => mode === "plan" ? /plan/i.test(value.id) : /^(default|normal|code|ask|build)$/i.test(value.id));
+    const native = policy.findMode(entry, mode);
     if (!native) throw new Error(`当前 ${agentName} CLI 不支持${mode === "plan" ? "计划" : "执行"}模式。`);
     if (native.id === entry.nativeMode) return snapshot(id);
     if (provider === "opencode" && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", native.id);

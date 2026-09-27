@@ -1,0 +1,108 @@
+import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
+
+export function providerLabel(provider?: string) {
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : "Codex";
+}
+
+const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];
+export function canSwitchMode(snapshot: GraphicalSnapshot, mode: "default" | "plan") {
+  if (snapshot.provider === "codex") return mode === "default" || snapshot.capabilities?.plan !== false;
+  const modes = snapshot.nativeModes || [];
+  return mode === "plan" ? modes.some(value => /plan/i.test(value.id))
+    : modes.some(value => execModeIds.some(id => id.toLowerCase() === value.id.toLowerCase()));
+}
+function configLabel(snapshot: GraphicalSnapshot, id: "model" | "effort") {
+  const option = snapshot.acpOptions?.find(value => value.id === id);
+  const value = typeof option?.currentValue === "string" ? option.currentValue : null;
+  return value ? option?.options.find(entry => entry.value === value)?.name || value : null;
+}
+export function modelLabel(snapshot: GraphicalSnapshot) {
+  const model = configLabel(snapshot, "model");
+  if (model) return model;
+  const id = snapshot.model || snapshot.effectiveModel;
+  return id ? snapshot.models?.find(value => value.id === id)?.displayName || id : "未提供";
+}
+export function modelOptions(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider === "codex") return snapshot.backend === "openai"
+    ? (snapshot.models || []).map(model => ({ value: model.id, name: model.displayName })) : [];
+  return snapshot.acpOptions?.find(option => option.id === "model")?.options || [];
+}
+export function effortLabel(snapshot: GraphicalSnapshot) {
+  const effort = configLabel(snapshot, "effort") || snapshot.effort;
+  const labels: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" };
+  return effort ? labels[effort] || effort : "未提供";
+}
+export function permissionLabel(permission?: string | null) {
+  const labels: Record<string, string> = { readOnly: "只读", askApproval: "需要确认", fullAccess: "完全访问" };
+  return permission ? labels[permission] || permission : null;
+}
+
+type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
+const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
+const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"]);
+export function groupTimeline(items: GraphicalItem[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+  for (const item of items) {
+    if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)) continue;
+    const previous = entries.at(-1);
+    if (toolTypes.has(item.type)) {
+      if (previous?.kind === "tools" && (!previous.items[0].turnId || !item.turnId || previous.items[0].turnId === item.turnId))
+        previous.items.push(item);
+      else entries.push({ kind: "tools", items: [item] });
+    } else entries.push({ kind: "item", item });
+  }
+  return entries;
+}
+export function toolStatus(items: GraphicalItem[]) {
+  if (items.some(item => item.status === "failed" || item.status === "declined")) return "有失败";
+  if (items.every(item => item.status === "completed")) return "已完成";
+  return "进行中";
+}
+function itemStatus(status?: string) {
+  return status === "completed" ? "已完成" : status === "failed" ? "失败" : status === "declined" ? "已拒绝"
+    : status === "inProgress" ? "进行中" : status === "pending" ? "等待中" : status || "进行中";
+}
+function toolLabel(item: GraphicalItem) {
+  if (item.toolName || item.tool) return item.toolName || item.tool;
+  if (item.type === "fileChange") return "文件变更";
+  if (item.type === "webSearch") return "搜索";
+  if (item.type === "commandExecution" || item.toolKind === "execute") return "执行命令";
+  return "工具调用";
+}
+function toolSummary(item: GraphicalItem) {
+  const change = Array.isArray(item.changes) ? item.changes[0] : null;
+  const changedFile = change && typeof change === "object" ? String((change as Record<string, unknown>).path || (change as Record<string, unknown>).filePath || "") : "";
+  return item.command?.trim().split(/\r?\n/, 1)[0] || item.query || item.locations?.[0]?.path || changedFile || item.server || "";
+}
+function codeBuddyToolPresentation(item: GraphicalItem) {
+  const labels: Record<string, string> = {
+    read: "读取文件", write: "写入文件", edit: "编辑文件", delete: "删除文件", move: "移动文件",
+    search: "搜索", fetch: "网页读取", execute: "执行命令"
+  };
+  const label = labels[item.toolKind || ""] || toolLabel({ ...item, toolName: undefined, tool: undefined });
+  if (!item.toolName && item.command) return { label, summary: item.command.trim().split(/\r?\n/, 1)[0] };
+  const output = item.output?.trim() || "";
+  if (output && output.length <= 80 && !/[\r\n]/.test(output)) return { label, summary: output };
+  const titlePath = item.toolName?.replace(/\s+\(\d+\s*-\s*\d+\)$/, "").match(/^(?:Read|Edit|Write|Delete|Move)\s+(.+)$/i)?.[1];
+  const target = item.locations?.[0]?.path || item.locations?.[0]?.uri || titlePath || "";
+  return { label, summary: target.split(/[\\/]/).pop() || "" };
+}
+export function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; codeBuddy?: boolean }) {
+  const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
+  return <details className="graphical-tool">
+    <summary><span className="graphical-tool-label">{presentation?.label || toolLabel(item)}</span><span className="graphical-tool-summary">{presentation?.summary ?? toolSummary(item)}</span>
+      <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
+    <div className="graphical-tool-details">
+      {codeBuddy && item.toolName && <pre>{item.toolName}</pre>}
+      {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
+      {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
+      {item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}
+      {item.result != null && <pre>{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
+      {item.changes != null && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
+      {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}</p>)}
+      {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output && !(codeBuddy && item.toolName)
+        && item.result == null && item.changes == null && !item.locations?.length && <p>等待工具返回内容…</p>}
+    </div>
+  </details>;
+}
+
