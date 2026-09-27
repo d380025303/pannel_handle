@@ -828,7 +828,7 @@ describe("CodeBuddy ACP sessions", () => {
   it("loads only listed history for this workspace and restores replayed messages", async () => {
     const child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: {
-        agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
+        agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "new" } });
       else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [
         { sessionId: "old", cwd: "C:\\work", title: "Previous", updatedAt: "2026-09-24T00:00:00Z" },
@@ -862,7 +862,7 @@ describe("CodeBuddy ACP sessions", () => {
     const child = fakeChild((message, emit) => {
       emitUpdate = emit;
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
-        result: { agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } } });
+        result: { agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "current" } });
       else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [{ sessionId: "saved", cwd: "C:\\work" }] } });
       else if (message.method === "session/load") {

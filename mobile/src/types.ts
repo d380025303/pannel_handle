@@ -69,7 +69,7 @@ export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvid
   models?: Array<{ id: string; displayName: string }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
   acpOptions?: Array<{ id: string; currentValue?: string | boolean; options: Array<{ value: string; name: string }> }>;
-  capabilities: { history?: boolean; plan?: boolean } | null; pendingPlan: { itemId: string } | null;
+  capabilities: { history?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
     message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
   approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
@@ -130,6 +130,8 @@ export type ClientMessage =
   | { v: 6; type: "graphical.cancelQuestion"; sessionId: string; threadId: string | null; questionId: number | string; requestId: string }
   | { v: 6; type: "graphical.plan"; sessionId: string; threadId: string | null; itemId: string; execute: boolean; requestId: string }
   | { v: 6; type: "graphical.mode"; sessionId: string; threadId: string | null; mode: "default" | "plan"; requestId: string }
+  | { v: 6; type: "graphical.permission"; sessionId: string; threadId: string | null; permission: "readOnly" | "askApproval" | "fullAccess"; requestId: string }
+  | { v: 6; type: "graphical.native-mode"; sessionId: string; threadId: string | null; modeId: string; requestId: string }
   | { v: 6; type: "ping"; at: number };
 
 export type ConnectionStatus = "connecting" | "password-required" | "connected" | "disconnected" | "error";

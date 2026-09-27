@@ -26,6 +26,25 @@ function harness(session = { id: "one", type: "windows", runtimeMode: "app-serve
 }
 
 describe("Codex plugin service", () => {
+  it("uses the active App Server account catalog for graphical sessions", async () => {
+    const session = { id: "one", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\project" };
+    const graphicalService = { getWorkspaceCwd: () => session.cwd,
+      listPlugins: vi.fn(async () => ({ marketplaces: [{ name: "official", path: null, plugins: [
+        { id: "figma@official", name: "figma", marketplaceName: "official", installed: true, enabled: true },
+        { id: "github@official", name: "github", marketplaceName: "official", installed: false, enabled: false }
+      ] }], errors: [] })), installPlugin: vi.fn(async () => {}), uninstallPlugin: vi.fn(async () => {}) };
+    const spawnProcess = vi.fn();
+    const service = createCodexPluginService({ terminalManager: { getSession: () => session }, graphicalService,
+      environmentService: { resolve: () => ({}) }, spawnProcess });
+    const catalog = await service.list("one");
+    expect(catalog.installed.map(item => item.name)).toEqual(["figma"]);
+    expect(catalog.available.map(item => item.name)).toEqual(["github"]);
+    await service.install("one", "github", "official");
+    await service.uninstall("one", "figma", "official");
+    expect(graphicalService.installPlugin).toHaveBeenCalledWith("one", expect.objectContaining({ name: "github" }));
+    expect(graphicalService.uninstallPlugin).toHaveBeenCalledWith("one", "figma@official");
+    expect(spawnProcess).not.toHaveBeenCalled();
+  });
   it("lists installed plugins from all sources and limits available plugins to configured marketplaces", async () => {
     const { service, calls } = harness(undefined, [
       JSON.stringify({ installed: [{ name: "demo", marketplaceName: "local", enabled: true }, { name: "remote", marketplaceName: "global" }],

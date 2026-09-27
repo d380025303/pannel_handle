@@ -88,6 +88,13 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
   }
   async function list(id) {
     const value = target(id);
+    if (typeof graphicalService.listPlugins === "function") {
+      const response = await graphicalService.listPlugins(id);
+      const plugins = response.marketplaces.flatMap(marketplace => marketplace.plugins || []);
+      return { installed: plugins.filter(plugin => plugin.installed), available: plugins.filter(plugin => !plugin.installed),
+        marketplaces: response.marketplaces.map(({ name, path }) => ({ name, path })), errors: response.errors,
+        environment: value.remote ? `SSH: ${value.session.title || value.session.id}` : value.linux ? `WSL: ${value.session.wslDistro}` : "Windows" };
+    }
     const [plugins, sources] = await Promise.all([
       json(value, ["plugin", "list", "--available"]), json(value, ["plugin", "marketplace", "list"])
     ]);
@@ -99,26 +106,52 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
   }
   async function install(id, plugin, marketplace) {
     const value = target(id);
+    if (typeof graphicalService.installPlugin === "function") {
+      const catalog = await list(id);
+      const selected = catalog.available.find(item => item.name === plugin && item.marketplaceName === marketplace);
+      if (!selected) throw new Error("插件不在当前账号的可安装目录中，请刷新列表。");
+      const installed = await graphicalService.installPlugin(id, selected);
+      return { ...await list(id), setupRequired: installed?.setupRequired || [] };
+    }
     await json(value, ["plugin", "add", `${requiredName(plugin, "插件名")}@${requiredName(marketplace, "来源名")}`]);
     return list(id);
   }
   async function uninstall(id, plugin, marketplace) {
     const value = target(id);
+    if (typeof graphicalService.uninstallPlugin === "function") {
+      const catalog = await list(id);
+      const selected = catalog.installed.find(item => item.name === plugin && item.marketplaceName === marketplace);
+      if (!selected?.id) throw new Error("插件不在当前账号的已安装目录中，请刷新列表。");
+      await graphicalService.uninstallPlugin(id, selected.id);
+      return list(id);
+    }
     await json(value, ["plugin", "remove", `${requiredName(plugin, "插件名")}@${requiredName(marketplace, "来源名")}`]);
     return list(id);
   }
   async function addMarketplace(id, source) {
     const value = target(id);
+    if (typeof graphicalService.addPluginMarketplace === "function") {
+      await graphicalService.addPluginMarketplace(id, requiredSource(source));
+      return list(id);
+    }
     await json(value, ["plugin", "marketplace", "add", requiredSource(source)]);
     return list(id);
   }
   async function refreshMarketplace(id, name) {
     const value = target(id);
+    if (typeof graphicalService.refreshPluginMarketplace === "function") {
+      await graphicalService.refreshPluginMarketplace(id, requiredName(name, "来源名"));
+      return list(id);
+    }
     await json(value, ["plugin", "marketplace", "upgrade", requiredName(name, "来源名")]);
     return list(id);
   }
   async function removeMarketplace(id, name) {
     const value = target(id);
+    if (typeof graphicalService.removePluginMarketplace === "function") {
+      await graphicalService.removePluginMarketplace(id, requiredName(name, "来源名"));
+      return list(id);
+    }
     await json(value, ["plugin", "marketplace", "remove", requiredName(name, "来源名")]);
     return list(id);
   }

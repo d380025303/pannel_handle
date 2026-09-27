@@ -313,20 +313,25 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("menuitem", { name: "Skills、Apps 和 MCP" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "压缩对话" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "目标管理" })).toBeNull();
   });
 
   it("inserts capabilities into the draft and sends only retained structured references", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Skills、Apps 和 MCP" })).toHaveProperty("disabled", false));
-    fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    expect(screen.queryByRole("button", { name: "Skills、Apps 和 MCP" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
+    expect(screen.queryByRole("menu", { name: "会话操作" })).toBeNull();
     expect(await screen.findByRole("button", { name: /review/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /review/ }));
     const input = screen.getByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
     expect(input.value).toContain("$review");
     fireEvent.change(input, { target: { value: "请检查" } });
-    fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
     fireEvent.click(screen.getByRole("tab", { name: "Apps" }));
     fireEvent.click(screen.getByRole("button", { name: /GitHub/ }));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
@@ -337,14 +342,27 @@ describe("CodexAppServerSession", () => {
 
   it("inserts an MCP tool hint without making a direct tool call", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Skills、Apps 和 MCP" })).toHaveProperty("disabled", false));
-    fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
     fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
     fireEvent.click(await screen.findByRole("button", { name: /read_file/ }));
     expect((screen.getByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement).value).toContain("mcp__files__read_file");
     expect(submit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "请使用 MCP 工具 mcp__files__read_file", [], []));
+  });
+
+  it("closes the capability picker with Escape and restores focus to more actions", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const more = screen.getByRole("button", { name: "更多操作" });
+    await waitFor(() => expect(more).toHaveProperty("disabled", false));
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
+    const picker = screen.getByRole("dialog", { name: "选择会话能力" });
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "选择会话能力" })).toBeNull();
+    expect(document.activeElement).toBe(more);
   });
 
   it("suggests slash operations only at the start and executes the selected operation", async () => {

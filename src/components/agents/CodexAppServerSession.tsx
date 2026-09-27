@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, BookOpen, Cable, ChevronRight, Copy, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, WorkspaceEntrySearchResult } from "../../vite-env";
+import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
@@ -95,6 +95,7 @@ export type CodexAppServerSessionHandle = {
 
 type CodexAppServerSessionProps = {
   sessionId: string;
+  session?: TerminalSession;
   sessionType?: "windows" | "wsl" | "ssh";
   draft: string;
   setDraft: Dispatch<SetStateAction<string>>;
@@ -103,7 +104,7 @@ type CodexAppServerSessionProps = {
   onLinkClick?: (href: string) => void;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -167,7 +168,6 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const selectionDialogRef = useRef<HTMLDivElement>(null);
-  const capabilityButtonRef = useRef<HTMLButtonElement>(null);
   const capabilityRef = useRef<HTMLDivElement>(null);
   const historyRequestRef = useRef(0);
   const currentSessionRef = useRef(sessionId);
@@ -388,7 +388,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   useEffect(() => {
     if (!capabilityOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!capabilityRef.current?.contains(event.target as Node) && !capabilityButtonRef.current?.contains(event.target as Node)) setCapabilityOpen(false);
+      if (!capabilityRef.current?.contains(event.target as Node) && !menuButtonRef.current?.contains(event.target as Node)) setCapabilityOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -846,7 +846,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     || selectionKind === "permission" || selectionKind === "contextWindow";
   function openSelection(kind: SelectionKind) { setMenuOpen(false); setSelectionError(""); setSelectionKind(kind); }
   function openCapabilities(tab: "skills" | "apps" | "mcp") {
-    setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
+    setMenuOpen(false); setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
     if (!capabilities) void loadCapabilities();
   }
   function openHistory() { setMenuOpen(false); setHistoryQuery(""); setCopyNotice(null); setHistoryOpen(true); }
@@ -1159,11 +1159,36 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         aria-expanded={slashQuery !== null || Boolean(fileMention)} aria-activedescendant={slashQuery !== null && visibleSlashCommands[selectedSlashIndex] ? `${slashListId}-option-${selectedSlashIndex}` : fileMention && fileResults[selectedFileIndex] ? `${fileListId}-option-${selectedFileIndex}` : undefined}
         placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || (snapshot.busy && !canSendWhileBusy)} />
         <div className="codex-app-server-input-actions">
-          {isCodex && <div className="codex-app-server-capability-anchor">
-            <button ref={capabilityButtonRef} type="button" className="codex-app-server-icon-button" title="Skills、Apps 和 MCP" aria-label="Skills、Apps 和 MCP" aria-expanded={capabilityOpen} disabled={!snapshot.threadId}
-              onClick={() => { if (capabilityOpen) setCapabilityOpen(false); else openCapabilities(capabilityTab); }}><BookOpen aria-hidden="true" /></button>
-            {capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
-              if (event.key === "Escape") { event.preventDefault(); setCapabilityOpen(false); capabilityButtonRef.current?.focus(); }
+          <div className="codex-app-server-menu-anchor">
+            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={!snapshot.threadId} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
+            {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
+              if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
+              if (event.key === "Tab") setMenuOpen(false);
+              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+              event.preventDefault();
+              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+              const index = items.indexOf(document.activeElement as HTMLButtonElement);
+              items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+            }}>
+              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
+              {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <>
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
+                <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
+                <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
+              </>}
+              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
+                : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
+              {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
+              {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
+              {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
+              {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
+              {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+              {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
+              {isCodex && <button type="button" role="menuitem" onClick={() => openCapabilities(capabilityTab)}><BookOpen aria-hidden="true" />Skills、Apps 和 MCP</button>}
+              <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
+            </div>}
+            {isCodex && capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
+              if (event.key === "Escape") { event.preventDefault(); setCapabilityOpen(false); menuButtonRef.current?.focus(); }
             }}>
               <div className="codex-app-server-capability-tabs" role="tablist" aria-label="能力类型">
                 {(["skills", "apps", "mcp"] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={capabilityTab === tab}
@@ -1193,34 +1218,6 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                     || (capabilityTab === "apps" && !capabilities.apps.some(app => matchesCapability(app.name, app.description)))
                     || (capabilityTab === "mcp" && !capabilities.mcp.some(server => matchesCapability(server.name, server.tools.map(tool => `${tool.name} ${tool.description}`).join(" "))))) && <p>没有匹配的能力。</p>}
               </div>
-            </div>}
-          </div>}
-          <div className="codex-app-server-menu-anchor">
-            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={!snapshot.threadId} onClick={() => setMenuOpen(open => !open)}><Ellipsis aria-hidden="true" /></button>
-            {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
-              if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
-              if (event.key === "Tab") setMenuOpen(false);
-              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-              event.preventDefault();
-              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
-              const index = items.indexOf(document.activeElement as HTMLButtonElement);
-              items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-            }}>
-              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
-              {snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <>
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
-                <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
-                <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
-              </>}
-              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
-                : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
-              {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
-              {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
-              {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
-              {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
-              {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
-              {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
-              <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
           </div>
           <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{snapshot.provider === "codebuddy" || snapshot.provider === "opencode"
@@ -1300,7 +1297,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {goalOpen && snapshot.provider !== "codebuddy" && snapshot.provider !== "opencode" && <CodexGoalDialog
       key={`${sessionId}:${snapshot.threadId}`} sessionId={sessionId} snapshot={snapshot} onClose={() => setGoalOpen(false)}
       onUpdated={value => { if (currentSessionRef.current === sessionId && value.threadId === snapshot.threadId) setSnapshot(value); }} />}
-    {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} onClose={() => setPluginOpen(false)}
+    {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} session={session} onClose={() => setPluginOpen(false)}
       onChanged={() => { setCapabilities(null); }} />}
     {historyOpen && <div className="modal-overlay codex-app-server-history-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeHistory(); }}>
       <div className="modal-dialog codex-app-server-history-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-app-server-history-title" onKeyDown={event => {

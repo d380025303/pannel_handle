@@ -36,6 +36,33 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("reads and mutates plugins through the current graphical session", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method === "plugin/list") return { marketplaces: [{ name: "official", path: null, plugins: [{
+        id: "figma@official", name: "figma", installed: true, enabled: true,
+        interface: { displayName: "Figma", shortDescription: "Create designs" }
+      }] }], marketplaceLoadErrors: [] };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "plugin-run", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const catalog = await service.listPlugins("plugin-run");
+      expect(catalog.marketplaces[0].plugins[0]).toMatchObject({ displayName: "Figma", installed: true });
+      expect(received.find(item => item.method === "plugin/list").params.cwds).toEqual(["C:\\project"]);
+      await service.installPlugin("plugin-run", catalog.marketplaces[0].plugins[0]);
+      expect(received.find(item => item.method === "plugin/install").params).toMatchObject({ pluginName: "figma", remoteMarketplaceName: "official" });
+      await service.uninstallPlugin("plugin-run", "figma@official");
+      expect(received.find(item => item.method === "plugin/uninstall").params).toEqual({ pluginId: "figma@official" });
+      await service.addPluginMarketplace("plugin-run", "owner/repo");
+      await service.refreshPluginMarketplace("plugin-run", "team");
+      await service.removePluginMarketplace("plugin-run", "team");
+      expect(received.find(item => item.method === "marketplace/add").params).toEqual({ source: "owner/repo" });
+      expect(received.find(item => item.method === "marketplace/upgrade").params).toEqual({ marketplaceName: "team" });
+      expect(received.find(item => item.method === "marketplace/remove").params).toEqual({ marketplaceName: "team" });
+    } finally { service.close("plugin-run"); }
+  });
   it("keeps a signed-out graphical session alive until device-code login finishes", async () => {
     const received = [];
     let signedIn = false;

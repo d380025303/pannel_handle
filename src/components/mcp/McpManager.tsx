@@ -13,6 +13,8 @@ import type {
 
 type McpManagerProps = {
   session?: TerminalSession;
+  embeddedCodex?: boolean;
+  runtimeStatuses?: Array<{ name: string; status: string }>;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (handler: (() => Promise<boolean>) | null) => void;
 };
@@ -100,7 +102,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   );
 }
 
-export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManagerProps) {
+export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [], onDirtyChange, onRegisterSave }: McpManagerProps) {
   const { t } = useI18n();
   const [provider, setProvider] = useState<McpProvider>("codex");
   const [scope, setScope] = useState<McpScope>("user");
@@ -116,7 +118,7 @@ export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManage
   const [notice, setNotice] = useState("");
   const requestRef = useRef(0);
   const dirty = Boolean(draft && draftSignature(draft) !== savedSignature);
-  const projectAvailable = session?.type === "windows" && Boolean(session.cwd);
+  const projectAvailable = Boolean(session?.cwd) && (session?.type === "windows" || embeddedCodex);
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -124,8 +126,8 @@ export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManage
   const targetFor = useCallback((nextProvider: McpProvider, nextScope: McpScope) => ({
     provider: nextProvider,
     scope: nextScope,
-    ...(nextScope !== "user" && session ? { sessionId: session.id } : {})
-  }), [session?.id]);
+    ...((nextScope !== "user" || embeddedCodex) && session ? { sessionId: session.id } : {})
+  }), [session?.id, embeddedCodex]);
 
   const requestTarget = useCallback(() => targetFor(provider, scope), [provider, scope, targetFor]);
 
@@ -290,10 +292,10 @@ export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManage
         </div>
       </header>
 
-      <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
+      {!embeddedCodex && <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchTarget("codex", "user")}>Codex</button>
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchTarget("codebuddy", "user")}>CodeBuddy</button>
-      </div>
+      </div>}
       {provider === "codebuddy" && <p className="mcp-config-path">{t("mcp.codexInheritanceHint")}</p>}
       <div className="mcp-scope-tabs" role="tablist" aria-label={t("mcp.scope")}>
         {scopes.map((item) => (
@@ -316,7 +318,7 @@ export function McpManager({ session, onDirtyChange, onRegisterSave }: McpManage
             {loading ? <p className="mcp-list-state">{t("common.loading")}</p> : filteredServers.length === 0 ? <div className="mcp-empty"><Cable aria-hidden="true" /><strong>{query ? t("mcp.noMatches") : t("mcp.empty")}</strong></div> : filteredServers.map((server) => (
               <button className={`mcp-list-item${selectedName === server.name ? " active" : ""}`} type="button" key={server.id} onClick={() => { if (confirmDiscard()) selectServer(server); }}>
                 <span><strong>{server.name}</strong><i className={server.enabled ? "enabled" : "disabled"}>{server.enabled ? t("mcp.enabled") : t("mcp.disabled")}</i></span>
-                <small>{server.transport.toUpperCase()} · {server.command || server.url || t("mcp.masked")}</small>
+                <small>{server.transport.toUpperCase()} · {server.command || server.url || t("mcp.masked")}{runtimeStatuses.find(item => item.name === server.name) ? ` · ${runtimeStatuses.find(item => item.name === server.name)?.status}` : ""}</small>
               </button>
             ))}
           </div>

@@ -22,7 +22,12 @@ type Props = {
 };
 
 const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode"];
-type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | null;
+type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
+const permissions = [
+  { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
+  { value: "askApproval", name: "需要确认", description: "可修改工作区，越界操作先确认" },
+  { value: "fullAccess", name: "完全访问", description: "可访问文件与网络，不再请求批准" }
+] as const;
 export function GraphicalView({ session, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const [sending, setSending] = useState(false);
@@ -117,7 +122,10 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
           quickIdRef.current = null;
           setSending(false);
         }
-        if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
+        if (modeIdRef.current === message.requestId) {
+          setChangingMode(false); modeIdRef.current = null;
+          setActiveSheet(current => current === "permission" || current === "native-mode" ? null : current);
+        }
         if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
         setError("");
       } else if (message.type === "error" && message.requestId && pendingRef.current.delete(message.requestId)) {
@@ -259,6 +267,21 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
     modeIdRef.current = action({ type: "graphical.mode", mode }) || null;
     if (modeIdRef.current) setChangingMode(true);
   };
+  const changePermission = (permission: typeof permissions[number]["value"]) => {
+    if (!snapshot || snapshot.provider !== "codex" || !snapshot.threadId || snapshot.busy || snapshot.archived || changingMode
+      || snapshot.capabilities?.permissions === false
+      || snapshot.executionPermission === permission || snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission)) return;
+    setError("");
+    modeIdRef.current = action({ type: "graphical.permission", permission }) || null;
+    if (modeIdRef.current) setChangingMode(true);
+  };
+  const changeNativeMode = (modeId: string) => {
+    if (!snapshot || snapshot.provider === "codex" || !snapshot.threadId || snapshot.busy || snapshot.archived || changingMode
+      || snapshot.nativeMode === modeId || !snapshot.nativeModes?.some(mode => mode.id === modeId)) return;
+    setError("");
+    modeIdRef.current = action({ type: "graphical.native-mode", modeId }) || null;
+    if (modeIdRef.current) setChangingMode(true);
+  };
   const switchAgent = (provider: AgentProvider) => {
     if (!snapshot || snapshot.busy || snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo
       || provider === snapshot.provider) return;
@@ -386,14 +409,16 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
     {activeSheet && <div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
       <div ref={sheetRef} className="graphical-sheet" role="dialog" aria-modal="true"
         aria-label={activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
-          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型" : "历史对话"}
+          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型"
+            : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话"}
         tabIndex={-1} onClick={event => event.stopPropagation()}>
         <header><strong>{activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
-          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型" : "历史对话"}</strong>
+          : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型"
+            : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话"}</strong>
           <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}>×</button></header>
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
         {activeSheet === "menu" && <div className="graphical-sheet-list">
-          <div className="graphical-menu-mode" role="group" aria-label="会话模式">
+          {snapshot.provider === "codex" && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
             <span>会话模式</span>
             <div className="graphical-mode-switch">
               <button type="button" aria-pressed={effectivePlan}
@@ -403,7 +428,12 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
                 disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}
                 onClick={() => changeMode("default")}>Exec</button>
             </div>
-          </div>
+          </div>}
+          {snapshot.provider === "codex"
+            ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode || snapshot.capabilities?.permissions === false}
+              onClick={() => { setError(""); setActiveSheet("permission"); }}><span>执行权限</span><small>{permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
+            : <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode || !snapshot.nativeModes?.length}
+              onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span>切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button>}
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span>切换模型</span><small>{modelLabel(snapshot)}</small></button>
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>
@@ -426,6 +456,17 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
             aria-pressed={option.value === currentModel} onClick={() => changeModel(option.value)}>
             <span>{option.name}</span>{option.value === currentModel && <small>当前使用</small>}
           </button>)}
+        </div>}
+        {activeSheet === "permission" && <div className="graphical-sheet-list">
+          {permissions.map(option => <button type="button" key={option.value} aria-pressed={snapshot.executionPermission === option.value}
+            disabled={changingMode || snapshot.busy || snapshot.archived || snapshot.executionPermission === option.value
+              || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(option.value))}
+            onClick={() => changePermission(option.value)}><span>{option.name}</span><small>{option.description}</small></button>)}
+        </div>}
+        {activeSheet === "native-mode" && <div className="graphical-sheet-list">
+          {snapshot.nativeModes?.map(mode => <button type="button" key={mode.id} aria-pressed={snapshot.nativeMode === mode.id}
+            disabled={changingMode || snapshot.busy || snapshot.archived || snapshot.nativeMode === mode.id}
+            onClick={() => changeNativeMode(mode.id)}><span>{mode.name || mode.id}</span>{snapshot.nativeMode === mode.id && <small>当前使用</small>}</button>)}
         </div>}
         {activeSheet === "history" && <div className="graphical-sheet-list graphical-history-list">
           {history?.data.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || thread.archived || thread.id === snapshot.threadId}

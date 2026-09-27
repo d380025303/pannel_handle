@@ -1040,6 +1040,8 @@ export type CodexPluginCatalog = {
   installed: Array<Record<string, unknown>>;
   available: Array<Record<string, unknown>>;
   marketplaces: Array<Record<string, unknown>>;
+  errors?: string[];
+  setupRequired?: string[];
   environment: string;
 };
 export type CodexPluginApi = {

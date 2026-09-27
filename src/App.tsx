@@ -834,6 +834,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
                   ref={appServerSessionRef}
                   sessionId={terminalSessions.activeSession.id}
+                  session={terminalSessions.activeSession}
                   sessionType={terminalSessions.activeSession.type}
                   onLinkClick={handleAppServerLink}
                   draft={appServerDrafts[terminalSessions.activeSession.id] ?? ""}

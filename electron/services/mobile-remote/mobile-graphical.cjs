@@ -123,6 +123,22 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
         await graphicalService.setNativeMode(sessionId, native.id);
       }
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
+    } else if (message.type === "graphical.permission") {
+      if (current.provider !== "codex" || !current.threadId || current.busy || current.archived)
+        throw new Error("当前会话不可切换执行权限。");
+      const allowed = ["readOnly", "askApproval", "fullAccess"];
+      if (!allowed.includes(message.permission) || current.capabilities?.permissions === false
+        || current.capabilities?.supportedPermissions && !current.capabilities.supportedPermissions.includes(message.permission))
+        throw new Error("当前会话不支持此执行权限。");
+      await graphicalService.setExecutionPermission(sessionId, message.permission);
+      sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
+    } else if (message.type === "graphical.native-mode") {
+      if (!["codebuddy", "opencode"].includes(current.provider) || !current.threadId || current.busy || current.archived)
+        throw new Error("当前会话不可切换原生模式。");
+      if (typeof message.modeId !== "string" || !current.nativeModes?.some(mode => mode.id === message.modeId))
+        throw new Error("请选择当前会话可用的模式。");
+      await graphicalService.setNativeMode(sessionId, message.modeId);
+      sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.plan") {
       if (!current.pendingPlan || current.pendingPlan.itemId !== message.itemId)
         throw new Error("计划确认已失效。");

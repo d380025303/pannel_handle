@@ -921,6 +921,56 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     } catch (error) { result.errors.mcp = error.message; }
     return result;
   }
+  function pluginEntry(id) {
+    const entry = sessions.get(String(id || ""));
+    if (!entry?.threadId || (entry.session.agentProvider && entry.session.agentProvider !== "codex"))
+      throw new Error("Codex 图形会话未就绪。");
+    return entry;
+  }
+  async function listPlugins(id, forceRefetch = false) {
+    const entry = pluginEntry(id);
+    const response = await request(entry, "plugin/list", { cwds: [projectCwd(entry)], forceRefetch: Boolean(forceRefetch) });
+    if (!Array.isArray(response?.marketplaces)) throw new Error("Codex 未返回插件目录。");
+    const marketplaces = response.marketplaces.map(marketplace => ({
+      name: marketplace.name, path: marketplace.path || null,
+      plugins: (marketplace.plugins || []).map(plugin => ({
+        id: plugin.id, name: plugin.name, marketplaceName: marketplace.name,
+        marketplacePath: marketplace.path || null,
+        displayName: plugin.interface?.displayName || plugin.name,
+        description: plugin.interface?.shortDescription || "",
+        logo: plugin.interface?.logo || plugin.interface?.logoDark || null,
+        logoUrl: plugin.interface?.logoUrl || plugin.interface?.logoUrlDark || null,
+        installed: plugin.installed === true, enabled: plugin.enabled === true,
+        installPolicy: plugin.installPolicy, installPolicySource: plugin.installPolicySource,
+        availability: plugin.availability,
+        disabledReason: plugin.disabledReason || null
+      }))
+    }));
+    return { marketplaces, errors: (response.marketplaceLoadErrors || []).map(error => error.message || String(error)) };
+  }
+  async function installPlugin(id, plugin) {
+    const entry = pluginEntry(id);
+    const installed = await request(entry, "plugin/install", { pluginName: plugin.name,
+      ...(plugin.marketplacePath ? { marketplacePath: plugin.marketplacePath } : { remoteMarketplaceName: plugin.marketplaceName }) });
+    return { ...await listPlugins(id), setupRequired: (installed.appsNeedingAuth || []).map(app => app.name || app.id) };
+  }
+  async function uninstallPlugin(id, pluginId) {
+    const entry = pluginEntry(id);
+    await request(entry, "plugin/uninstall", { pluginId });
+    return listPlugins(id);
+  }
+  async function addPluginMarketplace(id, source) {
+    await request(pluginEntry(id), "marketplace/add", { source });
+    return listPlugins(id);
+  }
+  async function refreshPluginMarketplace(id, marketplaceName) {
+    await request(pluginEntry(id), "marketplace/upgrade", { marketplaceName });
+    return listPlugins(id);
+  }
+  async function removePluginMarketplace(id, marketplaceName) {
+    await request(pluginEntry(id), "marketplace/remove", { marketplaceName });
+    return listPlugins(id);
+  }
   async function resume(id, threadId, force = false) {
     const entry = ready(id);
     if (typeof threadId !== "string" || !threadId.trim()) throw new Error("无效的历史会话。");
@@ -1361,7 +1411,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

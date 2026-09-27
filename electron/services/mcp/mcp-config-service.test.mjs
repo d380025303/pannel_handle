@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -50,6 +50,33 @@ afterEach(() => {
 });
 
 describe("mcp-config-service", () => {
+  it("reads and updates SSH Codex MCP configuration in the active session environment", async () => {
+    const { homeDir } = setup();
+    const session = { id: "ssh", type: "ssh", agentLocation: "remote", runtimeMode: "app-server",
+      agentProvider: "codex", cwd: "/srv/app" };
+    let text = 'model = "keep"\n[mcp_servers.demo]\ncommand = "old"\n';
+    const exec = vi.fn(async (_id, command) => {
+      if (command.includes("base64 <")) return Buffer.from(text).toString("base64");
+      if (command.includes("printf %s")) return "/srv/app/.codex/config.toml";
+      return "";
+    });
+    const sshFileSystem = { mkdir: vi.fn(async () => {}), put: vi.fn(async (_id, content) => { text = content.toString(); }),
+      remove: vi.fn(async () => {}) };
+    const service = createMcpConfigService({ homeDir,
+      terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => "/srv/app" },
+      environmentService: { resolve: () => ({}) },
+      sshAgentTransport: { exec }, sshFileSystem });
+    const target = { provider: "codex", scope: "project", sessionId: "ssh" };
+    const first = await service.list(target);
+    expect(first.servers[0]).toMatchObject({ name: "demo", command: "old" });
+    const saved = await service.save({ ...target, originalName: "demo", expectedVersion: first.version,
+      draft: stdioDraft("demo", { command: "new", enabled: false }) });
+    expect(saved.status).toBe("saved");
+    expect(saved.document.servers[0]).toMatchObject({ command: "new", enabled: false });
+    expect(exec.mock.calls.some(([, command]) => command.includes("sha256sum") && command.includes(".pannel-handle.bak"))).toBe(true);
+    expect(sshFileSystem.put).toHaveBeenCalledOnce();
+  });
   it("creates and edits Codex user servers without rewriting unrelated TOML", () => {
     const { homeDir, service } = setup();
     const filePath = path.join(homeDir, ".codex", "config.toml");

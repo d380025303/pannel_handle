@@ -3,6 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { applyEdits, modify, parse: parseJsonc, printParseErrorCode } = require("jsonc-parser");
 const { parse: parseToml, stringify: stringifyToml } = require("smol-toml");
+const { spawn } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 
 const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
 const PROVIDERS = new Set(["codex", "codebuddy"]);
@@ -49,7 +51,8 @@ function normalizeProjectPath(value) {
 function resolveProjectDirectory(homeDir, terminalManager, sessionId) {
   const session = terminalManager?.getSession?.(String(sessionId || ""));
   if (!session) throw new Error("Select a running Windows session to manage project MCP configuration.");
-  if (session.type !== "windows") throw new Error("Project MCP management currently supports Windows sessions only.");
+  if (session.type !== "windows" && !(session.type === "ssh" && session.agentLocation === "local"))
+    throw new Error("Project MCP management currently supports Windows sessions only.");
   const rawCwd = String(session.cwd || "").trim();
   const cwd = rawCwd === "~" ? homeDir : rawCwd;
   if (!cwd) throw new Error("The active session does not have a working directory.");
@@ -63,16 +66,19 @@ function resolveProjectDirectory(homeDir, terminalManager, sessionId) {
   return path.resolve(cwd);
 }
 
-function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager }) {
+function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager, environmentService }) {
   validateProviderScope(provider, scope);
   const projectDirectory = scope === "user" ? undefined : resolveProjectDirectory(homeDir, terminalManager, sessionId);
+  const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
+  const codexHome = provider === "codex" && session?.runtimeMode === "app-server"
+    ? environmentService?.resolve?.(session)?.CODEX_HOME || process.env.CODEX_HOME : undefined;
   if (provider === "codex") {
     return {
       provider,
       scope,
       projectDirectory,
       filePath: scope === "user"
-        ? path.join(homeDir, ".codex", "config.toml")
+        ? path.join(codexHome || homeDir, codexHome ? "config.toml" : path.join(".codex", "config.toml"))
         : path.join(projectDirectory, ".codex", "config.toml")
     };
   }
@@ -354,11 +360,117 @@ function assertVersion(record, expectedVersion) {
   return null;
 }
 
-function createMcpConfigService({ homeDir, terminalManager, fsApi = fs } = {}) {
+function bashQuote(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
+function runWsl(distro, script, input = null) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("wsl.exe", ["-d", distro, "--", "bash", "-lic", script],
+      { windowsHide: true, stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"] });
+    let output = ""; let error = "";
+    const timer = setTimeout(() => { child.kill(); reject(new Error("MCP 配置操作超时。")); }, 30000);
+    child.stdout.on("data", chunk => { output += chunk; if (output.length > MAX_CONFIG_BYTES * 2) child.kill(); });
+    child.stderr.on("data", chunk => { error = (error + chunk).slice(-4096); });
+    child.on("error", cause => { clearTimeout(timer); reject(cause); });
+    child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output.trim());
+      else reject(new Error(error.trim() || `MCP 配置操作失败：${code}`)); });
+    if (input !== null) child.stdin.end(input);
+  });
+}
+
+function createMcpConfigService({ homeDir, terminalManager, graphicalService, sshAgentTransport, sshFileSystem, environmentService, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
-  const context = { homeDir: path.resolve(homeDir), terminalManager };
+  const context = { homeDir: path.resolve(homeDir), terminalManager, environmentService };
+
+  function remoteTarget(request) {
+    if (!graphicalService || request?.provider !== "codex" || !request.sessionId) return null;
+    const session = terminalManager?.getSession?.(String(request.sessionId));
+    if (!session || session.runtimeMode !== "app-server" || (session.agentProvider && session.agentProvider !== "codex"))
+      throw new Error("Codex 图形会话不存在。");
+    if (session.type !== "wsl" && !(session.type === "ssh" && session.agentLocation !== "local")) return null;
+    validateProviderScope(request.provider, request.scope);
+    const cwd = graphicalService?.getWorkspaceCwd?.(session.id);
+    if (!cwd) throw new Error("Codex 项目目录不可用。");
+    return { session, cwd, scope: request.scope,
+      path: request.scope === "project" ? `${cwd.replace(/\/$/, "")}/.codex/config.toml` : null };
+  }
+  async function remoteExec(target, command, input = null) {
+    const env = environmentService?.resolve?.(target.session) || {};
+    const exports = Object.entries(env).map(([key, value]) => {
+      if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(key)) throw new Error("环境变量名无效。");
+      return `export ${key}=${bashQuote(value)}`;
+    });
+    const initial = String(target.session.initialCommand || "").trim();
+    const script = [...exports, `cd ${bashQuote(target.cwd)}`, ...(initial ? [`{ ${initial}; } 1>&2`] : []), command].join(" && ");
+    if (target.session.type === "ssh") return sshAgentTransport.exec(target.session.id,
+      `bash -lic ${bashQuote(script)}`, { actionName: "Codex MCP configuration", timeoutMs: 30000 });
+    return runWsl(target.session.wslDistro, script, input);
+  }
+  function remotePath(target) { return target.path ? bashQuote(target.path) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'; }
+  async function remoteRecord(target) {
+    const output = await remoteExec(target, `target=${remotePath(target)}; if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi`);
+    const buffer = Buffer.from(output.trim(), "base64");
+    if (buffer.length > MAX_CONFIG_BYTES) throw new Error("MCP 配置文件过大。");
+    return { buffer, text: buffer.toString("utf8"), version: output.trim() ? versionOf(buffer) : "missing" };
+  }
+  async function remoteWrite(target, record, text) {
+    const current = record.version === "missing" ? "missing" : record.version;
+    const prefix = `target=${remotePath(target)}; actual=$(if [ -f "$target" ]; then sha256sum "$target" | cut -d' ' -f1; else printf missing; fi); `
+      + `[ "$actual" = ${bashQuote(current)} ] || { echo 'MCP 配置已变化，请刷新后重试。' >&2; exit 3; }; `
+      + `mkdir -p "$(dirname "$target")" && if [ -f "$target" ]; then cp -p "$target" "$target.pannel-handle.bak"; fi && `;
+    if (target.session.type !== "ssh") {
+      await remoteExec(target, `${prefix}tmp="$target.pannel-handle.tmp.$$" && cat > "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$target"`, Buffer.from(text, "utf8"));
+      return;
+    }
+    if (!sshFileSystem) throw new Error("SSH 文件服务不可用。");
+    const actualPath = (await remoteExec(target, `target=${remotePath(target)}; printf %s "$target"`)).trim();
+    if (!actualPath.startsWith("/")) throw new Error("远程 Codex 配置路径无效。");
+    const staging = `${actualPath}.pannel-handle.tmp.${randomUUID()}`;
+    try {
+      await sshFileSystem.mkdir(target.session.id, path.posix.dirname(actualPath), true);
+      await sshFileSystem.put(target.session.id, Buffer.from(text, "utf8"), staging);
+      await remoteExec(target, `${prefix}chmod 600 ${bashQuote(staging)} && mv ${bashQuote(staging)} "$target"`);
+    } finally { await sshFileSystem.remove(target.session.id, staging).catch(() => {}); }
+  }
+  function remoteDocument(target, record) {
+    const descriptor = { provider: "codex", scope: target.scope };
+    return { ...descriptor, path: target.path || "~/.codex/config.toml", projectDirectory: target.scope === "project" ? target.cwd : undefined,
+      version: record.version, servers: listCodex(record, descriptor).sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+  async function remoteList(target) { return remoteDocument(target, await remoteRecord(target)); }
+  async function remoteReveal(target, request) {
+    const record = await remoteRecord(target);
+    if (record.version !== request.expectedVersion) return { status: "conflict" };
+    const config = parseTomlDocument(record.text).mcp_servers?.[validateName(request.name)];
+    if (!config) throw new Error("MCP server was not found.");
+    if (request.field === "url") return { status: "revealed", value: String(config.url || "") };
+    if (request.field === "args") return { status: "revealed", value: JSON.stringify(config.args || []) };
+    if (request.field === "env" || request.field === "headers") return { status: "revealed", value: String((request.field === "env" ? config.env : config.http_headers || config.headers)?.[String(request.key || "")] ?? "") };
+    throw new Error("Unsupported MCP secret field.");
+  }
+  async function remoteSave(target, request) {
+    const record = await remoteRecord(target);
+    if (record.version !== request.expectedVersion) return { status: "conflict" };
+    const draft = validateDraft("codex", request.draft);
+    const originalName = request.originalName ? validateName(request.originalName) : undefined;
+    const servers = parseTomlDocument(record.text).mcp_servers || {};
+    if ((!originalName || originalName !== draft.name) && Object.prototype.hasOwnProperty.call(servers, draft.name))
+      throw new Error("An MCP server with this name already exists in the selected scope.");
+    const text = replaceCodexServer(record.text, originalName, draft.name,
+      buildConfig("codex", draft, originalName ? servers[originalName] : undefined));
+    await remoteWrite(target, record, text);
+    return { status: "saved", document: await remoteList(target), serverName: draft.name };
+  }
+  async function remoteRemove(target, request) {
+    const record = await remoteRecord(target);
+    if (record.version !== request.expectedVersion) return { status: "conflict" };
+    const name = validateName(request.name);
+    if (!parseTomlDocument(record.text).mcp_servers?.[name]) throw new Error("MCP server was not found.");
+    await remoteWrite(target, record, replaceCodexServer(record.text, name));
+    return { status: "removed", document: await remoteList(target) };
+  }
 
   function list(request) {
+    const remote = remoteTarget(request);
+    if (remote) return remoteList(remote);
     const target = resolveTarget(request || {}, context);
     const record = readConfigFile(target.filePath, fsApi);
     const servers = target.provider === "codex" ? listCodex(record, target) : listCodeBuddy(record, target);
@@ -373,6 +485,8 @@ function createMcpConfigService({ homeDir, terminalManager, fsApi = fs } = {}) {
   }
 
   function reveal(request) {
+    const remote = remoteTarget(request);
+    if (remote) return remoteReveal(remote, request);
     const target = resolveTarget(request || {}, context);
     const record = readConfigFile(target.filePath, fsApi);
     if (record.version !== request.expectedVersion) return { status: "conflict" };
@@ -396,6 +510,8 @@ function createMcpConfigService({ homeDir, terminalManager, fsApi = fs } = {}) {
   }
 
   function save(request) {
+    const remote = remoteTarget(request);
+    if (remote) return remoteSave(remote, request);
     const target = resolveTarget(request || {}, context);
     const record = readConfigFile(target.filePath, fsApi);
     const conflict = assertVersion(record, request.expectedVersion);
@@ -432,6 +548,8 @@ function createMcpConfigService({ homeDir, terminalManager, fsApi = fs } = {}) {
   }
 
   function remove(request) {
+    const remote = remoteTarget(request);
+    if (remote) return remoteRemove(remote, request);
     const target = resolveTarget(request || {}, context);
     const record = readConfigFile(target.filePath, fsApi);
     const conflict = assertVersion(record, request.expectedVersion);

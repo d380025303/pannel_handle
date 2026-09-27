@@ -420,7 +420,8 @@ if (!gotSingleInstanceLock) {
       knownHostStore,
       sshSessionRuntime
     });
-    mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager });
+    mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager,
+      graphicalService: codexGraphicalService, sshAgentTransport, sshFileSystem, environmentService });
     skillsService = createSkillsService({ homeDir: app.getPath("home") });
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService: tokenUsageModule });
     sshHookTunnelService = createSshHookTunnelService({

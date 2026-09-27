@@ -8219,7 +8219,6 @@ button.agent-usage-status[aria-expanded="true"] {
 @media (prefers-reduced-motion: reduce) { .codex-app-server-input-border.is-running { background: linear-gradient(120deg, var(--codex-mode-border), var(--codex-mode-highlight) 50%, var(--codex-mode-trail)); animation: none; } }
 .codex-app-server-input-actions { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 2px 5px 4px; border-radius: 0 0 8px 8px; background: var(--color-bg-app); }
 .codex-app-server-menu-anchor { position: relative; flex: none; }
-.codex-app-server-capability-anchor { position: relative; flex: none; }
 .codex-app-server-capability-picker { position: absolute; z-index: 25; bottom: calc(100% + 8px); left: 0; box-sizing: border-box; width: min(420px, calc(100vw - 40px)); max-height: min(420px, 65vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg-panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
 .codex-app-server-capability-tabs { display: flex; gap: 4px; padding: 8px 8px 0; }
 .codex-app-server-capability-tabs button { flex: 1; padding: 6px; border: 0; border-radius: 6px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
@@ -8242,7 +8241,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-capability-server > strong small { margin-left: auto; color: var(--color-text-secondary); font-weight: 400; }
 .codex-app-server-capability-server button { padding-left: 28px; }
 .codex-plugin-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .55); }
-.codex-plugin-dialog { display: flex; flex-direction: column; width: min(760px, 100%); max-height: min(820px, 90vh); border: 1px solid var(--color-border-strong); border-radius: 12px; color: var(--color-text); background: var(--color-bg-panel); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+.codex-plugin-dialog { display: flex; flex-direction: column; width: min(960px, 100%); max-height: min(900px, 92vh); border: 1px solid var(--color-border-strong); border-radius: 12px; color: var(--color-text); background: var(--color-bg-panel); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
 .codex-plugin-dialog > header, .codex-plugin-dialog > header > div, .codex-plugin-toolbar, .codex-plugin-scope, .codex-plugin-row-actions, .codex-plugin-marketplace, .codex-plugin-marketplace form { display: flex; align-items: center; gap: 10px; }
 .codex-plugin-dialog > header { justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border); }
 .codex-plugin-dialog > header svg { width: 18px; height: 18px; }
@@ -8265,6 +8264,19 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-plugin-row small, .codex-plugin-marketplace small { display: block; overflow-wrap: anywhere; font-size: 11px; }
 .codex-plugin-row p { margin: 4px 0 0; font-size: 11px; }
 .codex-plugin-row-actions { flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.codex-plugin-tabs { display: flex; gap: 8px; padding: 12px 18px 0; }
+.codex-plugin-tabs button[aria-selected="true"] { background: var(--color-bg-control-hover); font-weight: 600; }
+.codex-plugin-toolbar button { display: inline-flex; align-items: center; gap: 5px; }
+.codex-plugin-identity { display: flex; align-items: center; gap: 12px; }
+.codex-plugin-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: 10px; }
+.codex-plugin-icon svg { width: 20px; height: 20px; }
+.codex-plugin-row { min-height: 56px; }
+.codex-plugin-dialog .codex-plugin-toggle { position: relative; width: 36px; height: 21px; padding: 0; border: 0; border-radius: 12px; background: var(--color-border-strong); }
+.codex-plugin-dialog .codex-plugin-toggle[aria-checked="true"] { background: #087bc7; }
+.codex-plugin-toggle span { position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: white; transition: transform .15s; }
+.codex-plugin-toggle[aria-checked="true"] span { transform: translateX(15px); }
+.codex-plugin-mcp { min-height: 0; overflow: auto; padding: 12px 18px 18px; }
+.codex-plugin-mcp .mcp-page { min-height: 0; }
 .codex-plugin-content section > form { display: flex; gap: 10px; margin-top: 10px; }
 @media (max-width: 620px) { .codex-plugin-row, .codex-plugin-marketplace { align-items: stretch; flex-direction: column; } .codex-plugin-row-actions { justify-content: flex-start; } }
 .codex-app-server-permission-status, .codex-app-server-shortcuts { font-size: 11px; white-space: nowrap; }

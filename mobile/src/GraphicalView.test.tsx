@@ -249,11 +249,11 @@ it("switches Plan and Exec over LAN HTTP without crypto.randomUUID", () => {
   expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(true);
 });
 
-it("shows CodeBuddy native Plan as active", () => {
+it("shows CodeBuddy native modes and switches any advertised mode", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
     ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan",
-    nativeModes: [{ id: "default" }, { id: "plan" }],
+    nativeModes: [{ id: "default", name: "Default" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }],
     acpOptions: [{ id: "model", currentValue: "glm-5", options: [{ value: "glm-5", name: "GLM 5" }] }]
   } });
   expect(screen.getByText("模型：GLM 5")).toBeTruthy();
@@ -261,11 +261,49 @@ it("shows CodeBuddy native Plan as active", () => {
   expect(within(models).getByRole("button", { name: /GLM 5/ }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));
   expect(screen.queryByText("Plan 只读未生效")).toBeNull();
-  expect(modeButton("Plan").getAttribute("aria-pressed")).toBe("true");
-  expect((modeButton("Plan") as HTMLButtonElement).disabled).toBe(false);
+  const modes = openSheet("切换模式");
+  expect(within(modes).getByRole("button", { name: /Plan/ }).getAttribute("aria-pressed")).toBe("true");
   expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("plan");
-  fireEvent.click(modeButton("Exec"));
-  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "default" }));
+  fireEvent.click(within(modes).getByRole("button", { name: "Full Access" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.native-mode", modeId: "bypassPermissions" }));
+});
+
+it("changes Codex permission, keeps a failed choice retryable, and honors supported permissions", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, executionPermission: "askApproval", capabilities: { supportedPermissions: ["askApproval", "fullAccess"] }
+  } });
+  const permissions = openSheet("执行权限");
+  expect((within(permissions).getByRole("button", { name: /只读/ }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(within(permissions).getByRole("button", { name: /完全访问/ }));
+  const request = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.permission");
+  expect(request).toEqual(expect.objectContaining({ threadId: "thread-1", permission: "fullAccess" }));
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "COMMAND_FAILED", message: "权限切换失败", requestId: request!.requestId });
+  expect(within(permissions).getByRole("alert").textContent).toContain("权限切换失败");
+  fireEvent.click(within(permissions).getByRole("button", { name: /完全访问/ }));
+  const retry = send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.permission").at(-1)!;
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, executionPermission: "fullAccess" } });
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: retry.requestId });
+  expect(screen.queryByRole("dialog", { name: "执行权限" })).toBeNull();
+});
+
+it("keeps an OpenCode native mode choice open after failure and retries", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "opencode", nativeMode: "build",
+    nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }]
+  } });
+  const modes = openSheet("切换模式");
+  expect(within(modes).getByRole("button", { name: /Build/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(modes).getByRole("button", { name: "Full Access" }));
+  const request = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.native-mode")!;
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "COMMAND_FAILED", message: "模式不可用", requestId: request.requestId });
+  expect(within(modes).getByRole("alert").textContent).toContain("模式不可用");
+  fireEvent.click(within(modes).getByRole("button", { name: "Plan" }));
+  const retry = send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.native-mode").at(-1)!;
+  expect(retry).toEqual(expect.objectContaining({ modeId: "plan" }));
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: retry.requestId });
+  expect(screen.queryByRole("dialog", { name: "切换模式" })).toBeNull();
 });
 
 it("switches advertised Codex and ACP models while idle", () => {
@@ -342,7 +380,7 @@ it("opens history and starts a new conversation from the single menu", () => {
   const menu = screen.getByRole("dialog", { name: "更多操作" });
   expect(within(menu).getByRole("group", { name: "会话模式" })).toBeTruthy();
   expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
-    .toEqual(["×", "Plan", "Exec", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
+    .toEqual(["×", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
   fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
   expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
   const historyRequest = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.history");

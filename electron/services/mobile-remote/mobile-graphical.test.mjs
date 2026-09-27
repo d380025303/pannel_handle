@@ -16,7 +16,7 @@ function fixture() {
     newThread: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
     listHistory: vi.fn(() => ({ data: [{ id: "thread-2", title: "Old" }], nextCursor: null })),
     resume: vi.fn(() => ({ ...snapshot, threadId: "thread-2" })),
-    resolveApproval: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn(), setMode: vi.fn(), setNativeMode: vi.fn(), setModel: vi.fn(), allowFiles: vi.fn(),
+    resolveApproval: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn(), setMode: vi.fn(), setNativeMode: vi.fn(), setExecutionPermission: vi.fn(), setModel: vi.fn(), allowFiles: vi.fn(),
     executePlan: vi.fn(), dismissPlan: vi.fn()
   };
   const terminalManager = { getSession: vi.fn(id => id === session.id ? session : null) };
@@ -192,6 +192,25 @@ describe("mobile graphical session route", () => {
       .rejects.toThrow("不支持 Exec");
     f.snapshot.busy = true;
     await expect(f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan" }))
+      .rejects.toThrow("不可切换");
+  });
+
+  it("routes Codex permissions and advertised ACP native modes", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    f.snapshot.capabilities = { permissions: true, supportedPermissions: ["askApproval", "fullAccess"] };
+    await f.handlers.handle(f.socket, { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "fullAccess", requestId: "p1" });
+    expect(f.graphicalService.setExecutionPermission).toHaveBeenCalledWith("graph-1", "fullAccess");
+    await expect(f.handlers.handle(f.socket, { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "readOnly" }))
+      .rejects.toThrow("不支持此执行权限");
+    f.snapshot.provider = "opencode";
+    f.snapshot.nativeModes = [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }];
+    await f.handlers.handle(f.socket, { type: "graphical.native-mode", sessionId: "graph-1", threadId: "thread-1", modeId: "bypassPermissions", requestId: "n1" });
+    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "bypassPermissions");
+    await expect(f.handlers.handle(f.socket, { type: "graphical.native-mode", sessionId: "graph-1", threadId: "thread-1", modeId: "unknown" }))
+      .rejects.toThrow("可用的模式");
+    f.snapshot.busy = true;
+    await expect(f.handlers.handle(f.socket, { type: "graphical.native-mode", sessionId: "graph-1", threadId: "thread-1", modeId: "plan" }))
       .rejects.toThrow("不可切换");
   });
 
