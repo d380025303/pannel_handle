@@ -3,6 +3,7 @@ export type RuntimeMode = "terminal" | "app-server";
 export type AgentProvider = "codex" | "codebuddy" | "opencode";
 
 export type TerminalKind = "windows" | "wsl" | "ssh";
+export type QuickCommand = { id: string; command: string; mode?: "write" | "auto-enter" | "one-time"; pinned?: boolean };
 
 export type RuntimeSession = {
   id: string;
@@ -12,6 +13,7 @@ export type RuntimeSession = {
   runtimeMode: RuntimeMode;
   agentProvider?: AgentProvider;
   cwd?: string;
+  quickCommands?: QuickCommand[];
   tags?: string[];
 };
 
@@ -106,6 +108,7 @@ export type ClientMessage =
   | { v: 6; type: "password.login"; password: string; deviceName: string }
   | { v: 6; type: "terminal.subscribe"; sessionId: string; lastSeq?: number }
   | { v: 6; type: "terminal.input"; sessionId: string; data: string }
+  | { v: 6; type: "quick-command.invoke"; sessionId: string; commandId: string; threadId?: string | null; requestId: string }
   | { v: 6; type: "terminal.claim-size"; sessionId: string; cols: number; rows: number }
   | { v: 6; type: "terminal.resize"; sessionId: string; cols: number; rows: number }
   | { v: 6; type: "template.launch"; templateId: string; cols: number; rows: number; requestId: string }

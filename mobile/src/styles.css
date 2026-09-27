@@ -33,6 +33,18 @@ button { color: inherit; }
 .terminal-toolbar { flex: none; display: flex; gap: 6px; overflow-x: auto; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid #263244; background: #101827; scrollbar-width: none; }
 .terminal-toolbar button { flex: none; min-width: 44px; min-height: 36px; border: 1px solid #334155; border-radius: 8px; background: #172235; font-size: 12px; }
 .terminal-toolbar button.latched { border-color: #22d3ee; color: #67e8f9; background: #164e63; }
+.mobile-quick-commands { flex: none; border-top: 1px solid #263244; background: #101827; }
+.mobile-quick-direct { display: flex; gap: 6px; overflow-x: auto; padding: 7px 8px; }
+.mobile-quick-direct button { flex: none; max-width: 40vw; min-height: 36px; overflow: hidden; padding: 5px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.mobile-quick-direct .mobile-quick-more { color: #67e8f9; }
+.mobile-quick-sheet { width: 100%; max-height: 75dvh; display: flex; flex-direction: column; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); background: #131d2c; }
+.mobile-quick-sheet header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #334155; }
+.mobile-quick-sheet header button { border: 0; background: transparent; font-size: 26px; }
+.mobile-quick-list { overflow-y: auto; padding: 10px; }
+.mobile-quick-list button { display: flex; width: 100%; min-height: 48px; flex-direction: column; gap: 3px; margin-bottom: 6px; padding: 8px 10px; border: 1px solid #334155; border-radius: 9px; background: #19283b; text-align: left; }
+.mobile-quick-list span { overflow-wrap: anywhere; }
+.mobile-quick-list small { color: #8fa4bc; }
+.mobile-quick-commands button:disabled { opacity: .5; }
 
 .connection-page, .empty-terminal { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 28px; text-align: center; background: radial-gradient(circle at 50% 20%, #172a45 0, #080d16 55%); }
 .brand-mark { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 20px; color: #082f49; background: linear-gradient(135deg, #67e8f9, #38bdf8); font-weight: 800; font-size: 25px; box-shadow: 0 12px 36px #0891b244; }

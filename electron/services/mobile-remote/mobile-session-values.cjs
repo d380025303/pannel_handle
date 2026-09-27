@@ -7,6 +7,7 @@ function toRuntimeSession(session) {
     runtimeMode: session.runtimeMode === "app-server" ? "app-server" : "terminal",
     agentProvider: session.agentProvider,
     cwd: session.cwd,
+    quickCommands: Array.isArray(session.quickCommands) ? session.quickCommands.map(({ id, command, mode, pinned }) => ({ id, command, mode: mode || "write", pinned: pinned === true })) : [],
     tags: Array.isArray(session.tags) ? session.tags : []
   };
 }

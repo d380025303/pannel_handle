@@ -58,6 +58,32 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         const bytes = Buffer.byteLength(data, "utf8");
         if (!data || bytes > MAX_INPUT_BYTES || !checkInputRate(socket, bytes)) throw new Error("终端输入过大或发送过快。");
         terminalManager.write(String(message.sessionId || ""), data);
+      } else if (message.type === "quick-command.invoke") {
+        const sessionId = String(message.sessionId || "");
+        const session = terminalManager.getSession(sessionId);
+        if (!session) throw new Error("会话不存在或已经结束。");
+        const command = (session.quickCommands || []).find(value => value.id === message.commandId);
+        if (!command || typeof command.command !== "string" || !command.command) throw new Error("快捷命令已失效，请刷新后重试。");
+        const mode = command.mode || "write";
+        if (!["write", "auto-enter", "one-time"].includes(mode)) throw new Error("快捷命令模式无效。");
+        if (session.runtimeMode === "app-server") {
+          if (socket.graphicalSessionId !== sessionId || !graphicalService) throw new Error("请先打开此图形会话。");
+          const current = graphicalService.snapshot(sessionId);
+          if (!current.threadId || current.threadId !== message.threadId || current.archived) throw new Error("对话已切换或已归档，请刷新后重试。");
+          if (mode === "auto-enter") await graphicalService.submit(sessionId, command.command, []);
+        } else {
+          if (typeof session.term?.write !== "function" || session.type === "ssh"
+            && ["reconnecting", "disconnected"].includes(session.sshConnectionState))
+            throw new Error("终端当前不可写入，请稍后重试。");
+          const data = mode === "auto-enter" ? `${command.command}\r` : command.command;
+          const bytes = Buffer.byteLength(data, "utf8");
+          if (bytes > MAX_INPUT_BYTES || !checkInputRate(socket, bytes)) throw new Error("终端输入过大或发送过快。");
+          terminalManager.write(sessionId, data);
+        }
+        if (mode === "one-time") {
+          terminalManager.updateSession(sessionId, { quickCommands: session.quickCommands.filter(value => value.id !== command.id) });
+        }
+        send(socket, { type: "command.ok", requestId });
       } else if (message.type === "terminal.claim-size" || message.type === "terminal.resize") {
         const sessionId = String(message.sessionId || "");
         if (terminalManager.getSession(sessionId)?.runtimeMode === "app-server") throw new Error("图形会话没有终端尺寸。");
@@ -101,7 +127,9 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         sendError(socket, "MESSAGE_NOT_ALLOWED", "该移动端操作不被允许。", requestId);
       }
     } catch (error) {
-      sendError(socket, message.type.startsWith("graphical.") ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
+      const graphicalQuickCommand = message.type === "quick-command.invoke"
+        && terminalManager.getSession(String(message.sessionId || ""))?.runtimeMode === "app-server";
+      sendError(socket, message.type.startsWith("graphical.") || graphicalQuickCommand ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
         error.message || String(error), requestId);
     }
   }

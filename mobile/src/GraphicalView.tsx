@@ -3,8 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
 import { GraphicalUsage } from "./GraphicalUsage";
+import { QuickCommandPicker } from "./QuickCommandPicker";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalItem, type GraphicalQuestion, type GraphicalSnapshot,
-  type GraphicalHistory, type RuntimeSession, type ServerMessage } from "./types";
+  type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
@@ -187,6 +188,8 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
   const submitIdRef = useRef<string | null>(null);
+  const quickIdRef = useRef<string | null>(null);
+  const quickDraftRef = useRef("");
   const historyIdRef = useRef<string | null>(null);
   const modeIdRef = useRef<string | null>(null);
   const [changingMode, setChangingMode] = useState(false);
@@ -222,12 +225,18 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
     setExpandedGroupId(null);
     pendingRef.current.clear();
     modeIdRef.current = null;
+    quickIdRef.current = null;
+    quickDraftRef.current = "";
     modelIdRef.current = null;
     switchIdRef.current = null;
     threadRef.current = null;
     const unsubscribe = onGraphicalMessage(message => {
       if (message.type === "graphical.snapshot" && message.sessionId === session.id) {
         if (threadRef.current !== message.snapshot.threadId) {
+          if (quickIdRef.current) pendingRef.current.delete(quickIdRef.current);
+          quickIdRef.current = null;
+          quickDraftRef.current = "";
+          setSending(false);
           for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
           const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
           if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
@@ -252,6 +261,13 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         if (pending) { uploadRequests.current.delete(message.requestId); pending.resolve({ fileId: message.fileId, url: message.url }); }
       } else if (message.type === "command.ok" && pendingRef.current.delete(message.requestId)) {
         if (submitIdRef.current === message.requestId) { setDraft(""); setAttachments([]); setSending(false); submitIdRef.current = null; }
+        if (quickIdRef.current === message.requestId) {
+          const quickDraft = quickDraftRef.current;
+          if (quickDraft) setDraft(current => current + quickDraft);
+          quickDraftRef.current = "";
+          quickIdRef.current = null;
+          setSending(false);
+        }
         if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
         if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
         setError("");
@@ -260,6 +276,7 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         if (upload) { uploadRequests.current.delete(message.requestId); upload.reject(new Error(message.message)); }
         setError(message.message);
         if (submitIdRef.current === message.requestId) { setSending(false); submitIdRef.current = null; }
+        if (quickIdRef.current === message.requestId) { setSending(false); quickIdRef.current = null; quickDraftRef.current = ""; }
         if (modeIdRef.current === message.requestId) { setChangingMode(false); modeIdRef.current = null; }
         if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
         if (switchIdRef.current === message.requestId) { setSwitchingTo(null); switchIdRef.current = null; }
@@ -316,6 +333,22 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
     if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || sending) return;
     submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId) }) || null;
     if (submitIdRef.current) setSending(true);
+  };
+  const runQuickCommand = (command: QuickCommand) => {
+    if (!snapshot?.threadId || snapshot.archived) return false;
+    if ((command.mode || "write") === "write") { setDraft(current => current + command.command); return true; }
+    if (sending || quickIdRef.current) return false;
+    const id = createRequestId();
+    if (!send({ v: PROTOCOL_VERSION, type: "quick-command.invoke", sessionId: session.id,
+      commandId: command.id, threadId: snapshot.threadId, requestId: id })) {
+      setError("连接已断开，请重试。");
+      return false;
+    }
+    pendingRef.current.add(id);
+    quickIdRef.current = id;
+    quickDraftRef.current = command.mode === "one-time" ? command.command : "";
+    setSending(true);
+    return true;
   };
   const changeModel = (modelId: string) => {
     if (!snapshot || snapshot.busy || snapshot.archived || changingModel || attachments.length || !modelOptions(snapshot).some(option => option.value === modelId)) return;
@@ -481,6 +514,9 @@ export function GraphicalView({ session, send, onGraphicalMessage }: Props) {
         onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })}
         onCancel={questionId => action({ type: "graphical.cancelQuestion", questionId })} />)}
     </div>
+    <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand}
+      disabled={command => !snapshot?.threadId || !!snapshot.archived || (command.mode !== "write" && sending)
+        || (command.mode === "auto-enter" && !!snapshot.busy && snapshot.provider !== "codex")} />
     <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>
         <span>{item.file.name} · {item.status === "uploading" ? "上传中" : item.status === "failed" ? "上传失败" : "已上传"}</span>

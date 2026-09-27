@@ -19,8 +19,8 @@ function socket() {
   });
 }
 
-function fixture() {
-  const session = { id: "run-1", cols: 100, rows: 30 };
+function fixture(graphicalService) {
+  const session = { id: "run-1", cols: 100, rows: 30, term: { write: vi.fn() } };
   const device = { id: "phone-1", name: "Phone" };
   const accessStore = {
     getConfig: () => ({ enabled: true, interfaceName: "LAN", port: 43123 }),
@@ -55,7 +55,7 @@ function fixture() {
     currentState: () => ({ running: true }),
   });
   const handlers = createMobileSocketHandlers({
-    terminalManager, stateHub, accessStore, auth, sizes, send, sendError,
+    terminalManager, stateHub, accessStore, auth, sizes, send, sendError, graphicalService,
     sessionStore: { getLibrary: () => [], getTemplate: () => null },
     agentSessionLauncher: {}, now: () => Date.now()
   });
@@ -169,6 +169,56 @@ describe("mobile component collaboration", () => {
     await vi.advanceTimersByTimeAsync(1000);
     message({ type: "terminal.input", sessionId: "run-1", data: "x" });
     expect(f.terminalManager.write).toHaveBeenCalledTimes(17);
+  });
+
+  it("runs saved quick commands by ID and only removes a one-time command after writing", async () => {
+    const f = fixture();
+    const session = f.terminalManager.getSession("run-1");
+    session.quickCommands = [
+      { id: "write", command: "pwd", mode: "write" },
+      { id: "auto", command: "ls", mode: "auto-enter" },
+      { id: "once", command: "exit", mode: "one-time" }
+    ];
+    const client = socket();
+    f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
+    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
+    message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "write", requestId: "1" });
+    message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "auto", requestId: "2" });
+    message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "once", requestId: "3" });
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(client, { type: "command.ok", requestId: "3" }));
+    expect(f.terminalManager.write.mock.calls).toEqual([["run-1", "pwd"], ["run-1", "ls\r"], ["run-1", "exit"]]);
+    expect(f.terminalManager.updateSession).toHaveBeenCalledWith("run-1", { quickCommands: session.quickCommands.slice(0, 2) });
+    f.terminalManager.updateSession.mockClear();
+    session.type = "ssh";
+    session.sshConnectionState = "disconnected";
+    message({ type: "quick-command.invoke", sessionId: "run-1", commandId: "once", requestId: "offline" });
+    await vi.waitFor(() => expect(f.sendError).toHaveBeenCalledWith(client, "COMMAND_FAILED", "终端当前不可写入，请稍后重试。", "offline"));
+    expect(f.terminalManager.updateSession).not.toHaveBeenCalled();
+  });
+
+  it("submits graphical quick commands and keeps them after a failed submit", async () => {
+    const graphicalService = { snapshot: vi.fn(() => ({ threadId: "thread-1", archived: false })), submit: vi.fn() };
+    const f = fixture(graphicalService);
+    const session = f.terminalManager.getSession("run-1");
+    session.runtimeMode = "app-server";
+    session.quickCommands = [{ id: "auto", command: "检查", mode: "auto-enter" }, { id: "once", command: "解释", mode: "one-time" }];
+    const client = socket();
+    f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
+    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    client.graphicalSessionId = "run-1";
+    const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, sessionId: "run-1", threadId: "thread-1", ...payload }));
+    graphicalService.submit.mockRejectedValueOnce(new Error("提交失败"));
+    message({ type: "quick-command.invoke", commandId: "auto", requestId: "fail" });
+    await vi.waitFor(() => expect(f.sendError).toHaveBeenCalledWith(client, "GRAPHICAL_COMMAND_FAILED", "提交失败", "fail"));
+    expect(f.terminalManager.updateSession).not.toHaveBeenCalled();
+    graphicalService.submit.mockResolvedValueOnce(undefined);
+    message({ type: "quick-command.invoke", commandId: "auto", requestId: "ok" });
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(client, { type: "command.ok", requestId: "ok" }));
+    expect(graphicalService.submit).toHaveBeenLastCalledWith("run-1", "检查", []);
+    message({ type: "quick-command.invoke", commandId: "once", requestId: "once" });
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(client, { type: "command.ok", requestId: "once" }));
+    expect(f.terminalManager.updateSession).toHaveBeenCalledWith("run-1", { quickCommands: session.quickCommands.slice(0, 1) });
   });
 });
 

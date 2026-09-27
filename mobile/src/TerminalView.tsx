@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { applyTerminalModifiers } from "./protocol";
+import { applyTerminalModifiers, createRequestId } from "./protocol";
 import { createTerminalTouchScroller } from "./terminalTouchScroll";
-import { PROTOCOL_VERSION, type ClientMessage, type RuntimeSession, type ServerMessage } from "./types";
+import { QuickCommandPicker } from "./QuickCommandPicker";
+import { PROTOCOL_VERSION, type ClientMessage, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
@@ -36,6 +37,7 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [copyText, setCopyText] = useState<string | null>(null);
+  const [quickError, setQuickError] = useState("");
 
   useEffect(() => { ctrlRef.current = ctrl; }, [ctrl]);
   useEffect(() => { altRef.current = alt; }, [alt]);
@@ -163,6 +165,12 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
     const value = terminalRef.current?.getSelection() ?? "";
     setCopyText(value || "请先在终端中选择文本");
   };
+  const runQuickCommand = (command: QuickCommand) => {
+    const sent = send({ v: PROTOCOL_VERSION, type: "quick-command.invoke",
+      sessionId: session.id, commandId: command.id, requestId: createRequestId() });
+    setQuickError(sent ? "" : "连接已断开，请重试。");
+    return sent;
+  };
 
   return (
     <section className="terminal-shell">
@@ -176,6 +184,8 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage }: Ter
         </button>
       </header>
       <div className="terminal-scroll"><div className="terminal-host" ref={containerRef} /></div>
+      {quickError && <div className="command-error" role="alert">{quickError}</div>}
+      <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand} />
       <div className="terminal-toolbar" aria-label="终端专用按键">
         <button className={ctrl ? "latched" : ""} type="button" onClick={() => setCtrl((value) => !value)}>Ctrl</button>
         <button className={alt ? "latched" : ""} type="button" onClick={() => setAlt((value) => !value)}>Alt</button>

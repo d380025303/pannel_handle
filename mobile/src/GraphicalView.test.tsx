@@ -12,12 +12,12 @@ const snapshot: GraphicalSnapshot = {
   items: [{ id: "m1", type: "agentMessage", text: "**完成**" }], approvals: [], questions: []
 };
 
-function fixture() {
+function fixture(viewSession = session) {
   const send = vi.fn((_message: ClientMessage) => true);
   type GraphicalMessage = Extract<ServerMessage,
     { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
   const listeners = new Set<(message: GraphicalMessage) => void>();
-  render(<GraphicalView session={session} send={send} onGraphicalMessage={callback => { listeners.add(callback); return () => { listeners.delete(callback); }; }} />);
+  render(<GraphicalView session={viewSession} send={send} onGraphicalMessage={callback => { listeners.add(callback); return () => { listeners.delete(callback); }; }} />);
   const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
   return { send, emit };
 }
@@ -41,6 +41,28 @@ it("subscribes to the selected graphical session and sends text with its thread 
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
   fireEvent.click(screen.getByText("发送"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
+});
+
+it("uses saved graphical quick commands and preserves one-time commands on failure", () => {
+  const { send, emit } = fixture({ ...session, quickCommands: [
+    { id: "write", command: "继续", mode: "write" },
+    { id: "auto", command: "检查", mode: "auto-enter" },
+    { id: "once", command: "解释", mode: "one-time" }
+  ] });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  fireEvent.click(screen.getByRole("button", { name: "继续" }));
+  expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("继续");
+  fireEvent.click(screen.getByRole("button", { name: "检查" }));
+  const auto = send.mock.calls.map(([message]) => message).find((message): message is Extract<ClientMessage, { type: "quick-command.invoke" }> =>
+    message.type === "quick-command.invoke" && message.commandId === "auto");
+  expect(auto).toMatchObject({ sessionId: "graph-1", threadId: "thread-1" });
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "COMMAND_FAILED", message: "发送失败", requestId: auto!.requestId });
+  expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("继续");
+  fireEvent.click(screen.getByRole("button", { name: "解释" }));
+  const once = send.mock.calls.map(([message]) => message).find((message): message is Extract<ClientMessage, { type: "quick-command.invoke" }> =>
+    message.type === "quick-command.invoke" && message.commandId === "once");
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: once!.requestId });
+  expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("继续解释");
 });
 
 it("shows concise CodeBuddy tool summaries and full titles on expansion", () => {

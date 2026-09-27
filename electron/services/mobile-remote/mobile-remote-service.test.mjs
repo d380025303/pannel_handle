@@ -9,6 +9,8 @@ describe("mobile session mode values", () => {
   it("uses the actual runtime mode for running sessions and the saved preference for templates", () => {
     expect(toRuntimeSession({ id: "run", title: "Codex", type: "windows", agentProvider: "codex", runtimeMode: "app-server" }))
       .toMatchObject({ runtimeMode: "app-server", agentProvider: "codex" });
+    expect(toRuntimeSession({ id: "run", quickCommands: [{ id: "a", command: "echo ok", pinned: true }] }).quickCommands)
+      .toEqual([{ id: "a", command: "echo ok", mode: "write", pinned: true }]);
     const templates = toSavedTemplates({ getLibrary: () => [
       { id: "graph", title: "Graph", type: "wsl", agentProvider: "opencode", graphicalSessionEnabled: true },
       { id: "terminal", title: "Terminal", type: "ssh", agentProvider: "codebuddy", graphicalSessionEnabled: false }
