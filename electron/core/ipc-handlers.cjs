@@ -252,6 +252,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     return agentSessionLauncher.duplicateRunningSession(String(id || ""));
   });
 
+  ipcMain.handle("sessions:open-other-mode", (_event, id) => {
+    return agentSessionLauncher.openOtherSessionMode(String(id || ""));
+  });
+
   ipcMain.handle("sessions:reorder-running", (_event, orderedIds) => {
     return terminalManager.reorderRunningSessions(orderedIds);
   });
@@ -275,8 +279,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("sessions:switch-codex-backend", async (_event, { id, backend }) => {
     return agentSessionLauncher.switchCodexBackend(String(id || ""), backend);
   });
-  ipcMain.handle("sessions:switch-model-source", async (_event, { id, source }) => {
-    return agentSessionLauncher.switchModelSource(String(id || ""), source);
+  ipcMain.handle("sessions:switch-model-source", async (_event, { id, source, restart }) => {
+    return agentSessionLauncher.switchModelSource(String(id || ""), source, restart === true);
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {

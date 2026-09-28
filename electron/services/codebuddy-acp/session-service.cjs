@@ -46,11 +46,26 @@ function safeStderr(stderr, environment) {
   return sanitizeDiagnostic(detail, secrets).trim().slice(-500);
 }
 
-function stopAgentChild(child, provider) {
-  if ((provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" || provider === "grok") && process.platform === "win32" && Number.isInteger(child.pid)) {
-    const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-    killer.once("error", () => child.kill());
-  } else child.kill();
+function stopAgentChild(child, provider, { platform = process.platform, spawnKiller = spawn, onError = console.error } = {}) {
+  if (child.exitCode != null || child.signalCode != null) return;
+  const usesProcessTree = ["codebuddy", "opencode", "claude", "qoder", "gemini", "grok"].includes(provider);
+  if (!usesProcessTree || platform !== "win32" || !Number.isInteger(child.pid)) {
+    child.kill();
+    return;
+  }
+  let failed = false;
+  const fallback = error => {
+    if (failed) return;
+    failed = true;
+    onError(`Failed to stop ${provider} process tree ${child.pid}:`, error);
+    try { child.kill(); }
+    catch (killError) { onError(`Failed to stop ${provider} process ${child.pid}:`, killError); }
+  };
+  try {
+    const killer = spawnKiller("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+    killer.once("error", fallback);
+    killer.once("exit", code => { if (code !== 0 && child.exitCode == null) fallback(new Error(`taskkill exited with code ${code}`)); });
+  } catch (error) { fallback(error); }
 }
 
 function buildInvocation(session, runtime, environment, provider = "codebuddy") {
@@ -1168,4 +1183,4 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     submit, interrupt, resolveApproval, answerQuestion, cancelQuestion };
 }
 
-module.exports = { createCodeBuddyAcpSessionService, buildInvocation };
+module.exports = { createCodeBuddyAcpSessionService, buildInvocation, stopAgentChild };

@@ -9,6 +9,7 @@ import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { CodeBuddyContextUsage } from "./components/agents/CodeBuddyContextUsage";
 import { AgentSwitcher } from "./components/agents/AgentSwitcher";
+import { SessionModeSwitch } from "./components/agents/SessionModeSwitch";
 import { AgentModelSourceSwitcher } from "./components/agents/AgentModelSourceSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
@@ -944,7 +945,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     isActive={isAppServerSession && activeSessionId === session.id && workspaceTab === "terminal"}
                     draft={appServerDrafts[session.id] ?? ""} draftReferences={appServerDraftReferences[session.id] ?? emptyDraftReferences}
                     onDraftChange={handleAppServerDraftChange} onDraftReferencesChange={handleAppServerDraftReferencesChange}
-                    onLinkClick={handleAppServerLink} sessionRefs={appServerSessionRefs.current} />)}
+                    onLinkClick={handleAppServerLink} onReconnectModels={terminalSessions.reconnectOpenCodeModels} sessionRefs={appServerSessionRefs.current} />)}
                 {isAppServerSession && appServerLinkError && <div role="alert" className="codex-app-server-error">
                   <span>{appServerLinkError}</span>
                   <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setAppServerLinkError(null)}><X aria-hidden="true" /></button>
@@ -964,6 +965,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       onTogglePinned={terminalSessions.toggleQuickCommandPinnedForActiveSession}
                     />
                     <div className="terminal-status-cluster">
+                      <SessionModeSwitch session={terminalSessions.activeSession} onOpenOtherMode={terminalSessions.openOtherSessionMode} />
                       <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                       <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                       <AgentTokenLiveStatus state={agentTokenLive} />
@@ -992,6 +994,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     autoEnterDisabled={!appServerFooter.canSubmit}
                   />
                   <div className="terminal-status-cluster">
+                    <SessionModeSwitch session={terminalSessions.activeSession} onOpenOtherMode={terminalSessions.openOtherSessionMode} />
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                     <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                     <AgentTokenLiveStatus

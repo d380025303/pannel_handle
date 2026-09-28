@@ -426,8 +426,13 @@ if (!gotSingleInstanceLock) {
       miniMaxCatalogFile: path.join(modelCatalogDir, "minimax-model-catalog.json"),
       dialog,
       getWindowFromEvent: windowManager.getWindowFromEvent,
-      userDataDir: app.getPath("userData")
+      userDataDir: app.getPath("userData"),
+      listOpenCodeWslDistros: () => terminalManager.listSessions()
+        .filter(session => session.agentProvider === "opencode" && session.type === "wsl" && session.wslDistro)
+        .map(session => session.wslDistro)
     });
+    try { settingsModule.syncOpenCodeModels(); }
+    catch (error) { console.error("Failed to synchronize OpenCode models:", error); }
     registerTerminalBackgroundProtocol(protocol, app.getPath("userData"));
     screenshotModule = createScreenshotModule({
       ipcMain,
@@ -476,6 +481,7 @@ if (!gotSingleInstanceLock) {
       openRouterService: settingsModule.openRouterService,
       naraRouterService: settingsModule.naraRouterService,
       miniMaxService: settingsModule.miniMaxService,
+      openCodeModelSync: settingsModule.openCodeModelSync,
       codexModelBridgeModule,
       getDefaultShell: resolveConfiguredShell,
       onTemplateLaunched: (templateId) => templateUsageStore.record(templateId)

@@ -103,9 +103,10 @@ type CodexAppServerSessionProps = {
   draftReferences?: CodexCapabilityReference[];
   setDraftReferences?: Dispatch<SetStateAction<CodexCapabilityReference[]>>;
   onLinkClick?: (href: string) => void;
+  onReconnectModels?: (sessionId: string) => Promise<void>;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onReconnectModels }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -166,6 +167,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [resumingHistory, setResumingHistory] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const wasActiveRef = useRef(false);
+  const followMessagesRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileSearchRequestRef = useRef(0);
@@ -377,9 +379,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }, [fileMention, fileResults, selectedFileIndex]);
   useLayoutEffect(() => {
     if (!isActive) { wasActiveRef.current = false; return; }
-    if (!wasActiveRef.current) { wasActiveRef.current = true; return; }
     const messages = messagesRef.current;
-    if (messages) messages.scrollTop = messages.scrollHeight;
+    if (!messages) return;
+    const becameActive = !wasActiveRef.current;
+    wasActiveRef.current = true;
+    if (becameActive || followMessagesRef.current) {
+      followMessagesRef.current = true;
+      messages.scrollTop = messages.scrollHeight;
+    }
   }, [isActive, snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
     if (!previewFile || !snapshot.threadId) return;
@@ -846,7 +853,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
 
   const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : snapshot.provider === "qoder" ? "Qoder" : snapshot.provider === "gemini" ? "Gemini" : snapshot.provider === "grok" ? "Grok" : "Codex";
   const canSendWhileBusy = agentName === "Codex" && !snapshot.compacting;
-  const acpModel = (snapshot.provider === "opencode" || snapshot.provider === "codebuddy") && session?.modelSource && session.modelSource !== "native" ? undefined
+  const acpModel = snapshot.provider === "codebuddy" && session?.modelSource && session.modelSource !== "native" ? undefined
     : snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
   const modelDetails = (modelId: string) => {
@@ -1015,7 +1022,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     <div className={`codex-app-server-conversation-layout${snapshot.provider === "codebuddy" && snapshot.team ? " has-team" : ""}`}>
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
-    <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
+    <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite" onScroll={event => {
+      if (isActive) followMessagesRef.current = event.currentTarget.scrollHeight - event.currentTarget.clientHeight - event.currentTarget.scrollTop <= 32;
+    }}>
       {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片{snapshot.capabilities?.plan ? "与规划模式" : ""}</span>{canCheckVersion && <CodexVersionControl key={`${sessionId}:${snapshot.threadId}:${versionProvider}`} sessionId={sessionId} provider={versionProvider!} />}</div>}
       {timeline.map(entry => {
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
@@ -1216,7 +1225,17 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             if (target && !snapshot.pendingPlan) void changeNativeMode(target.id);
             return;
           }
-          if (snapshot.provider !== "opencode" && snapshot.provider !== "claude" && snapshot.provider !== "qoder" && snapshot.provider !== "gemini" && snapshot.provider !== "grok") {
+          if (snapshot.provider === "opencode") {
+            const modes = snapshot.nativeModes || [];
+            const build = modes.find(mode => normalizeModeKey(mode.id) === "build");
+            const plan = modes.find(mode => normalizeModeKey(mode.id) === "plan");
+            if (build && plan) {
+              event.preventDefault();
+              if (!snapshot.pendingPlan) void changeNativeMode(snapshot.nativeMode === plan.id ? build.id : plan.id);
+            }
+            return;
+          }
+          if (snapshot.provider !== "claude" && snapshot.provider !== "qoder" && snapshot.provider !== "gemini" && snapshot.provider !== "grok") {
             event.preventDefault();
             void changeMode(snapshot.mode === "plan" ? "default" : "plan");
           }
@@ -1248,6 +1267,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>}
               {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
               {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
+              {snapshot.provider === "opencode" && sessionType !== "ssh" && onReconnectModels && <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={() => { setMenuOpen(false); void onReconnectModels(sessionId).catch(cause => setError(message(cause))); }}>重新连接以更新模型</button>}
               {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
               {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
               {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
@@ -1296,7 +1316,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {isCodex && snapshot.backend === "openai" && <span className="codex-app-server-permission-status">{(snapshot.models || []).find(model => model.id === snapshot.model)?.displayName || snapshot.model || "默认模型"}{snapshot.effort ? ` · ${effortLabel(snapshot.effort)}` : ""}{snapshot.fastMode ? " · 快速" : ""}</span>}
           {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{typeof acpModel.currentValue === "string" && modelDetails(acpModel.currentValue) ? ` · ${modelDetails(acpModel.currentValue)}` : ""}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
           {!acpModel && acpContextWindow?.currentValue && <span className="codex-app-server-permission-status">上下文窗口：{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</span>}
-          <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : ""}</span>
+          <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : snapshot.provider === "opencode" ? " · Shift+Tab 切换 Build / Plan" : ""}</span>
           <div className="codex-app-server-input-primary">
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}

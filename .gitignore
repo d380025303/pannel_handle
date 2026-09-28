@@ -9,6 +9,7 @@ release
 .codex
 .pannel-handle-codex-*.json
 .pannel-handle-images/
+*.pannel-handle.bak
 idea-plugin/.gradle/
 idea-plugin/.intellijPlatform/
 idea-plugin/build/

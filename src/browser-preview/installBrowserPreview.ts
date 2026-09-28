@@ -293,6 +293,16 @@ export function installBrowserPreview() {
       updateSession(id, { modelSource: source });
       return copy(sessions.find((session) => session.id === id)!);
     },
+    openOtherSessionMode: async (id) => {
+      const source = sessions.find((session) => session.id === id);
+      if (!source) throw new Error("Session is not running.");
+      const runtimeMode: TerminalSession["runtimeMode"] = source.runtimeMode === "app-server" ? "terminal" : "app-server";
+      const opened: TerminalSession = { ...source, id: `preview-runtime-${nextId++}`, runtimeMode,
+        graphicalSessionEnabled: runtimeMode === "app-server", createdAt: Date.now() };
+      sessions = [...sessions, opened];
+      emitSessions();
+      return copy(opened);
+    },
     closeSession: async (id) => { sessions = sessions.filter((session) => session.id !== id); emitSessions(); return copy(sessions); },
     reconnectSession: async (id) => { updateSession(id, { sshConnectionState: "connected" }); return copy(sessions.find((session) => session.id === id)!); },
     getHistory: async (id) => `\u001b[1;36mPannel Handle 浏览器预览\u001b[0m\r\n会话: ${sessions.find((session) => session.id === id)?.title || id}\r\n此终端不会执行真实命令。\r\nPS C:\\workspace\\pannel-handle> `,

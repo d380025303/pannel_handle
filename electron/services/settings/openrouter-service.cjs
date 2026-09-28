@@ -265,7 +265,8 @@ function createOpenRouterService({
   verificationRequestBuilder = buildVerificationRequest,
   verificationResultValidator = () => {},
   verificationStrategy = "fallback",
-  transformModels = models => models
+  transformModels = models => models,
+  onOpenCodeModelsChanged = () => {}
 }) {
   const rateLimitCooldowns = new Map();
 
@@ -289,7 +290,7 @@ function createOpenRouterService({
     if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
     const config = store.getPublicConfig();
     const model = String(requestedModel || config.defaultModelId || "").trim();
-    if (!config.favoriteModelIds.includes(model)) throw new Error(`${providerName} 模型未收藏：${model}`);
+    if (agent !== "opencode" && !config.favoriteModelIds.includes(model)) throw new Error(`${providerName} 模型未收藏：${model}`);
     const verification = store.getAgentModelVerifications?.(agent)?.[model];
     if (verification?.status !== "passed") throw new Error(`${providerName} 模型尚未通过 ${agent === "opencode" ? "OpenCode" : "CodeBuddy"} 验证：${model}`);
     const apiKey = store.getApiKey();
@@ -315,6 +316,7 @@ function createOpenRouterService({
       const result = await runAgentModelProbe({ agent, providerId, modelId, baseUrl, apiKey, apiKeyEnv });
       results.push({ modelId, ...store.setAgentModelVerification(agent, modelId, result) });
     }
+    if (agent === "opencode" && results.length) onOpenCodeModelsChanged();
     return results;
   }
 
@@ -352,15 +354,20 @@ function createOpenRouterService({
     if (metadataBaseUrl) models = enrichNaraRouterModels(models, plansPayload, pricingPayload);
     models = transformModels(models);
     store.setCachedModels(models, now());
+    onOpenCodeModelsChanged();
     return listModels();
   }
 
   function saveApiKey(apiKey) {
-    return store.setApiKey(apiKey);
+    const config = store.setApiKey(apiKey);
+    onOpenCodeModelsChanged();
+    return config;
   }
 
   function clearApiKey() {
-    return store.clearApiKey();
+    const config = store.clearApiKey();
+    onOpenCodeModelsChanged();
+    return config;
   }
 
   async function testConnection() {

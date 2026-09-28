@@ -126,6 +126,9 @@ export type TranslationKey =
   | "settings.autoRestore"
   | "session.graphicalMode"
   | "session.graphicalModeHint"
+  | "session.openGraphicalMode"
+  | "session.openTerminalMode"
+  | "session.openingOtherMode"
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1131,6 +1134,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "启动时自动恢复",
     "session.graphicalMode": "使用图形会话",
     "session.graphicalModeHint": "勾选后使用 {mode}；取消勾选后使用终端。仅影响此模板之后启动的会话。",
+    "session.openGraphicalMode": "以图形对话打开",
+    "session.openTerminalMode": "以终端打开",
+    "session.openingOtherMode": "正在启动...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2128,6 +2134,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoRestore": "Auto restore on startup",
     "session.graphicalMode": "Use graphical session",
     "session.graphicalModeHint": "Checked uses {mode}; unchecked uses the terminal. Applies to future sessions started from this template.",
+    "session.openGraphicalMode": "Open in graphical chat",
+    "session.openTerminalMode": "Open in terminal",
+    "session.openingOtherMode": "Starting...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

@@ -6,6 +6,7 @@ const {
 const { transformMiniMaxModels } = require("./minimax-service.cjs");
 const { MINIMAX_BASE_URL, MINIMAX_API_KEY_ENV } = require("../codex-model-bridge/index.cjs");
 const { registerSettingsIpcHandlers } = require("./settings-ipc-handlers.cjs");
+const { createOpenCodeGlobalModelSync } = require("../model-sources/opencode-global-model-sync.cjs");
 
 function createSettingsModule({
   ipcMain,
@@ -25,11 +26,20 @@ function createSettingsModule({
   dialog,
   getWindowFromEvent,
   userDataDir,
+  listOpenCodeWslDistros = () => [],
   createRouterService = createOpenRouterService
 }) {
+  const openCodeModelSync = createOpenCodeGlobalModelSync({ userDataDir, stores: {
+    openrouter: openRouterConfigStore, nararouter: naraRouterConfigStore, minimax: miniMaxConfigStore
+  } });
+  const onOpenCodeModelsChanged = () => {
+    openCodeModelSync.syncWindows();
+    for (const distro of new Set(listOpenCodeWslDistros())) openCodeModelSync.syncWsl(distro);
+  };
   const openRouterService = createRouterService({
     store: openRouterConfigStore,
-    catalogFile: openRouterCatalogFile
+    catalogFile: openRouterCatalogFile,
+    onOpenCodeModelsChanged
   });
   const naraRouterService = createRouterService({
     store: naraRouterConfigStore,
@@ -47,7 +57,8 @@ function createSettingsModule({
     catalogCapabilities: { textOnly: true, reasoningSummaries: false },
     verificationRequestBuilder: buildChatBridgeVerificationRequest,
     verificationResultValidator: validateChatBridgeVerification,
-    verificationStrategy: "all"
+    verificationStrategy: "all",
+    onOpenCodeModelsChanged
   });
   const miniMaxService = createRouterService({
     store: miniMaxConfigStore,
@@ -65,7 +76,8 @@ function createSettingsModule({
     verificationRequestBuilder: buildChatBridgeVerificationRequest,
     verificationResultValidator: validateChatBridgeVerification,
     verificationStrategy: "all",
-    transformModels: transformMiniMaxModels
+    transformModels: transformMiniMaxModels,
+    onOpenCodeModelsChanged
   });
   const unregisterIpcHandlers = registerSettingsIpcHandlers({
     ipcMain,
@@ -88,6 +100,8 @@ function createSettingsModule({
     openRouterService,
     naraRouterService,
     miniMaxService,
+    openCodeModelSync,
+    syncOpenCodeModels: onOpenCodeModelsChanged,
     shutdown() {
       if (stopped) return;
       stopped = true;

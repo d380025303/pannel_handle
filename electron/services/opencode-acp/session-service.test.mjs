@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 
 const require = createRequire(import.meta.url);
 const { createOpenCodeAcpSessionService, buildInvocation } = require("./session-service.cjs");
+const { stopAgentChild } = require("../codebuddy-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 
 function fakeChild(onMessage) {
@@ -22,6 +23,43 @@ const configOptions = [
 ];
 
 describe("OpenCode ACP sessions", () => {
+  it("stops only the owned Windows OpenCode process tree", () => {
+    const child = { pid: 12345, exitCode: null, kill: vi.fn() };
+    const killer = new EventEmitter();
+    const spawnKiller = vi.fn(() => killer);
+    stopAgentChild(child, "opencode", { platform: "win32", spawnKiller });
+    expect(spawnKiller).toHaveBeenCalledWith("taskkill.exe", ["/pid", "12345", "/t", "/f"],
+      { windowsHide: true, stdio: "ignore" });
+    killer.emit("exit", 0);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the owned child when process-tree cleanup fails", () => {
+    const child = { pid: 12345, exitCode: null, kill: vi.fn() };
+    const killer = new EventEmitter();
+    const onError = vi.fn();
+    stopAgentChild(child, "opencode", { platform: "win32", spawnKiller: () => killer, onError });
+    killer.emit("exit", 1);
+    expect(child.kill).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it("does not target a PID after its ACP process has exited", () => {
+    const child = { pid: 12345, exitCode: 0, kill: vi.fn() };
+    const spawnKiller = vi.fn();
+    stopAgentChild(child, "opencode", { platform: "win32", spawnKiller });
+    expect(spawnKiller).not.toHaveBeenCalled();
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("closes remote transports without targeting unrelated Windows processes", () => {
+    const child = { kill: vi.fn() };
+    const spawnKiller = vi.fn();
+    stopAgentChild(child, "opencode", { platform: "win32", spawnKiller });
+    expect(child.kill).toHaveBeenCalledOnce();
+    expect(spawnKiller).not.toHaveBeenCalled();
+  });
+
   it("routes the shared graphical API to OpenCode", () => {
     const codex = { snapshot: vi.fn(), close: vi.fn(), shutdown: vi.fn() };
     const buddy = { snapshot: vi.fn(), close: vi.fn(), shutdown: vi.fn() };
@@ -54,7 +92,8 @@ describe("OpenCode ACP sessions", () => {
     await service.start({ id: "ssh", type: "ssh", cwd: "/srv/app" });
     expect(createStdioTransport.mock.calls[0][1].command).toContain("exec opencode acp");
     expect(service.snapshot("ssh").provider).toBe("opencode");
-    service.shutdown();
+    service.close("ssh");
+    expect(transport.close).toHaveBeenCalledOnce();
   });
 
   it("uses advertised model and effort options and handles a streamed turn", async () => {

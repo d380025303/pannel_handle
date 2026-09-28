@@ -70,7 +70,8 @@ describe("settings module", () => {
     expect(createRouterService).toHaveBeenCalledTimes(3);
     expect(createRouterService.mock.calls[0][0]).toEqual({
       store: "openrouter-store",
-      catalogFile: "openrouter-catalog.json"
+      catalogFile: "openrouter-catalog.json",
+      onOpenCodeModelsChanged: expect.any(Function)
     });
     expect(createRouterService.mock.calls[1][0]).toEqual(expect.objectContaining({
       store: "nararouter-store",

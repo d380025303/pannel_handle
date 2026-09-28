@@ -129,7 +129,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   updateSession: (id, updates) => ipcRenderer.invoke("sessions:update", { id, ...updates }),
   switchAgent: (id, provider) => ipcRenderer.invoke("sessions:switch-agent", { id, provider }),
   switchCodexBackend: (id, backend) => ipcRenderer.invoke("sessions:switch-codex-backend", { id, backend }),
-  switchModelSource: (id, source) => ipcRenderer.invoke("sessions:switch-model-source", { id, source }),
+  switchModelSource: (id, source, restart = false) => ipcRenderer.invoke("sessions:switch-model-source", { id, source, restart }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   reconnectSession: (id) => ipcRenderer.invoke("sessions:reconnect", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
@@ -169,6 +169,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   deleteSavedSession: (id) => ipcRenderer.invoke("sessions:delete-saved", id),
   duplicateSession: (id) => ipcRenderer.invoke("sessions:duplicate", id),
   duplicateRunningSession: (id) => ipcRenderer.invoke("sessions:duplicate-running", id),
+  openOtherSessionMode: (id) => ipcRenderer.invoke("sessions:open-other-mode", id),
   reorderRunningSessions: (orderedIds) => ipcRenderer.invoke("sessions:reorder-running", orderedIds),
   onSessionsChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);

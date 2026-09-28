@@ -37,7 +37,8 @@ function createMocks(overrides = {}) {
       const templateId = Object.prototype.hasOwnProperty.call(options, "templateId")
         ? options.templateId
         : template.id;
-      const session = { ...template, id: `run-${nextRuntimeId++}`, templateId };
+      const session = { ...template, id: `run-${nextRuntimeId++}`, templateId,
+        ...(options.runtimeMode ? { runtimeMode: options.runtimeMode } : {}) };
       sessions.push(session);
       return session;
     }),
@@ -66,14 +67,14 @@ function createMocks(overrides = {}) {
     inspect: vi.fn((_target, [provider]) => Promise.resolve(installed(provider))),
     install: vi.fn((_target, [provider]) => Promise.resolve(installed(provider)))
   };
-  const sshSessionRuntime = { exec: vi.fn((_id, command) => Promise.resolve(command.includes("opencode --version") ? "2.0.0" : "/usr/bin/agent")) };
+  const sshSessionRuntime = { exec: vi.fn((_id, command) => Promise.resolve(command.includes("opencode --version") ? "opencode v2.0.18" : "/usr/bin/agent")) };
   const sshHookTunnelService = { ensureTunnel: vi.fn(() => Promise.resolve({ hookUrl: "http://127.0.0.1:9000/opencode-hook" })) };
   const spawnSync = vi.fn((command, args) => {
     const invocation = `${command} ${(args || []).join(" ")}`;
     if (invocation.includes("codebuddy --version")) return { status: 0, stdout: "2.137.1" };
     if (invocation.includes("gemini --version")) return { status: 0, stdout: "0.56.0" };
     if (invocation.includes("grok --version")) return { status: 0, stdout: "grok 0.2.106" };
-    if (invocation.includes("opencode --version")) return { status: 0, stdout: "2.0.0" };
+    if (invocation.includes("opencode --version")) return { status: 0, stdout: "opencode v2.0.18" };
     return { status: 0, stdout: "found" };
   });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
@@ -152,7 +153,7 @@ describe("agent-session-launcher", () => {
     const mocks = createMocks();
     mocks.spawnSync.mockImplementation((command, args) => {
       const invocation = `${command} ${(args || []).join(" ")}`;
-      return { status: 0, stdout: invocation.includes("opencode --version") ? "1.18.29" : "found" };
+      return { status: 0, stdout: invocation.includes("opencode --version") ? "opencode v1.18.29" : "found" };
     });
     await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode" }))
       .rejects.toThrow("OpenCode V1 不再支持");
@@ -169,9 +170,9 @@ describe("agent-session-launcher", () => {
     mocks.terminalManager.getSession.mockReturnValue({ id: "run-1", templateId: "1", agentProvider: "codex", ...target });
     mocks.spawnSync.mockImplementation((command, args) => ({
       status: 0,
-      stdout: `${command} ${(args || []).join(" ")}`.includes("opencode --version") ? "1.18.21" : "found"
+      stdout: `${command} ${(args || []).join(" ")}`.includes("opencode --version") ? "opencode v1.18.21" : "found"
     }));
-    mocks.sshSessionRuntime.exec.mockImplementation((_id, command) => Promise.resolve(command.includes("opencode --version") ? "1.18.21" : "/usr/bin/opencode"));
+    mocks.sshSessionRuntime.exec.mockImplementation((_id, command) => Promise.resolve(command.includes("opencode --version") ? "opencode v1.18.21" : "/usr/bin/opencode"));
 
     let error;
     try {
@@ -390,6 +391,59 @@ describe("agent-session-launcher", () => {
   it("rejects duplication when the source session is no longer running", async () => {
     const { launcher } = createMocks();
     await expect(launcher.duplicateRunningSession("missing")).rejects.toThrow("Session is not running.");
+  });
+
+  it("opens the other mode from the running instance without changing its template or closing it", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const source = { id: "run-source", templateId: "saved-1", title: "Live title", shell: "powershell.exe",
+      cwd: "C:\\live", createdAt: 1, type: "windows", agentProvider: "codex",
+      graphicalSessionEnabled: false, runtimeMode: "terminal", quickCommands: [{ id: "q", command: "pwd" }] };
+    mocks.sessions.push(source);
+    mocks.sessionStore.getTemplate.mockReturnValue({ ...source, title: "Old title", cwd: "C:\\saved" });
+
+    const graphical = await mocks.launcher.openOtherSessionMode(source.id);
+    expect(graphical).toMatchObject({ id: "run-1", templateId: "saved-1", title: "Live title",
+      cwd: "C:\\live", graphicalSessionEnabled: true, runtimeMode: "app-server" });
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    expect(mocks.sessions).toContain(source);
+    expect(mocks.sessionStore.updateLibrary).not.toHaveBeenCalled();
+    expect(mocks.onTemplateLaunched).not.toHaveBeenCalled();
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.objectContaining({ graphicalSessionEnabled: true }),
+      expect.objectContaining({ useProvidedTemplate: true, templateId: "saved-1" }));
+
+    const terminal = await mocks.launcher.openOtherSessionMode(graphical.id);
+    expect(terminal).toMatchObject({ id: "run-2", templateId: "saved-1", graphicalSessionEnabled: false });
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(1);
+    expect(mocks.sessions).toHaveLength(3);
+  });
+
+  it("opens a transient Agent instance in the other mode and rejects unsupported targets", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    mocks.sessions.push({ id: "temporary", title: "Temporary", shell: "powershell.exe", cwd: "C:\\work",
+      type: "windows", agentProvider: "opencode", runtimeMode: "terminal", graphicalSessionEnabled: false });
+    const opened = await mocks.launcher.openOtherSessionMode("temporary");
+    expect(opened).toMatchObject({ templateId: undefined, graphicalSessionEnabled: true, runtimeMode: "app-server" });
+    expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.any(Object),
+      expect.objectContaining({ templateId: undefined }));
+    mocks.sessions.push({ id: "shell", type: "windows" });
+    await expect(mocks.launcher.openOtherSessionMode("shell")).rejects.toThrow("不支持");
+    await expect(mocks.launcher.openOtherSessionMode("missing")).rejects.toThrow("Session is not running.");
+    mocks.sessions.push({ id: "ssh-claude", title: "Claude", shell: "ssh2", cwd: "/work", type: "ssh",
+      agentProvider: "claude", agentLocation: "local", runtimeMode: "app-server", graphicalSessionEnabled: true });
+    await expect(mocks.launcher.openOtherSessionMode("ssh-claude")).rejects.toThrow("仅支持图形");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original instance when the new graphical mode fails to start", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => { throw new Error("ACP unavailable"); }) } });
+    const source = { id: "original", title: "Codex", shell: "powershell.exe", cwd: "C:\\work",
+      type: "windows", agentProvider: "codex", runtimeMode: "terminal", graphicalSessionEnabled: false };
+    mocks.sessions.push(source);
+    await expect(mocks.launcher.openOtherSessionMode(source.id)).rejects.toThrow("ACP unavailable");
+    expect(mocks.sessions).toEqual([source]);
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalledWith(source.id);
   });
 
   it("maps all supported providers to fixed CLI commands", () => {
@@ -844,6 +898,9 @@ describe("agent-session-launcher", () => {
     const replacement = await mocks.launcher.switchModelSource(initial.id, "openrouter");
     expect(replacement).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
     expect(mocks.terminalManager.getSession(initial.id)).toBeUndefined();
+    const reconnected = await mocks.launcher.switchModelSource(replacement.id, "openrouter", true);
+    expect(reconnected).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
+    expect(reconnected.id).not.toBe(replacement.id);
   });
 
   it("starts Gemini graphically on Windows and WSL while preserving terminal mode", async () => {

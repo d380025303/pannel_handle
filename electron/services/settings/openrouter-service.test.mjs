@@ -52,6 +52,20 @@ describe("openrouter-service", () => {
     expect(() => service.getAgentLaunchConfig("codebuddy", model.id)).toThrow("尚未通过 CodeBuddy 验证");
     expect(store.getApiKey).toHaveBeenCalledTimes(1);
   });
+  it("synchronizes verified OpenCode models even when they are not favorites", async () => {
+    const sync = vi.fn();
+    const { service, model } = fixture({
+      store: {
+        getPublicConfig: vi.fn(() => ({ hasApiKey: true, favoriteModelIds: [] })),
+        getAgentModelVerifications: vi.fn(() => ({ [modelId]: { status: "passed", checkedAt: Date.now() } }))
+      },
+      serviceOptions: { onOpenCodeModelsChanged: sync }
+    });
+    const modelId = model.id;
+    expect(service.getAgentLaunchConfig("opencode", modelId).model).toBe(modelId);
+    await service.verifyAgentModels({ agent: "opencode", modelIds: [modelId] });
+    expect(sync).toHaveBeenCalledTimes(1);
+  });
   it("generates a Codex catalog from favorite models", () => {
     const catalog = buildCodexModelCatalog([{ id: "vendor/model", name: "Model", contextLength: 64000, inputModalities: ["video", "image", "text", "file"], supportedParameters: [] }]);
     expect(catalog.models[0]).toMatchObject({ slug: "vendor/model", context_window: 64000, input_modalities: ["text", "image"], shell_type: "shell_command" });

@@ -80,7 +80,7 @@ function compareVersions(left, right) {
 
 function assertOpenCodeVersion(result, session) {
   if (result.error || result.status !== 0) throw new Error(`无法读取 OpenCode CLI 版本。${getAgentInstallHint("opencode", session)}`);
-  const match = String(result.stdout || result.stderr || "").match(/\b(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\b/);
+  const match = String(result.stdout || result.stderr || "").match(/(?:^|[^\w])v?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\b/i);
   if (!match) throw new Error(`无法识别 OpenCode CLI 版本。${getAgentInstallHint("opencode", session)}`);
   if (compareVersions(match[1], MIN_OPENCODE_VERSION) < 0) {
     throw new Error(`OpenCode V1 不再支持（当前 ${match[1]}）。${getAgentInstallHint("opencode", session)}`);
@@ -320,6 +320,7 @@ function createAgentSessionLauncher({
   openRouterService,
   naraRouterService,
   miniMaxService,
+  openCodeModelSync,
   codexModelBridgeModule,
   codexAppServerSessionService,
   codexInheritanceManager,
@@ -533,6 +534,10 @@ function createAgentSessionLauncher({
 
   async function prepareLocal(session) {
     validateAgentSession(session);
+    if (session.agentProvider === "opencode" && openCodeModelSync) {
+      if (session.type === "wsl") openCodeModelSync.syncWsl(session.wslDistro);
+      else if (session.type === "windows") openCodeModelSync.syncWindows();
+    }
     const geminiVersion = assertLocalCommand(session);
     if (!(session.agentProvider === "claude" && useAppServer(session))) await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
@@ -546,7 +551,10 @@ function createAgentSessionLauncher({
     if (session.agentProvider !== "codex" && EXTERNAL_SOURCES.has(session.modelSource) && typeof source?.getAgentLaunchConfig !== "function")
       throw new Error(`${session.modelSource} 模型来源服务不可用。`);
     const agentModel = source?.getAgentLaunchConfig(session.agentProvider, session.modelId);
-    const agentModelEnv = agentModel ? buildAgentModelEnvironment(session.agentProvider, agentModel) : {};
+    const agentModelEnv = agentModel && session.agentProvider === "opencode"
+      ? { [agentModel.apiKeyEnv]: agentModel.apiKey,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: `${agentModel.providerId}/${agentModel.model}` }) }
+      : agentModel ? buildAgentModelEnvironment(session.agentProvider, agentModel) : {};
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
@@ -960,7 +968,28 @@ function createAgentSessionLauncher({
     }
   }
 
-  async function switchModelSource(sessionId, source) {
+  async function openOtherSessionMode(sessionId) {
+    const source = terminalManager.getSession(sessionId);
+    if (!source) throw new Error("Session is not running.");
+    if (!source.agentProvider || !["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"].includes(source.agentProvider)) {
+      throw new Error("当前会话不支持终端与图形对话模式切换。");
+    }
+    const graphicalSessionEnabled = source.runtimeMode !== "app-server";
+    if (graphicalSessionEnabled && !codexAppServerSessionService) throw new Error("图形对话服务不可用。");
+    if (!graphicalSessionEnabled && source.type === "ssh" && source.agentLocation === "local"
+      && (source.agentProvider === "claude" || source.agentProvider === "qoder")) {
+      throw new Error("此 SSH 本地桥接会话仅支持图形对话模式。");
+    }
+    const template = sessionStore.normalizeTemplate({
+      ...source,
+      id: source.templateId || source.id,
+      graphicalSessionEnabled
+    });
+    validateAgentSession(template);
+    return launchSession(template, { useProvidedTemplate: true, templateId: source.templateId });
+  }
+
+  async function switchModelSource(sessionId, source, restart = false) {
     const currentSession = terminalManager.getSession(sessionId);
     if (currentSession?.agentProvider === "codex") return switchCodexBackend(sessionId, source === "native" ? "openai" : source);
     if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
@@ -969,12 +998,12 @@ function createAgentSessionLauncher({
       if (!session || !["codex", "opencode", "codebuddy"].includes(session.agentProvider)) throw new Error("该会话不支持模型来源切换。");
       if (session.type === "ssh") throw new Error("模型来源切换仅支持 Windows 和 WSL 会话。");
       if (source !== "native" && !EXTERNAL_SOURCES.has(source) && !(session.agentProvider === "codex" && source === "codebuddy")) throw new Error("不支持的模型来源。");
-      if ((session.modelSource || "native") === source) return terminalManager.listSessions().find(item => item.id === sessionId);
-      let modelId;
+      if ((session.modelSource || "native") === source && !restart) return terminalManager.listSessions().find(item => item.id === sessionId);
+      let modelId = restart && source !== "native" ? session.modelId : undefined;
       if (source !== "native") {
         const service = source === "openrouter" ? openRouterService : source === "nararouter" ? naraRouterService : miniMaxService;
         if (typeof service?.getConfig !== "function") throw new Error(`${source} 模型来源服务不可用。`);
-        modelId = String((await service.getConfig()).defaultModelId || "").trim();
+        modelId = String(modelId || (await service.getConfig()).defaultModelId || "").trim();
         if (!modelId) throw new Error(`请先配置 ${source} 默认模型。`);
       }
       const target = { ...createReplacementTemplate(session, session.agentProvider), modelSource: source, modelId };
@@ -989,7 +1018,7 @@ function createAgentSessionLauncher({
     finally { switchingSessions.delete(sessionId); }
   }
 
-  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent, switchCodexBackend, switchModelSource };
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, openOtherSessionMode, switchAgent, switchCodexBackend, switchModelSource };
 }
 
 module.exports = {

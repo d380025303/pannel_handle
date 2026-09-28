@@ -140,6 +140,32 @@ describe("CodexAppServerSession", () => {
     expect(sessionRefs.has("run-1")).toBe(false);
   });
 
+  it("scrolls a graphical conversation to the bottom when switching back to it", async () => {
+    const sessions = ["run-1", "run-2"].map(id => ({ id, type: "windows", runtimeMode: "app-server", agentProvider: "codex" } as TerminalSession));
+    const sessionRefs = new Map<string, CodexAppServerSessionHandle>();
+    const panels = (activeId: string) => sessions.map(session => <GraphicalSessionPanel key={session.id} session={session}
+      isActive={session.id === activeId} draft="" draftReferences={[]} onDraftChange={vi.fn()}
+      onDraftReferencesChange={vi.fn()} onLinkClick={vi.fn()} sessionRefs={sessionRefs} />);
+
+    const { container, rerender } = render(<>{panels("run-1")}</>);
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
+    const messages = container.querySelectorAll<HTMLElement>(".codex-app-server-messages");
+    Object.defineProperty(messages[0], "scrollHeight", { configurable: true, value: 600 });
+    Object.defineProperty(messages[1], "scrollHeight", { configurable: true, value: 800 });
+
+    messages[0].scrollTop = 100;
+    fireEvent.scroll(messages[0]);
+    rerender(<>{panels("run-2")}</>);
+    expect(messages[1].scrollTop).toBe(800);
+    expect(messages[0].scrollTop).toBe(100);
+
+    messages[1].scrollTop = 200;
+    fireEvent.scroll(messages[1]);
+    rerender(<>{panels("run-1")}</>);
+    expect(messages[0].scrollTop).toBe(600);
+    expect(messages[1].scrollTop).toBe(200);
+  });
+
   it("shows Codex updates in the empty state instead of the actions menu", async () => {
     const check = vi.mocked(window.codexVersionApi.check);
     const update = vi.mocked(window.codexVersionApi.update);
@@ -624,7 +650,7 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: withModel("hy3") }));
     expect(screen.getByText("HY3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
     expect(screen.getByRole("dialog", { name: "模型" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "HY3" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "GLM 5.3" }));
@@ -729,11 +755,35 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "provider/b"));
   });
 
-  it("follows streamed plan text and new lines after the reader scrolls up", async () => {
+  it("keeps verified service models selectable and offers reconnect in an external OpenCode session", async () => {
+    const reconnect = vi.fn().mockResolvedValue(undefined);
+    setModel.mockResolvedValueOnce({ threadId: "open-1", provider: "opencode", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "openrouter/b", options: [
+        { value: "nararouter/a", name: "A" }, { value: "openrouter/b", name: "B" }] }] });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "windows", agentProvider: "opencode", modelSource: "nararouter" } as TerminalSession}
+      draft="" setDraft={vi.fn()} onReconnectModels={reconnect} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "nararouter/a", options: [
+        { value: "nararouter/a", name: "A" }, { value: "openrouter/b", name: "B" }] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "重新连接以更新模型" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    fireEvent.click(screen.getByRole("radio", { name: "B" }));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "openrouter/b"));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "重新连接以更新模型" }));
+    await waitFor(() => expect(reconnect).toHaveBeenCalledWith("run-1"));
+  });
+
+  it("follows streamed text near the bottom and preserves the reader's position after scrolling up", async () => {
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledWith("run-1"));
     const messages = container.querySelector<HTMLElement>(".codex-app-server-messages")!;
-    Object.defineProperty(messages, "scrollHeight", { configurable: true, value: 600 });
+    let height = 600;
+    Object.defineProperty(messages, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(messages, "clientHeight", { configurable: true, value: 200 });
     const snapshot = (text: string) => ({ threadId: "thread-1", mode: "plan", busy: true,
       error: null, approvals: [], items: [{ id: "plan-1", type: "plan", text }] });
 
@@ -741,12 +791,22 @@ describe("CodexAppServerSession", () => {
     expect(messages.scrollTop).toBe(600);
 
     messages.scrollTop = 80;
+    fireEvent.scroll(messages);
+    height = 650;
     act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步") }));
-    expect(messages.scrollTop).toBe(600);
+    expect(messages.scrollTop).toBe(80);
+
+    messages.scrollTop = 440;
+    fireEvent.scroll(messages);
+    height = 700;
+    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步\n第二步") }));
+    expect(messages.scrollTop).toBe(700);
 
     messages.scrollTop = 120;
-    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步\n第二步") }));
-    expect(messages.scrollTop).toBe(600);
+    fireEvent.scroll(messages);
+    height = 750;
+    act(() => changed({ id: "run-1", snapshot: snapshot("# 计划\n第一步\n第二步\n第三步") }));
+    expect(messages.scrollTop).toBe(120);
   });
 
   it("opens history from the input menu and keeps icon actions inside the input", async () => {
@@ -1813,6 +1873,62 @@ describe("CodexAppServerSession", () => {
     fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
     await waitFor(() => expect(setNativeMode).toHaveBeenLastCalledWith("run-1", "bypassPermissions"));
     expect(await screen.findByText("模式：Full Access")).toBeTruthy();
+  });
+
+  it("toggles only Build and Plan with Shift+Tab in an OpenCode session", async () => {
+    const modes = [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }, { id: "review", name: "Review" }];
+    const openCodeSnapshot = (nativeMode: string) => ({ threadId: "open-1", provider: "opencode", nativeMode,
+      nativeModes: modes, mode: nativeMode === "plan" ? "plan" : "default", executionPermission: "askApproval",
+      busy: false, error: null, pendingPlan: null, items: [], approvals: [] });
+    setNativeMode.mockImplementationOnce(async (_id, modeId) => openCodeSnapshot(modeId))
+      .mockImplementationOnce(async (_id, modeId) => openCodeSnapshot(modeId));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    act(() => changed({ id: "run-1", snapshot: openCodeSnapshot("build") }));
+    fireEvent.change(input, { target: { value: "保留草稿" } });
+    input.focus();
+    expect(screen.getByText(/Shift\+Tab 切换 Build \/ Plan/)).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true, ctrlKey: true });
+    expect(setNativeMode).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
+    expect(await screen.findByText("模式：Plan")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(setNativeMode).toHaveBeenLastCalledWith("run-1", "build"));
+    expect(await screen.findByText("模式：Build")).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("保留草稿");
+  });
+
+  it("does not switch OpenCode modes while busy or when Build and Plan are unavailable", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    const base = { threadId: "open-1", provider: "opencode", nativeMode: "build", mode: "default",
+      executionPermission: "askApproval", error: null, pendingPlan: null, items: [], approvals: [] };
+    act(() => changed({ id: "run-1", snapshot: { ...base, busy: false,
+      nativeModes: [{ id: "build", name: "Build" }] } }));
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(setNativeMode).not.toHaveBeenCalled();
+
+    act(() => changed({ id: "run-1", snapshot: { ...base, busy: true,
+      nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }] } }));
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(setNativeMode).not.toHaveBeenCalled();
+  });
+
+  it("shows an OpenCode shortcut mode change failure", async () => {
+    setNativeMode.mockRejectedValueOnce(new Error("模式切换失败"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", nativeMode: "build",
+      nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }], mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] } }));
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect((await screen.findByRole("alert")).textContent).toContain("模式切换失败");
+    expect(screen.getByText("模式：Build")).toBeTruthy();
   });
 
   it("keeps a busy CodeBuddy plan review actionable and blocks the mode shortcut until it is answered", async () => {
