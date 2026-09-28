@@ -1,9 +1,10 @@
-function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCode, claude, qoder) {
+function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCode, claude, qoder, gemini) {
   const serviceForProvider = provider => {
     if (provider === "codebuddy") return codeBuddy;
     if (provider === "opencode" && openCode) return openCode;
     if (provider === "claude" && claude) return claude;
     if (provider === "qoder" && qoder) return qoder;
+    if (provider === "gemini" && gemini) return gemini;
     if (!provider || provider === "codex") return codex;
     throw new Error("不支持的图形会话 Agent。");
   };
@@ -68,8 +69,8 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
       return codeBuddy.cancelQuestion(id, requestId);
     },
     resolveElicitation: codexRoute("resolveElicitation"),
-    close(id) { codex.close(id); codeBuddy.close(id); openCode?.close(id); claude?.close(id); qoder?.close(id); },
-    shutdown() { codex.shutdown(); codeBuddy.shutdown(); openCode?.shutdown(); claude?.shutdown(); qoder?.shutdown(); }
+    close(id) { codex.close(id); codeBuddy.close(id); openCode?.close(id); claude?.close(id); qoder?.close(id); gemini?.close(id); },
+    shutdown() { codex.shutdown(); codeBuddy.shutdown(); openCode?.shutdown(); claude?.shutdown(); qoder?.shutdown(); gemini?.shutdown(); }
   };
 }
 

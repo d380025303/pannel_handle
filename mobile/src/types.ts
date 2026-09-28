@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = 7 as const;
 export type RuntimeMode = "terminal" | "app-server";
-export type AgentProvider = "codex" | "codebuddy" | "opencode" | "claude" | "qoder";
+export type AgentProvider = "codex" | "codebuddy" | "opencode" | "claude" | "qoder" | "gemini";
 
 export type TerminalKind = "windows" | "wsl" | "ssh";
 export type QuickCommand = { id: string; command: string; mode?: "write" | "auto-enter" | "one-time"; pinned?: boolean };
@@ -82,7 +82,7 @@ export type GraphicalUsageLimit = { id: string; name: string; usedPercent: numbe
   usedAmount?: number; remainingAmount?: number; total?: number; used?: number; remaining?: number;
   unit?: "Credits"; expiresAt?: number;
   available?: boolean; unlimited?: boolean };
-export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qoder"; fetchedAt: number; primaryLimitId: string;
+export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qoder" | "gemini"; fetchedAt: number; primaryLimitId: string;
   summary?: { kind: "credits"; total: number; used: number; remaining: number;
     usedPercent: number; remainingPercent: number; unit: "Credits" }
     | { kind: "currency"; currency: "CNY"; available: number; cash: number; voucher: number;

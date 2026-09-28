@@ -187,7 +187,7 @@ def list_gemini(payload):
         preview = first_user.get("content") if isinstance(first_user.get("content"), str) else ""
         project_hash = os.path.basename(os.path.dirname(os.path.dirname(file_name)))
         session_id = os.path.splitext(os.path.basename(file_name))[0]
-        items.append({"ref": f"gemini:{project_hash}:{session_id}", "provider": "gemini", "title": preview or "Gemini conversation", "preview": preview,
+        items.append({"ref": f"gemini:{project_hash}:{session_id}", "acpSessionId": metadata.get("sessionId") if isinstance(metadata.get("sessionId"), str) else None, "provider": "gemini", "title": preview or "Gemini conversation", "preview": preview,
                       "cwd": str(payload.get("cwd") or "") if payload.get("scope") != "all" else "", "createdAt": timestamp_ms(metadata.get("startTime") or (messages[0].get("timestamp") if messages else 0)),
                       "updatedAt": timestamp_ms(metadata.get("lastUpdated") or (messages[-1].get("timestamp") if messages else 0)) or int(os.path.getmtime(file_name) * 1000), "archived": False})
     return items

@@ -468,6 +468,16 @@ it("confirms a graphical Agent switch in a sheet, tracks failure, and blocks pen
   expect(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /切换 Agent/ }).hasAttribute("disabled")).toBe(true);
 });
 
+it("offers Gemini in the graphical Agent switcher", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const agents = openSheet("切换 Agent");
+  fireEvent.click(within(agents).getByRole("button", { name: "Gemini" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  expect(send.mock.calls.map(([message]) => message).find(message => message.type === "session.switch-agent"))
+    .toMatchObject({ provider: "gemini" });
+});
+
 it("opens history and starts a new conversation from the single menu", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });

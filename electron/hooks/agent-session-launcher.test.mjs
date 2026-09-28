@@ -808,6 +808,22 @@ describe("agent-session-launcher", () => {
     }
   });
 
+  it("starts Gemini graphically on Windows and WSL while preserving terminal mode", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const windows = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: true });
+    const wsl = await mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "gemini", graphicalSessionEnabled: true });
+    const terminal = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: false });
+    expect([windows.runtimeMode, wsl.runtimeMode, terminal.runtimeMode]).toEqual(["app-server", "app-server", undefined]);
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
+    expect(codexAppServerSessionService.start.mock.calls[0][1].acpArgs).toBe("--acp");
+    expect(mocks.spawnSync.mock.calls.some(([command, args]) => command === "wsl.exe" && args.some(value => String(value).includes("command -v gemini")))).toBe(true);
+    const legacy = createMocks({ codexAppServerSessionService, spawnSync: vi.fn((command, args) =>
+      String(args?.at(-1)).includes("gemini --version") ? { status: 0, stdout: "0.26.0" } : { status: 0, stdout: "found" }) });
+    await legacy.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: true });
+    expect(codexAppServerSessionService.start.mock.lastCall[1].acpArgs).toBe("--experimental-acp");
+  });
+
   it("continues launching Codex when the runtime tunnel lookup fails", async () => {
     const mocks = createMocks();
     mocks.sshHookTunnelService.ensureTunnel.mockRejectedValue(new Error("tunnel unavailable"));

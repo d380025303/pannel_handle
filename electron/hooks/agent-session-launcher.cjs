@@ -329,7 +329,7 @@ function createAgentSessionLauncher({
 }) {
   const switchingSessions = new Map();
   const useAppServer = session => Boolean(codexAppServerSessionService)
-    && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode" || session.agentProvider === "claude" || session.agentProvider === "qoder")
+    && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode" || session.agentProvider === "claude" || session.agentProvider === "qoder" || session.agentProvider === "gemini")
     && session.graphicalSessionEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
@@ -388,19 +388,19 @@ function createAgentSessionLauncher({
       return;
     }
     if (session.type === "wsl" && useAppServer(session)) {
-      const agentCommand = session.agentProvider === "codebuddy" ? "codebuddy" : session.agentProvider === "opencode" ? "opencode" : session.agentProvider === "qoder" ? "qoder" : "codex";
+      const agentCommand = session.agentProvider === "codebuddy" ? "codebuddy" : session.agentProvider === "opencode" ? "opencode" : session.agentProvider === "qoder" ? "qoder" : session.agentProvider === "gemini" ? "gemini" : "codex";
       const result = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
         `resolved=$(command -v ${agentCommand}) || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac`],
       { encoding: "utf-8", windowsHide: true, timeout: 30000 });
       if (result.error?.code === "ETIMEDOUT") throw new Error(`WSL ${session.wslDistro} 中的 Codex 命令检测超时。`);
       if (result.error) throw new Error(`无法检测 WSL ${session.wslDistro} 中的 Codex 命令：${result.error.message}`);
-      if (result.status === 126) throw new Error(`WSL ${session.wslDistro} 中的 ${agentCommand} 指向 Windows 安装；请在该发行版中安装 Linux ${session.agentProvider === "codex" ? "Codex" : session.agentProvider === "opencode" ? "OpenCode" : session.agentProvider === "qoder" ? "Qoder" : "CodeBuddy"} CLI。${session.agentProvider === "opencode" ? getAgentInstallHint("opencode", session) : ""}`);
+      if (result.status === 126) throw new Error(session.agentProvider === "gemini" ? "WSL 中检测到的是 Windows Gemini shim，请在该 WSL 发行版内安装原生 Gemini CLI。" : `WSL ${session.wslDistro} 中的 ${agentCommand} 指向 Windows 安装；请在该发行版中安装 Linux ${session.agentProvider === "codex" ? "Codex" : session.agentProvider === "opencode" ? "OpenCode" : session.agentProvider === "qoder" ? "Qoder" : "CodeBuddy"} CLI。${session.agentProvider === "opencode" ? getAgentInstallHint("opencode", session) : ""}`);
       if (result.status === 127) throw new Error(`未在 WSL ${session.wslDistro} 的 Bash 登录环境中找到 ${agentCommand} 命令。${getAgentInstallHint(session.agentProvider, session)}`);
       if (result.status !== 0 && session.agentProvider === "opencode") throw new Error(`无法检测 WSL ${session.wslDistro} 中的 OpenCode 命令（退出代码 ${result.status ?? "未知"}）。${getAgentInstallHint("opencode", session)}`);
       if (result.status !== 0) throw new Error(`检测 WSL ${session.wslDistro} 中的 ${agentCommand} 命令失败（退出代码 ${result.status ?? "未知"}）：${String(result.stderr || "").trim().slice(-1000)}`);
       if (session.agentProvider === "opencode") assertOpenCodeVersion(spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic", "opencode --version"],
         { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 }), session);
-      return;
+      return session.agentProvider === "gemini" ? readGeminiVersion(session, spawnSync) : undefined;
     }
     const result = session.type === "wsl"
       ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "sh", "-lc", `command -v ${shellQuote(command)}`], { encoding: "utf-8", windowsHide: true })
@@ -408,7 +408,7 @@ function createAgentSessionLauncher({
     if (result.error || result.status !== 0) {
       throw new Error(`未在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"}环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider, session)}`);
     }
-    if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
+    if (session.agentProvider === "gemini") return readGeminiVersion(session, spawnSync);
     if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
     if (session.agentProvider === "opencode") {
       const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
@@ -530,7 +530,7 @@ function createAgentSessionLauncher({
 
   async function prepareLocal(session) {
     validateAgentSession(session);
-    assertLocalCommand(session);
+    const geminiVersion = assertLocalCommand(session);
     if (!(session.agentProvider === "claude" && useAppServer(session))) await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
@@ -539,6 +539,7 @@ function createAgentSessionLauncher({
     const backend = openRouter || naraRouter || miniMax || codeBuddyCodex;
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
+      ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
       codexCommand: backend ? buildCodexBackendCommand(session, runtimeConfigForBackend(backend, codeBuddyCodex)) : "codex",
       runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,

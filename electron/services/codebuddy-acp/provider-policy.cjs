@@ -1,6 +1,6 @@
 function createAcpProviderPolicy(provider) {
   const codeBuddy = provider === "codebuddy";
-  const agentName = codeBuddy ? "CodeBuddy" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : "OpenCode";
+  const agentName = codeBuddy ? "CodeBuddy" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : "OpenCode";
 
   function updateCapabilities(entry) {
     entry.capabilities.plan = entry.modes.some(mode => /plan/i.test(mode.id));
@@ -14,7 +14,7 @@ function createAcpProviderPolicy(provider) {
 
   function reflectNativeMode(entry) {
     entry.mode = /plan/i.test(entry.nativeMode || "") ? "plan" : "default";
-    entry.executionPermission = provider === "qoder" && /^(yolo|bypass_permissions|bypassPermissions)$/i.test(entry.nativeMode || "") ? "fullAccess" : !codeBuddy ? "askApproval"
+    entry.executionPermission = (provider === "qoder" || provider === "gemini") && /^(yolo|bypass_permissions|bypassPermissions)$/i.test(entry.nativeMode || "") ? "fullAccess" : !codeBuddy ? "askApproval"
       : entry.nativeMode === "bypassPermissions" || entry.nativeMode === "fullAccess"
         ? "fullAccess" : "askApproval";
   }

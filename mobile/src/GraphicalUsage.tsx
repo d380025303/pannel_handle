@@ -30,7 +30,7 @@ export function GraphicalUsage({ sessionId, sessionType, snapshot, send, onGraph
   const threadId = snapshot.threadId;
   const provider = snapshot.provider;
   const backend = snapshot.backend;
-  const supported = provider === "codebuddy" || provider === "qoder" && sessionType !== "ssh" || (provider === "codex" && backend !== "openrouter" && backend !== "nararouter");
+  const supported = provider === "codebuddy" || (provider === "qoder" || provider === "gemini") && sessionType !== "ssh" || (provider === "codex" && backend !== "openrouter" && backend !== "nararouter");
 
   useEffect(() => {
     if (!supported) return;

@@ -22,7 +22,7 @@ type Props = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder"];
+const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
 const permissions = [
   { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
@@ -476,7 +476,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
           </label>
         </div>}
         {activeSheet === "agent" && <div className="graphical-sheet-list">
-          {graphicalProviders.map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
+          {graphicalProviders.filter(provider => session.type !== "ssh" || provider !== "gemini").map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
             aria-pressed={provider === snapshot.provider} onClick={() => { setSelectedProvider(provider); setActiveSheet("agent-confirm"); }}>
             <span>{providerLabel(provider)}</span>{provider === snapshot.provider && <small>当前使用</small>}
           </button>)}

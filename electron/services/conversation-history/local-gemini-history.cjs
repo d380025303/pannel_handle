@@ -69,6 +69,7 @@ function geminiMetadata(fsApi, candidate, cwd) {
   const preview = typeof firstUser?.content === "string" ? firstUser.content.trim() : "";
   return {
     ref: `gemini:${candidate.projectHash}:${id}`,
+    acpSessionId: typeof metadata.sessionId === "string" ? metadata.sessionId : undefined,
     provider: "gemini",
     title: preview || "Gemini conversation",
     preview,

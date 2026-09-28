@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +28,8 @@ it("stages user and project Codex skills and MCP for a Windows CodeBuddy session
   fs.writeFileSync(path.join(project, ".codex", "config.toml"), '[mcp_servers.sample]\ncommand = "node"\nargs = ["project"]\n');
   const result = await prepareCodexInheritance({ id: "session", type: "windows", cwd: project }, { homeDir: home });
   try {
+    expect(path.dirname(result.mcpFile)).toBe(path.join(project, ".pannel-handle-images"));
+    expect(fs.existsSync(path.join(project, ".pannel-handle-images"))).toBe(true);
     expect(result.pluginDir).toBeTruthy();
     expect(fs.readFileSync(path.join(result.pluginDir, "skills", "review", "SKILL.md"), "utf8")).toBe("project review");
     expect(fs.readFileSync(path.join(result.pluginDir, "skills", "project", "SKILL.md"), "utf8")).toBe("project skill");
@@ -37,6 +39,23 @@ it("stages user and project Codex skills and MCP for a Windows CodeBuddy session
   } finally { await result.cleanup(); }
   expect(fs.existsSync(result.pluginDir)).toBe(false);
   expect(fs.existsSync(result.mcpFile)).toBe(false);
+});
+
+it("creates the ignored project directory for SSH Codex MCP configuration", async () => {
+  const config = Buffer.from('[mcp_servers.sample]\ncommand = "node"\n').toString("base64");
+  const exec = vi.fn().mockResolvedValueOnce("/home/test")
+    .mockResolvedValueOnce(config).mockResolvedValueOnce("")
+    .mockResolvedValueOnce("/tmp/pannel-codex-skills-test\n")
+    .mockResolvedValue("");
+  const result = await prepareCodexInheritance({ id: "session", type: "ssh", cwd: "/srv/project" }, {
+    sshAgentTransport: { exec }
+  });
+  try {
+    expect(result.mcpFile).toMatch(/^\/srv\/project\/\.pannel-handle-images\/\.pannel-handle-codex-[\w-]+\.json$/);
+    expect(exec.mock.calls[4][1]).toContain("mkdir -p --");
+    expect(exec.mock.calls[4][1]).toContain(".pannel-handle-images");
+  } finally { await result.cleanup(); }
+  expect(exec.mock.calls.at(-1)[1]).toContain(result.mcpFile);
 });
 
 it("converts bearer authentication and rejects unsupported Codex MCP fields", () => {

@@ -1,7 +1,7 @@
 import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
 
 export function providerLabel(provider?: string) {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : "Codex";
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : "Codex";
 }
 
 const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];

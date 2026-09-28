@@ -46,7 +46,7 @@ function safeStderr(stderr, environment) {
 }
 
 function stopAgentChild(child, provider) {
-  if ((provider === "codebuddy" || provider === "claude" || provider === "qoder") && process.platform === "win32" && Number.isInteger(child.pid)) {
+  if ((provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini") && process.platform === "win32" && Number.isInteger(child.pid)) {
     const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
     killer.once("error", () => child.kill());
   } else child.kill();
@@ -55,11 +55,11 @@ function stopAgentChild(child, provider) {
 function buildInvocation(session, runtime, environment, provider = "codebuddy") {
   if (provider === "qoder" && runtime.localBridge && !runtime.remoteBridge?.instructions)
     throw new Error("Qoder SSH 本机桥接缺少受限远端工具配置。");
-  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode" : provider === "qoder" ? "qoder" : "codebuddy";
+  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode" : provider === "qoder" ? "qoder" : provider === "gemini" ? "gemini" : "codebuddy";
   const shell = runtime.shell || session.shell || "powershell.exe";
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance,
     session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "cmd") : "";
-  const args = provider === "claude" ? "" : provider === "opencode" ? (runtime.acpArgs || "acp") : provider === "qoder" ? (runtime.localBridge
+  const args = provider === "claude" ? "" : provider === "opencode" ? (runtime.acpArgs || "acp") : provider === "gemini" ? (runtime.acpArgs || "--acp") : provider === "qoder" ? (runtime.localBridge
     ? `--acp --tools '' --strict-mcp-config --allowed-mcp-server-names pannel_handle_remote --append-system-prompt '${String(runtime.remoteBridge.instructions).replace(/'/g, "''")}'`
     : "--acp")
     : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
@@ -92,12 +92,12 @@ async function createRemoteChild(transportService, session, environment, provide
   });
   const before = String(session.initialCommand || "").trim();
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance) : "";
-  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode acp" : provider === "qoder" ? "qoder --acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
+  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode acp" : provider === "qoder" ? "qoder --acp" : provider === "gemini" ? "gemini --acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const openCodeVersionCheck = provider === "opencode"
     ? [`version=$(opencode --version) && [[ "$version" =~ ([0-9]+)\\.[0-9]+\\.[0-9]+ ]] && (( BASH_REMATCH[1] >= 2 )) || { echo 'OpenCode V2 is required.' >&2; exit 1; }`]
     : [];
   const script = [...exports, `cd ${quoteBash(session.cwd)}`, ...openCodeVersionCheck, ...(before ? [`{ ${before}; } 1>&2`] : []), `exec ${commandName}`].join(" && ");
-  const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : provider === "qoder" ? "Qoder" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
+  const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
   const child = new EventEmitter();
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
   child.stdin.on("data", chunk => transport.write(chunk));
@@ -150,6 +150,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function applySessionOptions(entry, result) {
     entry.configOptions = result.configOptions || [];
+    if (provider === "gemini" && result.models?.availableModels?.length) {
+      entry.configOptions = [...entry.configOptions.filter(option => option.id !== "model"), {
+        id: "model", name: "模型", type: "select", currentValue: result.models.currentModelId,
+        options: result.models.availableModels.map(model => ({ value: model.modelId, name: model.name || model.modelId }))
+      }];
+    }
     const modeOption = entry.configOptions.find(option => option.id === "mode" && option.type === "select");
     entry.modes = result.modes?.availableModes || modeOption?.options?.map(option => ({ id: option.value, name: option.name, description: option.description })) || entry.modes;
     if (provider === "qoder") entry.modes = entry.modes.filter(mode => ["default", "yolo", "bypassPermissions", "bypass_permissions"].includes(mode.id));
@@ -239,7 +245,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
-      ...(provider === "codebuddy" || provider === "qoder" ? { availableCommands: entry.availableCommands } : {}),
+      ...(provider === "codebuddy" || provider === "qoder" || provider === "gemini" ? { availableCommands: entry.availableCommands } : {}),
       ...(provider === "codebuddy" ? { codexInheritance: {
         skills: entry.runtime.inheritance?.skillNames || [],
         mcpServers: Object.keys(entry.runtime.inheritance?.mcpServers || {}),
@@ -307,7 +313,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     else items.push({ id: messageId || randomUUID(), type, turnId, text, streaming: true });
   }
   function appendTurnError(entry, turnId, detail) {
-    if ((provider !== "codebuddy" && provider !== "claude" && provider !== "qoder") || !turnId || typeof detail !== "string" || !detail.trim()) return false;
+    if ((provider !== "codebuddy" && provider !== "claude" && provider !== "qoder" && provider !== "gemini") || !turnId || typeof detail !== "string" || !detail.trim()) return false;
     const id = `turn-error:${turnId}`;
     const existing = entry.items.find(item => item.id === id);
     if (existing) existing.text = detail;
@@ -348,7 +354,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function onUpdate(id, entry, value) {
     const update = value?.update || {};
-    if ((provider === "codebuddy" || provider === "qoder") && update.sessionUpdate === "available_commands_update") {
+    if ((provider === "codebuddy" || provider === "qoder" || provider === "gemini") && update.sessionUpdate === "available_commands_update") {
       const commands = readAvailableCommands(update.availableCommands);
       if (entry.awaitingSession && value.sessionId) entry.earlyCommands.set(value.sessionId, commands);
       else if (value.sessionId === entry.threadId) { entry.availableCommands = commands; schedulePublish(id); }
@@ -636,7 +642,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       await restoreOptions(entryFor(session.id));
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
-    } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" ? withStderr(error) : error; close(session.id); throw failure; }
+    } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" ? withStderr(error) : error; close(session.id); throw failure; }
   }
   function close(id) {
     const entry = sessions.get(id);
@@ -681,6 +687,19 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function listHistory(id, cursor = null) {
     const entry = entryFor(id);
     if (!entry.capabilities.history) throw new Error(`当前 ${agentName} CLI 不支持历史会话恢复。`);
+    if (provider === "gemini") {
+      if (!historyService?.listHistoryForSession) throw new Error("Gemini 历史记录服务不可用。");
+      const result = await historyService.listHistoryForSession(entry.session,
+        { providers: ["gemini"], scope: "cwd", cursor });
+      const failure = result.errors?.find(error => error.provider === "gemini");
+      if (failure) throw new Error(failure.message || "Gemini 历史记录读取失败。");
+      const matching = (result.items || []).filter(value => value.provider === "gemini"
+        && typeof value.acpSessionId === "string" && value.acpSessionId);
+      const data = matching.map(value => ({ id: value.acpSessionId, title: value.title || "未命名会话",
+        updatedAt: (value.updatedAt || 0) / 1000, source: agentName, status: "saved" }));
+      for (const value of data) entry.listedThreadIds.add(value.id);
+      return { data, nextCursor: result.nextCursor || null };
+    }
     if (provider === "codebuddy") {
       if (!historyService?.listHistoryForSession) throw new Error("CodeBuddy 历史记录服务不可用。");
       const historySession = { ...entry.session, cwd: workspace(entry),
@@ -805,12 +824,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function setConfigOption(id, optionId, value) {
     const entry = entryFor(id);
     if (entry.runtime.requiredMode && optionId === "mode" && value !== entry.runtime.requiredMode) throw new Error("本机 SSH 桥接不允许切换受限 Agent 模式。");
-    if ((provider !== "opencode" && provider !== "qoder" && !(provider === "codebuddy" && (optionId === "model" || optionId === "context_window"))
+    if ((provider !== "opencode" && provider !== "qoder" && !(provider === "gemini" && optionId === "model") && !(provider === "codebuddy" && (optionId === "model" || optionId === "context_window"))
       && !(provider === "claude" && (optionId === "model" || optionId === "effort"))) || entry.busy)
       throw new Error("当前会话无法切换配置。");
     const option = entry.configOptions.find(item => item.id === optionId && item.type === "select");
     if (!option?.options?.some(item => item.value === value)) throw new Error(`当前 ${agentName} 会话不支持此选项。`);
-    const result = await request(entry, "session/set_config_option", { sessionId: entry.threadId, configId: optionId, value });
+    const result = await request(entry, provider === "gemini" && optionId === "model" ? "session/set_model" : "session/set_config_option",
+      provider === "gemini" && optionId === "model" ? { sessionId: entry.threadId, modelId: value } : { sessionId: entry.threadId, configId: optionId, value });
     entry.configOptions = result?.configOptions || entry.configOptions.map(item => item.id === optionId ? { ...item, currentValue: value } : item);
     if (provider === "codebuddy" && (optionId === "model" || optionId === "context_window")) entry.contextUsage = null;
     if (provider === "codebuddy") saveOption(entry, optionId === "context_window" ? "contextWindow" : optionId, value);
@@ -928,10 +948,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       for (const file of files) entry.allowedFiles.delete(file);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       for (const item of entry.items) if (item.turnId === entry.turnId) delete item.streaming;
-      if (provider === "codebuddy") {
+      if (provider === "codebuddy" || provider === "gemini") {
         const detail = typeof result?.errorMessage === "string" && result.errorMessage.trim()
           ? result.errorMessage : result?.stopReason && !["end_turn", "cancelled", "refusal"].includes(result.stopReason)
-            ? `CodeBuddy 本轮未完成（${result.stopReason}）。` : "";
+            ? `${agentName} 本轮未完成（${result.stopReason}）。` : "";
         appendTurnError(entry, entry.turnId, detail);
       }
       status(id, entry, result?.stopReason === "end_turn" ? "completed" : "failed"); publish(id);

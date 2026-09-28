@@ -179,6 +179,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexModel,
       codexExperimentalAcknowledged,
       graphicalSessionEnabled,
+      ...(agentProvider === "gemini" ? { geminiGraphicalConfigured: template.geminiGraphicalConfigured === true } : {}),
       codexAppServerModel,
       codexAppServerEffort,
       codexAppServerFastMode,
@@ -244,9 +245,12 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const saved = loadSessions();
     const legacyEnabled = getLegacyCodexAppServerEnabled();
     const needsMigration = saved.some(template => typeof template?.graphicalSessionEnabled !== "boolean"
+      || template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
       || "codexAppServerEnabled" in template || "codeBuddyAcpEnabled" in template || "openCodeAcpEnabled" in template);
     librarySessions = saved.map(template => normalizeTemplate({
       ...template,
+      ...(template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
+        ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
       ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
         ? { codexAppServerEnabled: legacyEnabled } : {}),
       ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
@@ -269,7 +273,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
   }
 
   function addToLibrary(sessionMeta) {
-    const template = normalizeTemplate(sessionMeta);
+    const template = normalizeTemplate(sessionMeta.agentProvider === "gemini"
+      ? { ...sessionMeta, geminiGraphicalConfigured: true } : sessionMeta);
     const idx = librarySessions.findIndex(s => s.id === template.id);
     if (idx >= 0) {
       librarySessions[idx] = template;
@@ -311,6 +316,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       librarySessions[idx] = normalizeTemplate({
         ...librarySessions[idx],
         ...nextUpdates,
+        ...(nextUpdates.agentProvider === "gemini" && typeof nextUpdates.graphicalSessionEnabled === "boolean"
+          ? { geminiGraphicalConfigured: true } : {}),
         sshConfig: nextUpdates.sshConfig
           ? normalizeSshConfig(nextUpdates.sshConfig, librarySessions[idx].sshConfig)
           : librarySessions[idx].sshConfig
@@ -366,6 +373,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       usedIds.add(id);
       const template = normalizeTemplate({
         ...item,
+        ...(item.agentProvider === "gemini" && item.geminiGraphicalConfigured !== true
+          ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
         id
       });
       imported.push(template);

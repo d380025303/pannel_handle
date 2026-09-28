@@ -43,6 +43,26 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps existing Gemini templates terminal-based until explicitly enabled", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "old", type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: true },
+      { id: "old-wsl", type: "wsl", cwd: "/work", agentProvider: "gemini", graphicalSessionEnabled: false }
+    ]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(false);
+    expect(store.getTemplate("old-wsl").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("old", { graphicalSessionEnabled: true });
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(true);
+    const reopened = createStore(sessionsFile);
+    reopened.loadLibrary();
+    expect(reopened.getTemplate("old").graphicalSessionEnabled).toBe(true);
+    store.addToLibrary({ id: "new", type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: true });
+    expect(createStore(sessionsFile).loadLibrary().find(template => template.id === "new").graphicalSessionEnabled).toBe(true);
+    store.importLibrary([{ id: "imported", type: "windows", cwd: "C:\\work", agentProvider: "gemini", graphicalSessionEnabled: true }]);
+    expect(store.getLibrary().at(-1).graphicalSessionEnabled).toBe(false);
+  });
   it("keeps old Qoder templates terminal-based until graphical mode is enabled", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{ id: "qoder", type: "windows", cwd: "C:\\work", agentProvider: "qoder" }]));

@@ -94,7 +94,9 @@ function localAdapter(homeDir = os.homedir()) {
       } catch (error) { await fs.promises.rm(pluginRoot, { recursive: true, force: true }); throw error; }
     },
     async writeMcp(project, content) {
-      const file = path.join(project, `.pannel-handle-codex-${randomUUID()}.json`);
+      const directory = path.join(project, ".pannel-handle-images");
+      await fs.promises.mkdir(directory, { recursive: true });
+      const file = path.join(directory, `.pannel-handle-codex-${randomUUID()}.json`);
       await fs.promises.writeFile(file, content, { mode: 0o600, flag: "wx" });
       return file;
     },
@@ -136,9 +138,10 @@ function createRemoteAdapter(session, { sshAgentTransport, homeDir }) {
         skillNames: lines.slice(1).map(value => value.slice(`${lines[0]}/skills/`.length).replace(/\//g, ":")) };
     },
     async writeMcp(project, content) {
-      const file = join(project, `.pannel-handle-codex-${randomUUID()}.json`);
+      const directory = join(project, ".pannel-handle-images");
+      const file = join(directory, `.pannel-handle-codex-${randomUUID()}.json`);
       const encoded = Buffer.from(content).toString("base64");
-      await run(`(umask 077; printf '%s' ${quoteBash(encoded)} | base64 -d > ${quoteBash(file)})`);
+      await run(`(umask 077; mkdir -p -- ${quoteBash(directory)}; printf '%s' ${quoteBash(encoded)} | base64 -d > ${quoteBash(file)})`);
       return file;
     },
     async remove(file) { await run(`rm -rf -- ${quoteBash(file)}`); },

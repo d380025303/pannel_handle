@@ -22,9 +22,10 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     if (socket.graphicalSessionId !== sessionId) throw new Error("请先打开此图形会话。");
     const current = graphicalService.snapshot(sessionId);
     if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
-    if (!["codex", "codebuddy", "opencode", "claude", "qoder"].includes(session.agentProvider))
+    if (!["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"].includes(session.agentProvider))
       throw new Error("当前会话不支持切换图形 Agent。");
-    if (!["codex", "codebuddy", "opencode", "claude", "qoder"].includes(message.provider) || message.provider === session.agentProvider)
+    if (!["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"].includes(message.provider) || message.provider === session.agentProvider
+      || message.provider === "gemini" && session.type === "ssh")
       throw new Error("无效的目标 Agent。");
     if (current.busy || current.approvals?.length || current.questions?.length || current.pendingPlan)
       throw new Error("当前会话正在执行或有待处理操作，请处理后再切换 Agent。");
@@ -43,7 +44,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     if (socket.graphicalSessionId !== sessionId) throw new Error("请先打开此图形会话。");
     const current = graphicalService.snapshot(sessionId);
     if (message.type === "graphical.usage") {
-      if (!["codex", "codebuddy", "qoder"].includes(session.agentProvider) || session.agentProvider === "qoder" && !["windows", "wsl"].includes(session.type)) throw new Error("当前 Agent 不提供额度查询。");
+      if (!["codex", "codebuddy", "qoder", "gemini"].includes(session.agentProvider) || (session.agentProvider === "qoder" || session.agentProvider === "gemini") && !["windows", "wsl"].includes(session.type)) throw new Error("当前 Agent 不提供额度查询。");
       if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
       if (!getAgentUsage) throw new Error("额度服务不可用。");
       const usage = await getAgentUsage(sessionId, { force: message.force === true });
@@ -133,7 +134,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       await graphicalService.setExecutionPermission(sessionId, message.permission);
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.native-mode") {
-      if (!["codebuddy", "opencode", "claude", "qoder"].includes(current.provider) || !current.threadId || current.busy || current.archived || current.pendingPlan)
+      if (!["codebuddy", "opencode", "claude", "qoder", "gemini"].includes(current.provider) || !current.threadId || current.busy || current.archived || current.pendingPlan)
         throw new Error("当前会话不可切换原生模式。");
       if (typeof message.modeId !== "string" || !current.nativeModes?.some(mode => mode.id === message.modeId))
         throw new Error("请选择当前会话可用的模式。");

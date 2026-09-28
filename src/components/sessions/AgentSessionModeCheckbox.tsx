@@ -1,6 +1,6 @@
 import { useI18n } from "../../i18n";
 
-type GraphicalAgentProvider = "codex" | "codebuddy" | "opencode" | "claude" | "qoder";
+type GraphicalAgentProvider = "codex" | "codebuddy" | "opencode" | "claude" | "qoder" | "gemini";
 
 type AgentSessionModeCheckboxProps = {
   provider: GraphicalAgentProvider;

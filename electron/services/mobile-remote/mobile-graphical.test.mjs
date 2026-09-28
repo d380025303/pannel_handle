@@ -111,6 +111,21 @@ describe("mobile graphical session route", () => {
       threadId: "thread-1", requestId: "q2" })).rejects.toThrow("不提供额度查询");
   });
 
+  it("allows Gemini quota in a graphical Windows session", async () => {
+    const f = fixture();
+    f.session.agentProvider = "gemini";
+    f.session.type = "windows";
+    f.snapshot.provider = "gemini";
+    const getAgentUsage = vi.fn(async () => ({ provider: "gemini", fetchedAt: 100, primaryLimitId: "daily", limits: [] }));
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager,
+      graphicalService: f.graphicalService, getAgentUsage, send: f.send });
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "gemini-usage" });
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.usage",
+      usage: expect.objectContaining({ provider: "gemini" }) }));
+  });
+
   it("rejects terminal sessions and allows history only for the active graphical session", async () => {
     const f = fixture();
     f.terminalManager.getSession.mockImplementation(id => id === "terminal-1" ? { id, runtimeMode: "terminal" } : id === "graph-1" ? { id, runtimeMode: "app-server" } : null);
@@ -238,10 +253,10 @@ describe("mobile graphical session route", () => {
     f.snapshot.approvals = [];
     f.snapshot.questions = [];
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
-    for (const current of ["codex", "codebuddy", "opencode", "claude", "qoder"]) {
+    for (const current of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"]) {
       f.session.agentProvider = current;
       f.snapshot.provider = current;
-      for (const provider of ["codex", "codebuddy", "opencode", "claude", "qoder"].filter(value => value !== current)) {
+      for (const provider of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"].filter(value => value !== current)) {
         expect(f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
           .toBe("graph-1");
       }
