@@ -55,6 +55,11 @@ export type TranslationKey =
   | "codeBuddyVersion.confirmTitle"
   | "codeBuddyVersion.confirm"
   | "codeBuddyVersion.updating"
+  | "openCodeVersion.title"
+  | "openCodeVersion.update"
+  | "openCodeVersion.confirmTitle"
+  | "openCodeVersion.confirm"
+  | "openCodeVersion.updating"
   | "projectAssistant.statusUnknown"
   | "settings.title"
   | "settings.subtitle"
@@ -1063,6 +1068,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codeBuddyVersion.confirmTitle": "确认更新 CodeBuddy",
     "codeBuddyVersion.confirm": "将更新 {environment} 中的 CodeBuddy 至 {version}。当前会话继续运行，重启后生效。",
     "codeBuddyVersion.updating": "正在更新 CodeBuddy…",
+    "openCodeVersion.title": "OpenCode CLI 更新",
+    "openCodeVersion.update": "更新 OpenCode",
+    "openCodeVersion.confirmTitle": "确认更新 OpenCode",
+    "openCodeVersion.confirm": "将更新 {environment} 中的 OpenCode 至 {version}。当前会话继续运行，重启后生效。",
+    "openCodeVersion.updating": "正在更新 OpenCode…",
     "projectAssistant.statusUnknown": "状态未知",
     "settings.title": "设置",
     "settings.subtitle": "管理应用行为、模型服务与本地连接",
@@ -2063,6 +2073,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codeBuddyVersion.confirmTitle": "Confirm CodeBuddy update",
     "codeBuddyVersion.confirm": "Update CodeBuddy in {environment} to {version}. The current session will keep running until restarted.",
     "codeBuddyVersion.updating": "Updating CodeBuddy…",
+    "openCodeVersion.title": "OpenCode CLI updates",
+    "openCodeVersion.update": "Update OpenCode",
+    "openCodeVersion.confirmTitle": "Confirm OpenCode update",
+    "openCodeVersion.confirm": "Update OpenCode in {environment} to {version}. The current session will keep running until restarted.",
+    "openCodeVersion.updating": "Updating OpenCode…",
     "projectAssistant.statusUnknown": "Status unknown",
     "settings.title": "Settings",
     "settings.subtitle": "Manage app behavior, model services, and local connections",

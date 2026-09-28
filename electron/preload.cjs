@@ -112,6 +112,11 @@ contextBridge.exposeInMainWorld("codeBuddyVersionApi", {
   update: id => ipcRenderer.invoke("codebuddy-version:update", id)
 });
 
+contextBridge.exposeInMainWorld("openCodeVersionApi", {
+  check: (id, force) => ipcRenderer.invoke("opencode-version:check", id, force === true),
+  update: id => ipcRenderer.invoke("opencode-version:update", id)
+});
+
 contextBridge.exposeInMainWorld("codexPluginApi", {
   list: id => ipcRenderer.invoke("codex-plugin:list", id),
   install: (id, plugin, marketplace) => ipcRenderer.invoke("codex-plugin:install", id, plugin, marketplace),
@@ -129,7 +134,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   updateSession: (id, updates) => ipcRenderer.invoke("sessions:update", { id, ...updates }),
   switchAgent: (id, provider) => ipcRenderer.invoke("sessions:switch-agent", { id, provider }),
   switchCodexBackend: (id, backend) => ipcRenderer.invoke("sessions:switch-codex-backend", { id, backend }),
-  switchModelSource: (id, source, restart = false) => ipcRenderer.invoke("sessions:switch-model-source", { id, source, restart }),
+  switchModelSource: (id, source, restart = false, modelId) => ipcRenderer.invoke("sessions:switch-model-source", { id, source, restart, modelId }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   reconnectSession: (id) => ipcRenderer.invoke("sessions:reconnect", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),

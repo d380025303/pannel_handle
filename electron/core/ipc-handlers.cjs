@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, codexPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -132,6 +132,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   if (codeBuddyVersionService) {
     ipcMain.handle("codebuddy-version:check", (_event, id, force) => codeBuddyVersionService.check(String(id || ""), force === true));
     ipcMain.handle("codebuddy-version:update", (_event, id) => codeBuddyVersionService.update(String(id || "")));
+  }
+  if (openCodeVersionService) {
+    ipcMain.handle("opencode-version:check", (_event, id, force) => openCodeVersionService.check(String(id || ""), force === true));
+    ipcMain.handle("opencode-version:update", (_event, id) => openCodeVersionService.update(String(id || "")));
   }
   if (codexPluginService) {
     ipcMain.handle("codex-plugin:list", (_event, id) => codexPluginService.list(id));
@@ -279,8 +283,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("sessions:switch-codex-backend", async (_event, { id, backend }) => {
     return agentSessionLauncher.switchCodexBackend(String(id || ""), backend);
   });
-  ipcMain.handle("sessions:switch-model-source", async (_event, { id, source, restart }) => {
-    return agentSessionLauncher.switchModelSource(String(id || ""), source, restart === true);
+  ipcMain.handle("sessions:switch-model-source", async (_event, { id, source, restart, modelId }) => {
+    return agentSessionLauncher.switchModelSource(String(id || ""), source, restart === true, modelId);
   });
 
   ipcMain.handle("sessions:close", async (_event, id) => {

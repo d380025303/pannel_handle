@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, BookOpen, Cable, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
-import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
+import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
@@ -104,9 +104,11 @@ type CodexAppServerSessionProps = {
   setDraftReferences?: Dispatch<SetStateAction<CodexCapabilityReference[]>>;
   onLinkClick?: (href: string) => void;
   onReconnectModels?: (sessionId: string) => Promise<void>;
+  onSwitchCodeBuddyModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
+  onSwitchCodexModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onReconnectModels }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -148,6 +150,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [selectionError, setSelectionError] = useState("");
   const [selectionPending, setSelectionPending] = useState(false);
   const [modelMetadata, setModelMetadata] = useState<Awaited<ReturnType<typeof window.codexAppServerApi.listModelMetadata>>>([]);
+  const [codeBuddyServiceModels, setCodeBuddyServiceModels] = useState<Array<{ source: AgentModelSource; id: string; name: string }>>([]);
+  const [codeBuddyModelLoadError, setCodeBuddyModelLoadError] = useState("");
+  const [codexServiceModels, setCodexServiceModels] = useState<Array<{ source: AgentModelSource; id: string; name: string }>>([]);
+  const [codexModelLoadError, setCodexModelLoadError] = useState("");
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   const [capabilityTab, setCapabilityTab] = useState<"skills" | "apps" | "mcp">("skills");
   const [capabilityQuery, setCapabilityQuery] = useState("");
@@ -432,6 +438,50 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         setModelMetadata(Array.isArray(value) ? value : []);
     }).catch(() => { if (modelMetadataRequestRef.current === requestId && currentSessionRef.current === sessionId) setModelMetadata([]); });
   }, [sessionId, snapshot.provider, snapshot.threadId, menuOpen]);
+  useEffect(() => {
+    if (selectionKind !== "model" || snapshot.provider !== "codebuddy" || sessionType === "ssh") return;
+    let cancelled = false;
+    setCodeBuddyModelLoadError("");
+    const services = [
+      { source: "openrouter" as const, api: window.openRouterApi, label: "OpenRouter" },
+      { source: "nararouter" as const, api: window.naraRouterApi, label: "NaraRouter" },
+      { source: "minimax" as const, api: window.miniMaxApi, label: "MiniMax" }
+    ];
+    void Promise.allSettled(services.map(async service => {
+      if (!service.api) return [];
+      const [config, models] = await Promise.all([service.api.getConfig(), service.api.listModels()]);
+      return config.hasApiKey ? models.filter(model => model.agentVerifications?.codebuddy?.status === "passed")
+        .map(model => ({ source: service.source as AgentModelSource, id: model.id, name: model.name || model.id })) : [];
+    })).then(results => {
+      if (cancelled) return;
+      setCodeBuddyServiceModels(results.flatMap(result => result.status === "fulfilled" ? result.value : []));
+      const failed = results.flatMap((result, index) => result.status === "rejected" ? [services[index].label] : []);
+      setCodeBuddyModelLoadError(failed.length ? `${failed.join("、")} 模型读取失败，请重新打开列表重试。` : "");
+    });
+    return () => { cancelled = true; };
+  }, [selectionKind, snapshot.provider, sessionId, sessionType]);
+  useEffect(() => {
+    if (selectionKind !== "model" || snapshot.provider !== "codex" || sessionType === "ssh") return;
+    let cancelled = false;
+    setCodexModelLoadError("");
+    const services = [
+      { source: "openrouter" as const, api: window.openRouterApi, label: "OpenRouter" },
+      { source: "nararouter" as const, api: window.naraRouterApi, label: "NaraRouter" },
+      { source: "minimax" as const, api: window.miniMaxApi, label: "MiniMax" }
+    ];
+    void Promise.allSettled(services.map(async service => {
+      if (!service.api) return [];
+      const [config, models] = await Promise.all([service.api.getConfig(), service.api.listModels()]);
+      return config.hasApiKey ? models.filter(model => model.compatible && model.verification?.status === "passed")
+        .map(model => ({ source: service.source as AgentModelSource, id: model.id, name: model.name || model.id })) : [];
+    })).then(results => {
+      if (cancelled) return;
+      setCodexServiceModels(results.flatMap(result => result.status === "fulfilled" ? result.value : []));
+      const failed = results.flatMap((result, index) => result.status === "rejected" ? [services[index].label] : []);
+      setCodexModelLoadError(failed.length ? `${failed.join("、")} 模型读取失败，请重新打开列表重试。` : "");
+    });
+    return () => { cancelled = true; };
+  }, [selectionKind, snapshot.provider, sessionId, sessionType]);
   useEffect(() => {
     if (!capabilityOpen || !isActive) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -767,6 +817,37 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } catch (cause) { reportChangeError(cause); return false; }
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
+  async function changeCodeBuddyListedModel(value: string) {
+    if (snapshot.busy || sending || changingModelRef.current) return false;
+    const separator = value.indexOf(":");
+    const source = value.slice(0, separator) as AgentModelSource;
+    const modelId = value.slice(separator + 1);
+    if (source === "native" && (!session?.modelSource || session.modelSource === "native")) return changeModel(modelId);
+    if (!onSwitchCodeBuddyModel) return false;
+    changingModelRef.current = true;
+    setChangingModel(true);
+    try {
+      await onSwitchCodeBuddyModel(sessionId, source, modelId || undefined);
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
+    finally { changingModelRef.current = false; setChangingModel(false); }
+  }
+  async function changeCodexListedModel(value: string) {
+    if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current) return false;
+    const separator = value.indexOf(":");
+    const source = value.slice(0, separator) as AgentModelSource;
+    const modelId = value.slice(separator + 1);
+    if (source === "native" && snapshot.backend === "openai") return changeModel(modelId);
+    if (!onSwitchCodexModel) return false;
+    changingModelRef.current = true;
+    setChangingModel(true);
+    setError("");
+    try {
+      await onSwitchCodexModel(sessionId, source, modelId || undefined);
+      return true;
+    } catch (cause) { reportChangeError(cause); return false; }
+    finally { changingModelRef.current = false; setChangingModel(false); }
+  }
   async function changeEffort(effort: string) {
     if (!snapshot.threadId || snapshot.busy || sending || changingModelRef.current || attachments.length || effort === snapshot.effort) return false;
     changingModelRef.current = true;
@@ -867,6 +948,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ? snapshot.acpOptions?.find(option => option.id === "multitask" && option.type === "boolean") : undefined;
   const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok";
   const currentModel = (snapshot.models || []).find(model => model.id === snapshot.model);
+  const codeBuddyUnifiedModel = snapshot.provider === "codebuddy" && sessionType !== "ssh" && Boolean(onSwitchCodeBuddyModel);
+  const codexUnifiedModel = snapshot.provider === "codex" && sessionType !== "ssh" && Boolean(onSwitchCodexModel);
+  const codexCurrentSource = session?.modelSource || "native";
+  const codexCurrentName = codexCurrentSource === "native"
+    ? currentModel?.displayName || snapshot.model || "原生模型"
+    : codexServiceModels.find(model => model.source === codexCurrentSource && model.id === session?.modelId)?.name || session?.modelId || "服务模型";
+  const codeBuddyCurrentSource = session?.modelSource || "native";
+  const codeBuddyCurrentName = codeBuddyCurrentSource === "native"
+    ? acpModel?.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel?.currentValue || "原生模型"
+    : codeBuddyServiceModels.find(model => model.source === codeBuddyCurrentSource && model.id === session?.modelId)?.name || session?.modelId || "服务模型";
   const selectionTitles: Record<SelectionKind, string> = {
     mode: isAcp ? `${agentName} 模式` : "模式", model: "模型", effort: "思考强度",
     fastMode: "快速模式", permission: "执行权限", contextWindow: "上下文窗口", multitask: "Multitask"
@@ -888,7 +979,25 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       : [{ value: "default", label: "Exec", selected: snapshot.mode === "default", disabled: snapshot.busy || changingMode },
         { value: "plan", label: "Plan", selected: snapshot.mode === "plan", disabled: snapshot.busy || changingMode || snapshot.capabilities?.plan === false }]
     : selectionKind === "model"
-      ? acpModel ? (acpModel.options || []).map(option => ({ value: option.value, label: option.name,
+      ? codexUnifiedModel ? [
+        ...(snapshot.backend === "openai" ? (snapshot.models || []).map(model => ({ value: `native:${model.id}`, label: `OpenAI · ${model.displayName}`,
+          selected: snapshot.model === model.id, disabled: snapshot.busy || sending || changingModel || attachments.length > 0 }))
+          : [{ value: "native:", label: "OpenAI · 原生模型", description: "切换后可选择原生模型", selected: false,
+            disabled: snapshot.busy || sending || changingModel }]),
+        ...codexServiceModels.map(model => ({ value: `${model.source}:${model.id}`,
+          label: `${model.source === "openrouter" ? "OpenRouter" : model.source === "nararouter" ? "NaraRouter" : "MiniMax"} · ${model.name}`,
+          description: model.id, selected: codexCurrentSource === model.source && session?.modelId === model.id,
+          disabled: snapshot.busy || sending || changingModel }))]
+        : codeBuddyUnifiedModel ? [
+        ...(acpModel?.options || []).map(option => ({ value: `native:${option.value}`, label: `原生 · ${option.name}`,
+          description: modelDetails(option.value), selected: codeBuddyCurrentSource === "native" && acpModel?.currentValue === option.value,
+          disabled: snapshot.busy || changingModel })),
+        ...(!acpModel && codeBuddyCurrentSource !== "native" ? [{ value: "native:", label: "原生模型", description: "切换后可选择原生模型",
+          selected: false, disabled: snapshot.busy || changingModel }] : []),
+        ...codeBuddyServiceModels.map(model => ({ value: `${model.source}:${model.id}`, label: `${model.source === "openrouter" ? "OpenRouter" : model.source === "nararouter" ? "NaraRouter" : "MiniMax"} · ${model.name}`,
+          description: model.id, selected: codeBuddyCurrentSource === model.source && session?.modelId === model.id,
+          disabled: snapshot.busy || changingModel }))]
+        : acpModel ? (acpModel.options || []).map(option => ({ value: option.value, label: option.name,
         description: modelDetails(option.value), selected: acpModel.currentValue === option.value, disabled: snapshot.busy || changingModel }))
         : (snapshot.models || []).map(model => ({ value: model.id, label: model.displayName, selected: snapshot.model === model.id,
           disabled: snapshot.busy || sending || changingModel || attachments.length > 0 }))
@@ -943,7 +1052,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     let succeeded = false;
     try {
       if (kind === "mode") succeeded = isAcp ? await changeNativeMode(value) : await changeMode(value as "default" | "plan");
-      else if (kind === "model") succeeded = await changeModel(value);
+      else if (kind === "model") succeeded = codexUnifiedModel ? await changeCodexListedModel(value) : codeBuddyUnifiedModel ? await changeCodeBuddyListedModel(value) : await changeModel(value);
       else if (kind === "effort") succeeded = await changeEffort(value);
       else if (kind === "fastMode") succeeded = await changeFastMode(value === "true");
       else if (kind === "permission") succeeded = await changePermission(value as CodexExecutionPermission);
@@ -954,6 +1063,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   const isCodex = !snapshot.provider || snapshot.provider === "codex";
   const versionProvider = snapshot.provider === "codebuddy" ? "codebuddy"
+    : snapshot.provider === "opencode" ? "opencode"
     : isCodex ? "codex" : null;
   const canCheckVersion = Boolean(snapshot.threadId && versionProvider
     && (!session || session.runtimeMode === "app-server" && session.agentProvider === versionProvider));
@@ -969,7 +1079,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ] : []),
     { id: "mode", label: "模式" },
     ...(multitaskOption ? [{ id: "multitask", label: "Multitask" }] : []),
-    ...(acpModel || (!isAcp && snapshot.backend === "openai") ? [{ id: "model", label: "模型" }] : []),
+    ...(acpModel || codeBuddyUnifiedModel || codexUnifiedModel || (!isAcp && snapshot.backend === "openai") ? [{ id: "model", label: "模型" }] : []),
     ...(acpContextWindow ? [{ id: "contextWindow", label: "上下文窗口" }] : []),
     ...(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length)) ? [{ id: "effort", label: "思考强度" }] : []),
     ...(!isAcp && snapshot.backend === "openai" ? [{ id: "fastMode", label: "快速模式" }] : []),
@@ -1266,7 +1376,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"
                 : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>}
               {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
-              {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
+              {(acpModel || codeBuddyUnifiedModel || codexUnifiedModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{codexUnifiedModel ? codexCurrentName : codeBuddyUnifiedModel ? codeBuddyCurrentName : acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
               {snapshot.provider === "opencode" && sessionType !== "ssh" && onReconnectModels && <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={() => { setMenuOpen(false); void onReconnectModels(sessionId).catch(cause => setError(message(cause))); }}>重新连接以更新模型</button>}
               {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
               {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
@@ -1376,6 +1486,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {selectionOptions.length === 0 && <p>当前会话没有可选项。</p>}
         </div>
         {selectionError && <p className="codex-app-server-selection-error" role="alert">{selectionError}</p>}
+        {selectionKind === "model" && codeBuddyModelLoadError && <p className="codex-app-server-selection-error" role="alert">{codeBuddyModelLoadError}</p>}
+        {selectionKind === "model" && codexModelLoadError && <p className="codex-app-server-selection-error" role="alert">{codexModelLoadError}</p>}
         <div className="codex-app-server-selection-actions"><button type="button" disabled={selectionPending} onClick={closeSelection}>取消</button></div>
       </div>
     </div>}

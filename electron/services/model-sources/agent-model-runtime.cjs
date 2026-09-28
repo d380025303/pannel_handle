@@ -1,7 +1,7 @@
 const SOURCES = Object.freeze({
   openrouter: { id: "openrouter" },
-  nararouter: { id: "nararouter", npm: "@ai-sdk/openai-compatible" },
-  minimax: { id: "minimax", npm: "@ai-sdk/openai-compatible" }
+  nararouter: { id: "nararouter", package: "@opencode/ai/providers/openai-compatible" },
+  minimax: { id: "minimax", package: "@opencode/ai/providers/openai-compatible" }
 });
 
 function buildAgentModelEnvironment(agent, launch) {
@@ -16,15 +16,16 @@ function buildAgentModelEnvironment(agent, launch) {
   const provider = launch.providerId === "openrouter" ? undefined : {
     [source.id]: {
       name: launch.providerName,
-      npm: source.npm,
-      options: { baseURL: launch.baseUrl, apiKey: `{env:${launch.apiKeyEnv}}` },
+      env: [launch.apiKeyEnv],
+      package: source.package,
+      settings: { baseURL: launch.baseUrl },
       models: { [launch.model]: { name: launch.model } }
     }
   };
   return {
     [launch.apiKeyEnv]: launch.apiKey,
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: `${source.id}/${launch.model}`,
-      ...(provider ? { provider } : {}) })
+      ...(provider ? { providers: provider } : {}) })
   };
 }
 

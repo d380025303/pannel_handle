@@ -13,10 +13,10 @@ function runAgentModelProbe({ agent, providerId, modelId, baseUrl, apiKey, apiKe
   fs.writeFileSync(path.join(cwd, "proof.txt"), probeToken, "utf8");
   const prompt = "Read proof.txt with your file reading tool. Reply with only its exact contents.";
   const args = agent === "opencode"
-    ? ["run", "--model", `${providerId}/${modelId}`, prompt]
+    ? ["run", "--standalone", "--model", `${providerId}/${modelId}`, prompt]
     : ["--print", "--allowedTools", "Read", "--model", modelId, prompt];
   const executable = agent === "opencode" ? "opencode" : "codebuddy";
-  const windowsCommand = `${executable} ${agent === "opencode" ? "run" : "--print --allowedTools Read"} --model ${agent === "opencode" ? `${providerId}/${modelId}` : modelId} "${prompt}"`;
+  const windowsCommand = `${executable} ${agent === "opencode" ? "run --standalone" : "--print --allowedTools Read"} --model ${agent === "opencode" ? `${providerId}/${modelId}` : modelId} "${prompt}"`;
   return new Promise(resolve => {
     const env = { ...process.env, ...runtimeEnv };
     if (agent === "codebuddy") delete env.CODEBUDDY_AUTH_TOKEN;

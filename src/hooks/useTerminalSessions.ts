@@ -382,6 +382,14 @@ export function useTerminalSessions() {
     const replacement = await window.terminalApi.switchModelSource(id, source);
     setActiveId(replacement.id);
   }, []);
+  const switchCodeBuddyModel = useCallback(async (id: string, source: AgentModelSource, modelId?: string) => {
+    const replacement = await window.terminalApi.switchModelSource(id, source, true, modelId);
+    setActiveId(replacement.id);
+  }, []);
+  const switchCodexGraphicalModel = useCallback(async (id: string, source: AgentModelSource, modelId?: string) => {
+    const replacement = await window.terminalApi.switchModelSource(id, source, true, modelId);
+    setActiveId(replacement.id);
+  }, []);
   const reconnectOpenCodeModels = useCallback(async (id: string) => {
     const session = sessions.find(item => item.id === id);
     if (!session || session.agentProvider !== "opencode" || session.type === "ssh") throw new Error("当前会话无法重新连接 OpenCode 模型。");
@@ -416,6 +424,8 @@ export function useTerminalSessions() {
     openOtherSessionMode,
     switchCodexBackend,
     switchModelSource,
+    switchCodeBuddyModel,
+    switchCodexGraphicalModel,
     reconnectOpenCodeModels,
     openPicker,
     exportLibrary,

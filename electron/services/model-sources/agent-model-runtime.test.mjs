@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const { buildAgentModelEnvironment } = require("./agent-model-runtime.cjs");
 
 describe("agent model runtime", () => {
-  it("uses OpenCode custom provider configuration with an environment key reference", () => {
+  it("uses OpenCode V2 custom provider configuration with an environment key reference", () => {
     const env = buildAgentModelEnvironment("opencode", {
       providerId: "nararouter", providerName: "NaraRouter", model: "test/model",
       baseUrl: "https://example.com/v1", apiKey: "secret", apiKeyEnv: "NARAROUTER_API_KEY"
@@ -13,9 +13,9 @@ describe("agent model runtime", () => {
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
     expect(config).toEqual({
       model: "nararouter/test/model",
-      provider: { nararouter: {
-        name: "NaraRouter", npm: "@ai-sdk/openai-compatible",
-        options: { baseURL: "https://example.com/v1", apiKey: "{env:NARAROUTER_API_KEY}" },
+      providers: { nararouter: {
+        name: "NaraRouter", env: ["NARAROUTER_API_KEY"], package: "@opencode/ai/providers/openai-compatible",
+        settings: { baseURL: "https://example.com/v1" },
         models: { "test/model": { name: "test/model" } }
       } }
     });

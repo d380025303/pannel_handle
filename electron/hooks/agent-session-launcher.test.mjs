@@ -215,6 +215,20 @@ describe("agent-session-launcher", () => {
     const terminal = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: false });
     expect(terminal.runtimeMode).toBeUndefined();
   });
+  it("passes verified service keys to local OpenCode ACP sessions", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const openCodeModelSync = { syncWindows: vi.fn(), syncWsl: vi.fn() };
+    const miniMaxService = { getLaunchConfig: vi.fn(async () => null),
+      getOpenCodeRuntimeEnv: vi.fn(() => ({ MINIMAX_API_KEY: "secret" })) };
+    const mocks = createMocks({ codexAppServerSessionService, openCodeModelSync, miniMaxService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: true });
+    await mocks.launcher.createSession({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu", agentProvider: "opencode", graphicalSessionEnabled: true });
+    for (const [, runtime] of codexAppServerSessionService.start.mock.calls) {
+      expect(runtime.runtimeEnv.MINIMAX_API_KEY).toBe("secret");
+    }
+    expect(openCodeModelSync.syncWindows).toHaveBeenCalledOnce();
+    expect(openCodeModelSync.syncWsl).toHaveBeenCalledWith("Ubuntu");
+  });
   it("routes opted-in CodeBuddy Windows, WSL, and SSH remote sessions to ACP", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ codexAppServerSessionService });
@@ -902,6 +916,33 @@ describe("agent-session-launcher", () => {
     expect(reconnected).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
     expect(reconnected.id).not.toBe(replacement.id);
   });
+  it("switches a graphical CodeBuddy session to a selected verified model", async () => {
+    const openRouterService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({ defaultModelId: "other" })),
+      getAgentLaunchConfig: vi.fn((_agent, model) => {
+        if (model !== "vendor/verified") throw new Error("尚未通过 CodeBuddy 验证");
+        return { providerId: "openrouter", providerName: "OpenRouter", model, baseUrl: "https://openrouter.ai/api/v1", apiKey: "secret", apiKeyEnv: "OPENROUTER_API_KEY" };
+      }) };
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ openRouterService, codexAppServerSessionService });
+    const initial = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", graphicalSessionEnabled: true });
+    await expect(mocks.launcher.switchModelSource(initial.id, "openrouter", true, "vendor/rejected")).rejects.toThrow("尚未通过 CodeBuddy 验证");
+    expect(mocks.terminalManager.getSession(initial.id)).toBeDefined();
+    const replacement = await mocks.launcher.switchModelSource(initial.id, "openrouter", true, "vendor/verified");
+    expect(replacement).toMatchObject({ modelSource: "openrouter", modelId: "vendor/verified" });
+    expect(mocks.terminalManager.getSession(initial.id)).toBeUndefined();
+  });
+  it("keeps the selected MiniMax model when the service default is unverified", async () => {
+    const miniMaxService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({ defaultModelId: "MiniMax-M3" })),
+      getAgentLaunchConfig: vi.fn((_agent, model) => {
+        if (model !== "MiniMax-M2.7") throw new Error(`MiniMax 模型尚未通过 CodeBuddy 验证：${model}`);
+        return { providerId: "minimax", providerName: "MiniMax", model, baseUrl: "https://api.minimaxi.com/v1", apiKey: "secret", apiKeyEnv: "MINIMAX_API_KEY" };
+      }) };
+    const mocks = createMocks({ miniMaxService, codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    const initial = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", graphicalSessionEnabled: true });
+    const replacement = await mocks.launcher.switchModelSource(initial.id, "minimax", true, "MiniMax-M2.7");
+    expect(replacement).toMatchObject({ modelSource: "minimax", modelId: "MiniMax-M2.7" });
+    expect(miniMaxService.getAgentLaunchConfig).toHaveBeenCalledWith("codebuddy", "MiniMax-M2.7");
+  });
 
   it("starts Gemini graphically on Windows and WSL while preserving terminal mode", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
@@ -1440,6 +1481,22 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
     expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
     expect(mocks.sessions).toEqual([expect.objectContaining({ id: "run-1", codexBackend: "openai" })]);
+  });
+  it("rebuilds a Codex graphical session when selecting another verified model on the same backend", async () => {
+    const openRouterService = {
+      getConfig: vi.fn(() => ({ defaultModelId: "vendor/default" })),
+      getLaunchConfig: vi.fn(async session => ({ apiKey: "secret", apiKeyEnv: "OPENROUTER_API_KEY",
+        providerId: "openrouter", providerName: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1",
+        model: session.codexModel, catalogPath: "C:\\catalog.json" }))
+    };
+    const mocks = createMocks({ openRouterService, codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    mocks.sessions.push({ id: "run-1", templateId: "template-1", title: "Codex", shell: "cmd.exe",
+      cwd: "C:\\work", type: "windows", agentProvider: "codex", graphicalSessionEnabled: true,
+      runtimeMode: "app-server", codexBackend: "openrouter", codexModel: "vendor/current" });
+    const result = await mocks.launcher.switchModelSource("run-1", "openrouter", true, "vendor/next");
+    expect(result).toMatchObject({ codexBackend: "openrouter", codexModel: "vendor/next", runtimeMode: "app-server" });
+    expect(openRouterService.getLaunchConfig).toHaveBeenCalledWith(expect.objectContaining({ codexModel: "vendor/next" }));
+    expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
   });
 
   it("rejects Codex backend switching for SSH and non-Codex sessions", async () => {

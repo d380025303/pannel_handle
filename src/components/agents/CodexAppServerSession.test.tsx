@@ -776,6 +776,81 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "重新连接以更新模型" }));
     await waitFor(() => expect(reconnect).toHaveBeenCalledWith("run-1"));
   });
+  it("lists CodeBuddy-verified service models without favorites and switches to the selected model", async () => {
+    const switchModel = vi.fn().mockResolvedValue(undefined);
+    const model = (id: string, status: string) => ({ id, name: id, agentVerifications: { codebuddy: { status } } });
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: [] }),
+      listModels: vi.fn().mockResolvedValue([model("vendor/ready", "passed"), model("vendor/blocked", "failed")])
+    } });
+    Object.defineProperty(window, "naraRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false, favoriteModelIds: [] }), listModels: vi.fn().mockResolvedValue([model("vendor/no-key", "passed")])
+    } });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: [], defaultModelId: "MiniMax-M3" }),
+      listModels: vi.fn().mockResolvedValue([model("MiniMax-M2.7", "passed")])
+    } });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "windows", agentProvider: "codebuddy", modelSource: "native" } as TerminalSession}
+      draft="" setDraft={vi.fn()} onSwitchCodeBuddyModel={switchModel} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "hy3", options: [{ value: "hy3", name: "HY3" }] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(await screen.findByRole("radio", { name: /OpenRouter · vendor\/ready/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /vendor\/blocked/ })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /vendor\/no-key/ })).toBeNull();
+    expect(screen.getByRole("radio", { name: /原生 · HY3/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /MiniMax · MiniMax-M2\.7/ }));
+    await waitFor(() => expect(switchModel).toHaveBeenCalledWith("run-1", "minimax", "MiniMax-M2.7"));
+  });
+  it("lists only Codex-verified service models and switches to the selected model", async () => {
+    const switchModel = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: [] }),
+      listModels: vi.fn().mockResolvedValue([
+        { id: "vendor/ready", name: "Ready", compatible: true, verification: { status: "passed" } },
+        { id: "vendor/partial", name: "Partial", compatible: true, verification: { status: "partial" } },
+        { id: "vendor/incompatible", name: "Incompatible", compatible: false, verification: { status: "passed" } }
+      ])
+    } });
+    Object.defineProperty(window, "naraRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }),
+      listModels: vi.fn().mockResolvedValue([{ id: "vendor/no-key", compatible: true, verification: { status: "passed" } }])
+    } });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }), listModels: vi.fn().mockResolvedValue([])
+    } });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "windows", agentProvider: "codex",
+      modelSource: "native", codexBackend: "openai" } as TerminalSession}
+      draft="" setDraft={vi.fn()} onSwitchCodexModel={switchModel} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codex", backend: "openai",
+      model: "gpt-native", models: [{ id: "gpt-native", displayName: "Native" }], busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(await screen.findByRole("radio", { name: /OpenRouter · Ready/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Partial|Incompatible|no-key/ })).toBeNull();
+    expect(screen.getByRole("radio", { name: /OpenAI · Native/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /OpenRouter · Ready/ }));
+    await waitFor(() => expect(switchModel).toHaveBeenCalledWith("run-1", "openrouter", "vendor/ready"));
+  });
+  it("offers the model list in an external CodeBuddy session without ACP model options", async () => {
+    const switchModel = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: [] }),
+      listModels: vi.fn().mockResolvedValue([{ id: "vendor/next", name: "Next", agentVerifications: { codebuddy: { status: "passed" } } }])
+    } });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "windows", agentProvider: "codebuddy", modelSource: "openrouter", modelId: "vendor/current" } as TerminalSession}
+      draft="" setDraft={vi.fn()} onSwitchCodeBuddyModel={switchModel} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [], acpOptions: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(screen.getByRole("radio", { name: /原生模型/ })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("radio", { name: /OpenRouter · Next/ }));
+    await waitFor(() => expect(switchModel).toHaveBeenCalledWith("run-1", "openrouter", "vendor/next"));
+  });
 
   it("follows streamed text near the bottom and preserves the reader's position after scrolling up", async () => {
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);

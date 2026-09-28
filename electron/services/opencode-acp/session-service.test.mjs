@@ -119,6 +119,41 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
+  it("selects a configured external model after ACP exposes it", async () => {
+    const requests = [];
+    const options = [{ id: "model", type: "select", currentValue: "opencode/free", options: [
+      { value: "opencode/free", name: "Free" }, { value: "minimax/MiniMax-M2.7-highspeed", name: "MiniMax" }
+    ] }];
+    const child = fakeChild((message, emit) => {
+      requests.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions: options } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id, result: {
+        configOptions: [{ ...options[0], currentValue: message.params.value }]
+      } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" },
+      { openCodeModel: "minimax/MiniMax-M2.7-highspeed" });
+    expect(requests.find(request => request.method === "session/set_config_option")?.params).toMatchObject({
+      configId: "model", value: "minimax/MiniMax-M2.7-highspeed"
+    });
+    expect(service.snapshot("one").acpOptions[0].currentValue).toBe("minimax/MiniMax-M2.7-highspeed");
+    service.shutdown();
+  });
+
+  it("rejects an external model missing from OpenCode ACP options", async () => {
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await expect(service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" },
+      { openCodeModel: "minimax/MiniMax-M2.7-highspeed" })).rejects.toThrow("未提供已配置的模型");
+  });
+
   it("enforces the restricted local SSH bridge mode before accepting prompts", async () => {
     const requests = [];
     const child = fakeChild((message, emit) => {

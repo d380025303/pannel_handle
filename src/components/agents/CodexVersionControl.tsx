@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { CodexVersionState } from "../../vite-env";
 
-export function CodexVersionControl({ sessionId, provider = "codex" }: { sessionId: string; provider?: "codex" | "codebuddy" }) {
+export function CodexVersionControl({ sessionId, provider = "codex" }: { sessionId: string; provider?: "codex" | "codebuddy" | "opencode" }) {
   const { t } = useI18n();
-  const api = provider === "codebuddy" ? window.codeBuddyVersionApi : window.codexVersionApi;
+  const api = provider === "codebuddy" ? window.codeBuddyVersionApi
+    : provider === "opencode" ? window.openCodeVersionApi : window.codexVersionApi;
   const target = `${provider}:${sessionId}`;
   const currentTarget = useRef(target);
   currentTarget.current = target;
   const label = (key: "title" | "update" | "confirmTitle" | "confirm" | "updating") =>
-    t(provider === "codebuddy" ? `codeBuddyVersion.${key}` : `codexVersion.${key}`);
+    t(provider === "codebuddy" ? `codeBuddyVersion.${key}`
+      : provider === "opencode" ? `openCodeVersion.${key}` : `codexVersion.${key}`);
   const [state, setState] = useState<CodexVersionState | null>(null);
   const [checking, setChecking] = useState(true);
   const [confirming, setConfirming] = useState(false);
@@ -80,7 +82,7 @@ export function CodexVersionControl({ sessionId, provider = "codex" }: { session
         <button type="button" disabled={checking || updating} onClick={() => setConfirming(true)}>{label("update")}</button>}
     </div>
     {confirming && <div className="codex-version-confirm" role="group" aria-label={label("confirmTitle")}>
-      <p>{t(provider === "codebuddy" ? "codeBuddyVersion.confirm" : "codexVersion.confirm", { environment: state?.environment || "", version: state?.latestVersion || "" })}</p>
+      <p>{t(provider === "codebuddy" ? "codeBuddyVersion.confirm" : provider === "opencode" ? "openCodeVersion.confirm" : "codexVersion.confirm", { environment: state?.environment || "", version: state?.latestVersion || "" })}</p>
       <button type="button" onClick={() => setConfirming(false)}>{t("codexVersion.cancel")}</button>
       <button type="button" disabled={updating} onClick={() => void update()}>{t("codexVersion.confirmUpdate")}</button>
     </div>}

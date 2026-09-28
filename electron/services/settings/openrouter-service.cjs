@@ -290,12 +290,20 @@ function createOpenRouterService({
     if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
     const config = store.getPublicConfig();
     const model = String(requestedModel || config.defaultModelId || "").trim();
-    if (agent !== "opencode" && !config.favoriteModelIds.includes(model)) throw new Error(`${providerName} 模型未收藏：${model}`);
+    if (agent === "codebuddy" && !store.getCachedModels().some(item => item.id === model))
+      throw new Error(`${providerName} 模型不存在：${model}`);
     const verification = store.getAgentModelVerifications?.(agent)?.[model];
     if (verification?.status !== "passed") throw new Error(`${providerName} 模型尚未通过 ${agent === "opencode" ? "OpenCode" : "CodeBuddy"} 验证：${model}`);
     const apiKey = store.getApiKey();
     if (!apiKey) throw new Error(`请先配置 ${providerName} API Key。`);
     return { providerId, providerName, model, baseUrl, apiKey, apiKeyEnv };
+  }
+
+  function getOpenCodeRuntimeEnv() {
+    const verified = store.getAgentModelVerifications?.("opencode") || {};
+    if (!store.getCachedModels().some(model => verified[model.id]?.status === "passed")) return {};
+    const apiKey = store.getApiKey();
+    return apiKey ? { [providerId === "minimax" ? "MINIMAX_API_KEY" : apiKeyEnv]: apiKey } : {};
   }
 
   async function verifyAgentModels(input = {}) {
@@ -601,10 +609,11 @@ function createOpenRouterService({
     return results;
   }
 
-  function writeCatalog() {
+  function writeCatalog(selectedModelId) {
     const config = store.getPublicConfig();
     const byId = new Map(store.getCachedModels().map(model => [model.id, model]));
-    const models = config.favoriteModelIds.map(id => byId.get(id)).filter(model => model?.compatible &&
+    const ids = [...new Set([...config.favoriteModelIds, ...(selectedModelId ? [selectedModelId] : [])])];
+    const models = ids.map(id => byId.get(id)).filter(model => model?.compatible &&
       ["passed", "partial"].includes(store.getModelVerifications()[model.id]?.status));
     if (!models.length) throw new Error(`请先收藏至少一个兼容的 ${providerName} 模型。`);
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
@@ -649,9 +658,6 @@ function createOpenRouterService({
     if (!apiKey) throw new Error(`请先在设置中配置 ${providerName} API Key。`);
     const publicConfig = store.getPublicConfig();
     const requestedModel = String(session.codexModel || publicConfig.defaultModelId || "").trim();
-    if (!publicConfig.favoriteModelIds.includes(requestedModel)) {
-      throw new Error(`该会话的 ${providerName} 模型不在当前收藏列表中，请重新选择模型。`);
-    }
     const verification = await verifyModel(requestedModel);
     const experimentalAllowed = verification.status === "partial" && session.codexExperimentalAcknowledged === true;
     if (verification.status !== "passed" && !experimentalAllowed) {
@@ -661,7 +667,7 @@ function createOpenRouterService({
       throw new Error(`${providerName} 模型 ${requestedModel} 未通过 Codex 兼容性检测：${verification.error || "未知错误"}`);
     }
     assertCodexCompatibility(session);
-    const windowsCatalogPath = writeCatalog();
+    const windowsCatalogPath = writeCatalog(requestedModel);
     const config = {
       apiKey,
       providerId,
@@ -684,6 +690,7 @@ function createOpenRouterService({
     verifyModels,
     verifyAgentModels,
     getAgentLaunchConfig,
+    getOpenCodeRuntimeEnv,
     setFavorites,
     writeCatalog,
     getLaunchConfig

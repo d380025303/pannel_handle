@@ -19,6 +19,7 @@ export function AgentModelSourceSwitcher({ session, onSwitch, onSwitchCodex }: {
   const [error, setError] = useState("");
   useEffect(() => { setOpen(false); setError(""); }, [session?.id]);
   if (session?.agentProvider === "codex") return <CodexBackendSwitcher session={session} onSwitch={onSwitchCodex} />;
+  if (session?.agentProvider === "codebuddy" && session.runtimeMode === "app-server") return null;
   if (!session || session.type === "ssh" || (session.agentProvider !== "opencode" && session.agentProvider !== "codebuddy")) return null;
   const current = session.modelSource || "native";
   const choose = async (source: AgentModelSource) => {

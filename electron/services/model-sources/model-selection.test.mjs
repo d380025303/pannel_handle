@@ -16,7 +16,7 @@ describe("shared Agent model selection", () => {
   it("keeps credentials out of OpenCode config and selects a custom source", () => {
     const env = buildAgentModelEnvironment("opencode", { providerId: "nararouter", providerName: "NaraRouter", model: "vendor/coder", baseUrl: "https://router.bynara.id/v1", apiKey: "secret", apiKeyEnv: "NARAROUTER_API_KEY" });
     expect(env.NARAROUTER_API_KEY).toBe("secret");
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toMatchObject({ model: "nararouter/vendor/coder", provider: { nararouter: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://router.bynara.id/v1", apiKey: "{env:NARAROUTER_API_KEY}" }, models: { "vendor/coder": { name: "vendor/coder" } } } } });
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toMatchObject({ model: "nararouter/vendor/coder", providers: { nararouter: { env: ["NARAROUTER_API_KEY"], package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "https://router.bynara.id/v1" }, models: { "vendor/coder": { name: "vendor/coder" } } } } });
     expect(env.OPENCODE_CONFIG_CONTENT).not.toContain("secret");
   });
 

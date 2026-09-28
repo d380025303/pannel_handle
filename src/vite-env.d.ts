@@ -1054,6 +1054,7 @@ export type CodexVersionApi = {
   update: (id: string) => Promise<CodexVersionState>;
 };
 export type CodeBuddyVersionApi = CodexVersionApi;
+export type OpenCodeVersionApi = CodexVersionApi;
 export type CodexPluginScope = "project" | "user";
 export type CodexPluginCatalog = {
   installed: Array<Record<string, unknown>>;
@@ -1185,7 +1186,7 @@ export type TerminalApi = {
   updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; modelSource?: AgentModelSource | null; modelId?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
-  switchModelSource: (id: string, source: AgentModelSource, restart?: boolean) => Promise<TerminalSession>;
+  switchModelSource: (id: string, source: AgentModelSource, restart?: boolean, modelId?: string) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   reconnectSession: (id: string) => Promise<TerminalSession>;
   getHistory: (id: string) => Promise<string>;
@@ -1508,6 +1509,7 @@ declare global {
     codexAppServerApi: CodexAppServerApi;
     codexVersionApi: CodexVersionApi;
     codeBuddyVersionApi: CodeBuddyVersionApi;
+    openCodeVersionApi: OpenCodeVersionApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     screenshotApi: ScreenshotApi;

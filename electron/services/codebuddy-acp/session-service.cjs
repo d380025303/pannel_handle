@@ -679,6 +679,18 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.loadingThreadId = null;
       applySessionOptions(entry, result);
       await enforceRequiredMode(entry, true);
+      if (provider === "opencode" && runtime.openCodeModel) {
+        const option = entry.configOptions.find(item => item.id === "model" && item.type === "select");
+        if (!option?.options?.some(item => item.value === runtime.openCodeModel))
+          throw new Error(`OpenCode 未提供已配置的模型 ${runtime.openCodeModel}，请重新连接或检查模型验证与服务凭据。`);
+        if (option.currentValue !== runtime.openCodeModel) {
+          const selected = await request(entry, "session/set_config_option", {
+            sessionId: entry.threadId, configId: "model", value: runtime.openCodeModel
+          });
+          entry.configOptions = Array.isArray(selected?.configOptions) ? selected.configOptions
+            : entry.configOptions.map(item => item.id === "model" ? { ...item, currentValue: runtime.openCodeModel } : item);
+        }
+      }
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       await restoreOptions(entryFor(session.id));

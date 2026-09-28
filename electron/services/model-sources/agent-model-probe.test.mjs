@@ -35,4 +35,11 @@ describe("Agent model probe", () => {
     const result = await runAgentModelProbe(config, { spawnProcess: () => processMock(1, "Rejected private-key"), probeToken: "probe-success" });
     expect(result).toMatchObject({ status: "failed", error: "Rejected [redacted]" });
   });
+  it("runs OpenCode with a private server that receives the injected model configuration", async () => {
+    const spawnProcess = vi.fn(() => processMock(1, "Model unavailable"));
+    await runAgentModelProbe({ ...config, agent: "opencode", providerId: "minimax", modelId: "MiniMax-M2.7-highspeed", apiKeyEnv: "MINIMAX_API_KEY" }, { spawnProcess });
+    const [command, args, options] = spawnProcess.mock.calls[0];
+    expect(`${command} ${args.join(" ")}`).toContain("run --standalone --model minimax/MiniMax-M2.7-highspeed");
+    expect(JSON.parse(options.env.OPENCODE_CONFIG_CONTENT).providers.minimax.models).toHaveProperty("MiniMax-M2.7-highspeed");
+  });
 });

@@ -331,6 +331,8 @@ function createAgentSessionLauncher({
   getHomeDirectory = () => os.homedir()
 }) {
   const switchingSessions = new Map();
+  const openCodeVerifiedEnv = () => Object.assign({}, ...[openRouterService, naraRouterService, miniMaxService]
+    .map(service => service?.getOpenCodeRuntimeEnv?.() || {}));
   const useAppServer = session => Boolean(codexAppServerSessionService)
     && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode" || session.agentProvider === "claude" || session.agentProvider === "qoder" || session.agentProvider === "gemini" || session.agentProvider === "grok")
     && session.graphicalSessionEnabled !== false;
@@ -555,13 +557,15 @@ function createAgentSessionLauncher({
       ? { [agentModel.apiKeyEnv]: agentModel.apiKey,
         OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: `${agentModel.providerId}/${agentModel.model}` }) }
       : agentModel ? buildAgentModelEnvironment(session.agentProvider, agentModel) : {};
+    const verifiedOpenCodeEnv = session.agentProvider === "opencode" && useAppServer(session) ? openCodeVerifiedEnv() : {};
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
       codexCommand: backend ? buildCodexBackendCommand(session, runtimeConfigForBackend(backend, codeBuddyCodex)) : "codex",
-      runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...agentModelEnv },
-      runtimeWslEnvKeys: [...(backend ? [backend.apiKeyEnv] : []), ...Object.keys(agentModelEnv)],
+      runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...verifiedOpenCodeEnv, ...agentModelEnv },
+      runtimeWslEnvKeys: [...(backend ? [backend.apiKeyEnv] : []), ...Object.keys(verifiedOpenCodeEnv), ...Object.keys(agentModelEnv)],
+      ...(agentModel && session.agentProvider === "opencode" ? { openCodeModel: `${agentModel.providerId}/${agentModel.model}` } : {}),
       codexBridgeRegistration: bridgeRegistration
     };
   }
@@ -665,6 +669,7 @@ function createAgentSessionLauncher({
     let binding;
     try {
       validateAgentSession(session);
+      if (session.agentProvider === "opencode") openCodeModelSync?.syncWindows();
       assertLocalCommand({ ...session, type: "windows", shell: getLocalBridgeShell() });
       if (!remoteAgentBridgeService) throw new Error("远程 Agent 桥接服务不可用。");
       binding = await remoteAgentBridgeService.createBinding(session.id);
@@ -694,7 +699,7 @@ function createAgentSessionLauncher({
             acpArgs: buildLocalCodeBuddyAcpArgs(binding, next, codeBuddyInstructions) };
         } : undefined,
         requiredMode: session.agentProvider === "opencode" ? OPENCODE_REMOTE_AGENT : undefined,
-        runtimeEnv: { [binding.tokenEnv]: binding.token,
+        runtimeEnv: { ...(session.agentProvider === "opencode" ? openCodeVerifiedEnv() : {}), [binding.tokenEnv]: binding.token,
           ...(openCodeConfig ? { [OPENCODE_CONFIG_ENV]: openCodeConfig } : {}),
           ...(codeBuddyInstructions ? { [CODEBUDDY_REMOTE_INSTRUCTIONS_ENV]: codeBuddyInstructions } : {}) }
       });
@@ -850,7 +855,7 @@ function createAgentSessionLauncher({
     };
   }
 
-  async function createCodexBackendReplacement(session, backend) {
+  async function createCodexBackendReplacement(session, backend, requestedModelId) {
     if (backend === "openai") {
       return {
         ...createReplacementTemplate(session, "codex"),
@@ -872,7 +877,7 @@ function createAgentSessionLauncher({
     const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : backend === "minimax" ? "MiniMax" : "CodeBuddy";
     if (!service?.getConfig) throw new Error(`${providerName} Codex 服务不可用。`);
     const config = await service.getConfig();
-    const model = String(config?.defaultModelId || "").trim();
+    const model = String(requestedModelId || config?.defaultModelId || "").trim();
     if (!model) throw new Error(`请先在设置中配置 ${providerName} 默认模型。`);
     return {
       ...createReplacementTemplate(session, "codex"),
@@ -936,7 +941,7 @@ function createAgentSessionLauncher({
     }
   }
 
-  async function switchCodexBackend(sessionId, backend) {
+  async function switchCodexBackend(sessionId, backend, requestedModelId) {
     if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
     const operation = (async () => {
       const session = terminalManager.getSession(sessionId);
@@ -944,13 +949,16 @@ function createAgentSessionLauncher({
       if (session.agentProvider !== "codex") throw new Error("Only Codex sessions can switch model backend.");
       if (!CODEX_BACKENDS.has(backend)) throw new Error(`Unsupported Codex backend: ${backend}.`);
       if (session.type === "ssh") throw new Error("Codex 模型后端切换仅支持 Windows 和 WSL 会话。");
-      if ((session.codexBackend || "openai") === backend) {
+      const modelId = requestedModelId === undefined ? undefined : String(requestedModelId).trim();
+      if (requestedModelId !== undefined && (!modelId || backend === "openai" || backend === "codebuddy"))
+        throw new Error("当前 Codex 模型选择无效。");
+      if ((session.codexBackend || "openai") === backend && (!modelId || session.codexModel === modelId)) {
         const current = terminalManager.listSessions().find(entry => entry.id === sessionId);
         if (!current) throw new Error("Session is not running.");
         return current;
       }
 
-      const target = await createCodexBackendReplacement(session, backend);
+      const target = await createCodexBackendReplacement(session, backend, modelId);
       const runtime = await prepareLocal(target);
 
       terminalManager.closeSession(sessionId);
@@ -989,17 +997,21 @@ function createAgentSessionLauncher({
     return launchSession(template, { useProvidedTemplate: true, templateId: source.templateId });
   }
 
-  async function switchModelSource(sessionId, source, restart = false) {
+  async function switchModelSource(sessionId, source, restart = false, requestedModelId) {
     const currentSession = terminalManager.getSession(sessionId);
-    if (currentSession?.agentProvider === "codex") return switchCodexBackend(sessionId, source === "native" ? "openai" : source);
+    if (currentSession?.agentProvider === "codex") return switchCodexBackend(sessionId, source === "native" ? "openai" : source, requestedModelId);
     if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
     const operation = (async () => {
       const session = terminalManager.getSession(sessionId);
       if (!session || !["codex", "opencode", "codebuddy"].includes(session.agentProvider)) throw new Error("该会话不支持模型来源切换。");
       if (session.type === "ssh") throw new Error("模型来源切换仅支持 Windows 和 WSL 会话。");
       if (source !== "native" && !EXTERNAL_SOURCES.has(source) && !(session.agentProvider === "codex" && source === "codebuddy")) throw new Error("不支持的模型来源。");
-      if ((session.modelSource || "native") === source && !restart) return terminalManager.listSessions().find(item => item.id === sessionId);
-      let modelId = restart && source !== "native" ? session.modelId : undefined;
+      const selectedModel = requestedModelId === undefined ? undefined : String(requestedModelId).trim();
+      if (requestedModelId !== undefined && (!selectedModel || session.agentProvider !== "codebuddy" || session.runtimeMode !== "app-server"))
+        throw new Error("当前会话无法选择此模型。");
+      if (source === "native" && selectedModel) throw new Error("请先切换到原生模型，再选择具体模型。");
+      if ((session.modelSource || "native") === source && !restart && !selectedModel) return terminalManager.listSessions().find(item => item.id === sessionId);
+      let modelId = source !== "native" ? selectedModel || (restart ? session.modelId : undefined) : undefined;
       if (source !== "native") {
         const service = source === "openrouter" ? openRouterService : source === "nararouter" ? naraRouterService : miniMaxService;
         if (typeof service?.getConfig !== "function") throw new Error(`${source} 模型来源服务不可用。`);

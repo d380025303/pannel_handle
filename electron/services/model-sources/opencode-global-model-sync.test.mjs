@@ -35,7 +35,7 @@ describe("OpenCode global model sync", () => {
     f.sync.syncWindows();
     const config = readFileSync(f.config, "utf8");
     expect(config).toContain("// user setting");
-    expect(JSON.parse(readFileSync(f.auth, "utf8"))).toEqual({ another: { type: "api", key: "unrelated" }, openrouter: { type: "api", key: "secret" } });
+    expect(JSON.parse(readFileSync(f.auth, "utf8"))).toEqual({ another: { type: "api", key: "unrelated" } });
     expect(config).toContain('"vendor/coder"');
     expect(config).not.toContain("secret");
     f.state.verified["vendor/coder"] = { status: "failed" };
@@ -44,11 +44,23 @@ describe("OpenCode global model sync", () => {
     expect(JSON.parse(readFileSync(f.auth, "utf8"))).toEqual({ another: { type: "api", key: "unrelated" } });
   });
 
-  it("refuses to overwrite an existing user's provider credential", () => {
+  it("preserves an existing user's provider credential", () => {
     const f = fixture();
     writeFileSync(f.auth, '{"openrouter":{"type":"api","key":"other"}}\n');
-    expect(() => f.sync.syncWindows()).toThrow("已有 openrouter 凭据");
-    expect(readFileSync(f.config, "utf8")).not.toContain('"vendor/coder"');
+    f.sync.syncWindows();
+    expect(JSON.parse(readFileSync(f.auth, "utf8")).openrouter.key).toBe("other");
+    expect(readFileSync(f.config, "utf8")).toContain('"vendor/coder"');
+  });
+
+  it("removes only a matching legacy credential previously owned by the app", () => {
+    const f = fixture();
+    mkdirSync(path.join(f.root, "app"), { recursive: true });
+    writeFileSync(path.join(f.root, "app", "opencode-managed-models.json"), JSON.stringify({
+      windows: { openrouter: { models: ["vendor/coder"], authOwned: true } }
+    }));
+    writeFileSync(f.auth, '{"openrouter":{"type":"api","key":"secret"},"another":{"type":"api","key":"unrelated"}}\n');
+    f.sync.syncWindows();
+    expect(JSON.parse(readFileSync(f.auth, "utf8"))).toEqual({ another: { type: "api", key: "unrelated" } });
   });
 
   it("uses OpenCode v2 provider fields for a custom model service", () => {
@@ -63,8 +75,20 @@ describe("OpenCode global model sync", () => {
     const config = readFileSync(f.config, "utf8");
     expect(config).toContain('"providers"');
     expect(config).toContain('"package": "@opencode/ai/providers/openai-compatible"');
+    expect(config).toContain('"env": [');
+    expect(config).toContain('"NARAROUTER_API_KEY"');
     expect(config).toContain('"baseURL": "https://router.bynara.id/v1"');
     expect(config).not.toContain("custom-key");
-    expect(JSON.parse(readFileSync(f.auth, "utf8")).nararouter).toEqual({ type: "api", key: "custom-key" });
+    expect(JSON.parse(readFileSync(f.auth, "utf8")).nararouter).toBeUndefined();
+  });
+  it("registers MiniMax with the native credential name", () => {
+    const f = fixture();
+    const minimax = { getCachedModels: () => [{ id: "MiniMax-M2.7-highspeed", name: "MiniMax-M2.7-highspeed" }],
+      getAgentModelVerifications: () => ({ "MiniMax-M2.7-highspeed": { status: "passed" } }), getApiKey: () => "secret" };
+    const empty = { getCachedModels: () => [], getAgentModelVerifications: () => ({}), getApiKey: () => "" };
+    createOpenCodeGlobalModelSync({ home: path.join(f.root, "home"), userDataDir: path.join(f.root, "app2"),
+      stores: { openrouter: empty, nararouter: empty, minimax } }).syncWindows();
+    expect(readFileSync(f.config, "utf8")).toContain('"MINIMAX_API_KEY"');
+    expect(readFileSync(f.config, "utf8")).not.toContain("secret");
   });
 });

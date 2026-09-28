@@ -5,9 +5,9 @@ const { spawnSync } = require("node:child_process");
 const { parse, modify, applyEdits } = require("jsonc-parser");
 
 const SOURCES = {
-  openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
-  nararouter: { name: "NaraRouter", baseUrl: "https://router.bynara.id/v1" },
-  minimax: { name: "MiniMax", baseUrl: "https://api.minimaxi.com/v1" }
+  openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", apiKeyEnv: "OPENROUTER_API_KEY" },
+  nararouter: { name: "NaraRouter", baseUrl: "https://router.bynara.id/v1", apiKeyEnv: "NARAROUTER_API_KEY" },
+  minimax: { name: "MiniMax", baseUrl: "https://api.minimaxi.com/v1", apiKeyEnv: "MINIMAX_API_KEY" }
 };
 
 function readDocument(file) {
@@ -84,12 +84,11 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
       const provider = config.providers?.[id];
       if (wanted.length && provider && !oldIds.length && id !== "openrouter")
         throw new Error(`OpenCode 已有 ${id} 用户配置，无法自动覆盖。`);
-      if (wanted.length && auth[id] && !authOwned && (auth[id].type !== "api" || auth[id].key !== source.key))
-        throw new Error(`OpenCode 已有 ${id} 凭据，无法自动覆盖。`);
       for (const oldId of oldIds) if (!wantedIds.includes(oldId)) configChanges.push([["providers", id, "models", oldId], undefined]);
       if (wanted.length) {
         if (id !== "openrouter") {
           configChanges.push([["providers", id, "name"], SOURCES[id].name]);
+          configChanges.push([["providers", id, "env"], [SOURCES[id].apiKeyEnv]]);
           configChanges.push([["providers", id, "package"], "@opencode/ai/providers/openai-compatible"]);
           configChanges.push([["providers", id, "settings", "baseURL"], SOURCES[id].baseUrl]);
         }
@@ -98,9 +97,9 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
             throw new Error(`OpenCode 已有用户模型 ${id}/${model.id}，无法自动覆盖。`);
           configChanges.push([["providers", id, "models", model.id], { name: model.name || model.id }]);
         }
-        if (!auth[id] || authOwned) authChanges.push([[id], { type: "api", key: source.key }]);
-      } else if (oldIds.length && authOwned && auth[id]) authChanges.push([[id], undefined]);
-      next[id] = { models: wantedIds, authOwned: wanted.length ? authOwned || !auth[id] : false };
+      }
+      if (authOwned && auth[id]?.type === "api" && auth[id].key === source.key) authChanges.push([[id], undefined]);
+      next[id] = { models: wantedIds, authOwned: false };
     }
     configText = editJsonc(configText, configChanges);
     authText = editJsonc(authText, authChanges);

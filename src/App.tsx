@@ -945,7 +945,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     isActive={isAppServerSession && activeSessionId === session.id && workspaceTab === "terminal"}
                     draft={appServerDrafts[session.id] ?? ""} draftReferences={appServerDraftReferences[session.id] ?? emptyDraftReferences}
                     onDraftChange={handleAppServerDraftChange} onDraftReferencesChange={handleAppServerDraftReferencesChange}
-                    onLinkClick={handleAppServerLink} onReconnectModels={terminalSessions.reconnectOpenCodeModels} sessionRefs={appServerSessionRefs.current} />)}
+                    onLinkClick={handleAppServerLink} onReconnectModels={terminalSessions.reconnectOpenCodeModels} onSwitchCodeBuddyModel={terminalSessions.switchCodeBuddyModel} onSwitchCodexModel={terminalSessions.switchCodexGraphicalModel} sessionRefs={appServerSessionRefs.current} />)}
                 {isAppServerSession && appServerLinkError && <div role="alert" className="codex-app-server-error">
                   <span>{appServerLinkError}</span>
                   <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setAppServerLinkError(null)}><X aria-hidden="true" /></button>

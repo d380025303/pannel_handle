@@ -52,6 +52,20 @@ describe("openrouter-service", () => {
     expect(() => service.getAgentLaunchConfig("codebuddy", model.id)).toThrow("尚未通过 CodeBuddy 验证");
     expect(store.getApiKey).toHaveBeenCalledTimes(1);
   });
+  it("provides a key to OpenCode only while a cached model is verified", () => {
+    const verified = {};
+    const { service, model, store } = fixture({ store: { getAgentModelVerifications: vi.fn(() => verified) } });
+    expect(service.getOpenCodeRuntimeEnv()).toEqual({});
+    expect(store.getApiKey).not.toHaveBeenCalled();
+    verified[model.id] = { status: "passed" };
+    expect(service.getOpenCodeRuntimeEnv()).toEqual({ OPENROUTER_API_KEY: "sk-secret" });
+  });
+  it("uses OpenCode's native MiniMax environment variable for verified models", () => {
+    const model = { id: "MiniMax-M2.7-highspeed", name: "MiniMax-M2.7-highspeed" };
+    const { service } = fixture({ model, store: { getAgentModelVerifications: vi.fn(() => ({ [model.id]: { status: "passed" } })) },
+      serviceOptions: { providerId: "minimax", apiKeyEnv: "PANNEL_HANDLE_MINIMAX_BRIDGE_KEY" } });
+    expect(service.getOpenCodeRuntimeEnv()).toEqual({ MINIMAX_API_KEY: "sk-secret" });
+  });
   it("synchronizes verified OpenCode models even when they are not favorites", async () => {
     const sync = vi.fn();
     const { service, model } = fixture({
@@ -65,6 +79,18 @@ describe("openrouter-service", () => {
     expect(service.getAgentLaunchConfig("opencode", modelId).model).toBe(modelId);
     await service.verifyAgentModels({ agent: "opencode", modelIds: [modelId] });
     expect(sync).toHaveBeenCalledTimes(1);
+  });
+  it("allows a CodeBuddy-verified model without a favorite while rejecting other verification", () => {
+    const verified = { status: "passed", checkedAt: Date.now() };
+    const agentStates = { opencode: {}, codebuddy: {} };
+    const { service, model } = fixture({ store: {
+      getPublicConfig: vi.fn(() => ({ hasApiKey: true, favoriteModelIds: [] })),
+      getAgentModelVerifications: vi.fn(agent => agentStates[agent])
+    } });
+    agentStates.codebuddy[model.id] = verified;
+    expect(service.getAgentLaunchConfig("codebuddy", model.id)).toMatchObject({ model: model.id, apiKey: "sk-secret" });
+    agentStates.codebuddy[model.id] = { status: "failed" };
+    expect(() => service.getAgentLaunchConfig("codebuddy", model.id)).toThrow("尚未通过 CodeBuddy 验证");
   });
   it("generates a Codex catalog from favorite models", () => {
     const catalog = buildCodexModelCatalog([{ id: "vendor/model", name: "Model", contextLength: 64000, inputModalities: ["video", "image", "text", "file"], supportedParameters: [] }]);
@@ -81,6 +107,16 @@ describe("openrouter-service", () => {
     const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" });
     expect(launch).toMatchObject({ apiKey: "sk-secret", apiKeyEnv: "OPENROUTER_API_KEY", model: "openai/gpt-test", catalogPath: catalogFile });
     expect(readFileSync(catalogFile, "utf-8")).not.toContain("sk-secret");
+  });
+  it("launches a Codex-verified model without a favorite and includes it in the catalog", async () => {
+    const { service, store, catalogFile, model } = fixture();
+    store.getPublicConfig.mockReturnValue({ hasApiKey: true, favoriteModelIds: [], defaultModelId: undefined });
+    const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex",
+      codexBackend: "openrouter", codexModel: model.id });
+    expect(launch.model).toBe(model.id);
+    expect(JSON.parse(readFileSync(catalogFile, "utf-8")).models).toEqual([
+      expect.objectContaining({ slug: model.id })
+    ]);
   });
 
   it("supports an authenticated NaraRouter catalog and isolated launch provider", async () => {

@@ -36,6 +36,7 @@ const { createCodexSessionControl } = require("./services/project-assistant/code
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
 const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/version-service.cjs");
+const { createOpenCodeVersionService } = require("./services/opencode-acp/version-service.cjs");
 const { createCodexPluginService } = require("./services/codex-app-server/plugin-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
 const { createCodexInheritanceManager } = require("./services/codebuddy-acp/codex-inheritance.cjs");
@@ -336,6 +337,7 @@ if (!gotSingleInstanceLock) {
     codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService, claudeGraphicalService, qoderGraphicalService, geminiGraphicalService, grokGraphicalService);
     const codexVersionService = createCodexVersionService({ terminalManager, sshAgentTransport });
     const codeBuddyVersionService = createCodeBuddyVersionService({ terminalManager, sshAgentTransport });
+    const openCodeVersionService = createOpenCodeVersionService({ terminalManager, sshAgentTransport });
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,
       environmentService, sshAgentTransport });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
@@ -587,6 +589,7 @@ if (!gotSingleInstanceLock) {
       codexAppServerSessionService,
       codexVersionService,
       codeBuddyVersionService,
+      openCodeVersionService,
       codexPluginService
     });
     windowManager.createWindow();
