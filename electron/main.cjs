@@ -39,7 +39,6 @@ const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/vers
 const { createOpenCodeVersionService } = require("./services/opencode-acp/version-service.cjs");
 const { createCodexPluginService } = require("./services/codex-app-server/plugin-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
-const { createCodexInheritanceManager } = require("./services/codebuddy-acp/codex-inheritance.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createClaudeAcpSessionService } = require("./services/claude-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
@@ -125,7 +124,6 @@ let ideaModule = null;
 let projectAssistantService = null;
 let codexSessionControl = null;
 let codexAppServerSessionService = null;
-let codexInheritanceManager = null;
 let questionAnswerStore = null;
 let diagnosticsStore = null;
 
@@ -180,6 +178,17 @@ if (!gotSingleInstanceLock) {
       configFile: path.join(app.getPath("userData"), "config.json"), dataStore: businessDataStore,
       safeStorage
     });
+    configStore.loadConfig();
+    dingTalkConfigStore = createDingTalkConfigStore({
+      configFile: path.join(app.getPath("userData"), "dingtalk.json"), dataStore: businessDataStore,
+      safeStorage
+    });
+    knownHostStore = createKnownHostStore({
+      knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json"), dataStore: businessDataStore
+    });
+    mobileAccessStore = createMobileAccessStore({
+      accessFile: path.join(app.getPath("userData"), "mobile-access.json"), dataStore: businessDataStore
+    });
     openRouterConfigStore = createOpenRouterConfigStore({
       configFile: path.join(app.getPath("userData"), "openrouter.json"), dataStore: businessDataStore,
       safeStorage
@@ -230,9 +239,6 @@ if (!gotSingleInstanceLock) {
           dingTalkNotificationManager.handleStatus(payload);
         }
       },
-      onSessionClosing: (id) => {
-        void codexInheritanceManager?.cleanup(id).catch(error => console.error("Codex inheritance cleanup failed:", error));
-      },
       onSessionClosed: (id) => {
         codexAppServerSessionService?.close(id);
         if (agentNotificationManager) {
@@ -276,7 +282,6 @@ if (!gotSingleInstanceLock) {
       knownHostStore
     });
     const sshAgentTransport = createSshAgentTransport({ sshSessionRuntime });
-    codexInheritanceManager = createCodexInheritanceManager({ sshAgentTransport, homeDir: app.getPath("home") });
     const sshFileSystem = createSshFileSystem({ sshSessionRuntime });
     const codexGraphicalService = createCodexAppServerSessionService({
       environmentService,
@@ -296,13 +301,14 @@ if (!gotSingleInstanceLock) {
     });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
       environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
-      codexInheritanceManager, historyService: agentConversationHistoryService,
+      historyService: agentConversationHistoryService,
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage),
       onTokenLiveEvent: event => tokenUsageModule?.handleGraphicalCodeBuddyLive(event)
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalOpenCode(usage)
     });
     const claudeGraphicalService = createClaudeAcpSessionService({
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
@@ -359,6 +365,7 @@ if (!gotSingleInstanceLock) {
         codexGraphicalService.resetUsageBaselines();
         tokenUsageModule?.resetGraphicalCodeBuddyBaselines();
         codeBuddyGraphicalService.resetUsageBaselines();
+        openCodeGraphicalService.resetUsageBaselines();
         postgresBackupService?.newStatsEpoch();
       }
     });
@@ -429,6 +436,7 @@ if (!gotSingleInstanceLock) {
     mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager,
       graphicalService: codexGraphicalService, sshAgentTransport, sshFileSystem, environmentService });
     skillsService = createSkillsService({ homeDir: app.getPath("home") });
+    hookConfigManager = createHookConfigManager();
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService: tokenUsageModule });
     sshHookTunnelService = createSshHookTunnelService({
       terminalManager,
@@ -447,7 +455,6 @@ if (!gotSingleInstanceLock) {
     agentSessionLauncher = createAgentSessionLauncher({
       terminalManager,
       codexAppServerSessionService,
-      codexInheritanceManager,
       sessionStore,
       hookConfigManager,
       remoteHookConfigService,

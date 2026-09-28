@@ -57,7 +57,6 @@ export function SkillsManager() {
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchProvider("codex")}>Codex</button>
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchProvider("codebuddy")}>CodeBuddy</button>
       </div>
-      {provider === "codebuddy" && <p className="skills-list-state">{t("skills.codexInheritanceHint")}</p>}
 
       <section className="skills-content">
         <div className="skills-list-toolbar">

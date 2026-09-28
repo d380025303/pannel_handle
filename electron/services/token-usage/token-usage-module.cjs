@@ -73,6 +73,11 @@ function createTokenUsageModule({
     return statsService.recordGraphicalCodeBuddy(input);
   }
 
+  function recordGraphicalOpenCode(input) {
+    if (stopped) return Promise.resolve();
+    return statsService.recordGraphicalOpenCode(input);
+  }
+
   function handleGraphicalCodeBuddyLive(input) {
     if (stopped) return Promise.resolve();
     return statsService.handleGraphicalCodeBuddyLive(input);
@@ -103,6 +108,7 @@ function createTokenUsageModule({
     handleGraphicalCodeBuddyLive,
     recordAppServerUsage,
     recordGraphicalCodeBuddy,
+    recordGraphicalOpenCode,
     resetGraphicalCodeBuddyBaselines,
     getDashboard: options => statsStore.getDashboard(options),
     shutdown

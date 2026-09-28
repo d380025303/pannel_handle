@@ -377,11 +377,14 @@ describe("CodeBuddy ACP sessions", () => {
     expect(wsl.executable).toBe("wsl.exe");
     expect(wsl.args.at(-1)).toContain("exec codebuddy --acp");
     expect(wsl.args.at(-1)).toContain("--acp-transport streamable-http");
+    expect(wsl.args.at(-1)).not.toContain("--plugin-dir");
+    expect(wsl.args.at(-1)).not.toContain("--mcp-config");
     const bridge = buildInvocation({ type: "ssh", cwd: "/srv/app", shell: "powershell.exe" },
       { localBridge: true, workspaceCwd: "C:\\bridge", acpArgs: "--acp --strict-mcp-config" }, {});
     expect(bridge.cwd).toBe("C:\\bridge");
     expect(bridge.args.at(-1)).toContain("--strict-mcp-config");
     expect(bridge.args.at(-1)).toContain("--acp-transport streamable-http");
+    expect(bridge.args.at(-1)).not.toContain("--plugin-dir");
     expect(wsl.args.at(-1)).not.toContain("--tools Read,Glob,Grep");
     const cmd = buildInvocation({ type: "windows", cwd: "C:\\work", shell: "cmd.exe" }, {}, {});
     expect(cmd.args.at(-1)).not.toContain("--tools Read,Glob,Grep");

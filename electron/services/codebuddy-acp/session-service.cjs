@@ -9,10 +9,10 @@ const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const { waitForEndpoint, createCodeBuddyHttpTransport, sanitizeDiagnostic } = require("./http-transport.cjs");
 const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
-const { codeBuddyInheritanceArgs } = require("./codex-inheritance.cjs");
 const { createAcpProviderPolicy } = require("./provider-policy.cjs");
 const { normalizeCwd } = require("../conversation-history/history-values.cjs");
 const { isRewindMessageId, runRewindControl } = require("./rewind-control.cjs");
+const { createOpenCodeFormTransport } = require("../opencode-acp/form-transport.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PUBLISH_COALESCE_MS = 50;
@@ -73,12 +73,10 @@ function buildInvocation(session, runtime, environment, provider = "codebuddy") 
     throw new Error("Qoder SSH 本机桥接缺少受限远端工具配置。");
   const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode" : provider === "qoder" ? "qoder" : provider === "gemini" ? "gemini" : provider === "grok" ? "grok" : "codebuddy";
   const shell = runtime.shell || session.shell || "powershell.exe";
-  const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance,
-    session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "cmd") : "";
-  const args = provider === "claude" ? "" : provider === "opencode" ? (runtime.acpArgs || "acp") : provider === "gemini" ? (runtime.acpArgs || "--acp") : provider === "grok" ? "agent stdio" : provider === "qoder" ? (runtime.localBridge
+  const args = provider === "claude" ? "" : provider === "opencode" ? `${runtime.acpArgs || "acp"}${runtime.openCodeFormPort ? ` --hostname 127.0.0.1 --port ${runtime.openCodeFormPort}` : ""}` : provider === "gemini" ? (runtime.acpArgs || "--acp") : provider === "grok" ? "agent stdio" : provider === "qoder" ? (runtime.localBridge
     ? `--acp --tools '' --strict-mcp-config --allowed-mcp-server-names pannel_handle_remote --append-system-prompt '${String(runtime.remoteBridge.instructions).replace(/'/g, "''")}'`
     : "--acp")
-    : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
+    : `${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
   if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
@@ -112,8 +110,7 @@ async function createRemoteChild(transportService, session, environment, provide
     return `export ${name}=${quoteBash(value)}`;
   });
   const before = String(session.initialCommand || "").trim();
-  const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance) : "";
-  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode acp" : provider === "qoder" ? "qoder --acp" : provider === "gemini" ? "gemini --acp" : provider === "grok" ? "grok agent stdio" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
+  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? `opencode acp${runtime.openCodeFormPort ? ` --hostname 127.0.0.1 --port ${runtime.openCodeFormPort}` : ""}` : provider === "qoder" ? "qoder --acp" : provider === "gemini" ? "gemini --acp" : provider === "grok" ? "grok agent stdio" : `codebuddy ${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const openCodeVersionCheck = provider === "opencode"
     ? [`version=$(opencode --version) && [[ "$version" =~ ([0-9]+)\\.[0-9]+\\.[0-9]+ ]] && (( BASH_REMATCH[1] >= 2 )) || { echo 'OpenCode V2 is required.' >&2; exit 1; }`]
     : [];
@@ -130,9 +127,9 @@ async function createRemoteChild(transportService, session, environment, provide
   return child;
 }
 
-function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager, historyService,
+function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, historyService,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
-  httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
+  httpTransportFactory = createCodeBuddyHttpTransport, openCodeFormTransportFactory = createOpenCodeFormTransport, workBuddyModelCatalogService,
   onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl }) {
   const sessions = new Map();
   const publishTimers = new Map();
@@ -235,12 +232,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return params;
   }
   async function recordTokenUsage(entry, options = {}) {
-    if (provider !== "codebuddy" || !entry.threadId) return;
+    if ((provider !== "codebuddy" && provider !== "opencode") || !entry.threadId) return;
     try {
       await onTokenUsageCheckpoint({ threadId: entry.threadId, session: entry.session,
-        cwd: workspace(entry), model: entry.model, ...options });
+        cwd: workspace(entry), model: entry.model, environment: entry.environment, ...options });
     } catch (error) {
-      console.error("Failed to record CodeBuddy ACP token statistics:", error);
+      console.error(`Failed to record ${agentName} ACP token statistics:`, error);
     }
   }
   function reportTokenLive(entry, phase, options = {}) {
@@ -251,7 +248,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     } catch (error) { console.error("Failed to update CodeBuddy ACP live tokens:", error); }
   }
   function resetUsageBaselines() {
-    if (provider !== "codebuddy") return;
+    if (provider !== "codebuddy" && provider !== "opencode") return;
     for (const entry of sessions.values()) void recordTokenUsage(entry, { baseline: true });
   }
   function entryFor(id) {
@@ -279,11 +276,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
       ...(provider === "codebuddy" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
-      ...(provider === "codebuddy" ? { codexInheritance: {
-        skills: entry.runtime.inheritance?.skillNames || [],
-        mcpServers: Object.keys(entry.runtime.inheritance?.mcpServers || {}),
-        warnings: entry.runtime.inheritance?.warnings || []
-      } } : {}),
       contextUsage: entry.contextUsage,
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
@@ -610,15 +602,55 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     if (Object.hasOwn(message, "id")) send(entry, { id: message.id, error: { code: -32601, message: "Unsupported client method" } });
   }
+  function openCodeQuestion(form, entry) {
+    if (!form || form.sessionID !== entry.threadId || typeof form.id !== "string" || !Array.isArray(form.fields)) return null;
+    const fields = form.fields.filter(field => field && typeof field.key === "string" && field.hidden !== true);
+    if (!fields.length) return null;
+    return { requestId: form.id, submitting: false, form,
+      params: { threadId: entry.threadId, turnId: entry.turnId || "", itemId: form.metadata?.callID,
+        questions: fields.map(field => ({ id: field.key, header: field.title || form.title || "问题",
+          question: field.description || field.title || form.title || "请选择或填写回答",
+          multiSelect: field.type === "multiselect" && field.maxItems !== 1,
+          isOther: field.custom === true || field.type !== "multiselect" && !field.options?.length,
+          options: Array.isArray(field.options) ? field.options.map(option => ({ label: option.label, description: option.description || "", value: option.value })) : null })) } };
+  }
+  async function syncOpenCodeForms(id, entry) {
+    if (sessions.get(id) !== entry || !entry.threadId || !entry.openCodeFormTransport) return;
+    const threadId = entry.threadId;
+    const forms = await entry.openCodeFormTransport.list(threadId);
+    if (sessions.get(id) !== entry || entry.threadId !== threadId || !Array.isArray(forms)) return;
+    const live = new Set();
+    for (const form of forms) {
+      const question = openCodeQuestion(form, entry);
+      if (!question) continue;
+      live.add(form.id);
+      const existing = entry.questions.get(form.id);
+      entry.questions.set(form.id, existing?.submitting ? { ...question, submitting: true } : question);
+    }
+    for (const [requestId, question] of entry.questions) if (question.form && !live.has(requestId)) entry.questions.delete(requestId);
+    publish(id);
+    if (entry.questions.size) status(id, entry, "e_prompt", entry.questions.values().next().value.params.questions[0].question);
+  }
+  async function connectOpenCodeForms(id, entry) {
+    const { openCodeFormPort: port, openCodeFormPassword: password } = entry.runtime;
+    if (isRemote(entry)) entry.openCodeFormForwarder = await sshAgentTransport.createHttpForwarder(id, port);
+    entry.openCodeFormTransport = openCodeFormTransportFactory({ port, password, agent: entry.openCodeFormForwarder?.agent });
+    entry.openCodeFormTransport.subscribe(event => {
+      if (event?.type?.startsWith("form.") && (!event.data?.sessionID || event.data.sessionID === entry.threadId))
+        void syncOpenCodeForms(id, entry).catch(error => { entry.error = error.message; publish(id); });
+    }, () => { void syncOpenCodeForms(id, entry).catch(() => {}); });
+    await syncOpenCodeForms(id, entry);
+    entry.openCodeFormPoll = setInterval(() => { void syncOpenCodeForms(id, entry).catch(() => {}); }, 5000);
+    entry.openCodeFormPoll.unref?.();
+  }
   async function start(session, runtime = {}) {
     if ((provider === "claude" || provider === "qoder") && runtime.localBridge && (!runtime.remoteBridge?.url || !runtime.remoteBridge?.token || !runtime.remoteBridge?.instructions))
       throw new Error(`${agentName} SSH 本机桥接缺少受限远端工具配置。`);
-    if (provider === "codebuddy" && codexInheritanceManager && !runtime.inheritance) {
-      runtime = { ...runtime, inheritance: await codexInheritanceManager.prepare(session, {
-        projectCwd: runtime.workspaceCwd || session.cwd, localBridge: runtime.localBridge === true
-      }) };
-    }
-    const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
+    if (provider === "opencode" && runtime.openCodeForms) runtime = { ...runtime,
+      openCodeFormPort: runtime.openCodeFormPort || 49152 + randomBytes(2).readUInt16BE(0) % 16384,
+      openCodeFormPassword: runtime.openCodeFormPassword || randomBytes(32).toString("hex") };
+    const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}),
+      ...(runtime.openCodeFormPassword ? { OPENCODE_SERVER_PASSWORD: runtime.openCodeFormPassword } : {}) };
     const child = isRemote({ session, runtime })
       ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
       : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
@@ -696,6 +728,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         }
       }
       await restoreOptions(entryFor(session.id));
+      if (provider === "opencode" && runtime.openCodeForms) await connectOpenCodeForms(session.id, entry);
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
@@ -713,6 +746,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
     entry.pending.clear();
     entry.questions.clear();
+    if (entry.openCodeFormPoll) clearInterval(entry.openCodeFormPoll);
+    entry.openCodeFormTransport?.close();
+    entry.openCodeFormForwarder?.close();
     const finish = () => {
       entry.httpForwarder?.close();
       stopAgentChild(entry.child, provider);
@@ -732,13 +768,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     terminalManager.setAppServerConnectionState?.(id, "reconnecting");
     const runtime = { ...entry.runtime, resumeThreadId: entry.threadId };
     close(id);
-    if (provider === "codebuddy" && codexInheritanceManager) {
-      if (runtime.refreshInheritance) Object.assign(runtime, await runtime.refreshInheritance());
-      else {
-        await codexInheritanceManager.cleanup(id);
-        delete runtime.inheritance;
-      }
-    }
     await start(session, runtime);
     return terminalManager.listSessions().find(value => value.id === id);
   }
@@ -819,10 +848,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       result = await rewindControl({ sessionId: runtime.resumeThreadId, messageId, scope, cwd, env: environment, spawnProcess });
     } catch (error) { failure = error; }
     try {
-      if (codexInheritanceManager) {
-        await codexInheritanceManager.cleanup(id);
-        delete runtime.inheritance;
-      }
       await start(session, runtime);
     } catch (error) {
       throw new Error(`${failure ? `${failure.message}；` : ""}恢复 CodeBuddy 图形会话失败：${error.message}`);
@@ -864,6 +889,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
     if (provider === "opencode") await restoreOptions(entry);
+    if (provider === "opencode" && entry.openCodeFormTransport) await syncOpenCodeForms(id, entry);
     publish(id);
     await recordTokenUsage(entry, { resumed: true });
     return snapshot(id);
@@ -889,6 +915,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { await enforceRequiredMode(entry, true); }
     catch (error) { close(id); throw error; }
     await restoreOptions(entryFor(id));
+    if (provider === "opencode" && entry.openCodeFormTransport) await syncOpenCodeForms(id, entry);
     publish(id);
     status(id, entry, "cleared");
     return snapshot(id);
@@ -1088,7 +1115,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     publish(id); status(id, entry, "running");
   }
   async function answerQuestion(id, requestId, answers) {
-    if (provider !== "codebuddy" && provider !== "claude") throw new Error(`当前 ${agentName} ACP 不支持此提问格式。`);
+    if (provider !== "codebuddy" && provider !== "claude" && provider !== "opencode") throw new Error(`当前 ${agentName} ACP 不支持此提问格式。`);
     const entry = entryFor(id);
     const question = entry.questions.get(requestId);
     if (!question || question.submitting || question.params.threadId !== entry.threadId) throw new Error("问题请求已失效。");
@@ -1101,7 +1128,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       })) throw new Error("问题答案无效。");
     question.submitting = true; publish(id);
     try {
-      if (question.elicitation) {
+      if (question.form) {
+        const answer = {};
+        for (const field of question.form.fields.filter(value => value.hidden !== true)) {
+          const values = answers[field.key]?.answers || [];
+          if (field.type === "multiselect") {
+            answer[field.key] = values.map(value => field.options?.find(option => option.label === value)?.value ?? value);
+            if (field.maxItems != null && answer[field.key].length > field.maxItems) throw new Error("所选答案超过允许数量。");
+          } else if (field.type === "boolean") answer[field.key] = values[0] === "true" || values[0] === "是";
+          else if (field.type === "integer" || field.type === "number") {
+            answer[field.key] = Number(values[0]);
+            if (!Number.isFinite(answer[field.key]) || field.type === "integer" && !Number.isInteger(answer[field.key])) throw new Error("请输入有效数字。");
+          } else answer[field.key] = field.options?.find(option => option.label === values[0])?.value ?? values[0];
+        }
+        await entry.openCodeFormTransport.reply(entry.threadId, requestId, answer);
+      } else if (question.elicitation) {
         const content = {};
         for (const prompt of prompts) {
           const schema = question.elicitation.properties[prompt.id];
@@ -1149,13 +1190,15 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     } catch (error) { question.submitting = false; publish(id); throw error; }
   }
   async function cancelQuestion(id, requestId) {
-    if (provider !== "codebuddy" && provider !== "claude") throw new Error(`当前 ${agentName} ACP 不支持此提问格式。`);
+    if (provider !== "codebuddy" && provider !== "claude" && provider !== "opencode") throw new Error(`当前 ${agentName} ACP 不支持此提问格式。`);
     const entry = entryFor(id);
     const question = entry.questions.get(requestId);
     if (!question || question.submitting || question.params.threadId !== entry.threadId) throw new Error("问题请求已失效。");
     question.submitting = true; publish(id);
     try {
-      if (question.elicitation) {
+      if (question.form) {
+        await entry.openCodeFormTransport.cancel(entry.threadId, requestId);
+      } else if (question.elicitation) {
         send(entry, { id: requestId, result: { action: "cancel" } });
       } else if (question.permissionRequest) {
         const result = await request(entry, "_codebuddy.ai/resolveInterruption", { sessionId: entry.threadId,

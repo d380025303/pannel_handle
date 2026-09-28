@@ -8,7 +8,7 @@ import re
 import sqlite3
 import sys
 
-PROVIDERS = {"codex", "codebuddy", "gemini", "grok"}
+PROVIDERS = {"codex", "codebuddy", "opencode", "gemini", "grok"}
 
 
 def decode_payload():
@@ -315,6 +315,78 @@ def codebuddy_transcript(session_id):
     raise RuntimeError("CodeBuddy conversation is unavailable")
 
 
+def opencode_database():
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    database_file = os.path.join(data_home, "opencode", "opencode.db")
+    if not os.path.isfile(database_file):
+        return None
+    connection = sqlite3.connect(f"file:{database_file}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    for table, required in {
+        "session": {"id", "directory", "title", "parent_id", "time_created", "time_updated", "time_archived"},
+        "message": {"id", "session_id", "time_created", "data"},
+        "part": {"id", "message_id", "session_id", "time_created", "data"},
+    }.items():
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if not required.issubset(columns):
+            connection.close()
+            raise RuntimeError("Unsupported OpenCode history schema")
+    return connection
+
+
+def list_opencode(payload):
+    connection = opencode_database()
+    if connection is None:
+        return []
+    try:
+        rows = connection.execute("""SELECT s.id, s.directory, s.title, s.time_created, s.time_updated, s.time_archived,
+            (SELECT json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id
+             WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
+               AND json_extract(p.data, '$.type') = 'text' AND trim(json_extract(p.data, '$.text')) <> ''
+             ORDER BY m.time_created, p.time_created LIMIT 1) AS preview
+            FROM session s WHERE s.parent_id IS NULL""").fetchall()
+        expected_cwd = str(payload.get("cwd") or "").rstrip("/")
+        return [{"ref": f"opencode:{row['id']}", "provider": "opencode",
+                 "title": row["title"] or row["preview"] or "OpenCode conversation",
+                 "preview": row["preview"] or "", "cwd": row["directory"] or "",
+                 "createdAt": timestamp_ms(row["time_created"]), "updatedAt": timestamp_ms(row["time_updated"]),
+                 "archived": bool(row["time_archived"])}
+                for row in rows if (payload.get("includeArchived") or not row["time_archived"])
+                and (payload.get("scope") == "all" or str(row["directory"] or "").rstrip("/") == expected_cwd)]
+    finally:
+        connection.close()
+
+
+def opencode_messages(session_id):
+    connection = opencode_database()
+    if connection is None:
+        raise RuntimeError("OpenCode conversation is unavailable")
+    try:
+        if connection.execute("SELECT 1 FROM session WHERE id = ? AND parent_id IS NULL", (session_id,)).fetchone() is None:
+            raise RuntimeError("OpenCode conversation is unavailable")
+        rows = connection.execute("""SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role, p.data AS part_data
+            FROM message m JOIN part p ON p.message_id = m.id WHERE m.session_id = ?
+            ORDER BY m.time_created, m.id, p.time_created, p.id""", (session_id,)).fetchall()
+        messages = {}
+        for row in rows:
+            if row["role"] not in {"user", "assistant"}:
+                continue
+            try:
+                part = json.loads(row["part_data"])
+            except (TypeError, ValueError):
+                continue
+            text = part.get("text") if part.get("type") == "text" else None
+            if not isinstance(text, str) or not text.strip():
+                continue
+            message = messages.setdefault(row["id"], {"id": row["id"], "provider": "opencode",
+                "kind": "user" if row["role"] == "user" else "reply", "text": "",
+                "timestamp": timestamp_ms(row["time_created"])})
+            message["text"] += ("\n\n" if message["text"] else "") + text.strip()
+        return list(messages.values())
+    finally:
+        connection.close()
+
+
 def gemini_transcript(session_id):
     project_hash, separator, file_id = session_id.partition(":")
     if not separator:
@@ -337,16 +409,16 @@ def cursor(payload):
 
 
 def list_history(payload):
-    providers = payload.get("providers") or ["codex", "codebuddy", "gemini", "grok"]
+    providers = payload.get("providers") or ["codex", "codebuddy", "opencode", "gemini", "grok"]
     if any(provider not in PROVIDERS for provider in providers):
         raise RuntimeError("Unsupported history provider")
     items = []
     errors = []
     for provider in providers:
         try:
-            items.extend(list_codex(payload) if provider == "codex" else list_gemini(payload) if provider == "gemini" else list_grok(payload) if provider == "grok" else list_codebuddy(payload))
+            items.extend(list_codex(payload) if provider == "codex" else list_opencode(payload) if provider == "opencode" else list_gemini(payload) if provider == "gemini" else list_grok(payload) if provider == "grok" else list_codebuddy(payload))
         except Exception:
-            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'Gemini' if provider == 'gemini' else 'Grok' if provider == 'grok' else 'CodeBuddy'} history is unavailable."})
+            errors.append({"provider": provider, "message": f"{'Codex' if provider == 'codex' else 'OpenCode' if provider == 'opencode' else 'Gemini' if provider == 'gemini' else 'Grok' if provider == 'grok' else 'CodeBuddy'} history is unavailable."})
     query = str(payload.get("query") or "").strip().lower()
     if query:
         items = [item for item in items if any(query in str(item.get(field) or "").lower() for field in ("title", "preview", "cwd"))]
@@ -358,11 +430,14 @@ def list_history(payload):
 
 
 def history_messages(payload):
-    match = re.fullmatch(r"(codex|codebuddy|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
+    match = re.fullmatch(r"(codex|codebuddy|opencode|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})", str(payload.get("conversationRef") or ""))
     if not match:
         raise RuntimeError("Invalid conversation reference")
     provider, session_id = match.groups()
-    if provider == "grok":
+    if provider == "opencode":
+        messages = opencode_messages(session_id)
+        file_name = None
+    elif provider == "grok":
         directory = next((candidate for candidate in grok_session_dirs() if os.path.basename(candidate) == session_id), None)
         if not directory:
             raise RuntimeError("Grok conversation is unavailable")
@@ -373,7 +448,7 @@ def history_messages(payload):
     if provider == "gemini":
         messages = [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
                     for item in gemini_messages(file_name) if isinstance(item.get("content"), str) and item.get("content").strip()]
-    elif provider != "grok":
+    elif provider not in {"grok", "opencode"}:
         messages = parse_messages(provider, file_name)
     messages = sorted(messages, key=lambda item: -item["timestamp"])
     offset = cursor(payload)

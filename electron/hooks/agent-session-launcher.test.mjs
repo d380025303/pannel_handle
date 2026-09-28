@@ -647,6 +647,7 @@ describe("agent-session-launcher", () => {
     const config = JSON.parse(buildLocalCodeBuddyConfig(binding));
     const command = buildLocalCodeBuddyStartCommand(binding);
 
+    expect(Object.keys(config.mcpServers)).toEqual(["pannel_handle_remote"]);
     expect(config.mcpServers.pannel_handle_remote).toEqual({
       type: "http",
       url: binding.url,
@@ -1222,6 +1223,9 @@ describe("agent-session-launcher", () => {
     expect(runtime.acpArgs).toContain("--strict-mcp-config");
     expect(runtime.acpArgs).not.toContain("--tools Read,Glob,Grep");
     expect(runtime.acpArgs).toContain("Bearer ${PANNEL_HANDLE_REMOTE_AGENT_TOKEN}");
+    expect(runtime.acpArgs).not.toContain("--plugin-dir");
+    expect(runtime).not.toHaveProperty("inheritance");
+    expect(runtime).not.toHaveProperty("refreshInheritance");
     expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS).toBe("Use remote tools.");
     expect(runtime.acpArgs).not.toContain("secret-token");
   });

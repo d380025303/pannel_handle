@@ -77,8 +77,24 @@ describe("AgentConversationPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
     expect(await screen.findByText("Historical answer")).toBeTruthy();
     expect(screen.getByText("Historical question")).toBeTruthy();
-    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "gemini", "grok"], scope: "cwd" }));
+    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "opencode", "gemini", "grok"], scope: "cwd" }));
     expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
+  });
+
+  it("filters and displays OpenCode history", async () => {
+    listHistory.mockResolvedValue({ items: [{ ref: "opencode:ses_one", provider: "opencode",
+      title: "OpenCode history", preview: "Question", cwd: "C:\\work", createdAt: 1, updatedAt: 2, archived: false }],
+      nextCursor: null, errors: [] });
+    getHistoryMessages.mockResolvedValue({ conversationRef: "opencode:ses_one",
+      messages: [{ id: "reply", provider: "opencode", kind: "reply", text: "OpenCode answer", timestamp: 2 }], nextCursor: null });
+    render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }}
+      session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.click(screen.getByRole("button", { name: "OpenCode" }));
+    expect(await screen.findByRole("button", { name: /OpenCode history/ })).toBeTruthy();
+    expect(listHistory).toHaveBeenLastCalledWith(expect.objectContaining({ providers: ["opencode"] }));
+    fireEvent.click(screen.getByRole("button", { name: /OpenCode history/ }));
+    expect(await screen.findByText("OpenCode answer")).toBeTruthy();
   });
 
   it("opens a backed-up conversation from another computer", async () => {

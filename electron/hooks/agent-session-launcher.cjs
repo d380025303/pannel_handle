@@ -1,7 +1,6 @@
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const os = require("node:os");
 const { buildCodexBackendCommand } = require("../services/codex-model-bridge/index.cjs");
-const { codeBuddyInheritanceArgs } = require("../services/codebuddy-acp/codex-inheritance.cjs");
 const { buildAgentModelEnvironment } = require("../services/model-sources/agent-model-runtime.cjs");
 const { EXTERNAL_SOURCES } = require("../services/model-sources/model-selection.cjs");
 
@@ -131,11 +130,6 @@ function buildAgentStartCommand(session, runtime = {}) {
   const preCommand = String(session.initialCommand || "").trim();
   let agentCommand = command;
   if (session.agentProvider === "opencode") agentCommand = `${command} --standalone`;
-  if (session.agentProvider === "codebuddy") {
-    const shell = session.type === "windows" ? isPowerShell(session.shell) ? "powershell" : "cmd" : "bash";
-    const inheritedArgs = codeBuddyInheritanceArgs(runtime.inheritance, shell);
-    if (inheritedArgs) agentCommand += ` ${inheritedArgs}`;
-  }
   if (session.agentProvider === "codex") {
     const backend = runtime.openRouter || runtime.naraRouter || runtime.miniMax;
     if (backend) {
@@ -267,10 +261,9 @@ function buildLocalOpenCodeStartCommand(binding) {
   ].join(" ");
 }
 
-function buildLocalCodeBuddyConfig(binding, inheritance) {
+function buildLocalCodeBuddyConfig(binding) {
   return JSON.stringify({
     mcpServers: {
-      ...(inheritance?.mcpServers || {}),
       pannel_handle_remote: {
         type: "http",
         url: binding.url,
@@ -282,26 +275,24 @@ function buildLocalCodeBuddyConfig(binding, inheritance) {
   });
 }
 
-function buildLocalCodeBuddyStartCommand(binding, inheritance) {
+function buildLocalCodeBuddyStartCommand(binding) {
   const powerShellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
   const instructions = binding.runtimeInstructions || binding.developerInstructions;
   const args = [
     "codebuddy",
     "--mcp-config",
-    powerShellQuote(buildLocalCodeBuddyConfig(binding, inheritance)),
+    powerShellQuote(buildLocalCodeBuddyConfig(binding)),
     "--strict-mcp-config",
     "--tools",
     "Read,Glob,Grep"
   ];
   if (instructions) args.push("--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`);
-  const inheritedArgs = codeBuddyInheritanceArgs(inheritance && { ...inheritance, mcpFile: undefined }, "powershell");
-  if (inheritedArgs) args.push(inheritedArgs);
   return args.join(" ");
 }
 
-function buildLocalCodeBuddyAcpArgs(binding, inheritance, instructions) {
+function buildLocalCodeBuddyAcpArgs(binding, instructions) {
   return [
-    "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding, inheritance).replace(/'/g, "''")}'`,
+    "--acp", "--mcp-config", `'${buildLocalCodeBuddyConfig(binding).replace(/'/g, "''")}'`,
     "--strict-mcp-config",
     ...(instructions ? ["--append-system-prompt", `"$env:${CODEBUDDY_REMOTE_INSTRUCTIONS_ENV}"`] : [])
   ].join(" ");
@@ -321,7 +312,6 @@ function createAgentSessionLauncher({
   openCodeModelSync,
   codexModelBridgeModule,
   codexAppServerSessionService,
-  codexInheritanceManager,
   onTemplateLaunched = () => {},
   spawnSync = defaultSpawnSync,
   getDefaultShell = (preference) => require("../terminal/terminal-manager.cjs").getDefaultShell({ preference }),
@@ -557,6 +547,7 @@ function createAgentSessionLauncher({
     const verifiedOpenCodeEnv = session.agentProvider === "opencode" && useAppServer(session) ? openCodeVerifiedEnv() : {};
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration;
     return {
+      ...(session.agentProvider === "opencode" && useAppServer(session) ? { openCodeForms: true } : {}),
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax })),
       codexCommand: backend ? buildCodexBackendCommand(session, backend) : "codex",
@@ -568,20 +559,6 @@ function createAgentSessionLauncher({
   }
 
   async function launchPreparedLocal(create, target, runtime, removeSavedOnFailure = false) {
-    if (!useAppServer(target) && target.agentProvider === "codebuddy" && codexInheritanceManager) {
-      let session;
-      try {
-        session = create({ ...runtime, deferTerminalStart: true });
-        const running = terminalManager.getSession(session.id);
-        const inheritance = await codexInheritanceManager.prepare(running);
-        const command = buildAgentStartCommand(running, { inheritance });
-        return terminalManager.startDeferredSession(session.id, { ...runtime,
-          runtimeInitialCommand: wrapAgentStartCommand(running, command) });
-      } catch (error) {
-        if (session) terminalManager.closeSession(session.id);
-        throw error;
-      }
-    }
     if (!useAppServer(target)) return createAndBindCodexBridgeRuntime(() => create(runtime), runtime);
     let session;
     try {
@@ -630,12 +607,10 @@ function createAgentSessionLauncher({
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions
         : undefined;
-      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
-        ? await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true }) : undefined;
       const startCommand = session.agentProvider === "opencode"
         ? buildLocalOpenCodeStartCommand(binding)
         : session.agentProvider === "codebuddy"
-          ? buildLocalCodeBuddyStartCommand(binding, inheritance)
+          ? buildLocalCodeBuddyStartCommand(binding)
           : buildLocalCodexStartCommand(binding);
       return terminalManager.startDeferredSession(session.id, {
         terminalTransport: "local-agent",
@@ -671,12 +646,11 @@ function createAgentSessionLauncher({
       if (session.agentProvider !== "claude" && session.agentProvider !== "qoder") await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions : undefined;
-      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
-        ? await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true }) : undefined;
       const openCodeConfig = session.agentProvider === "opencode" ? buildLocalOpenCodeConfig(binding) : undefined;
       const acpArgs = session.agentProvider === "codebuddy"
-        ? buildLocalCodeBuddyAcpArgs(binding, inheritance, codeBuddyInstructions) : undefined;
+        ? buildLocalCodeBuddyAcpArgs(binding, codeBuddyInstructions) : undefined;
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), {
+        ...(session.agentProvider === "opencode" ? { openCodeForms: true } : {}),
         localBridge: true,
         workspaceCwd: binding.workspacePath,
         shell: getLocalBridgeShell(),
@@ -685,12 +659,6 @@ function createAgentSessionLauncher({
         } } : {}),
         codexCommand: session.agentProvider === "codex" ? buildLocalCodexAppServerCommand(binding) : undefined,
         acpArgs,
-        inheritance: inheritance ? { ...inheritance, mcpFile: undefined } : undefined,
-        refreshInheritance: session.agentProvider === "codebuddy" && codexInheritanceManager ? async () => {
-          const next = await codexInheritanceManager.prepare(session, { projectCwd: binding.workspacePath, localBridge: true });
-          return { inheritance: { ...next, mcpFile: undefined },
-            acpArgs: buildLocalCodeBuddyAcpArgs(binding, next, codeBuddyInstructions) };
-        } : undefined,
         requiredMode: session.agentProvider === "opencode" ? OPENCODE_REMOTE_AGENT : undefined,
         runtimeEnv: { ...(session.agentProvider === "opencode" ? openCodeVerifiedEnv() : {}), [binding.tokenEnv]: binding.token,
           ...(openCodeConfig ? { [OPENCODE_CONFIG_ENV]: openCodeConfig } : {}),
@@ -709,12 +677,9 @@ function createAgentSessionLauncher({
       validateAgentSession(session);
       const commandWarning = await prepareSshCommand(session.id, session);
       const { tunnel, warningCommand } = await prepareSshHook(session.id, session);
-      const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
-        ? await codexInheritanceManager.prepare(session) : undefined;
       const command = buildAgentStartCommand(session, {
         hookUrl: tunnel?.hookUrl,
-        sessionId: session.id,
-        inheritance
+        sessionId: session.id
       });
       const launchCommand = `cd ${shellQuote(session.cwd)} && ${command}`;
       const prefixCommands = [commandWarning, warningCommand].filter(Boolean);
@@ -742,7 +707,8 @@ function createAgentSessionLauncher({
           try { return await finishLocalSshAppServer(session); }
           catch (error) { if (session.templateId) terminalManager.deleteSavedSession(session.templateId); throw error; }
         }
-        return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request, {}, true);
+        return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request,
+          request.agentProvider === "opencode" ? { openCodeForms: true } : {}, true);
       }
       const localBridge = request.agentLocation === "local";
       const session = terminalManager.createSession({
@@ -775,7 +741,8 @@ function createAgentSessionLauncher({
             const pending = terminalManager.launchSession(launchTemplate, { ...launchOptions, deferTerminalStart: true, runtimeMode: "app-server" });
             session = await finishLocalSshAppServer(pending);
           } else {
-            session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate, {});
+            session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate,
+              launchTemplate.agentProvider === "opencode" ? { openCodeForms: true } : {});
           }
         } else {
           const localBridge = launchTemplate.agentLocation === "local";
@@ -913,7 +880,9 @@ function createAgentSessionLauncher({
 
       const target = createReplacementTemplate(session, provider);
       validateAgentSession(target);
-      const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
+      const runtime = target.type === "ssh"
+        ? { runtimeInitialCommand: "", ...(useAppServer(target) && target.agentProvider === "opencode" ? { openCodeForms: true } : {}) }
+        : await prepareLocal(target);
       if (target.type === "ssh" && target.agentProvider === "opencode" && target.agentLocation !== "local") {
         await assertSshCommand(sessionId, target);
       }

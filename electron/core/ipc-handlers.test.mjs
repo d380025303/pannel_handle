@@ -33,17 +33,19 @@ describe("session IPC handlers", () => {
   it("rejects unsupported provider operations before calling a missing service method", () => {
     const handlers = new Map();
     const buddy = { cancelQuestion: vi.fn(() => "cancelled") };
+    const openCode = { cancelQuestion: vi.fn(() => "open-cancelled") };
     const terminalManager = { getSession: id => ({ agentProvider: {
       "codex-1": "codex", "buddy-1": "codebuddy", "open-1": "opencode", "unknown-1": "unknown"
     }[id] }) };
-    const router = createGraphicalSessionRouter({}, buddy, terminalManager, {});
+    const router = createGraphicalSessionRouter({}, buddy, terminalManager, openCode);
     registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
       terminalManager, codexAppServerSessionService: router });
 
     expect(handlers.get("codex-app-server:cancel-question")({}, "buddy-1", 7)).toBe("cancelled");
     expect(buddy.cancelQuestion).toHaveBeenCalledWith("buddy-1", 7);
-    expect(() => handlers.get("codex-app-server:cancel-question")({}, "codex-1", 7)).toThrow("只有 CodeBuddy");
-    expect(() => handlers.get("codex-app-server:cancel-question")({}, "open-1", 7)).toThrow("只有 CodeBuddy");
+    expect(() => handlers.get("codex-app-server:cancel-question")({}, "codex-1", 7)).toThrow("不支持取消提问");
+    expect(handlers.get("codex-app-server:cancel-question")({}, "open-1", 7)).toBe("open-cancelled");
+    expect(openCode.cancelQuestion).toHaveBeenCalledWith("open-1", 7);
     expect(() => handlers.get("codex-app-server:capabilities")({}, "buddy-1", true)).toThrow("仅 Codex");
     expect(() => handlers.get("codex-app-server:fast-mode")({}, "buddy-1", true)).toThrow("仅 Codex");
     expect(() => handlers.get("codex-app-server:native-mode")({}, "codex-1", "plan")).toThrow("不支持此操作");

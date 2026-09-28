@@ -16,3 +16,5 @@ idea-plugin/build/
 .gemini/
 .qwen/
 .github/
+__pycache__/
+*.pyc

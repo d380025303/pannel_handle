@@ -27,7 +27,7 @@ export function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled 
   </div>;
 }
 
-export function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" | "claude" }) {
+export function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" | "claude" | "opencode" }) {
   const tabId = useId();
   const [choices, setChoices] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -50,7 +50,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
       if (question.options?.length && !choice.length && !question.isOther) {
         setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
       }
-      answers[question.id] = { answers: provider === "codebuddy" || provider === "claude"
+      answers[question.id] = { answers: provider === "codebuddy" || provider === "claude" || provider === "opencode"
         ? [...(question.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
         : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
@@ -66,7 +66,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
-  const agentName = provider === "codebuddy" ? "CodeBuddy" : provider === "claude" ? "Claude" : "Codex";
+  const agentName = provider === "codebuddy" ? "CodeBuddy" : provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : "Codex";
   return <article className="codex-app-server-question" aria-label={`${agentName} 提问`}>
     <strong>{agentName} 提问</strong>
     {questions.length > 1 && <div className="codex-app-server-question-tabs" role="tablist" aria-label="切换问题">
@@ -89,7 +89,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
              : [option.label] })); if (provider !== "codex" && !question.multiSelect) setNotes(current => ({ ...current, [question.id]: "" })); setError(""); }} />
         <span><strong>{option.label}</strong><small>{option.description}</small></span>
       </label>)}
-      {(provider !== "claude" || question.isOther) && <label className="codex-app-server-question-note">
+      {(provider !== "claude" && provider !== "opencode" || question.isOther) && <label className="codex-app-server-question-note">
         <span>{question.options?.length ? provider === "codebuddy" ? "自定义回答" : "补充说明或自定义回答" : "回答"}</span>
          {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
            onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
@@ -103,7 +103,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
     <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
       {sending || request.submitting ? "正在提交…" : "提交回答"}
     </button>
-    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
+    {(provider === "codebuddy" || provider === "claude" || provider === "opencode") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
   </article>;
 }
 

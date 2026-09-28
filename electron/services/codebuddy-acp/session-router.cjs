@@ -67,8 +67,9 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     dismissPlan: route("dismissPlan"), executePlan: route("executePlan"), submit: route("submit"),
     interrupt: route("interrupt"), resolveApproval: route("resolveApproval"), answerQuestion: route("answerQuestion"),
     cancelQuestion(id, requestId) {
-      if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持取消提问。");
-      return codeBuddy.cancelQuestion(id, requestId);
+      const service = serviceFor(id);
+      if (![codeBuddy, openCode, claude].includes(service)) throw new Error("当前图形会话不支持取消提问。");
+      return service.cancelQuestion(id, requestId);
     },
     rewind(id, messageId, scope) {
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持回退。");

@@ -1154,12 +1154,6 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
   const timeline = useMemo(() => isActive ? groupTimeline(snapshot) : [], [isActive, snapshot]);
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
-    {snapshot.provider === "codebuddy" && snapshot.codexInheritance && <div className="codex-inheritance-status" aria-label="Codex 配置继承状态">
-      已为此会话准备 Codex Skills {snapshot.codexInheritance.skills.length} 项、MCP {snapshot.codexInheritance.mcpServers.length} 项。
-      {snapshot.codexInheritance.skills.length > 0 && <span>技能使用 /codex:名称 调用。</span>}
-      <span>修改配置后重启会话以刷新。</span>
-      {snapshot.codexInheritance.warnings.map(warning => <span key={warning} role="status">{warning}</span>)}
-    </div>}
     {isCodex && (snapshot.backend || "openai") === "openai" && snapshot.account?.status === "signedOut" && <CodexAccountPanel key={sessionId} account={snapshot.account} preferDeviceCode={sessionType !== "windows"} busy={snapshot.busy} actions={{
       readAccount: () => window.codexAppServerApi.readAccount(sessionId),
       startLogin: type => window.codexAppServerApi.startLogin(sessionId, type),
@@ -1266,7 +1260,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       </article>)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question}
-          provider={snapshot.provider === "codebuddy" ? "codebuddy" : snapshot.provider === "claude" ? "claude" : "codex"} />)}
+          provider={snapshot.provider === "codebuddy" ? "codebuddy" : snapshot.provider === "claude" ? "claude" : snapshot.provider === "opencode" ? "opencode" : "codex"} />)}
       {snapshot.elicitations?.map(request => <McpElicitationCard key={request.requestId} sessionId={sessionId} request={request} />)}
       {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
         <div className="codex-app-server-error" role="alert">

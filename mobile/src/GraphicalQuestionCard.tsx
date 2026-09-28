@@ -20,7 +20,7 @@ export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }
         setError(`请回答「${entry.header || entry.question}」。`);
         return;
       }
-      answers[entry.id] = { answers: provider === "codebuddy" || provider === "claude"
+      answers[entry.id] = { answers: provider === "codebuddy" || provider === "claude" || provider === "opencode"
         ? [...(entry.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
         : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
@@ -43,13 +43,13 @@ export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }
         <option value="">请选择</option>
         {entry.options.map(option => <option key={option.label} value={option.label}>{option.label}{option.description ? ` · ${option.description}` : ""}</option>)}
       </select> : null}
-      {(provider !== "claude" || entry.isOther) && <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
+      {(provider !== "claude" && provider !== "opencode" || entry.isOther) && <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
         onChange={event => { setNotes(current => ({ ...current, [entry.id]: event.target.value }));
           if (provider !== "codex" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />}
     </div>)}
     {error && <p role="alert">{error}</p>}
     <button type="button" className="primary" disabled={question.submitting} onClick={submit}><GraphicalIcon name="check" />提交回答</button>
-    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}><GraphicalIcon name="close" />取消提问</button>}
+    {(provider === "codebuddy" || provider === "claude" || provider === "opencode") && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}><GraphicalIcon name="close" />取消提问</button>}
   </article>;
 }
 

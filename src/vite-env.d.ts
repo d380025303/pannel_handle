@@ -630,7 +630,7 @@ export type AgentStatusPayload = {
 
 export type AgentConversationMessage = {
   id: string;
-  provider: "codex" | "codebuddy" | "gemini" | "grok";
+  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
   kind: "user" | "commentary" | "final" | "reply";
   text: string;
   timestamp: number;
@@ -652,7 +652,7 @@ export type AgentConversationSnapshot = {
 
 export type AgentConversationHistoryItem = {
   ref: string;
-  provider: "codex" | "codebuddy" | "gemini" | "grok";
+  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
   title: string;
   preview: string;
   cwd: string;
@@ -662,13 +662,13 @@ export type AgentConversationHistoryItem = {
 };
 
 export type AgentConversationHistoryError = {
-  provider: "codex" | "codebuddy" | "gemini" | "grok";
+  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
   message: string;
 };
 
 export type AgentConversationHistoryListInput = {
   panelSessionId: string;
-  providers?: Array<"codex" | "codebuddy" | "gemini" | "grok">;
+  providers?: Array<"codex" | "codebuddy" | "opencode" | "gemini" | "grok">;
   scope?: "cwd" | "all";
   includeArchived?: boolean;
   query?: string;
@@ -994,7 +994,6 @@ export type CodexAppServerSnapshot = {
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;
-  codexInheritance?: { skills: string[]; mcpServers: string[]; warnings: string[] };
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
   capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;

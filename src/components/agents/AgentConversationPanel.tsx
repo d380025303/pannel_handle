@@ -11,8 +11,8 @@ import type {
 } from "../../vite-env";
 import { useI18n } from "../../i18n";
 
-function providerName(provider?: "codex" | "codebuddy" | "gemini" | "grok") {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "gemini" ? "Gemini CLI" : provider === "grok" ? "Grok CLI" : "Codex";
+function providerName(provider?: "codex" | "codebuddy" | "opencode" | "gemini" | "grok") {
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "gemini" ? "Gemini CLI" : provider === "grok" ? "Grok CLI" : "Codex";
 }
 
 function highlightText(text: string, query: string, nextIndex: () => number, activeIndex: number): ReactNode {
@@ -50,7 +50,7 @@ function highlightChildren(children: ReactNode, query: string, nextIndex: () => 
   return cloneElement(children, undefined, highlightChildren(children.props.children, query, nextIndex, activeIndex));
 }
 
-type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "gemini" | "grok";
+type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
 
 export function AgentConversationPanel({
   snapshot,
@@ -100,8 +100,8 @@ export function AgentConversationPanel({
   const normalizedSearchQuery = searchQuery.trim();
   const historyProviderFilters = useMemo(
     () => historyDeviceId === "local" && session?.type === "ssh"
-      ? (["all", "codex", "codebuddy"] as const)
-      : (["all", "codex", "codebuddy", "gemini", "grok"] as const),
+      ? (["all", "codex", "codebuddy", "opencode"] as const)
+      : (["all", "codex", "codebuddy", "opencode", "gemini", "grok"] as const),
     [historyDeviceId, session?.type]
   );
 
@@ -129,7 +129,7 @@ export function AgentConversationPanel({
       const result = historyDeviceId === "local" ? await window.agentConversationApi.listHistory({
         panelSessionId: session.id,
         providers: providerFilter === "all"
-          ? (session.type === "ssh" ? ["codex", "codebuddy"] : ["codex", "codebuddy", "gemini", "grok"])
+          ? (session.type === "ssh" ? ["codex", "codebuddy", "opencode"] : ["codex", "codebuddy", "opencode", "gemini", "grok"])
           : [providerFilter],
         scope,
         includeArchived,

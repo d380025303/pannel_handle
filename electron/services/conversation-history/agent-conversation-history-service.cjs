@@ -3,6 +3,7 @@ const { getGrokSessionDirectories, readGrokMessages, listLocalGrok, getLocalGrok
 const { getGeminiChatFiles, materializeGeminiMessages, listLocalGemini, getLocalGeminiMessages } = require("./local-gemini-history.cjs");
 const { getCodeBuddyProjectFiles, codeBuddyMetadata, listLocalCodeBuddy, getLocalCodeBuddyMessages } = require("./local-codebuddy-history.cjs");
 const { listLocalCodex, getLocalCodexMessages } = require("./local-codex-history.cjs");
+const { listLocalOpenCode, getLocalOpenCodeMessages } = require("./local-opencode-history.cjs");
 const { clampLimit, normalizeCwd, timestampMs, filterAndPage, parseConversationRef, pageMessages } = require("./history-values.cjs");
 const { HISTORY_PROVIDERS, DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIMIT } = require("./history-limits.cjs");
 const fs = require("node:fs");
@@ -39,7 +40,7 @@ function createAgentConversationHistoryService({
       : activeSession;
     const providers = Array.isArray(input.providers) && input.providers.length
       ? [...new Set(input.providers.map(String))]
-      : session.type === "ssh" ? ["codex", "codebuddy"] : HISTORY_PROVIDERS;
+      : session.type === "ssh" ? ["codex", "codebuddy", "opencode"] : HISTORY_PROVIDERS;
     if (providers.some(provider => !HISTORY_PROVIDERS.includes(provider))) {
       throw new Error("Unsupported Agent conversation history provider.");
     }
@@ -65,6 +66,8 @@ function createAgentConversationHistoryService({
       try {
         items.push(...(provider === "codex"
           ? listLocalCodex({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
+          : provider === "opencode"
+            ? listLocalOpenCode({ homeDir, cwd: session.cwd, scope: request.scope, includeArchived: request.includeArchived, fsApi, Database })
           : provider === "gemini"
             ? listLocalGemini({ homeDir, cwd: session.cwd, scope: request.scope, fsApi })
             : provider === "grok"
@@ -73,7 +76,7 @@ function createAgentConversationHistoryService({
         );
       } catch (error) {
         console.error(`Failed to list ${provider} conversation history:`, error);
-        errors.push({ provider, message: `${provider === "codex" ? "Codex" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "CodeBuddy"} history is unavailable.` });
+        errors.push({ provider, message: `${provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "CodeBuddy"} history is unavailable.` });
       }
     }
     return { ...filterAndPage(items, request), errors };
@@ -101,6 +104,8 @@ function createAgentConversationHistoryService({
     }
     const messages = reference.provider === "codex"
       ? getLocalCodexMessages({ homeDir, id: reference.id, fsApi, Database })
+      : reference.provider === "opencode"
+        ? getLocalOpenCodeMessages({ homeDir, id: reference.id, fsApi, Database })
       : reference.provider === "gemini"
         ? getLocalGeminiMessages({ homeDir, cwd: session.cwd, id: reference.id, fsApi })
         : reference.provider === "grok"

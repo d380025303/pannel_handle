@@ -299,7 +299,6 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchTarget("codex", "user")}>Codex</button>
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchTarget("codebuddy", "user")}>CodeBuddy</button>
       </div>}
-      {provider === "codebuddy" && <p className="mcp-config-path">{t("mcp.codexInheritanceHint")}</p>}
       <div className="mcp-scope-tabs" role="tablist" aria-label={t("mcp.scope")}>
         {scopes.map((item) => (
           <button key={item.value} type="button" role="tab" aria-selected={scope === item.value} className={scope === item.value ? "active" : ""} disabled={item.project && !projectAvailable} title={item.project && !projectAvailable ? t("mcp.projectUnavailable") : undefined} onClick={() => switchTarget(provider, item.value)}>

@@ -52,7 +52,7 @@ function filterAndPage(items, { query, cursor, limit }) {
 }
 
 function parseConversationRef(value) {
-  const match = /^(codex|codebuddy|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})$/.exec(String(value || ""));
+  const match = /^(codex|codebuddy|opencode|gemini|grok):([A-Za-z0-9][A-Za-z0-9:_.-]{0,299})$/.exec(String(value || ""));
   if (!match) throw new Error("Invalid Agent conversation reference.");
   return { provider: match[1], id: match[2] };
 }

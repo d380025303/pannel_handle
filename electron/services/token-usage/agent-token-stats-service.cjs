@@ -8,6 +8,7 @@ const {
   parseTranscriptText
 } = require("./agent-token-transcript.cjs");
 const { subtractTokens } = require("./token-usage-values.cjs");
+const { readOpenCodeExport } = require("./opencode-export.cjs");
 const { toWslHostPath } = require("../remote-files/index.cjs");
 const { createAgentConversationTranscriptParser } = require("../conversation-history/index.cjs");
 const {
@@ -92,7 +93,8 @@ function createAgentTokenStatsService({
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   conversationSink = null,
-  homeDir = os.homedir()
+  homeDir = os.homedir(),
+  readOpenCodeExportFn = readOpenCodeExport
 }) {
   void terminalManager;
   const pending = new Map();
@@ -102,6 +104,7 @@ function createAgentTokenStatsService({
   const sessionLifetimes = new Map();
   const graphicalCodeBuddy = new Map();
   const graphicalCodeBuddyLive = new Map();
+  const graphicalOpenCode = new Map();
   const codeBuddyWrites = new Map();
   let graphicalEpoch = 0;
 
@@ -180,9 +183,43 @@ function createAgentTokenStatsService({
     return state.queue;
   }
 
+  function recordGraphicalOpenCode({ threadId, session, cwd, model, environment, resumed = false, baseline = false }) {
+    if (!threadId || !session) return Promise.resolve();
+    const key = `opencode:${threadId}`;
+    let state = graphicalOpenCode.get(key);
+    if (!state) {
+      state = { initialized: !resumed, panelSessionId: session.id, queue: Promise.resolve() };
+      graphicalOpenCode.set(key, state);
+    }
+    const epoch = graphicalEpoch;
+    const work = async () => {
+      if (epoch !== graphicalEpoch) return;
+      try {
+        const result = await readOpenCodeExportFn({ threadId, session, cwd, environment,
+          sshAgentTransport, spawn });
+        if (epoch !== graphicalEpoch) return;
+        if (baseline || !state.initialized) {
+          statsStore.setBaseline("opencode", threadId, result.tokens);
+          state.initialized = true;
+          return;
+        }
+        const record = statsStore.update({ provider: "opencode", agentSessionId: threadId,
+          panelSessionId: session.id, templateId: session.templateId, title: session.title,
+          cwd: cwd || session.cwd, location: session.type,
+          models: result.models.length ? result.models : [model].filter(Boolean), tokens: result.tokens });
+        if (record) liveModule.setCompletedSnapshot(session.id, record);
+      } catch (error) {
+        console.error("Failed to collect graphical OpenCode token statistics:", error);
+      }
+    };
+    state.queue = state.queue.then(work, work);
+    return state.queue;
+  }
+
   function resetGraphicalCodeBuddyBaselines() {
     graphicalEpoch++;
     graphicalCodeBuddy.clear();
+    for (const state of graphicalOpenCode.values()) state.initialized = false;
     codeBuddyWrites.clear();
     for (const state of graphicalCodeBuddyLive.values()) {
       state.generation++;
@@ -448,6 +485,7 @@ function createAgentTokenStatsService({
 
   return {
     handleHook({ provider, input, session }) {
+      if (provider === "opencode" && session?.runtimeMode === "app-server") return;
       if (session && !sessionLifetimes.has(session.id)) sessionLifetimes.set(session.id, {});
       const eventName = getHookEventName(input);
       const agentSessionId = input?.session_id || input?.sessionId;
@@ -503,15 +541,22 @@ function createAgentTokenStatsService({
         graphicalCodeBuddy.delete(key);
         void state.queue.finally(() => statsStore.markEnded(panelSessionId));
       }
+      for (const [key, state] of graphicalOpenCode) {
+        if (state.panelSessionId !== panelSessionId) continue;
+        graphicalOpenCode.delete(key);
+        void state.queue.finally(() => statsStore.markEnded(panelSessionId));
+      }
       conversationSink?.clearSession?.(panelSessionId);
     },
     recordGraphicalCodeBuddy,
+    recordGraphicalOpenCode,
     handleGraphicalCodeBuddyLive,
     resetGraphicalCodeBuddyBaselines,
     shutdown() {
       sessionLifetimes.clear();
       graphicalEpoch++;
       graphicalCodeBuddy.clear();
+      graphicalOpenCode.clear();
       for (const state of graphicalCodeBuddyLive.values()) if (state.timer) clearIntervalFn(state.timer);
       graphicalCodeBuddyLive.clear();
       codeBuddyWrites.clear();

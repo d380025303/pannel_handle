@@ -19,6 +19,115 @@ contextBridge.exposeInMainWorld("environmentApi", {
   preview: (input) => ipcRenderer.invoke("environment:preview", input)
 });
 
+contextBridge.exposeInMainWorld("launchTemplateApi", {
+  list: () => ipcRenderer.invoke("launch-templates:list"),
+  create: input => ipcRenderer.invoke("launch-templates:create", input),
+  update: (id, input) => ipcRenderer.invoke("launch-templates:update", id, input),
+  delete: id => ipcRenderer.invoke("launch-templates:delete", id),
+  launch: id => ipcRenderer.invoke("launch-templates:launch", id)
+});
+
+contextBridge.exposeInMainWorld("agentConversationApi", {
+  setActiveSession: sessionId => ipcRenderer.send("agent-conversation:set-active-session", sessionId),
+  getSnapshot: () => ipcRenderer.invoke("agent-conversation:get-snapshot"),
+  listHistory: input => ipcRenderer.invoke("agent-conversation:list-history", input),
+  getHistoryMessages: input => ipcRenderer.invoke("agent-conversation:get-history-messages", input),
+  openExternal: url => ipcRenderer.invoke("external-link:open", url).then(() => ({ ok: true })),
+  onSnapshot: callback => {
+    const listener = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on("agent-conversation:snapshot", listener);
+    return () => ipcRenderer.removeListener("agent-conversation:snapshot", listener);
+  }
+});
+
+contextBridge.exposeInMainWorld("mobileAccessApi", {
+  getState: () => ipcRenderer.invoke("mobile-access:get-state"),
+  updateConfig: partial => ipcRenderer.invoke("mobile-access:update-config", partial),
+  setPassword: password => ipcRenderer.invoke("mobile-access:set-password", password),
+  listAudit: () => ipcRenderer.invoke("mobile-access:list-audit"),
+  disconnectConnection: connectionId => ipcRenderer.invoke("mobile-access:disconnect-connection", connectionId),
+  onStateChanged: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("mobile-access:state-changed", listener);
+    return () => ipcRenderer.removeListener("mobile-access:state-changed", listener);
+  }
+});
+
+contextBridge.exposeInMainWorld("clipboardApi", {
+  writeText: text => ipcRenderer.invoke("clipboard:write-text", text),
+  readText: () => ipcRenderer.invoke("clipboard:read-text"),
+  pasteImageToSession: sessionId => ipcRenderer.invoke("clipboard:paste-image-to-session", sessionId),
+  uploadImageToSession: sessionId => ipcRenderer.invoke("clipboard:upload-image-to-session", sessionId)
+});
+
+contextBridge.exposeInMainWorld("externalLinkApi", {
+  open: url => ipcRenderer.invoke("external-link:open", url)
+});
+
+contextBridge.exposeInMainWorld("remoteSystemApi", {
+  getMetrics: sessionId => ipcRenderer.invoke("remote-system:metrics", { sessionId })
+});
+
+contextBridge.exposeInMainWorld("skillsApi", {
+  list: provider => ipcRenderer.invoke("skills:list", { provider })
+});
+
+contextBridge.exposeInMainWorld("mcpApi", {
+  list: request => ipcRenderer.invoke("mcp:list", request),
+  reveal: request => ipcRenderer.invoke("mcp:reveal", request),
+  save: request => ipcRenderer.invoke("mcp:save", request),
+  remove: request => ipcRenderer.invoke("mcp:remove", request)
+});
+
+contextBridge.exposeInMainWorld("hookConfigApi", {
+  selectProjectDirectory: defaultPath => ipcRenderer.invoke("hooks:select-project-directory", defaultPath),
+  inspect: (target, providers) => ipcRenderer.invoke("hooks:inspect", { target, providers }),
+  install: (target, providers) => ipcRenderer.invoke("hooks:install", { target, providers })
+});
+
+contextBridge.exposeInMainWorld("dingTalkApi", {
+  getConfig: () => ipcRenderer.invoke("dingtalk:get-config"),
+  setConfig: input => ipcRenderer.invoke("dingtalk:set-config", input),
+  clearCredentials: () => ipcRenderer.invoke("dingtalk:clear-credentials"),
+  test: () => ipcRenderer.invoke("dingtalk:test")
+});
+
+contextBridge.exposeInMainWorld("remoteFileApi", {
+  getHome: sessionId => ipcRenderer.invoke("remote-files:home", { sessionId }),
+  list: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:list", { sessionId, remotePath }),
+  readText: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:read-text", { sessionId, remotePath }),
+  previewFile: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:preview-file", { sessionId, remotePath }),
+  releasePreview: previewId => ipcRenderer.invoke("remote-files:release-preview", { previewId }),
+  writeText: (sessionId, remotePath, content, expectedVersion, options) => ipcRenderer.invoke("remote-files:write-text", { sessionId, remotePath, content, expectedVersion, options }),
+  createEntry: (sessionId, parentPath, name, kind, conflictPolicy) => ipcRenderer.invoke("remote-files:create", { sessionId, parentPath, name, kind, conflictPolicy }),
+  moveEntry: (sessionId, sourcePath, targetDirectory, name, conflictPolicy) => ipcRenderer.invoke("remote-files:move", { sessionId, sourcePath, targetDirectory, name, conflictPolicy }),
+  chooseRoot: (sessionId, currentRoot) => ipcRenderer.invoke("remote-files:choose-root", { sessionId, currentRoot }),
+  uploadFile: (sessionId, remoteDir) => ipcRenderer.invoke("remote-files:upload-file", { sessionId, remoteDir }),
+  uploadDroppedFiles: (sessionId, remoteDir, files) => ipcRenderer.invoke("remote-files:upload-files", { sessionId, remoteDir, localPaths: getDroppedFilePaths(files) }),
+  downloadFile: (transferId, sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:download-file", { transferId, sessionId, remotePath, fileName }),
+  startDownloadDrag: (transferId, sessionId, remotePath, fileName) => ipcRenderer.invoke("remote-files:start-download-drag", { transferId, sessionId, remotePath, fileName }),
+  cancelDownload: transferId => ipcRenderer.invoke("remote-files:cancel-download", { transferId }),
+  onDownloadProgress: callback => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on("remote-files:download-progress", listener);
+    return () => ipcRenderer.removeListener("remote-files:download-progress", listener);
+  },
+  openInExplorer: (sessionId, remotePath) => ipcRenderer.invoke("remote-files:open-in-explorer", { sessionId, remotePath }),
+  deleteEntry: (sessionId, remotePath, options) => ipcRenderer.invoke("remote-files:delete", { sessionId, remotePath, options }),
+  watchDirectories: (sessionId, directories) => ipcRenderer.invoke("remote-files:watch", { sessionId, directories }),
+  unwatchDirectories: sessionId => ipcRenderer.invoke("remote-files:unwatch", { sessionId }),
+  onChanged: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-files:changed", listener);
+    return () => ipcRenderer.removeListener("remote-files:changed", listener);
+  },
+  onWatchError: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("remote-files:watch-error", listener);
+    return () => ipcRenderer.removeListener("remote-files:watch-error", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("projectAssistantApi", {
   getSnapshot: () => ipcRenderer.invoke("project-assistant:snapshot"),
   start: () => ipcRenderer.invoke("project-assistant:start"),

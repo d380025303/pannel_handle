@@ -96,6 +96,42 @@ describe("OpenCode ACP sessions", () => {
     expect(transport.close).toHaveBeenCalledOnce();
   });
 
+  it("shows native OpenCode forms and sends selected values back to the Form API", async () => {
+    let onEvent;
+    let forms = [];
+    const formTransport = {
+      list: vi.fn(async () => forms), reply: vi.fn(async () => {}), cancel: vi.fn(async () => {}),
+      subscribe: vi.fn(callback => { onEvent = callback; }), close: vi.fn()
+    };
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      openCodeFormTransportFactory: () => formTransport });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeForms: true });
+    forms = [{ id: "form-1", sessionID: "thread", title: "选择方案", fields: [
+      { key: "plan", type: "multiselect", title: "方案", maxItems: 1, custom: true,
+        options: [{ label: "方案甲", value: "plan-a" }, { label: "方案乙", value: "plan-b" }] }
+    ] }];
+    onEvent({ type: "form.created", data: forms[0] });
+    await vi.waitFor(() => expect(service.snapshot("one").questions).toHaveLength(1));
+    expect(service.snapshot("one").questions[0].params.questions[0].options[0].label).toBe("方案甲");
+    await service.answerQuestion("one", "form-1", { plan: { answers: ["方案甲"] } });
+    expect(formTransport.reply).toHaveBeenCalledWith("thread", "form-1", { plan: ["plan-a"] });
+    expect(service.snapshot("one").questions).toHaveLength(0);
+    forms = [{ id: "form-2", sessionID: "thread", fields: [
+      { key: "reason", type: "string", title: "原因" }
+    ] }];
+    onEvent({ type: "form.created", data: forms[0] });
+    await vi.waitFor(() => expect(service.snapshot("one").questions[0]?.requestId).toBe("form-2"));
+    await service.cancelQuestion("one", "form-2");
+    expect(formTransport.cancel).toHaveBeenCalledWith("thread", "form-2");
+    service.shutdown();
+    expect(formTransport.close).toHaveBeenCalledOnce();
+  });
+
   it("uses advertised model and effort options and handles a streamed turn", async () => {
     const child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: { loadSession: true } } });
@@ -116,6 +152,34 @@ describe("OpenCode ACP sessions", () => {
     expect((await service.setEffort("one", "high")).acpOptions.find(option => option.id === "effort").currentValue).toBe("high");
     await service.submit("one", "Hello");
     expect(service.snapshot("one").items.some(item => item.text === "Done")).toBe(true);
+    service.shutdown();
+  });
+
+  it("reports graphical token checkpoints after turns and when loading history or resetting statistics", async () => {
+    const onTokenUsageCheckpoint = vi.fn(async () => {});
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
+        result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new" || message.method === "session/load")
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: message.method === "session/new" ? "fresh" : "history" } });
+      else if (message.method === "session/list")
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [{ sessionId: "history", cwd: "C:\\work" }] } });
+      else if (message.method === "session/prompt")
+        emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({ XDG_DATA_HOME: "/data" }) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(),
+      spawnProcess: () => child, onTokenUsageCheckpoint });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "Hello");
+    await vi.waitFor(() => expect(onTokenUsageCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: "fresh", environment: { XDG_DATA_HOME: "/data" } })));
+    await service.listHistory("one");
+    await service.resume("one", "history");
+    expect(onTokenUsageCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ threadId: "history", resumed: true }));
+    service.resetUsageBaselines();
+    await vi.waitFor(() => expect(onTokenUsageCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: "history", baseline: true })));
     service.shutdown();
   });
 

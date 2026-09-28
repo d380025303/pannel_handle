@@ -1,4 +1,4 @@
-const HISTORY_PROVIDERS = ["codex", "codebuddy", "gemini", "grok"];
+const HISTORY_PROVIDERS = ["codex", "codebuddy", "opencode", "gemini", "grok"];
 const DEFAULT_LIST_LIMIT = 50;
 const DEFAULT_MESSAGE_LIMIT = 100;
 const MAX_LIMIT = 200;
