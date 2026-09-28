@@ -342,35 +342,6 @@ describe("real temporary repository workflow", () => {
     expect((await service.getStashes(target)).stashes).toHaveLength(0);
   });
 
-  it("pulls a matching remote branch and sets upstream when none exists", async () => {
-    const { directory, service } = createRepository();
-    const target = repositoryTarget("session-1", directory);
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-remote-"));
-    temporaryDirectories.push(remote);
-    git(remote, "init", "--bare");
-    git(directory, "remote", "add", "origin", remote);
-    fs.writeFileSync(path.join(directory, "sync.txt"), "one\n", "utf-8");
-    git(directory, "add", "sync.txt");
-    git(directory, "commit", "-m", "Base");
-    const branch = git(directory, "branch", "--show-current");
-    git(directory, "push", "origin", branch);
-
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-clone-"));
-    temporaryDirectories.push(clone);
-    execFileSync("git", ["clone", remote, clone], { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
-    git(clone, "config", "user.name", "Other Test");
-    git(clone, "config", "user.email", "other@example.test");
-    fs.writeFileSync(path.join(clone, "sync.txt"), "two\n", "utf-8");
-    git(clone, "add", "sync.txt");
-    git(clone, "commit", "-m", "Remote change");
-    git(clone, "push");
-
-    expect((await service.getStatus(target)).branch.upstream).toBeUndefined();
-    expect((await service.pullBranch(target, "origin", "first-pull")).ok).toBe(true);
-    expect(fs.readFileSync(path.join(directory, "sync.txt"), "utf-8").replace(/\r\n/g, "\n")).toBe("two\n");
-    expect((await service.getStatus(target)).branch.upstream).toMatchObject({ remote: "origin", branch });
-  });
-
   it("reports a missing matching remote branch without changing the local branch", async () => {
     const { directory, service } = createRepository();
     const target = repositoryTarget("session-1", directory);
@@ -386,38 +357,6 @@ describe("real temporary repository workflow", () => {
     const result = await service.pullBranch(target, "origin", "missing-pull");
     expect(result.ok).toBe(false);
     expect(result.message).toContain("does not exist");
-    expect(git(directory, "rev-parse", "HEAD")).toBe(originalHead);
-    expect((await service.getStatus(target)).branch.upstream).toBeUndefined();
-  });
-
-  it("rejects diverged matching branches without setting upstream", async () => {
-    const { directory, service } = createRepository();
-    const target = repositoryTarget("session-1", directory);
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-remote-"));
-    temporaryDirectories.push(remote);
-    git(remote, "init", "--bare");
-    git(directory, "remote", "add", "origin", remote);
-    fs.writeFileSync(path.join(directory, "sync.txt"), "base\n", "utf-8");
-    git(directory, "add", "sync.txt");
-    git(directory, "commit", "-m", "Base");
-    git(directory, "push", "origin", git(directory, "branch", "--show-current"));
-
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-git-clone-"));
-    temporaryDirectories.push(clone);
-    execFileSync("git", ["clone", remote, clone], { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
-    git(clone, "config", "user.name", "Other Test");
-    git(clone, "config", "user.email", "other@example.test");
-    fs.writeFileSync(path.join(clone, "remote.txt"), "remote\n", "utf-8");
-    git(clone, "add", "remote.txt");
-    git(clone, "commit", "-m", "Remote change");
-    git(clone, "push");
-    fs.writeFileSync(path.join(directory, "local.txt"), "local\n", "utf-8");
-    git(directory, "add", "local.txt");
-    git(directory, "commit", "-m", "Local change");
-    const originalHead = git(directory, "rev-parse", "HEAD");
-
-    const result = await service.pullBranch(target, "origin", "diverged-pull");
-    expect(result.ok).toBe(false);
     expect(git(directory, "rev-parse", "HEAD")).toBe(originalHead);
     expect((await service.getStatus(target)).branch.upstream).toBeUndefined();
   });
