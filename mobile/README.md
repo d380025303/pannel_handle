@@ -15,3 +15,5 @@ corepack pnpm dev:mobile
 生产环境由同一仓库中的 Electron 应用提供 `mobile/dist` 静态资源。根目录的测试、构建和打包命令会统一处理桌面端与移动端；`mobile/dist/build-manifest.json` 的 `protocolVersion` 必须与桌面端一致。
 
 当前 v1 使用局域网 HTTP 明文传输，只能用于可信私人网络，不能映射到互联网。
+
+连接后可在页面顶部打开“电脑文件”，浏览桌面应用可访问的本地磁盘并逐项下载文件或文件夹。文件夹会保存为 ZIP；浏览器的下载记录显示最终保存结果。符号链接、目录联接和 UNC 网络路径不会开放给手机。

@@ -1,0 +1,133 @@
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const archiver = require("archiver");
+
+const TICKET_MS = 60_000;
+
+function createMobileFiles({ fsApi = fs, pathApi = path.win32, now = () => Date.now(), getRoots } = {}) {
+  const tickets = new Map();
+  const active = new Map();
+  const roots = getRoots || (() => {
+    const found = [];
+    for (let code = 65; code <= 90; code++) {
+      const drive = `${String.fromCharCode(code)}:\\`;
+      try { if (fsApi.statSync(drive).isDirectory()) found.push(drive); } catch { /* Drive unavailable. */ }
+    }
+    return found;
+  });
+  const key = value => process.platform === "win32" ? value.toLowerCase() : value;
+
+  async function safePath(value) {
+    if (typeof value !== "string" || !value || value.includes("\0") || !pathApi.isAbsolute(value)
+      || value.startsWith("\\\\") || value.startsWith("//")) throw new Error("文件路径无效。");
+    const target = pathApi.resolve(value);
+    const allowed = roots().map(root => pathApi.resolve(root));
+    const root = allowed.find(item => key(target) === key(item) || key(target).startsWith(key(item.endsWith(pathApi.sep) ? item : `${item}${pathApi.sep}`)));
+    if (!root) throw new Error("此位置不属于可访问的本地磁盘。");
+    const relative = pathApi.relative(root, target);
+    let current = root;
+    for (const part of relative ? relative.split(pathApi.sep) : []) {
+      current = pathApi.join(current, part);
+      const info = await fsApi.promises.lstat(current);
+      if (info.isSymbolicLink()) throw new Error("不能访问符号链接或目录联接。");
+    }
+    const actual = await fsApi.promises.realpath(target);
+    if (key(pathApi.resolve(actual)) !== key(target)) throw new Error("不能访问重定向的文件路径。");
+    return { target, info: await fsApi.promises.stat(target) };
+  }
+
+  async function list(directory) {
+    if (directory == null) return { path: null, entries: roots().map(root => ({ name: root, path: root, type: "drive", size: null })) };
+    const { target, info } = await safePath(directory);
+    if (!info.isDirectory()) throw new Error("此路径不是文件夹。");
+    const names = await fsApi.promises.readdir(target);
+    const entries = [];
+    for (const name of names) {
+      const child = pathApi.join(target, name);
+      try {
+        const item = await safePath(child);
+        if (item.info.isDirectory() || item.info.isFile()) entries.push({ name, path: child,
+          type: item.info.isDirectory() ? "directory" : "file", size: item.info.isFile() ? item.info.size : null });
+      } catch { /* Unreadable entries and links are omitted. */ }
+    }
+    entries.sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
+    return { path: target, entries };
+  }
+
+  async function prepare(socket, filePath) {
+    if (!socket.authenticated) throw new Error("请先连接电脑。");
+    const { target, info } = await safePath(filePath);
+    if (!info.isFile() && !info.isDirectory()) throw new Error("只能下载文件或文件夹。");
+    for (const [id, entry] of tickets) if (entry.socket === socket) tickets.delete(id);
+    const id = crypto.randomUUID();
+    const ticket = crypto.randomBytes(32).toString("hex");
+    tickets.set(id, { socket, path: target, ticket, expiresAt: now() + TICKET_MS });
+    return { url: `/api/v1/download/${id}?ticket=${ticket}` };
+  }
+
+  async function addDirectory(archive, directory, prefix) {
+    const names = await fsApi.promises.readdir(directory);
+    if (!names.length) archive.append(Buffer.alloc(0), { name: `${prefix}/` });
+    for (const name of names) {
+      const child = pathApi.join(directory, name);
+      let info;
+      try { ({ info } = await safePath(child)); }
+      catch (error) {
+        if (error.code === "EACCES" || error.code === "EPERM" || error.code === "ENOENT"
+          || /符号链接|重定向/.test(error.message)) continue;
+        throw error;
+      }
+      const archiveName = `${prefix}/${name}`.replace(/\\/g, "/");
+      if (info.isDirectory()) await addDirectory(archive, child, archiveName);
+      else if (info.isFile()) archive.file(child, { name: archiveName });
+    }
+  }
+
+  async function download(request, response, id, ticket) {
+    const entry = tickets.get(id);
+    if (!entry || entry.ticket !== ticket || entry.expiresAt <= now() || !entry.socket.authenticated
+      || request.socket?.remoteAddress !== entry.socket.remoteAddress) {
+      response.writeHead(403, { "Cache-Control": "no-store" }); response.end(); return;
+    }
+    tickets.delete(id);
+    let target;
+    let info;
+    try { ({ target, info } = await safePath(entry.path)); }
+    catch (error) { response.writeHead(404, { "Cache-Control": "no-store" }); response.end(error.message); return; }
+    const filename = `${pathApi.basename(target) || "drive"}${info.isDirectory() ? ".zip" : ""}`;
+    const fallback = filename.replace(/[^\x20-\x7e]|["\\]/g, "_");
+    response.writeHead(200, {
+      "Content-Type": info.isDirectory() ? "application/zip" : "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+      ...(info.isFile() ? { "Content-Length": info.size } : {})
+    });
+    let stream;
+    let responses = active.get(entry.socket);
+    if (!responses) { responses = new Set(); active.set(entry.socket, responses); }
+    responses.add(response);
+    response.on("close", () => { stream?.destroy?.(); responses.delete(response); if (!responses.size) active.delete(entry.socket); });
+    if (info.isDirectory()) {
+      stream = archiver("zip", { zlib: { level: 6 }, forceZip64: true });
+      stream.on("error", () => response.destroy());
+      stream.pipe(response);
+      try { await addDirectory(stream, target, pathApi.basename(target) || "drive"); await stream.finalize(); }
+      catch { stream.abort(); response.destroy(); }
+    } else {
+      stream = fsApi.createReadStream(target);
+      stream.on("error", () => response.destroy());
+      stream.pipe(response);
+    }
+  }
+
+  function releaseSocket(socket) {
+    for (const [id, entry] of tickets) if (entry.socket === socket) tickets.delete(id);
+    for (const response of active.get(socket) || []) response.destroy();
+    active.delete(socket);
+  }
+  function stop() { tickets.clear(); for (const socket of active.keys()) releaseSocket(socket); }
+  return { list, prepare, download, releaseSocket, stop };
+}
+
+module.exports = { createMobileFiles };

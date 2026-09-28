@@ -6,6 +6,7 @@ type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
 type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
 const PASSWORD_STORAGE_KEY = "pannel-handle-mobile-password";
 
@@ -38,6 +39,7 @@ export function useRemoteConnection() {
   const passwordRef = useRef(readSavedPassword());
   const terminalListenersRef = useRef(new Set<(message: TerminalMessage) => void>());
   const graphicalListenersRef = useRef(new Set<(message: GraphicalMessage) => void>());
+  const fileListenersRef = useRef(new Set<(message: FileMessage) => void>());
 
   const send = useCallback((message: ClientMessage) => {
     const socket = socketRef.current;
@@ -114,8 +116,13 @@ export function useRemoteConnection() {
           case "command.ok":
             graphicalListenersRef.current.forEach((listener) => listener(message));
             break;
+          case "files.list.result":
+          case "files.download.ready":
+            fileListenersRef.current.forEach((listener) => listener(message));
+            break;
           case "error":
             graphicalListenersRef.current.forEach((listener) => listener(message));
+            fileListenersRef.current.forEach((listener) => listener(message));
             if (["PASSWORD_INVALID", "PASSWORD_CHANGED", "CONNECTION_CLOSED", "AUTH_RATE_LIMIT", "AUTH_REQUIRED", "PROTOCOL_MISMATCH"].includes(message.code)) {
               authenticationFailed = true;
             }
@@ -137,7 +144,7 @@ export function useRemoteConnection() {
             if (["AUTH_RATE_LIMIT", "AUTH_REQUIRED", "PROTOCOL_MISMATCH"].includes(message.code)) {
               setStatus("error");
               setStatusMessage(message.message);
-            } else if (message.code !== "GRAPHICAL_COMMAND_FAILED") {
+            } else if (message.code !== "GRAPHICAL_COMMAND_FAILED" && message.code !== "FILE_COMMAND_FAILED") {
               setCommandError(message.message);
             }
             break;
@@ -188,6 +195,11 @@ export function useRemoteConnection() {
     return () => graphicalListenersRef.current.delete(listener);
   }, []);
 
+  const onFileMessage = useCallback((listener: (message: FileMessage) => void) => {
+    fileListenersRef.current.add(listener);
+    return () => fileListenersRef.current.delete(listener);
+  }, []);
+
   const retry = useCallback(() => {
     socketRef.current?.close();
     connect();
@@ -212,6 +224,7 @@ export function useRemoteConnection() {
     retry,
     login,
     onTerminalMessage,
-    onGraphicalMessage
+    onGraphicalMessage,
+    onFileMessage
   };
 }

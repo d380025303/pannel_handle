@@ -3,7 +3,7 @@ const path = require("node:path");
 const { getMobileHostname } = require("./mobile-network.cjs");
 const { PROTOCOL_VERSION } = require("./mobile-protocol.cjs");
 
-function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploads }) {
+function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploads, files }) {
   function verifyRequestHost(request) {
     const config = accessStore.getConfig();
     const allowed = new Set([`${getAddress()}:${config.port}`, `${getMobileHostname()}:${config.port}`]);
@@ -41,6 +41,11 @@ function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploa
     const upload = /^\/api\/v1\/upload\/([a-f0-9-]{36})$/.exec(requestUrl.pathname);
     if (request.method === "POST" && upload && uploads) {
       void uploads.receive(request, response, upload[1], requestUrl.searchParams.get("ticket"));
+      return;
+    }
+    const download = /^\/api\/v1\/download\/([a-f0-9-]{36})$/.exec(requestUrl.pathname);
+    if (request.method === "GET" && download && files) {
+      void files.download(request, response, download[1], requestUrl.searchParams.get("ticket"));
       return;
     }
     if (request.method !== "GET" && request.method !== "HEAD") {

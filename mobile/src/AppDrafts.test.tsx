@@ -37,7 +37,8 @@ beforeEach(() => {
   remote = { status: "connected", statusMessage: "已连接", sessions: [first, second, terminal], templates: [], device: null,
     lastLaunchedId: null, commandError: "", storageWarning: "", send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
     onTerminalMessage: vi.fn(() => () => true),
-    onGraphicalMessage: vi.fn(listener => { listeners.add(listener); return () => listeners.delete(listener); }) };
+    onGraphicalMessage: vi.fn(listener => { listeners.add(listener); return () => listeners.delete(listener); }),
+    onFileMessage: vi.fn(() => () => true) };
   vi.mocked(useRemoteConnection).mockImplementation(() => remote);
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });

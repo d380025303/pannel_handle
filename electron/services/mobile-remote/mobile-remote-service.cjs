@@ -2,6 +2,7 @@ const { createMobileSocketHandlers } = require("./mobile-socket-handlers.cjs");
 const { createMobileAuth } = require("./mobile-auth.cjs");
 const { createMobileHttpHandler } = require("./mobile-http.cjs");
 const { createMobileUploads } = require("./mobile-uploads.cjs");
+const { createMobileFiles } = require("./mobile-files.cjs");
 const { createTerminalSizeOwner } = require("./terminal-size-owner.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces } = require("./mobile-network.cjs");
@@ -36,6 +37,7 @@ function createMobileRemoteService({
   let currentAddress = "";
   let lastError = "";
   const uploads = createMobileUploads({ now });
+  const files = createMobileFiles({ now });
 
   const sizes = createTerminalSizeOwner({
     terminalManager, stateHub, desktopBroadcast, send,
@@ -48,10 +50,10 @@ function createMobileRemoteService({
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now,
-    auth, sizes, uploads, send, sendError
+    auth, sizes, uploads, files, send, sendError
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
-    accessStore, getAddress: () => currentAddress, getStaticRoot, uploads
+    accessStore, getAddress: () => currentAddress, getStaticRoot, uploads, files
   });
 
   function send(socket, message) {
@@ -155,6 +157,7 @@ function createMobileRemoteService({
     heartbeatTimer = null;
     auth.disconnectAll("service-stopped");
     uploads.stop();
+    files.stop();
     for (const socket of webSocketServer?.clients || []) socket.terminate();
     await new Promise((resolve) => server?.close(() => resolve()) || resolve());
     webSocketServer?.close();

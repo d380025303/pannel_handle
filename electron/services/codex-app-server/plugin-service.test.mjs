@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -12,8 +13,10 @@ const { createCodexPluginService } = require("./plugin-service.cjs");
 function harness(session = { id: "one", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\project" }, outputs = []) {
   const calls = [];
   const spawnProcess = vi.fn((executable, args, options) => {
-    calls.push({ executable, args, options });
+    const call = { executable, args, options, input: "" };
+    calls.push(call);
     const child = new EventEmitter();
+    child.stdin = new EventEmitter(); child.stdin.end = vi.fn(input => { call.input = input; });
     child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = vi.fn();
     queueMicrotask(() => { child.stdout.write(outputs.shift() || ""); child.stdout.end(); child.emit("close", 0); });
     return child;
@@ -96,9 +99,36 @@ describe("Codex plugin service", () => {
     const { service, calls } = harness(undefined, [Buffer.from(existing).toString("base64"), ""]);
     const result = await service.setEnabled("one", "project", { plugin: "demo", marketplace: "local", enabled: false });
     expect(result.overrides["demo@local"]).toEqual({ enabled: false });
-    const write = calls[1].args.at(-1);
-    expect(write).toContain("Codex 配置已变化，请刷新后重试");
-    expect(Buffer.from(write.match(/FromBase64String\('([^']+)'\)/)[1], "base64").toString()).toContain('model = "gpt-6-sol"');
+    expect(calls[1].args.at(-1)).toContain("Codex 配置已变化，请刷新后重试");
+    expect(calls[1].options.stdio[0]).toBe("pipe");
+    const [expected, next] = calls[1].input.trimEnd().split("\n");
+    expect(Buffer.from(expected, "base64").toString()).toBe(existing);
+    expect(Buffer.from(next, "base64").toString()).toContain('model = "gpt-6-sol"');
+  });
+
+  it("keeps large project and user configs out of Windows process arguments", async () => {
+    const existing = `# ${"a".repeat(50000)}\nmodel = "gpt-6-sol"\n`;
+    const encoded = Buffer.from(existing).toString("base64");
+    const { service, calls } = harness(undefined, [encoded, "", encoded, ""]);
+    await service.setEnabled("one", "project", { plugin: "demo", marketplace: "local", enabled: true });
+    await service.setEnabled("one", "user", { plugin: "demo", marketplace: "local", enabled: false });
+    for (const call of [calls[1], calls[3]]) {
+      expect(call.args.join(" ").length).toBeLessThan(4000);
+      expect(call.input.length).toBeGreaterThan(60000);
+      expect(call.input.split("\n")[0]).toBe(encoded);
+    }
+  });
+
+  it("sends WSL and SSH config writes through stdin", async () => {
+    const wsl = harness({ id: "w", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "codex", cwd: "/home/me/project" }, ["", ""]);
+    await wsl.service.setEnabled("w", "project", { plugin: "demo", marketplace: "local", enabled: true });
+    expect(wsl.calls[1].options.stdio[0]).toBe("pipe");
+    expect(wsl.calls[1].args.at(-1)).toContain("read -r expected");
+    expect(wsl.calls[1].input).toContain("\n");
+    const ssh = harness({ id: "s", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex", cwd: "/srv/project" }, ["", ""]);
+    await ssh.service.setEnabled("s", "user", { plugin: "demo", marketplace: "local", enabled: false });
+    expect(ssh.sshAgentTransport.exec.mock.calls[1][1]).toContain("read -r expected");
+    expect(ssh.sshAgentTransport.exec.mock.calls[1][2].stdin).toContain("\n");
   });
 
   it("rejects untrusted plugin selectors before invoking the CLI", async () => {
@@ -115,7 +145,7 @@ describe("Codex plugin service", () => {
     try {
       const configPath = path.join(root, ".codex", "config.toml");
       fs.mkdirSync(path.dirname(configPath));
-      fs.writeFileSync(configPath, 'model = "gpt-6-sol"\n');
+      fs.writeFileSync(configPath, `# ${"a".repeat(50000)}\nmodel = "gpt-6-sol"\n`);
       const session = { id: "local", type: "windows", shell: "cmd.exe", runtimeMode: "app-server",
         agentProvider: "codex", cwd: root, initialCommand: 'chcp 65001 && set "PANNEL_PLUGIN_TEST=1"' };
       const service = createCodexPluginService({ terminalManager: { getSession: () => session },
@@ -125,6 +155,15 @@ describe("Codex plugin service", () => {
       expect(saved).toContain('model = "gpt-6-sol"');
       expect(saved).toContain('"review@team"');
       expect(saved).toContain("enabled = false");
+      let commands = 0;
+      const conflictService = createCodexPluginService({ terminalManager: { getSession: () => session },
+        graphicalService: { getWorkspaceCwd: () => root }, environmentService: { resolve: () => ({}) },
+        spawnProcess: (executable, args, options) => {
+          if (++commands === 2) fs.appendFileSync(configPath, "# external change\n");
+          return spawn(executable, args, options);
+        } });
+      await expect(conflictService.setEnabled("local", "project", { plugin: "review", marketplace: "team", enabled: true })).rejects.toThrow();
+      expect(fs.readFileSync(configPath, "utf8")).toBe(`${saved}# external change\n`);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

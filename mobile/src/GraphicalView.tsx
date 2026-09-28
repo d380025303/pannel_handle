@@ -59,7 +59,6 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -161,7 +160,7 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setActiveSheet(null);
       if (event.key !== "Tab" || !sheetRef.current) return;
-      const elements = [...sheetRef.current.querySelectorAll<HTMLElement>("button:not(:disabled)")];
+      const elements = [...sheetRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
       const first = elements[0], last = elements.at(-1);
       if (!first || !last) return;
       if (event.shiftKey && (document.activeElement === first || document.activeElement === sheetRef.current)) {
@@ -395,8 +394,6 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
         {item.status === "failed" && <button type="button" onClick={() => { setAttachments(current => current.map(value => value.key === item.key ? { ...value, status: "uploading" } : value)); void uploadFile(item.file, item.key); }}>重试</button>}
         <button type="button" disabled={isSending} onClick={() => removeAttachment(item.key)}>移除</button>
       </div>)}</div>}
-      <input ref={fileInputRef} className="graphical-file-input" aria-label="添加文件" type="file" multiple
-        disabled={addFileDisabled} onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />
       <div className={`graphical-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={effectivePlan ? "plan" : "default"}>
         <div className="graphical-input-row">
           <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
@@ -438,7 +435,17 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>
           <button type="button" disabled={snapshot.busy} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span>新对话</span></button>
-          <button type="button" disabled={addFileDisabled} onClick={() => { setActiveSheet(null); fileInputRef.current?.click(); }}><span>添加文件</span><small>{attachments.length}/10</small></button>
+          <label className={`graphical-file-picker${addFileDisabled ? " is-disabled" : ""}`}>
+            <span>添加文件</span><small>{attachments.length}/10</small>
+            <input aria-label="添加文件" type="file" multiple disabled={addFileDisabled}
+              onChange={event => {
+                if (event.currentTarget.files?.length) {
+                  addFiles(event.currentTarget.files);
+                  setActiveSheet(null);
+                }
+                event.currentTarget.value = "";
+              }} />
+          </label>
         </div>}
         {activeSheet === "agent" && <div className="graphical-sheet-list">
           {graphicalProviders.map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}

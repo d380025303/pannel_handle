@@ -155,6 +155,10 @@ function createSshSessionRuntime({
         stream.stderr?.on("data", (data) => {
           stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
         });
+        if (options.stdin !== undefined) {
+          stream.on("error", finish);
+          stream.end(options.stdin);
+        }
         stream.on("close", (code) => {
           if (Number.isInteger(code) && !allowExitCodes.includes(code)) {
             finish(new Error(stderr.trim() || `${actionName} failed with exit code ${code}.`));

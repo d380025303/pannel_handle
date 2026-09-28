@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { TerminalView } from "./TerminalView";
 import { GraphicalView } from "./GraphicalView";
+import { ComputerFiles } from "./ComputerFiles";
 import { createRequestId } from "./protocol";
-import { PROTOCOL_VERSION, type RuntimeSession } from "./types";
+import { PROTOCOL_VERSION, type RuntimeSession, type SavedTemplate } from "./types";
 import { useRemoteConnection } from "./useRemoteConnection";
 
 const ACTIVE_SESSION_STORAGE_KEY = "pannel-handle-mobile-active-session";
@@ -23,10 +24,19 @@ function modeLabel(session: { runtimeMode: string; agentProvider?: string }) {
   return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : "Codex"} 图形`;
 }
 
+function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
+  const query = searchQuery.trim().toLowerCase();
+  if (!query) return true;
+  return [template.title, template.type, template.cwd, template.wslDistro, template.sshEndpoint, ...(template.tags ?? [])]
+    .some(value => value?.toLowerCase().includes(query));
+}
+
 export default function App() {
   const remote = useRemoteConnection();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
+  const [templateQuery, setTemplateQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(readActiveSessionId);
   const handledLaunchedId = useRef<string | null>(null);
   const [password, setPassword] = useState("");
@@ -39,6 +49,14 @@ export default function App() {
     () => remote.sessions.find((session) => session.id === activeId) ?? null,
     [activeId, remote.sessions]
   );
+  const filteredTemplates = useMemo(
+    () => remote.templates.filter(template => matchesTemplateSearch(template, templateQuery)),
+    [remote.templates, templateQuery]
+  );
+
+  useEffect(() => {
+    if (!drawerOpen || drawerTab !== "templates") setTemplateQuery("");
+  }, [drawerOpen, drawerTab]);
 
   useEffect(() => {
     if (remote.status !== "connected") return;
@@ -160,12 +178,13 @@ export default function App() {
       <header className="app-header">
         <button type="button" className="menu-button" onClick={() => setDrawerOpen(true)} aria-label="打开会话列表">☰</button>
         <div className="app-title"><strong>Pannel Handle</strong><span><i />{remote.device?.deviceName ?? "移动设备"}</span></div>
+        <button type="button" className="mobile-files-button" onClick={() => setFilesOpen(current => !current)}>{filesOpen ? "会话" : "电脑文件"}</button>
         <span className="http-badge">HTTP 局域网</span>
       </header>
       {remote.commandError && <div className="command-error" role="alert">{remote.commandError}</div>}
       {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
 
-      {activeSession?.runtimeMode === "app-server" ? (
+      {filesOpen ? <ComputerFiles send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} /> : activeSession?.runtimeMode === "app-server" ? (
         <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
           draft={graphicalDrafts[activeSession.id]?.text ?? ""}
           setDraft={update => updateGraphicalDraft(activeSession.id, update)}
@@ -199,6 +218,10 @@ export default function App() {
               <button className={drawerTab === "running" ? "active" : ""} type="button" onClick={() => setDrawerTab("running")}>运行中 ({remote.sessions.length})</button>
               <button className={drawerTab === "templates" ? "active" : ""} type="button" onClick={() => setDrawerTab("templates")}>已保存模板 ({remote.templates.length})</button>
             </nav>
+            {drawerTab === "templates" && <div className="template-search">
+              <input type="search" aria-label="搜索已保存模板" placeholder="搜索模板或标签..." value={templateQuery} onChange={event => setTemplateQuery(event.target.value)} />
+              {templateQuery && <button type="button" onClick={() => setTemplateQuery("")} aria-label="清除模板搜索">清除</button>}
+            </div>}
             <div className="session-list">
               {drawerTab === "running" ? remote.sessions.map((session) => (
                 <article className={session.id === activeId ? "session-card selected" : "session-card"} key={session.id}>
@@ -207,7 +230,7 @@ export default function App() {
                   </button>
                   <div className="session-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button className="danger" type="button" onClick={() => closeSession(session)}>关闭</button></div>
                 </article>
-              )) : remote.templates.map((template) => (
+              )) : filteredTemplates.map((template) => (
                 <article className="session-card" key={template.id}>
                   <div className="session-main static"><strong>{template.title}</strong><span>{kindLabel(template.type)} · {modeLabel(template)}{template.runningCount ? ` · 已运行 ${template.runningCount}` : ""}</span></div>
                   <div className="session-actions"><button className="primary" type="button" onClick={() => launchTemplate(template.id)}>启动</button></div>
@@ -215,6 +238,7 @@ export default function App() {
               ))}
               {drawerTab === "running" && remote.sessions.length === 0 && <p className="drawer-empty">暂无运行会话</p>}
               {drawerTab === "templates" && remote.templates.length === 0 && <p className="drawer-empty">请先在电脑端创建会话模板</p>}
+              {drawerTab === "templates" && remote.templates.length > 0 && filteredTemplates.length === 0 && <p className="drawer-empty">没有匹配的模板</p>}
             </div>
             <footer>当前会话选择仅影响手机，不会切换电脑页面。</footer>
           </aside>

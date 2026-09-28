@@ -332,13 +332,13 @@ it("uploads a phone file and sends an attachment-only message", async () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
   const file = new File(["hello"], "note.txt", { type: "text/plain" });
-  const picker = screen.getByLabelText("添加文件") as HTMLInputElement;
-  const clickPicker = vi.spyOn(picker, "click").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /添加文件/ }));
-  expect(clickPicker).toHaveBeenCalledOnce();
+  const picker = within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件") as HTMLInputElement;
+  expect(picker.closest("label")?.textContent).toContain("添加文件");
+  fireEvent.change(picker, { target: { files: [file] } });
+  expect(screen.getByText(/note.txt · 上传中/)).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.change(screen.getByLabelText("添加文件"), { target: { files: [file] } });
+  expect(picker.value).toBe("");
   const prepare = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.upload.prepare");
   expect(prepare).toEqual(expect.objectContaining({ name: "note.txt", size: 5, threadId: "thread-1" }));
   emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: prepare!.requestId, fileId: "file-1", url: "/api/v1/upload/file-1?ticket=abc" });
@@ -346,6 +346,51 @@ it("uploads a phone file and sends an attachment-only message", async () => {
   expect(fetch).toHaveBeenCalledWith("/api/v1/upload/file-1?ticket=abc", expect.objectContaining({ method: "POST", body: file }));
   fireEvent.click(screen.getByText("发送"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", text: "", fileIds: ["file-1"] }));
+});
+
+it("keeps the file sheet open on cancel and accepts the same file again", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const file = new File(["hello"], "note.txt", { type: "text/plain" });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  let picker = within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件") as HTMLInputElement;
+  fireEvent.change(picker, { target: { files: [] } });
+  expect(screen.getByRole("dialog", { name: "更多操作" })).toBeTruthy();
+  fireEvent.change(picker, { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  picker = within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件") as HTMLInputElement;
+  fireEvent.change(picker, { target: { files: [file] } });
+  expect(screen.getAllByText(/note.txt · 上传中/)).toHaveLength(2);
+  expect(send.mock.calls.filter(([message]) => message.type === "graphical.upload.prepare")).toHaveLength(2);
+});
+
+it("shows the file size error after selection", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  const picker = within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件");
+  fireEvent.change(picker, { target: { files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.bin")] } });
+  expect(screen.getByRole("alert").textContent).toContain("单个附件必须在 10 MB 以内");
+  expect(send.mock.calls.some(([message]) => message.type === "graphical.upload.prepare")).toBe(false);
+});
+
+it("lets a failed phone upload retry", async () => {
+  const upload = vi.fn().mockRejectedValueOnce(new Error("网络中断")).mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", upload);
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  const file = new File(["hello"], "note.txt");
+  fireEvent.change(within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件"), { target: { files: [file] } });
+  const requests = () => send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.upload.prepare");
+  emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: requests()[0].requestId, fileId: "file-1", url: "/api/v1/upload/file-1?ticket=abc" });
+  await waitFor(() => expect(screen.getByText(/note.txt · 上传失败/)).toBeTruthy());
+  expect(screen.getByRole("alert").textContent).toContain("网络中断");
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  expect(requests()).toHaveLength(2);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: requests()[1].requestId, fileId: "file-2", url: "/api/v1/upload/file-2?ticket=def" });
+  await waitFor(() => expect(screen.getByText(/note.txt · 已上传/)).toBeTruthy());
+  expect(upload).toHaveBeenCalledTimes(2);
 });
 
 it("confirms a graphical Agent switch in a sheet, tracks failure, and blocks pending work", () => {
@@ -380,7 +425,8 @@ it("opens history and starts a new conversation from the single menu", () => {
   const menu = screen.getByRole("dialog", { name: "更多操作" });
   expect(within(menu).getByRole("group", { name: "会话模式" })).toBeTruthy();
   expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
-    .toEqual(["×", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话", "添加文件0/10"]);
+    .toEqual(["×", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话"]);
+  expect(within(menu).getByLabelText("添加文件").closest("label")?.textContent).toBe("添加文件0/10");
   fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
   expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
   const historyRequest = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.history");

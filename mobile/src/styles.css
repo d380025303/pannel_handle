@@ -64,6 +64,9 @@ button { color: inherit; }
 .session-drawer nav { display: grid; grid-template-columns: 1fr 1fr; padding: 0 12px 10px; border-bottom: 1px solid #263244; }
 .session-drawer nav button { padding: 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #8da2bb; }
 .session-drawer nav button.active { border-color: #22d3ee; color: #67e8f9; }
+.template-search { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid #263244; }
+.template-search input { min-width: 0; flex: 1; min-height: 40px; padding: 8px 10px; border: 1px solid #3a4b61; border-radius: 8px; color: #e2e8f0; background: #080d16; font: inherit; }
+.template-search button { padding: 0 10px; border: 1px solid #334155; border-radius: 8px; background: #1e293b; }
 .session-list { min-height: 0; flex: 1; overflow-y: auto; padding: 10px; }
 .session-card { margin-bottom: 8px; border: 1px solid #29384c; border-radius: 11px; background: #141f30; overflow: hidden; }
 .session-card.selected { border-color: #0e7490; box-shadow: inset 3px 0 #22d3ee; }
@@ -151,7 +154,6 @@ button { color: inherit; }
 .graphical-attachments { width: 100%; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 .graphical-attachments > div { display: flex; align-items: center; gap: 6px; }
 .graphical-attachments span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.graphical-file-input { display: none; }
 .graphical-attachment-history { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; font-size: 11px; color: #9fb5ce; }
 @property --graphical-border-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 @keyframes graphical-border-run { to { --graphical-border-angle: 360deg; } }
@@ -175,11 +177,15 @@ button { color: inherit; }
 .graphical-sheet-list .graphical-mode-switch button { flex: 1; width: auto; min-height: 44px; justify-content: center; margin-bottom: 0; }
 .graphical-sheet-list .graphical-mode-switch button[aria-pressed="true"] { border-color: #22d3ee; color: #a5f3fc; background: #083344; }
 .graphical-sheet-list .graphical-mode-switch button[aria-pressed="true"]:first-child { border-color: #a47bff; color: #e9ddff; background: #352254; }
-.graphical-sheet-list button { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; padding: 10px 13px; border: 1px solid #344459; border-radius: 12px; color: #e2e8f0; background: #19283b; text-align: left; }
+.graphical-sheet-list button, .graphical-sheet-list .graphical-file-picker { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; padding: 10px 13px; border: 1px solid #344459; border-radius: 12px; color: #e2e8f0; background: #19283b; text-align: left; }
+.graphical-file-picker { position: relative; overflow: hidden; }
+.graphical-file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.graphical-file-picker.is-disabled { opacity: .48; }
+.graphical-file-picker:focus-within { outline: 2px solid #67e8f9; outline-offset: 2px; }
 .graphical-sheet-list button[aria-pressed="true"] { border-color: #0e7490; background: #123747; }
 .graphical-sheet-list button:disabled { opacity: .48; }
-.graphical-sheet-list button span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
-.graphical-sheet-list button small { flex: none; color: #9fb5ce; font-size: 11px; }
+.graphical-sheet-list button span, .graphical-sheet-list .graphical-file-picker span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.graphical-sheet-list button small, .graphical-sheet-list .graphical-file-picker small { flex: none; color: #9fb5ce; font-size: 11px; }
 .graphical-history-list button { align-items: flex-start; flex-direction: column; gap: 4px; }
 .graphical-history-list p { padding: 10px; color: #9fb5ce; text-align: center; }
 .graphical-sheet-confirm { padding: 16px; }
@@ -197,3 +203,23 @@ button { color: inherit; }
 }
 .mobile-login { display: grid; gap: 12px; width: min(100%, 320px); margin: 20px auto; }
 .mobile-login input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #697485; border-radius: 8px; background: #18202c; color: #fff; font: inherit; }
+
+.mobile-files-button { flex: none; padding: 8px; border: 1px solid #36506e; border-radius: 8px; background: #172235; font-size: 12px; }
+.computer-files { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.computer-files > header { display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 8px 12px; border-bottom: 1px solid #263244; background: #0d1522; }
+.computer-files > header button, .computer-files-toolbar button, .computer-file-download { padding: 8px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; }
+.computer-files > header strong { flex: none; }
+.computer-files > header span { min-width: 0; overflow: hidden; color: #91a4bc; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.computer-files-toolbar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #263244; }
+.computer-files-list { min-height: 0; flex: 1; overflow-y: auto; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+.computer-files-list > p { color: #91a4bc; }
+.computer-file-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; border: 1px solid #29384c; border-radius: 9px; background: #141f30; }
+.computer-file-name { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px; border: 0; background: transparent; text-align: left; }
+.computer-file-name span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.computer-file-name small { color: #91a4bc; }
+.computer-file-name:disabled { color: inherit; opacity: 1; }
+.computer-file-download { flex: none; margin-right: 8px; }
+.computer-file-download:disabled { opacity: .5; }
+.computer-files-error, .computer-files-notice { margin: 0; padding: 8px 12px; font-size: 12px; }
+.computer-files-error { color: #fecdd3; background: #4c0519; }
+.computer-files-notice { color: #a5f3fc; background: #083344; }

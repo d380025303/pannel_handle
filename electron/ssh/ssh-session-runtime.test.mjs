@@ -110,6 +110,22 @@ describe("ssh-session-runtime", () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
+  it("passes command input through the SSH stream", async () => {
+    const client = createClient();
+    let stream;
+    client.exec = vi.fn((_command, callback) => {
+      stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      stream.end = vi.fn();
+      callback(undefined, stream);
+      queueMicrotask(() => stream.emit("close", 0));
+    });
+    const runtime = createRuntime({ id: "run-1", type: "ssh", sshConfig: { host: "example.com" } }, { clientFactory: () => client });
+    await expect(runtime.exec("run-1", "cat", { stdin: "config data\n" })).resolves.toBe("");
+    expect(stream.end).toHaveBeenCalledWith("config data\n");
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
   it("streams SSH output and supports cancellation", async () => {
     const client = createClient();
     let stream;

@@ -2,7 +2,7 @@ const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = requir
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, send, sendError }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, files, send, sendError }) {
   const { getSizeState, applySize } = sizes;
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send });
 
@@ -48,7 +48,13 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
   async function handleAuthenticatedMessage(socket, message) {
     const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
     try {
-      if (message.type.startsWith("graphical.")) {
+      if (message.type === "files.list") {
+        const result = await files.list(message.path);
+        send(socket, { type: "files.list.result", requestId, ...result });
+      } else if (message.type === "files.download.prepare") {
+        const result = await files.prepare(socket, message.path);
+        send(socket, { type: "files.download.ready", requestId, ...result });
+      } else if (message.type.startsWith("graphical.")) {
         await graphical.handle(socket, message);
       } else if (message.type === "terminal.subscribe") {
         await subscribeTerminal(socket, String(message.sessionId || ""), Number(message.lastSeq));
@@ -129,7 +135,8 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     } catch (error) {
       const graphicalQuickCommand = message.type === "quick-command.invoke"
         && terminalManager.getSession(String(message.sessionId || ""))?.runtimeMode === "app-server";
-      sendError(socket, message.type.startsWith("graphical.") || graphicalQuickCommand ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
+      sendError(socket, message.type.startsWith("files.") ? "FILE_COMMAND_FAILED"
+        : message.type.startsWith("graphical.") || graphicalQuickCommand ? "GRAPHICAL_COMMAND_FAILED" : "COMMAND_FAILED",
         error.message || String(error), requestId);
     }
   }
@@ -169,6 +176,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.on("message", (raw) => handleSocketMessage(socket, raw));
     socket.on("close", () => {
       uploads?.releaseSocket(socket);
+      files?.releaseSocket(socket);
       auth.handleSocketClosed(socket);
     });
   }

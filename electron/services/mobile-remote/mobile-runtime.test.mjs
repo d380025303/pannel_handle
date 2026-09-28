@@ -43,6 +43,8 @@ function fixture(graphicalService) {
   const broadcast = vi.fn();
   const send = vi.fn();
   const sendError = vi.fn();
+  const files = { list: vi.fn(async () => ({ path: null, entries: [] })),
+    prepare: vi.fn(async () => ({ url: "/api/v1/download/test?ticket=secret" })), releaseSocket: vi.fn() };
   const notifyConnection = vi.fn();
   const sizes = createTerminalSizeOwner({
     terminalManager, stateHub, desktopBroadcast: broadcast, send,
@@ -57,9 +59,9 @@ function fixture(graphicalService) {
   const handlers = createMobileSocketHandlers({
     terminalManager, stateHub, accessStore, auth, sizes, send, sendError, graphicalService,
     sessionStore: { getLibrary: () => [], getTemplate: () => null },
-    agentSessionLauncher: {}, now: () => Date.now()
+    agentSessionLauncher: {}, now: () => Date.now(), files
   });
-  return { auth, sizes, handlers, device, accessStore, terminalManager, stateHub, send, sendError, notifyConnection };
+  return { auth, sizes, handlers, device, accessStore, terminalManager, stateHub, send, sendError, notifyConnection, files };
 }
 
 describe("mobile component collaboration", () => {
@@ -145,6 +147,23 @@ describe("mobile component collaboration", () => {
     expect(f.accessStore.verifyPassword).toHaveBeenCalledWith("correct-password");
     expect(client.authenticated).toBe(true);
     expect(f.send).toHaveBeenCalledWith(client, expect.objectContaining({ type: "ready" }));
+  });
+
+  it("only serves file browser commands after authentication", async () => {
+    const f = fixture();
+    const client = socket();
+    f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
+    const message = payload => client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, ...payload }));
+    message({ type: "files.list", path: null, requestId: "before" });
+    expect(f.files.list).not.toHaveBeenCalled();
+    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    message({ type: "files.list", path: null, requestId: "list-1" });
+    message({ type: "files.download.prepare", path: "C:\\note.txt", requestId: "get-1" });
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(client,
+      expect.objectContaining({ type: "files.download.ready", requestId: "get-1" })));
+    expect(f.files.prepare).toHaveBeenCalledWith(client, "C:\\note.txt");
+    client.emit("close");
+    expect(f.files.releaseSocket).toHaveBeenCalledWith(client);
   });
 
   it("preserves delta replay, snapshot fallback and the per-second input limit", async () => {

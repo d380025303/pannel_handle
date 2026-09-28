@@ -20,9 +20,9 @@ function publicOverrides(settings) {
   return Object.fromEntries(Object.entries(settings).filter(([, value]) => value && typeof value === "object")
     .map(([key, value]) => [key, typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}]));
 }
-function runProcess(executable, args, options, spawnProcess = spawn) {
+function runProcess(executable, args, options, spawnProcess = spawn, input = null) {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(executable, args, { ...options, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnProcess(executable, args, { ...options, windowsHide: true, stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"] });
     let stdout = ""; let stderr = ""; let finished = false;
     const timer = setTimeout(() => { child.kill(); finish(new Error("Codex 插件命令超时。")); }, TIMEOUT_MS);
     function finish(error, output) {
@@ -34,6 +34,10 @@ function runProcess(executable, args, options, spawnProcess = spawn) {
     child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-8192); });
     child.on("error", finish);
     child.on("close", code => finish(code === 0 ? null : new Error(stderr.trim() || `Codex 插件命令退出：${code}`), stdout.trim()));
+    if (input !== null) {
+      child.stdin.on("error", finish);
+      child.stdin.end(input);
+    }
   });
 }
 
@@ -68,18 +72,18 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     const script = `Set-Location -LiteralPath ${psQuote(value.cwd)}; & codex ${args.map(psQuote).join(" ")}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`;
     return runWindows(value, script, environment);
   }
-  function runWindows(value, script, environment) {
+  function runWindows(value, script, environment, input = null) {
     const before = String(value.session.initialCommand || "").trim();
     const env = { ...process.env, ...environment };
     if (before && !isPowerShell(value.session.shell)) {
       const encoded = Buffer.from(script, "utf16le").toString("base64");
       return runProcess("cmd.exe", ["/d", "/s", "/c",
         `(${before}) 1>&2 && powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`],
-      { cwd: value.cwd, env }, spawnProcess);
+      { cwd: value.cwd, env }, spawnProcess, input);
     }
     const command = `Set-Location -LiteralPath ${psQuote(value.cwd)}; ${before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; ` : ""}${script}`;
     return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
-      { env }, spawnProcess);
+      { env }, spawnProcess, input);
   }
   async function json(value, args) {
     const output = await run(value, [...args, "--json"]);
@@ -170,11 +174,11 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     });
     const before = String(value.session.initialCommand || "").trim();
     const linuxCommand = script => [...exports, `cd ${bashQuote(value.cwd)}`, ...(before ? [`{ ${before}; } 1>&2`] : []), script].join(" && ");
-    const shell = async script => value.remote
-      ? sshAgentTransport.exec(value.session.id, `bash -lic ${bashQuote(linuxCommand(script))}`, { actionName: "Codex plugin configuration", timeoutMs: TIMEOUT_MS })
+    const shell = async (script, input = null) => value.remote
+      ? sshAgentTransport.exec(value.session.id, `bash -lic ${bashQuote(linuxCommand(script))}`, { actionName: "Codex plugin configuration", timeoutMs: TIMEOUT_MS, ...(input === null ? {} : { stdin: input }) })
       : value.linux
-        ? runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", linuxCommand(script)], { env: process.env }, spawnProcess)
-        : runWindows(value, script, environment);
+        ? runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", linuxCommand(script)], { env: process.env }, spawnProcess, input)
+        : runWindows(value, script, environment, input);
     const encoded = (await shell(readScript)).trim();
     const original = encoded ? Buffer.from(encoded, "base64").toString("utf8") : "";
     let document;
@@ -188,9 +192,9 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     const nextEncoded = Buffer.from(next, "utf8").toString("base64");
     const expected = Buffer.from(original, "utf8").toString("base64");
     const writeScript = value.linux
-      ? `target=${file ? bashQuote(location) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'}; current=$(if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi); [ "$current" = ${bashQuote(expected)} ] || { echo 'Codex 配置已变化，请刷新后重试。' >&2; exit 3; }; mkdir -p "$(dirname "$target")" && tmp="${'${target}'}.pannel-handle.tmp" && printf %s ${bashQuote(nextEncoded)} | base64 -d > "$tmp" && mv "$tmp" "$target"`
-      : `$target = ${file ? psQuote(location) : "if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex/config.toml' }"}; $current = if (Test-Path -LiteralPath $target) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) } else { '' }; if ($current -ne ${psQuote(expected)}) { throw 'Codex 配置已变化，请刷新后重试。' }; [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null; $tmp = "${'${target}'}.pannel-handle.tmp"; [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String(${psQuote(nextEncoded)})); Move-Item -LiteralPath $tmp -Destination $target -Force`;
-    await shell(writeScript);
+      ? `IFS= read -r expected && IFS= read -r next || exit 1; target=${file ? bashQuote(location) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'}; current=$(if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi); [ "$current" = "$expected" ] || { echo 'Codex 配置已变化，请刷新后重试。' >&2; exit 3; }; mkdir -p "$(dirname "$target")" && tmp="${'${target}'}.pannel-handle.tmp" && printf %s "$next" | base64 -d > "$tmp" && mv "$tmp" "$target"`
+      : `$expected = [Console]::In.ReadLine(); $next = [Console]::In.ReadLine(); $target = ${file ? psQuote(location) : "if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex/config.toml' }"}; $current = if (Test-Path -LiteralPath $target) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) } else { '' }; if ($current -ne $expected) { throw 'Codex 配置已变化，请刷新后重试。' }; [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null; $tmp = "${'${target}'}.pannel-handle.tmp"; [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($next)); Move-Item -LiteralPath $tmp -Destination $target -Force`;
+    await shell(writeScript, `${expected}\n${nextEncoded}\n`);
     return { overrides: publicOverrides(document.plugins) };
   }
   return { list, install, uninstall, addMarketplace, refreshMarketplace, removeMarketplace, readConfig: (id, scope) => config(id, scope), setEnabled: (id, scope, input) => config(id, scope, input) };

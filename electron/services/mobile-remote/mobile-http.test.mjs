@@ -37,7 +37,7 @@ it("serves HEAD metadata, blocks writes and returns unavailable when the static 
   expect(head.end).toHaveBeenCalledWith();
   expect(head.setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
   expect(request("POST").writeHead).toHaveBeenCalledWith(405, { Allow: "GET, HEAD" });
-  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 6 }));
+  expect(request("GET", "/health").end).toHaveBeenCalledWith(JSON.stringify({ ok: true, protocolVersion: 7 }));
 });
 
 it("routes only same-origin upload POST requests to the ticket handler", () => {
@@ -56,4 +56,20 @@ it("routes only same-origin upload POST requests to the ticket handler", () => {
   handleHttp({ ...allowed, headers: { ...allowed.headers, origin: "http://evil.example" } }, denied);
   expect(denied.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
   expect(uploads.receive).toHaveBeenCalledTimes(1);
+});
+
+it("routes download GET requests through the ticket handler", () => {
+  const files = { download: vi.fn(async () => undefined) };
+  const { handleHttp } = httpModule.createMobileHttpHandler({
+    accessStore: { getConfig: () => ({ port: 43123 }) }, getAddress: () => "192.168.1.1",
+    getStaticRoot: () => ".", files
+  });
+  const id = "12345678-1234-1234-1234-123456789abc";
+  const request = { method: "GET", url: `/api/v1/download/${id}?ticket=secret`,
+    headers: { host: "192.168.1.1:43123", origin: "http://192.168.1.1:43123" } };
+  const response = { setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn() };
+  handleHttp(request, response);
+  expect(files.download).toHaveBeenCalledWith(request, response, id, "secret");
+  handleHttp({ ...request, headers: { ...request.headers, origin: "http://evil.example" } }, response);
+  expect(files.download).toHaveBeenCalledTimes(1);
 });
