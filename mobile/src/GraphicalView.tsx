@@ -22,7 +22,7 @@ type Props = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude"];
+const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
 const permissions = [
   { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
@@ -360,7 +360,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
       <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
         aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}>···</button>
     </header>
-    <GraphicalUsage sessionId={session.id} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
+    <GraphicalUsage sessionId={session.id} sessionType={session.type} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
     <div className="graphical-timeline" ref={scrollRef}>

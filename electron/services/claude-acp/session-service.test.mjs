@@ -68,6 +68,45 @@ describe("Claude ACP sessions", () => {
     service.shutdown();
   });
 
+  it("shows adjacent Claude text chunks as one message without crossing tools or turns", async () => {
+    let promptCount = 0;
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") {
+        const update = value => emit({ method: "session/update", params: { sessionId: "thread", update: value } });
+        if (++promptCount === 1) {
+          update({ sessionUpdate: "agent_message_chunk", messageId: "first", content: { type: "text", text: "你" } });
+          update({ sessionUpdate: "agent_message_chunk", messageId: "second", content: { type: "text", text: "好" } });
+          update({ sessionUpdate: "agent_message_chunk", messageId: "third", content: { type: "text", text: "！" } });
+          update({ sessionUpdate: "tool_call", toolCallId: "tool", title: "读取文件", status: "completed" });
+          update({ sessionUpdate: "agent_message_chunk", messageId: "first", content: { type: "text", text: "完成" } });
+          update({ sessionUpdate: "agent_message_chunk", messageId: "fourth", content: { type: "text", text: "。" } });
+        } else update({ sessionUpdate: "agent_message_chunk", messageId: "next", content: { type: "text", text: "下一轮" } });
+        emit({ id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createClaudeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "你好");
+    let items = service.snapshot("one").items;
+    expect(items.map(item => item.type)).toEqual(["userMessage", "agentMessage", "toolCall", "agentMessage"]);
+    expect(items.filter(item => item.type === "agentMessage").map(item => item.text)).toEqual(["你好！", "完成。"]);
+    expect(items[1].id).not.toBe(items[3].id);
+    emitMessage({ method: "session/update", params: { sessionId: "thread", update: {
+      sessionUpdate: "agent_message_chunk", messageId: "late", content: { type: "text", text: "补充" }
+    } } });
+    expect(service.snapshot("one").items.filter(item => item.type === "agentMessage").map(item => item.text))
+      .toEqual(["你好！", "完成。补充"]);
+    await service.submit("one", "继续");
+    items = service.snapshot("one").items;
+    expect(items.filter(item => item.type === "agentMessage").map(item => item.text)).toEqual(["你好！", "完成。补充", "下一轮"]);
+    service.shutdown();
+  });
+
   it("keeps local SSH bridge operations remote-only in the adapter session", async () => {
     const messages = [];
     const child = fakeChild((message, emit) => {

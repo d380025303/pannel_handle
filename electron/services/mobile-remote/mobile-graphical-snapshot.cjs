@@ -42,7 +42,7 @@ function toMobileGraphicalSnapshot(value) {
     effort: snapshot.effort || null,
     fastMode: Boolean(snapshot.fastMode),
     executionPermission: snapshot.executionPermission || null,
-    acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort")
+    acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort")
       .map(option => ({ id: option.id, currentValue: option.currentValue,
         options: (option.options || []).map(value => ({ value: value.value, name: value.name })) })),
     capabilities: snapshot.capabilities || null,

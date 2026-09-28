@@ -975,7 +975,7 @@ export type CodexAppServerSnapshot = {
   diagnosticStoreError?: string | null;
   diagnostics?: Array<{ id: string; turnId: string | null; kind: string; at: number; payload: Record<string, unknown> }>;
   turnDiffs?: Array<{ turnId: string; diff: string; updatedAt: number }>;
-  provider?: "codex" | "codebuddy" | "opencode" | "claude";
+  provider?: "codex" | "codebuddy" | "opencode" | "claude" | "qoder";
   team?: { name: string | null; isAutoTeam: boolean; hasLiveMembers: boolean; members: Array<{
     name: string; color?: string; description?: string; status: string; taskId?: string; sessionId?: string;
     tokenUsage?: { inputTokens?: number; outputTokens?: number; lastContextWindow?: number }; toolCallCount?: number;

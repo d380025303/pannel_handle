@@ -21,7 +21,7 @@ function kindLabel(type: RuntimeSession["type"]) {
 }
 function modeLabel(session: { runtimeMode: string; agentProvider?: string }) {
   if (session.runtimeMode !== "app-server") return "终端";
-  return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : session.agentProvider === "claude" ? "Claude" : "Codex"} 图形`;
+  return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : session.agentProvider === "claude" ? "Claude" : session.agentProvider === "qoder" ? "Qoder" : "Codex"} 图形`;
 }
 
 function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {

@@ -1,7 +1,7 @@
 import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
 
 export function providerLabel(provider?: string) {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : "Codex";
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : "Codex";
 }
 
 const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];
@@ -14,7 +14,7 @@ export function canSwitchMode(snapshot: GraphicalSnapshot, mode: "default" | "pl
     : modes.some(value => execModeIds.some(id => id.toLowerCase() === value.id.toLowerCase()));
 }
 function configLabel(snapshot: GraphicalSnapshot, id: "model" | "effort") {
-  const option = snapshot.acpOptions?.find(value => value.id === id);
+  const option = snapshot.acpOptions?.find(value => value.id === (id === "effort" && snapshot.provider === "qoder" ? "reasoning_effort" : id));
   const value = typeof option?.currentValue === "string" ? option.currentValue : null;
   return value ? option?.options.find(entry => entry.value === value)?.name || value : null;
 }

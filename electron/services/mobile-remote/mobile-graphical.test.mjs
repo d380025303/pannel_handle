@@ -92,6 +92,25 @@ describe("mobile graphical session route", () => {
       threadId: "thread-1", requestId: "u4" })).rejects.toThrow("不提供额度");
   });
 
+  it("allows Qoder quota on Windows and WSL but rejects SSH quota", async () => {
+    const f = fixture();
+    const getAgentUsage = vi.fn(async () => ({ provider: "qoder", fetchedAt: 100,
+      primaryLimitId: "credits", summary: { kind: "credits", total: 100, used: 25, remaining: 75, unit: "Credits" }, limits: [] }));
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager,
+      graphicalService: f.graphicalService, getAgentUsage, send: f.send });
+    f.session.agentProvider = "qoder";
+    f.session.type = "windows";
+    f.snapshot.provider = "qoder";
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "q1" });
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.usage",
+      usage: expect.objectContaining({ provider: "qoder", summary: expect.objectContaining({ remaining: 75 }) }) }));
+    f.session.type = "ssh";
+    await expect(handlers.handle(f.socket, { type: "graphical.usage", sessionId: "graph-1",
+      threadId: "thread-1", requestId: "q2" })).rejects.toThrow("不提供额度查询");
+  });
+
   it("rejects terminal sessions and allows history only for the active graphical session", async () => {
     const f = fixture();
     f.terminalManager.getSession.mockImplementation(id => id === "terminal-1" ? { id, runtimeMode: "terminal" } : id === "graph-1" ? { id, runtimeMode: "app-server" } : null);
@@ -219,10 +238,10 @@ describe("mobile graphical session route", () => {
     f.snapshot.approvals = [];
     f.snapshot.questions = [];
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
-    for (const current of ["codex", "codebuddy", "opencode"]) {
+    for (const current of ["codex", "codebuddy", "opencode", "claude", "qoder"]) {
       f.session.agentProvider = current;
       f.snapshot.provider = current;
-      for (const provider of ["codex", "codebuddy", "opencode"].filter(value => value !== current)) {
+      for (const provider of ["codex", "codebuddy", "opencode", "claude", "qoder"].filter(value => value !== current)) {
         expect(f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
           .toBe("graph-1");
       }
@@ -231,7 +250,7 @@ describe("mobile graphical session route", () => {
     f.snapshot.provider = "codex";
     expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "old", provider: "codebuddy" }))
       .toThrow("已切换");
-    for (const provider of ["codex", "claude", "invalid"]) {
+    for (const provider of ["codex", "invalid"]) {
       expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
         .toThrow("无效的目标");
     }

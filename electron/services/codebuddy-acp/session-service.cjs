@@ -46,18 +46,22 @@ function safeStderr(stderr, environment) {
 }
 
 function stopAgentChild(child, provider) {
-  if ((provider === "codebuddy" || provider === "claude") && process.platform === "win32" && Number.isInteger(child.pid)) {
+  if ((provider === "codebuddy" || provider === "claude" || provider === "qoder") && process.platform === "win32" && Number.isInteger(child.pid)) {
     const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
     killer.once("error", () => child.kill());
   } else child.kill();
 }
 
 function buildInvocation(session, runtime, environment, provider = "codebuddy") {
-  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode" : "codebuddy";
+  if (provider === "qoder" && runtime.localBridge && !runtime.remoteBridge?.instructions)
+    throw new Error("Qoder SSH 本机桥接缺少受限远端工具配置。");
+  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode" : provider === "qoder" ? "qoder" : "codebuddy";
   const shell = runtime.shell || session.shell || "powershell.exe";
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance,
     session.type === "wsl" ? "bash" : /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell) ? "powershell" : "cmd") : "";
-  const args = provider === "claude" ? "" : provider === "opencode" ? (runtime.acpArgs || "acp")
+  const args = provider === "claude" ? "" : provider === "opencode" ? (runtime.acpArgs || "acp") : provider === "qoder" ? (runtime.localBridge
+    ? `--acp --tools '' --strict-mcp-config --allowed-mcp-server-names pannel_handle_remote --append-system-prompt '${String(runtime.remoteBridge.instructions).replace(/'/g, "''")}'`
+    : "--acp")
     : `${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
@@ -88,12 +92,12 @@ async function createRemoteChild(transportService, session, environment, provide
   });
   const before = String(session.initialCommand || "").trim();
   const inheritedArgs = provider === "codebuddy" ? codeBuddyInheritanceArgs(runtime.inheritance) : "";
-  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
+  const commandName = provider === "claude" ? "claude-agent-acp" : provider === "opencode" ? "opencode acp" : provider === "qoder" ? "qoder --acp" : `codebuddy ${inheritedArgs ? `${inheritedArgs} ` : ""}${runtime.acpArgs || "--acp"} --serve --acp-transport streamable-http --auth password`;
   const openCodeVersionCheck = provider === "opencode"
     ? [`version=$(opencode --version) && [[ "$version" =~ ([0-9]+)\\.[0-9]+\\.[0-9]+ ]] && (( BASH_REMATCH[1] >= 2 )) || { echo 'OpenCode V2 is required.' >&2; exit 1; }`]
     : [];
   const script = [...exports, `cd ${quoteBash(session.cwd)}`, ...openCodeVersionCheck, ...(before ? [`{ ${before}; } 1>&2`] : []), `exec ${commandName}`].join(" && ");
-  const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
+  const transport = await transportService.createStdioTransport(session.id, { actionName: `${provider === "claude" ? "Claude" : provider === "opencode" ? "OpenCode" : provider === "qoder" ? "Qoder" : "CodeBuddy"} ACP connection`, command: `bash -lic ${quoteBash(script)}` });
   const child = new EventEmitter();
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
   child.stdin.on("data", chunk => transport.write(chunk));
@@ -148,6 +152,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     entry.configOptions = result.configOptions || [];
     const modeOption = entry.configOptions.find(option => option.id === "mode" && option.type === "select");
     entry.modes = result.modes?.availableModes || modeOption?.options?.map(option => ({ id: option.value, name: option.name, description: option.description })) || entry.modes;
+    if (provider === "qoder") entry.modes = entry.modes.filter(mode => ["default", "yolo", "bypassPermissions", "bypass_permissions"].includes(mode.id));
     entry.nativeMode = result.modes?.currentModeId || modeOption?.currentValue || entry.nativeMode;
     reflectNativeMode(entry);
     updateCapabilities(entry);
@@ -185,11 +190,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   const workspace = entry => entry.runtime.workspaceCwd || entry.session.cwd;
   function sessionParams(entry, threadId) {
     const params = { ...(threadId ? { sessionId: threadId } : {}), cwd: workspace(entry), mcpServers: [] };
-    if (provider === "claude" && entry.runtime.remoteBridge) {
+    if ((provider === "claude" || provider === "qoder") && entry.runtime.remoteBridge) {
       const bridge = entry.runtime.remoteBridge;
       params.mcpServers = [{ name: "pannel_handle_remote", type: "http", url: bridge.url,
         headers: [{ name: "Authorization", value: `Bearer ${bridge.token}` }] }];
-      params._meta = { claudeCode: { options: {
+      if (provider === "claude") params._meta = { claudeCode: { options: {
         settingSources: [], allowDangerouslySkipPermissions: false,
         disallowedTools: ["Bash", "PowerShell", "Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit", "Agent", "Task", "Skill", "WebFetch", "WebSearch"],
         systemPrompt: { type: "preset", preset: "claude_code", append: bridge.instructions }
@@ -215,6 +220,17 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!entry) throw new Error(`${agentName} ACP 会话不存在。`);
     return entry;
   }
+  function coalesceClaudeMessages(items) {
+    const result = [];
+    for (const item of items) {
+      const previous = result.at(-1);
+      if (item.type === "agentMessage" && previous?.type === "agentMessage"
+        && previous.turnId === item.turnId && typeof previous.text === "string" && typeof item.text === "string") {
+        result[result.length - 1] = { ...previous, text: previous.text + item.text };
+      } else result.push(item);
+    }
+    return result;
+  }
   function snapshot(id) {
     const entry = entryFor(id);
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
@@ -223,14 +239,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
-      ...(provider === "codebuddy" ? { availableCommands: entry.availableCommands } : {}),
+      ...(provider === "codebuddy" || provider === "qoder" ? { availableCommands: entry.availableCommands } : {}),
       ...(provider === "codebuddy" ? { codexInheritance: {
         skills: entry.runtime.inheritance?.skillNames || [],
         mcpServers: Object.keys(entry.runtime.inheritance?.mcpServers || {}),
         warnings: entry.runtime.inheritance?.warnings || []
       } } : {}),
       contextUsage: entry.contextUsage,
-      items: [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
+      items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
       approvals: [...entry.approvals.values()].map(value => value.display),
       questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })), capabilities: entry.capabilities, provider };
@@ -279,12 +295,19 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function appendText(items, type, text, messageId, turnId) {
     if (!text) return;
+    if (provider === "claude" && type === "agentMessage") {
+      const previous = items.at(-1);
+      if (previous?.type === type && previous.turnId === turnId && previous.streaming) previous.text += text;
+      else items.push({ id: messageId && !items.some(item => item.id === messageId) ? messageId : randomUUID(),
+        type, turnId, text, streaming: true });
+      return;
+    }
     const existing = messageId ? items.find(item => item.id === messageId) : items.at(-1);
     if (existing?.type === type && existing.turnId === turnId && (messageId || existing.streaming)) existing.text += text;
     else items.push({ id: messageId || randomUUID(), type, turnId, text, streaming: true });
   }
   function appendTurnError(entry, turnId, detail) {
-    if ((provider !== "codebuddy" && provider !== "claude") || !turnId || typeof detail !== "string" || !detail.trim()) return false;
+    if ((provider !== "codebuddy" && provider !== "claude" && provider !== "qoder") || !turnId || typeof detail !== "string" || !detail.trim()) return false;
     const id = `turn-error:${turnId}`;
     const existing = entry.items.find(item => item.id === id);
     if (existing) existing.text = detail;
@@ -325,7 +348,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function onUpdate(id, entry, value) {
     const update = value?.update || {};
-    if (provider === "codebuddy" && update.sessionUpdate === "available_commands_update") {
+    if ((provider === "codebuddy" || provider === "qoder") && update.sessionUpdate === "available_commands_update") {
       const commands = readAvailableCommands(update.availableCommands);
       if (entry.awaitingSession && value.sessionId) entry.earlyCommands.set(value.sessionId, commands);
       else if (value.sessionId === entry.threadId) { entry.availableCommands = commands; schedulePublish(id); }
@@ -537,8 +560,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (Object.hasOwn(message, "id")) send(entry, { id: message.id, error: { code: -32601, message: "Unsupported client method" } });
   }
   async function start(session, runtime = {}) {
-    if (provider === "claude" && runtime.localBridge && (!runtime.remoteBridge?.url || !runtime.remoteBridge?.token || !runtime.remoteBridge?.instructions))
-      throw new Error("Claude SSH 本机桥接缺少受限远端工具配置。");
+    if ((provider === "claude" || provider === "qoder") && runtime.localBridge && (!runtime.remoteBridge?.url || !runtime.remoteBridge?.token || !runtime.remoteBridge?.instructions))
+      throw new Error(`${agentName} SSH 本机桥接缺少受限远端工具配置。`);
     if (provider === "codebuddy" && codexInheritanceManager && !runtime.inheritance) {
       runtime = { ...runtime, inheritance: await codexInheritanceManager.prepare(session, {
         projectCwd: runtime.workspaceCwd || session.cwd, localBridge: runtime.localBridge === true
@@ -594,6 +617,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         await transport.connect();
       }
       const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } }, _meta: { "codebuddy.ai": { question: true } } } : provider === "claude" ? { elicitation: { form: {} } } : {} });
+      if (provider === "qoder" && runtime.localBridge && initialized?.agentCapabilities?.mcpCapabilities?.http !== true)
+        throw new Error("Qoder ACP 不支持 SSH 本机桥接所需的 HTTP MCP 通道。");
       entry.supportsLoad = initialized?.agentCapabilities?.loadSession === true;
       entry.multitaskSupport = initialized?.agentCapabilities?.multitaskSupport === true;
       if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
@@ -611,7 +636,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       await restoreOptions(entryFor(session.id));
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
-    } catch (error) { const failure = provider === "codebuddy" || provider === "claude" ? withStderr(error) : error; close(session.id); throw failure; }
+    } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" ? withStderr(error) : error; close(session.id); throw failure; }
   }
   function close(id) {
     const entry = sessions.get(id);
@@ -742,7 +767,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const native = policy.findMode(entry, mode);
     if (!native) throw new Error(`当前 ${agentName} CLI 不支持${mode === "plan" ? "计划" : "执行"}模式。`);
     if (native.id === entry.nativeMode) return snapshot(id);
-    if (provider === "opencode" && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", native.id);
+    if ((provider === "opencode" || provider === "qoder") && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", native.id);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId: native.id });
     entry.mode = mode; entry.nativeMode = native.id; entry.pendingPlan = null;
     reflectNativeMode(entry);
@@ -755,7 +780,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (entry.busy || entry.pendingPlan) throw new Error("当前轮次尚未结束。");
     if (!entry.modes.some(mode => mode.id === modeId)) throw new Error(`当前 ${agentName} CLI 不支持此模式。`);
     if (modeId === entry.nativeMode) return snapshot(id);
-    if (provider === "opencode" && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", modeId);
+    if ((provider === "opencode" || provider === "qoder") && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", modeId);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId });
     entry.nativeMode = modeId; entry.pendingPlan = null;
     reflectNativeMode(entry); saveOption(entry, "mode", modeId); publish(id);
@@ -780,7 +805,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function setConfigOption(id, optionId, value) {
     const entry = entryFor(id);
     if (entry.runtime.requiredMode && optionId === "mode" && value !== entry.runtime.requiredMode) throw new Error("本机 SSH 桥接不允许切换受限 Agent 模式。");
-    if ((provider !== "opencode" && !(provider === "codebuddy" && (optionId === "model" || optionId === "context_window"))
+    if ((provider !== "opencode" && provider !== "qoder" && !(provider === "codebuddy" && (optionId === "model" || optionId === "context_window"))
       && !(provider === "claude" && (optionId === "model" || optionId === "effort"))) || entry.busy)
       throw new Error("当前会话无法切换配置。");
     const option = entry.configOptions.find(item => item.id === optionId && item.type === "select");
@@ -798,7 +823,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function setModel(id, value) { return setConfigOption(id, "model", value); }
   function setContextWindow(id, value) { return setConfigOption(id, "context_window", value); }
-  function setEffort(id, value) { return setConfigOption(id, "effort", value); }
+  function setEffort(id, value) { return setConfigOption(id, provider === "qoder" ? "reasoning_effort" : "effort", value); }
   async function sendTeamMessage(id, teamName, memberName, text) {
     const entry = entryFor(id);
     if (provider !== "codebuddy" || !entry.httpTransport?.sendTeamMessage) throw new Error("当前会话不支持团队消息。");

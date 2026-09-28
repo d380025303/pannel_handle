@@ -3,7 +3,7 @@ const { readJson, writeJson } = require("./business-store-io.cjs");
 const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
-const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode", "claude"]);
+const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode", "claude", "qoder"]);
 const CODEX_EXECUTION_PERMISSIONS = new Set(["readOnly", "askApproval", "fullAccess"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 
@@ -140,6 +140,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       : agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true
       : agentProvider === "opencode" ? template.openCodeAcpEnabled === true
       : agentProvider === "claude" ? false
+      : agentProvider === "qoder" ? false
       : true;
     const codexAppServerModel = codexBackend === "openai" && typeof template.codexAppServerModel === "string"
       ? template.codexAppServerModel.trim() || undefined : undefined;

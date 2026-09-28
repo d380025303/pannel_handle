@@ -43,6 +43,15 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps old Qoder templates terminal-based until graphical mode is enabled", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{ id: "qoder", type: "windows", cwd: "C:\\work", agentProvider: "qoder" }]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("qoder").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("qoder", { graphicalSessionEnabled: true });
+    expect(store.getTemplate("qoder").graphicalSessionEnabled).toBe(true);
+  });
   it("keeps old Claude templates terminal-based while accepting an explicit graphical choice", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{ id: "claude", type: "windows", cwd: "C:\\work", agentProvider: "claude" }]));

@@ -62,7 +62,7 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
 }
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
-type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" };
+type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "qoder" };
 const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 type InlineImage = { token: string; path: string | null };
@@ -786,20 +786,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ? history.filter(thread => `${thread.title} ${thread.id}`.toLocaleLowerCase().includes(normalizedHistoryQuery))
     : [...history]).sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)) || b.updatedAt - a.updatedAt);
 
-  const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : "Codex";
+  const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : snapshot.provider === "qoder" ? "Qoder" : "Codex";
   const canSendWhileBusy = agentName === "Codex" && !snapshot.compacting;
-  const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude"
+  const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
   const modelDetails = (modelId: string) => {
     if (snapshot.provider !== "codebuddy") return "";
     const metadata = modelMetadata.find(model => model.id === modelId);
     return [metadata?.creditMultiplier ? `倍率 ${metadata.creditMultiplier}` : "", ...(metadata?.promotions.map(promotion => promotion.label) || [])].filter(Boolean).join(" · ");
   };
-  const acpEffort = snapshot.provider === "opencode" || snapshot.provider === "claude" ? snapshot.acpOptions?.find(option => option.id === "effort" && option.type === "select") : undefined;
+  const acpEffort = snapshot.provider === "opencode" || snapshot.provider === "claude" || snapshot.provider === "qoder" ? snapshot.acpOptions?.find(option => option.id === (snapshot.provider === "qoder" ? "reasoning_effort" : "effort") && option.type === "select") : undefined;
   const acpContextWindow = snapshot.provider === "codebuddy" ? snapshot.acpOptions?.find(option => option.id === "context_window" && option.type === "select" && (option.options?.length ?? 0) > 1) : undefined;
   const multitaskOption = snapshot.provider === "codebuddy" && snapshot.capabilities?.multitask === true
     ? snapshot.acpOptions?.find(option => option.id === "multitask" && option.type === "boolean") : undefined;
-  const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "claude";
+  const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "claude" || snapshot.provider === "qoder";
   const currentModel = (snapshot.models || []).find(model => model.id === snapshot.model);
   const selectionTitles: Record<SelectionKind, string> = {
     mode: isAcp ? `${agentName} 模式` : "模式", model: "模型", effort: "思考强度",
@@ -907,16 +907,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     { id: "files", label: "附加文件", disabled: !canAttach }
   ];
   const localCommandNames = new Set(localSlashCommands.map(command => command.id.toLocaleLowerCase()));
-  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy"
+  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy" || snapshot.provider === "qoder"
     ? [...localSlashCommands, ...(snapshot.availableCommands || [])
       .filter(command => !localCommandNames.has(command.name.toLocaleLowerCase()))
-      .map(command => ({ id: command.name, label: command.description || "CodeBuddy 命令", source: "codebuddy" as const }))]
+      .map(command => ({ id: command.name, label: command.description || `${agentName} 命令`, source: snapshot.provider === "qoder" ? "qoder" as const : "codebuddy" as const }))]
     : localSlashCommands;
   const slashQuery = !slashDismissed && /^\/[^\s]*$/.test(draft) ? draft.slice(1).toLocaleLowerCase() : null;
   const visibleSlashCommands = slashQuery === null ? [] : slashCommands.filter(command => `${command.id} ${command.label}`.toLocaleLowerCase().includes(slashQuery));
   function executeSlashCommand(command: SlashCommand) {
     if (command.disabled) return;
-    if (command.source === "codebuddy") {
+    if (command.source === "codebuddy" || command.source === "qoder") {
       setSlashDismissed(true); setSelectedSlashIndex(0);
       setDraft(`/${command.id} `);
       window.requestAnimationFrame(() => textareaRef.current?.focus());
@@ -953,7 +953,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
-      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片与规划模式</span>{(isCodex || snapshot.provider === "codebuddy") && snapshot.threadId && <CodexVersionControl sessionId={sessionId} provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />}</div>}
+      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片{snapshot.capabilities?.plan ? "与规划模式" : ""}</span>{(isCodex || snapshot.provider === "codebuddy") && snapshot.threadId && <CodexVersionControl sessionId={sessionId} provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />}</div>}
       {timeline.map(entry => {
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
@@ -1148,7 +1148,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             if (target && !snapshot.pendingPlan) void changeNativeMode(target.id);
             return;
           }
-          if (snapshot.provider !== "opencode" && snapshot.provider !== "claude") {
+          if (snapshot.provider !== "opencode" && snapshot.provider !== "claude" && snapshot.provider !== "qoder") {
             event.preventDefault();
             void changeMode(snapshot.mode === "plan" ? "default" : "plan");
           }

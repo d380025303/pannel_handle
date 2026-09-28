@@ -11,7 +11,7 @@ export const AGENT_PROVIDER_OPTIONS: ReadonlyArray<{ value: AgentProvider; label
   { value: "grok", label: "Grok CLI" }
 ];
 
-export const LOCAL_BRIDGE_AGENT_PROVIDERS = new Set<AgentProvider>(["codex", "codebuddy", "opencode", "claude"]);
+export const LOCAL_BRIDGE_AGENT_PROVIDERS = new Set<AgentProvider>(["codex", "codebuddy", "opencode", "claude", "qoder"]);
 
 export function supportsLocalBridge(provider?: AgentProvider): boolean {
   return Boolean(provider && LOCAL_BRIDGE_AGENT_PROVIDERS.has(provider));

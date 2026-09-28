@@ -157,6 +157,46 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ type: "windows", cwd: "C:\\work" }, "Get-Command opencode -All"],
+    [{ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, "command -v opencode"],
+    [{ type: "ssh", cwd: "/srv/app", agentLocation: "remote", sshConfig: { host: "example.com" } }, "command -v opencode"],
+    [{ type: "ssh", cwd: "/srv/app", agentLocation: "local", sshConfig: { host: "example.com" } }, "Get-Command opencode -All"]
+  ])("shows recovery commands and keeps the current session when switching to OpenCode V1 in %j", async (target, inspectCommand) => {
+    const mocks = createMocks();
+    mocks.terminalManager.getSession.mockReturnValue({ id: "run-1", templateId: "1", agentProvider: "codex", ...target });
+    mocks.spawnSync.mockImplementation((command, args) => ({
+      status: 0,
+      stdout: `${command} ${(args || []).join(" ")}`.includes("opencode --version") ? "1.18.21" : "found"
+    }));
+    mocks.sshSessionRuntime.exec.mockImplementation((_id, command) => Promise.resolve(command.includes("opencode --version") ? "1.18.21" : "/usr/bin/opencode"));
+
+    let error;
+    try {
+      await mocks.launcher.switchAgent("run-1", "opencode");
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error?.message).toContain("OpenCode V1 不再支持（当前 1.18.21）");
+    expect(error?.message).toContain("npm uninstall -g opencode-ai");
+    expect(error?.message).toContain("npm install -g @opencode/cli");
+    expect(error?.message).toContain(inspectCommand);
+    expect(error?.message).toContain("opencode --version");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+  });
+
+  it("shows recovery commands when the remote OpenCode version cannot be read", async () => {
+    const mocks = createMocks();
+    mocks.terminalManager.getSession.mockReturnValue({ id: "run-1", templateId: "1", type: "ssh", cwd: "/srv/app",
+      agentProvider: "codex", agentLocation: "remote", sshConfig: { host: "example.com" } });
+    mocks.sshSessionRuntime.exec.mockImplementation((_id, command) => command.includes("opencode --version")
+      ? Promise.reject(new Error("remote command failed")) : Promise.resolve("/usr/bin/opencode"));
+
+    await expect(mocks.launcher.switchAgent("run-1", "opencode"))
+      .rejects.toThrow("npm install -g @opencode/cli");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+  });
+
   it("routes explicitly enabled OpenCode Windows, WSL, and SSH remote sessions to ACP", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ codexAppServerSessionService });
@@ -1037,6 +1077,36 @@ describe("agent-session-launcher", () => {
     expect(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).not.toContain("secret-token");
   });
 
+  it("starts Qoder graphically on Windows, WSL and SSH remote", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const windows = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "qoder", graphicalSessionEnabled: true });
+    const wsl = await mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/srv/app", agentProvider: "qoder", graphicalSessionEnabled: true });
+    const ssh = await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "qoder", graphicalSessionEnabled: true,
+      agentLocation: "remote", sshConfig: { host: "example.com" } });
+    expect([windows.runtimeMode, wsl.runtimeMode, ssh.runtimeMode]).toEqual(["app-server", "app-server", "app-server"]);
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
+  });
+
+  it("starts Qoder with the restricted local SSH bridge and rejects its terminal mode", async () => {
+    const binding = { workspacePath: "C:\\runtime\\run-1", url: "http://127.0.0.1:4568/mcp",
+      token: "secret-token", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN", runtimeInstructions: "Use remote tools." };
+    const remoteAgentBridgeService = { createBinding: vi.fn(async () => binding),
+      runConfiguredCommand: vi.fn(async () => ({})), closeBinding: vi.fn(async () => {}) };
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
+    const request = { type: "ssh", cwd: "/srv/app", agentProvider: "qoder", agentLocation: "local",
+      sshConfig: { host: "example.com" } };
+    await expect(mocks.launcher.createSession({ ...request, graphicalSessionEnabled: false })).rejects.toThrow("仅支持图形会话");
+    const session = await mocks.launcher.createSession({ ...request, graphicalSessionEnabled: true });
+    expect(session.runtimeMode).toBe("app-server");
+    expect(codexAppServerSessionService.start).toHaveBeenCalledWith(session, expect.objectContaining({
+      remoteBridge: { url: binding.url, token: binding.token, instructions: binding.runtimeInstructions },
+      workspaceCwd: binding.workspacePath
+    }));
+    expect(mocks.hookConfigManager.install).not.toHaveBeenCalled();
+  });
+
   it("allows a local Codex bridge to target a remote Windows workspace", async () => {
     const remoteAgentBridgeService = {
       createBinding: vi.fn(async () => ({
@@ -1167,6 +1237,19 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
     expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
     expect(mocks.sessions).toEqual([expect.objectContaining({ id: "run-1", agentProvider: "codex" })]);
+  });
+
+  it("shows the Claude ACP install command when a graphical Agent switch cannot find it", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: true });
+    mocks.spawnSync.mockImplementation((command, args) => ({
+      status: command === "where.exe" && args[0] === "claude-agent-acp" ? 1 : 0,
+      stdout: ""
+    }));
+
+    await expect(mocks.launcher.switchAgent("run-1", "claude"))
+      .rejects.toThrow("npm install -g @agentclientprotocol/claude-agent-acp");
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
   });
 
   it("switches only the running Codex session to a backend default model", async () => {

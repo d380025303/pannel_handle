@@ -6,6 +6,7 @@ type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 type Props = {
   sessionId: string;
+  sessionType: "windows" | "wsl" | "ssh";
   snapshot: GraphicalSnapshot;
   send: (message: ClientMessage) => boolean;
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void;
@@ -19,7 +20,7 @@ function time(value: number) {
   return Number.isFinite(value) ? new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "未知";
 }
 
-export function GraphicalUsage({ sessionId, snapshot, send, onGraphicalMessage }: Props) {
+export function GraphicalUsage({ sessionId, sessionType, snapshot, send, onGraphicalMessage }: Props) {
   const [usage, setUsage] = useState<GraphicalUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -29,7 +30,7 @@ export function GraphicalUsage({ sessionId, snapshot, send, onGraphicalMessage }
   const threadId = snapshot.threadId;
   const provider = snapshot.provider;
   const backend = snapshot.backend;
-  const supported = provider === "codebuddy" || (provider === "codex" && backend !== "openrouter" && backend !== "nararouter");
+  const supported = provider === "codebuddy" || provider === "qoder" && sessionType !== "ssh" || (provider === "codex" && backend !== "openrouter" && backend !== "nararouter");
 
   useEffect(() => {
     if (!supported) return;

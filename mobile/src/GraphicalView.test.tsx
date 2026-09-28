@@ -307,6 +307,19 @@ it("shows CodeBuddy native modes and switches any advertised mode", () => {
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.native-mode", modeId: "bypassPermissions" }));
 });
 
+it("shows Qoder's two ACP modes and switches to Bypass Permissions", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "qoder", nativeMode: "default", capabilities: { history: true, plan: false },
+    nativeModes: [{ id: "default", name: "Default" }, { id: "yolo", name: "Bypass Permissions" }]
+  } });
+  expect(screen.getByText("Qoder · 就绪")).toBeTruthy();
+  const modes = openSheet("切换模式");
+  expect(within(modes).queryByRole("button", { name: "Plan" })).toBeNull();
+  fireEvent.click(within(modes).getByRole("button", { name: "Bypass Permissions" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.native-mode", modeId: "yolo" }));
+});
+
 it("changes Codex permission, keeps a failed choice retryable, and honors supported permissions", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
