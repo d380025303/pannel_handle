@@ -1,9 +1,16 @@
 const { VALID_LOCALES, VALID_THEME_IDS } = require("../../stores/config-store.cjs");
 const { normalizeScreenshotShortcut } = require("../screenshot/screenshot-shortcut.cjs");
+const { copyBackgroundImage } = require("./terminal-background.cjs");
+const {
+  normalizeTerminalBackgroundImage,
+  normalizeTerminalBackgroundOpacity,
+  normalizeTerminalBackgroundBlur
+} = require("../../stores/config-store.cjs");
 
 const SETTINGS_IPC_CHANNELS = [
   "config:get",
   "config:set",
+  "terminal-background:choose-image",
   "dingtalk:get-config",
   "dingtalk:set-config",
   "dingtalk:clear-credentials",
@@ -67,7 +74,10 @@ function registerSettingsIpcHandlers({
   naraRouterService,
   miniMaxService,
   codeBuddyCodexBridgeService,
-  getMobileRemoteService
+  getMobileRemoteService,
+  dialog,
+  getWindowFromEvent,
+  userDataDir
 }) {
   ipcMain.handle("config:get", () => configStore.getConfig());
   ipcMain.handle("config:set", (_event, partial) => {
@@ -108,6 +118,15 @@ function registerSettingsIpcHandlers({
       && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
       updates.rightToolsWidth = partial.rightToolsWidth;
     }
+    if (partial && typeof partial.terminalBackgroundImage === "string") {
+      updates.terminalBackgroundImage = normalizeTerminalBackgroundImage(partial.terminalBackgroundImage);
+    }
+    if (partial && typeof partial.terminalBackgroundOpacity === "number") {
+      updates.terminalBackgroundOpacity = normalizeTerminalBackgroundOpacity(partial.terminalBackgroundOpacity);
+    }
+    if (partial && typeof partial.terminalBackgroundBlur === "number") {
+      updates.terminalBackgroundBlur = normalizeTerminalBackgroundBlur(partial.terminalBackgroundBlur);
+    }
     if (Object.keys(updates).length > 0) {
       configStore.updateConfig(updates);
     }
@@ -116,6 +135,29 @@ function registerSettingsIpcHandlers({
       workBuddyAutoCheckinService?.setEnabled(config.autoWorkBuddyCheckin);
     }
     return config;
+  });
+
+  ipcMain.handle("terminal-background:choose-image", async (event) => {
+    if (!dialog || !userDataDir) {
+      return { canceled: false, error: "Terminal background service unavailable" };
+    }
+    const ownerWindow = typeof getWindowFromEvent === "function" ? getWindowFromEvent(event) : undefined;
+    const options = {
+      properties: ["openFile"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }]
+    };
+    const result = ownerWindow
+      ? await dialog.showOpenDialog(ownerWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    try {
+      const name = copyBackgroundImage(result.filePaths[0], userDataDir);
+      return { canceled: false, name };
+    } catch (err) {
+      return { canceled: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   ipcMain.handle("dingtalk:get-config", () => dingTalkConfigStore.getConfig());

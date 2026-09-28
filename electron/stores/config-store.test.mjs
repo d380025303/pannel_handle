@@ -49,8 +49,54 @@ describe("config-store", () => {
       themeId: "dark-slate",
       locale: "zh-CN",
       sidebarWidth: 290,
-      rightToolsWidth: 380
+      rightToolsWidth: 380,
+      terminalBackgroundImage: "",
+      terminalBackgroundOpacity: 40,
+      terminalBackgroundBlur: 0
     });
+  });
+
+  it("loads, normalizes, and persists terminal background settings", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 65,
+      terminalBackgroundBlur: 12
+    }), "utf-8");
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig()).toMatchObject({
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 65,
+      terminalBackgroundBlur: 12
+    });
+
+    store.updateConfig({ terminalBackgroundImage: "", terminalBackgroundOpacity: 0, terminalBackgroundBlur: 40 });
+    const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(saved.terminalBackgroundImage).toBe("");
+    expect(saved.terminalBackgroundOpacity).toBe(0);
+    expect(saved.terminalBackgroundBlur).toBe(40);
+  });
+
+  it("normalizes invalid terminal background values on load and update", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({
+      terminalBackgroundImage: "../evil.png",
+      terminalBackgroundOpacity: 250,
+      terminalBackgroundBlur: -5
+    }), "utf-8");
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig()).toMatchObject({
+      terminalBackgroundImage: "",
+      terminalBackgroundOpacity: 100,
+      terminalBackgroundBlur: 0
+    });
+
+    store.updateConfig({ terminalBackgroundImage: "a/b.png" });
+    expect(store.getConfig().terminalBackgroundImage).toBe("");
+    store.updateConfig({ terminalBackgroundImage: "ok.webp" });
+    expect(store.getConfig().terminalBackgroundImage).toBe("ok.webp");
   });
 
   it("loads, normalizes, and persists screenshot preferences", () => {
@@ -200,7 +246,10 @@ describe("config-store", () => {
       themeId: "light",
       locale: "zh-CN",
       sidebarWidth: 290,
-      rightToolsWidth: 380
+      rightToolsWidth: 380,
+      terminalBackgroundImage: "",
+      terminalBackgroundOpacity: 40,
+      terminalBackgroundBlur: 0
     });
   });
 });

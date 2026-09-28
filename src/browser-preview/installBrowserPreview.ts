@@ -86,7 +86,10 @@ const initialConfig: AppConfig = {
   themeId: "dark-slate",
   locale: "zh-CN",
   sidebarWidth: 290,
-  rightToolsWidth: 380
+  rightToolsWidth: 380,
+  terminalBackgroundImage: "",
+  terminalBackgroundOpacity: 40,
+  terminalBackgroundBlur: 0
 };
 
 const initialTransfers: FileTransferTask[] = [
@@ -315,7 +318,8 @@ export function installBrowserPreview() {
     },
     reorderRunningSessions: async (orderedIds) => { sessions = orderedIds.map((id) => sessions.find((session) => session.id === id)).filter(Boolean) as TerminalSession[]; emitSessions(); return copy(sessions); },
     getConfig: async () => copy(config),
-    setConfig: async (partial) => { config = { ...config, ...partial }; return copy(config); }
+    setConfig: async (partial) => { config = { ...config, ...partial }; return copy(config); },
+    chooseTerminalBackgroundImage: async () => ({ canceled: true as const })
   };
 
   const remoteFileApi: Window["remoteFileApi"] = {

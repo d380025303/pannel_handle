@@ -17,6 +17,30 @@ function normalizeWindowsShell(value) {
   return ["cmd", "powershell", "pwsh"].includes(value) ? value : "cmd";
 }
 
+const DEFAULT_TERMINAL_BACKGROUND_IMAGE = "";
+const DEFAULT_TERMINAL_BACKGROUND_OPACITY = 40;
+const DEFAULT_TERMINAL_BACKGROUND_BLUR = 0;
+
+function normalizeTerminalBackgroundImage(value) {
+  if (typeof value !== "string") return DEFAULT_TERMINAL_BACKGROUND_IMAGE;
+  if (value === "") return "";
+  if (value.length > 260) return DEFAULT_TERMINAL_BACKGROUND_IMAGE;
+  if (value.includes("/") || value.includes("\\") || value.includes("..")) {
+    return DEFAULT_TERMINAL_BACKGROUND_IMAGE;
+  }
+  return value;
+}
+
+function normalizeTerminalBackgroundOpacity(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_TERMINAL_BACKGROUND_OPACITY;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function normalizeTerminalBackgroundBlur(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_TERMINAL_BACKGROUND_BLUR;
+  return Math.min(40, Math.max(0, Math.round(value)));
+}
+
 function createConfigStore({ configFile, dataStore }) {
   let legacyCodexAppServerEnabled = true;
   let config = {
@@ -31,7 +55,10 @@ function createConfigStore({ configFile, dataStore }) {
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
     sidebarWidth: 290,
-    rightToolsWidth: 380
+    rightToolsWidth: 380,
+    terminalBackgroundImage: DEFAULT_TERMINAL_BACKGROUND_IMAGE,
+    terminalBackgroundOpacity: DEFAULT_TERMINAL_BACKGROUND_OPACITY,
+    terminalBackgroundBlur: DEFAULT_TERMINAL_BACKGROUND_BLUR
   };
 
   function serializeConfig() {
@@ -47,7 +74,10 @@ function createConfigStore({ configFile, dataStore }) {
       themeId: config.themeId,
       locale: config.locale,
       sidebarWidth: config.sidebarWidth,
-      rightToolsWidth: config.rightToolsWidth
+      rightToolsWidth: config.rightToolsWidth,
+      terminalBackgroundImage: config.terminalBackgroundImage,
+      terminalBackgroundOpacity: config.terminalBackgroundOpacity,
+      terminalBackgroundBlur: config.terminalBackgroundBlur
     };
   }
 
@@ -74,7 +104,10 @@ function createConfigStore({ configFile, dataStore }) {
             ? parsed.sidebarWidth : 290,
           rightToolsWidth: typeof parsed.rightToolsWidth === "number"
             && parsed.rightToolsWidth >= 280 && parsed.rightToolsWidth <= 600
-            ? parsed.rightToolsWidth : 380
+            ? parsed.rightToolsWidth : 380,
+          terminalBackgroundImage: normalizeTerminalBackgroundImage(parsed.terminalBackgroundImage),
+          terminalBackgroundOpacity: normalizeTerminalBackgroundOpacity(parsed.terminalBackgroundOpacity),
+          terminalBackgroundBlur: normalizeTerminalBackgroundBlur(parsed.terminalBackgroundBlur)
         };
       }
     } catch (err) {
@@ -104,7 +137,10 @@ function createConfigStore({ configFile, dataStore }) {
       themeId: config.themeId,
       locale: config.locale,
       sidebarWidth: config.sidebarWidth,
-      rightToolsWidth: config.rightToolsWidth
+      rightToolsWidth: config.rightToolsWidth,
+      terminalBackgroundImage: config.terminalBackgroundImage,
+      terminalBackgroundOpacity: config.terminalBackgroundOpacity,
+      terminalBackgroundBlur: config.terminalBackgroundBlur
     };
   }
 
@@ -149,6 +185,15 @@ function createConfigStore({ configFile, dataStore }) {
         && partial.rightToolsWidth >= 280 && partial.rightToolsWidth <= 600) {
         config.rightToolsWidth = partial.rightToolsWidth;
       }
+      if (typeof partial.terminalBackgroundImage === "string") {
+        config.terminalBackgroundImage = normalizeTerminalBackgroundImage(partial.terminalBackgroundImage);
+      }
+      if (typeof partial.terminalBackgroundOpacity === "number") {
+        config.terminalBackgroundOpacity = normalizeTerminalBackgroundOpacity(partial.terminalBackgroundOpacity);
+      }
+      if (typeof partial.terminalBackgroundBlur === "number") {
+        config.terminalBackgroundBlur = normalizeTerminalBackgroundBlur(partial.terminalBackgroundBlur);
+      }
     }
     saveConfig();
   }
@@ -167,7 +212,13 @@ module.exports = {
   VALID_THEME_IDS,
   DEFAULT_LOCALE,
   VALID_LOCALES,
+  DEFAULT_TERMINAL_BACKGROUND_IMAGE,
+  DEFAULT_TERMINAL_BACKGROUND_OPACITY,
+  DEFAULT_TERMINAL_BACKGROUND_BLUR,
   createConfigStore,
   normalizeThemeId,
-  normalizeLocale
+  normalizeLocale,
+  normalizeTerminalBackgroundImage,
+  normalizeTerminalBackgroundOpacity,
+  normalizeTerminalBackgroundBlur
 };

@@ -61,6 +61,9 @@ describe("settings module", () => {
       openRouterCatalogFile: "openrouter-catalog.json",
       naraRouterCatalogFile: "nararouter-catalog.json",
       miniMaxCatalogFile: "minimax-catalog.json",
+      dialog: { showOpenDialog: vi.fn() },
+      getWindowFromEvent: vi.fn(),
+      userDataDir: "user-data-dir",
       createRouterService
     });
 

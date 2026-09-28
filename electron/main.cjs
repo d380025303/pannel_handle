@@ -25,6 +25,7 @@ const { createMobileRemoteService } = require("./services/mobile-remote/index.cj
 const { createLaunchTemplateService } = require("./services/launch-templates/index.cjs");
 const { createTerminalStateHub } = require("./terminal/terminal-state-hub.cjs");
 const { createRemoteFilesModule, registerRemoteFileScheme } = require("./services/remote-files/index.cjs");
+const { registerTerminalBackgroundScheme, registerTerminalBackgroundProtocol } = require("./services/settings/terminal-background.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
@@ -128,6 +129,7 @@ let questionAnswerStore = null;
 let diagnosticsStore = null;
 
 registerRemoteFileScheme(protocol);
+registerTerminalBackgroundScheme(protocol);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -421,8 +423,12 @@ if (!gotSingleInstanceLock) {
       codexModelBridgeModule,
       openRouterCatalogFile: path.join(modelCatalogDir, "openrouter-model-catalog.json"),
       naraRouterCatalogFile: path.join(modelCatalogDir, "nararouter-model-catalog.json"),
-      miniMaxCatalogFile: path.join(modelCatalogDir, "minimax-model-catalog.json")
+      miniMaxCatalogFile: path.join(modelCatalogDir, "minimax-model-catalog.json"),
+      dialog,
+      getWindowFromEvent: windowManager.getWindowFromEvent,
+      userDataDir: app.getPath("userData")
     });
+    registerTerminalBackgroundProtocol(protocol, app.getPath("userData"));
     screenshotModule = createScreenshotModule({
       ipcMain,
       shellApi: shell,

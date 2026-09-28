@@ -29,6 +29,7 @@ function getTerminalStatusMessage(err: unknown) {
 
 function createTerminalEntry(terminalTheme: ITheme) {
   const terminal = new Terminal({
+    allowTransparency: true,
     cursorBlink: true,
     convertEol: true,
     fontFamily: "Cascadia Mono, Consolas, monospace",

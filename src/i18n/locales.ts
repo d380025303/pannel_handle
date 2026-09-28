@@ -152,6 +152,13 @@ export type TranslationKey =
   | "settings.screenshotShortcutReserved"
   | "settings.screenshotShortcutModifierRequired"
   | "settings.screenshotShortcutUnsupported"
+  | "settings.terminalBackgroundTitle"
+  | "settings.terminalBackgroundDescription"
+  | "settings.terminalBackgroundChoose"
+  | "settings.terminalBackgroundClear"
+  | "settings.terminalBackgroundOpacity"
+  | "settings.terminalBackgroundBlur"
+  | "settings.terminalBackgroundNone"
   | "settings.theme"
   | "settings.language"
   | "settings.close"
@@ -1155,6 +1162,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.screenshotShortcutReserved": "该组合键已被应用占用，请使用其他快捷键。",
     "settings.screenshotShortcutModifierRequired": "快捷键至少需要一个 Ctrl、Alt 或 Shift 修饰键。",
     "settings.screenshotShortcutUnsupported": "不支持该按键，请使用修饰键加字母、数字或 F1-F12。",
+    "settings.terminalBackgroundTitle": "终端背景",
+    "settings.terminalBackgroundDescription": "为所有终端设置统一的背景图片，并调节不透明度与模糊程度。",
+    "settings.terminalBackgroundChoose": "选择图片",
+    "settings.terminalBackgroundClear": "清除",
+    "settings.terminalBackgroundOpacity": "不透明度",
+    "settings.terminalBackgroundBlur": "模糊",
+    "settings.terminalBackgroundNone": "未设置背景图片",
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
@@ -2150,6 +2164,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.screenshotShortcutReserved": "That shortcut is already used by the app. Choose another one.",
     "settings.screenshotShortcutModifierRequired": "The shortcut must include Ctrl, Alt, or Shift.",
     "settings.screenshotShortcutUnsupported": "Use a modifier with a letter, number, or F1-F12.",
+    "settings.terminalBackgroundTitle": "Terminal background",
+    "settings.terminalBackgroundDescription": "Set a shared background image for all terminals, with opacity and blur controls.",
+    "settings.terminalBackgroundChoose": "Choose image",
+    "settings.terminalBackgroundClear": "Clear",
+    "settings.terminalBackgroundOpacity": "Opacity",
+    "settings.terminalBackgroundBlur": "Blur",
+    "settings.terminalBackgroundNone": "No background image set",
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",

@@ -177,7 +177,8 @@ contextBridge.exposeInMainWorld("terminalApi", {
     return () => ipcRenderer.removeListener("sessions:select-requested", listener);
   },
   getConfig: () => ipcRenderer.invoke("config:get"),
-  setConfig: (partial) => ipcRenderer.invoke("config:set", partial)
+  setConfig: (partial) => ipcRenderer.invoke("config:set", partial),
+  chooseTerminalBackgroundImage: () => ipcRenderer.invoke("terminal-background:choose-image")
 });
 
 contextBridge.exposeInMainWorld("screenshotApi", {

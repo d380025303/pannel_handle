@@ -12,6 +12,7 @@ import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
 import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
+import { getTerminalBackgroundUrl } from "../../utils/terminalBackground";
 
 type SettingsModalProps = {
   defaultWindowsShell: WindowsShell;
@@ -31,6 +32,13 @@ type SettingsModalProps = {
   onScreenshotShortcutChange: (shortcut: string) => Promise<void>;
   onThemeChange: (themeId: ThemeId) => void;
   onLocaleChange: (locale: Locale) => void;
+  terminalBackgroundImage: string;
+  terminalBackgroundOpacity: number;
+  terminalBackgroundBlur: number;
+  onChooseTerminalBackground: () => Promise<void>;
+  onClearTerminalBackground: () => Promise<void>;
+  onTerminalBackgroundOpacityChange: (value: number) => void;
+  onTerminalBackgroundBlurChange: (value: number) => void;
   onCancel: () => void;
 };
 
@@ -54,6 +62,13 @@ export function SettingsModal({
   onScreenshotShortcutChange,
   onThemeChange,
   onLocaleChange,
+  terminalBackgroundImage,
+  terminalBackgroundOpacity,
+  terminalBackgroundBlur,
+  onChooseTerminalBackground,
+  onClearTerminalBackground,
+  onTerminalBackgroundOpacityChange,
+  onTerminalBackgroundBlurChange,
   onCancel
 }: SettingsModalProps) {
   const { t } = useI18n();
@@ -347,6 +362,68 @@ export function SettingsModal({
                     <span className="modal-label">{t("settings.language")}</span>
                     <SearchableSelect className="settings-theme-select" value={locale} options={localeOptions} ariaLabel={t("settings.language")} onChange={nextLocale => onLocaleChange(nextLocale as Locale)} />
                   </div>
+                </div>
+              </div>
+              <div className="settings-section terminal-background-settings">
+                <div className="settings-card-header">
+                  <div>
+                    <h4>{t("settings.terminalBackgroundTitle")}</h4>
+                    <p className="settings-help">{t("settings.terminalBackgroundDescription")}</p>
+                  </div>
+                </div>
+                <div className="settings-field terminal-background-image-row">
+                  {terminalBackgroundImage ? (
+                    <img
+                      className="terminal-background-preview"
+                      src={getTerminalBackgroundUrl(terminalBackgroundImage)}
+                      alt={t("settings.terminalBackgroundTitle")}
+                    />
+                  ) : (
+                    <span className="terminal-background-none">{t("settings.terminalBackgroundNone")}</span>
+                  )}
+                  <div className="terminal-background-actions">
+                    <button type="button" className="secondary-button" onClick={() => void onChooseTerminalBackground()}>
+                      {t("settings.terminalBackgroundChoose")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={!terminalBackgroundImage}
+                      onClick={() => void onClearTerminalBackground()}
+                    >
+                      {t("settings.terminalBackgroundClear")}
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <span className="modal-label">
+                    {t("settings.terminalBackgroundOpacity")} · {terminalBackgroundOpacity}%
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={terminalBackgroundOpacity}
+                    disabled={!terminalBackgroundImage}
+                    aria-label={t("settings.terminalBackgroundOpacity")}
+                    onChange={event => onTerminalBackgroundOpacityChange(Number(event.target.value))}
+                  />
+                </div>
+                <div className="settings-field">
+                  <span className="modal-label">
+                    {t("settings.terminalBackgroundBlur")} · {terminalBackgroundBlur}px
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    step={1}
+                    value={terminalBackgroundBlur}
+                    disabled={!terminalBackgroundImage}
+                    aria-label={t("settings.terminalBackgroundBlur")}
+                    onChange={event => onTerminalBackgroundBlurChange(Number(event.target.value))}
+                  />
                 </div>
               </div>
               <div className="settings-section screenshot-settings">

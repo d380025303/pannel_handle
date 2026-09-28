@@ -1,8 +1,25 @@
 import { createRequire } from "node:module";
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { SETTINGS_IPC_CHANNELS, registerSettingsIpcHandlers } = require("./settings-ipc-handlers.cjs");
+
+const tempDirs = [];
+
+function createTempDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-settings-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function createIpcMain() {
   const handlers = new Map();
@@ -26,7 +43,7 @@ function createRouterService(name) {
   };
 }
 
-function createHarness() {
+function createHarness(overrides = {}) {
   const ipcMain = createIpcMain();
   let config = {
     autoRestore: true,
@@ -78,7 +95,10 @@ function createHarness() {
     naraRouterService,
     miniMaxService,
     codeBuddyCodexBridgeService,
-    getMobileRemoteService: () => mobileRemoteService
+    getMobileRemoteService: () => mobileRemoteService,
+    dialog: overrides.dialog,
+    getWindowFromEvent: overrides.getWindowFromEvent,
+    userDataDir: overrides.userDataDir
   });
   return {
     ipcMain,
@@ -162,5 +182,59 @@ describe("settings IPC handlers", () => {
     expect([...harness.ipcMain.handlers.keys()].sort()).toEqual([...SETTINGS_IPC_CHANNELS].sort());
     harness.unregister();
     expect(harness.ipcMain.handlers.size).toBe(0);
+  });
+
+  it("passes terminal background fields through config:set with normalization", () => {
+    const harness = createHarness();
+    const result = harness.ipcMain.handlers.get("config:set")({}, {
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 80,
+      terminalBackgroundBlur: 10
+    });
+
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 80,
+      terminalBackgroundBlur: 10
+    });
+    expect(result).toMatchObject({
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 80,
+      terminalBackgroundBlur: 10
+    });
+
+    harness.configStore.updateConfig.mockClear();
+    harness.ipcMain.handlers.get("config:set")({}, { terminalBackgroundOpacity: "80", terminalBackgroundBlur: null });
+    expect(harness.configStore.updateConfig).not.toHaveBeenCalled();
+
+    harness.ipcMain.handlers.get("config:set")({}, { terminalBackgroundImage: "../escape.png" });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ terminalBackgroundImage: "" });
+  });
+
+  it("handles terminal background image choosing", async () => {
+    const userDataDir = createTempDir();
+    const sourceDir = createTempDir();
+    const sourceFile = path.join(sourceDir, "my bg.png");
+    fs.writeFileSync(sourceFile, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const dialog = {
+      showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: [sourceFile] }))
+    };
+    const harness = createHarness({ dialog, userDataDir });
+
+    const result = await harness.ipcMain.handlers.get("terminal-background:choose-image")({});
+    expect(result.canceled).toBe(false);
+    expect(result.name).toMatch(/\.png$/);
+    expect(fs.existsSync(path.join(userDataDir, "terminal-background", result.name))).toBe(true);
+
+    dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    const canceled = await harness.ipcMain.handlers.get("terminal-background:choose-image")({});
+    expect(canceled).toEqual({ canceled: true });
+
+    const badFile = path.join(sourceDir, "notes.txt");
+    fs.writeFileSync(badFile, "text");
+    dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [badFile] });
+    const failed = await harness.ipcMain.handlers.get("terminal-background:choose-image")({});
+    expect(failed.canceled).toBe(false);
+    expect(failed.error).toBeTruthy();
   });
 });

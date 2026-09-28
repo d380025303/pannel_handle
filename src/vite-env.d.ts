@@ -113,6 +113,9 @@ export type AppConfig = {
   locale: Locale;
   sidebarWidth: number;
   rightToolsWidth: number;
+  terminalBackgroundImage: string;
+  terminalBackgroundOpacity: number;
+  terminalBackgroundBlur: number;
 };
 
 export type MobileAccessInterface = { name: string; address: string };
@@ -1187,6 +1190,9 @@ export type TerminalApi = {
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;
+  chooseTerminalBackgroundImage: () => Promise<
+    { canceled: true } | { canceled: false; name?: string; error?: string }
+  >;
 };
 
 export type WindowApi = {

@@ -33,6 +33,13 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         onScreenshotShortcutChange={vi.fn().mockResolvedValue(undefined)}
         onThemeChange={vi.fn()}
         onLocaleChange={vi.fn()}
+        terminalBackgroundImage=""
+        terminalBackgroundOpacity={40}
+        terminalBackgroundBlur={0}
+        onChooseTerminalBackground={vi.fn().mockResolvedValue(undefined)}
+        onClearTerminalBackground={vi.fn().mockResolvedValue(undefined)}
+        onTerminalBackgroundOpacityChange={vi.fn()}
+        onTerminalBackgroundBlurChange={vi.fn()}
         onCancel={vi.fn()}
         {...overrides}
       />
@@ -105,6 +112,39 @@ describe("SettingsModal navigation", () => {
     expect(recorder.textContent).toContain("请按新的组合键");
     fireEvent.keyDown(recorder, { key: "Escape" });
     expect(recorder.textContent).toBe("Ctrl+Shift+S");
+  });
+
+  it("shows terminal background settings and wires the actions", async () => {
+    const onChooseTerminalBackground = vi.fn().mockResolvedValue(undefined);
+    const onClearTerminalBackground = vi.fn().mockResolvedValue(undefined);
+    const onTerminalBackgroundOpacityChange = vi.fn();
+    renderSettingsModal({
+      terminalBackgroundImage: "123-bg.png",
+      terminalBackgroundOpacity: 65,
+      onChooseTerminalBackground,
+      onClearTerminalBackground,
+      onTerminalBackgroundOpacityChange
+    });
+
+    expect(screen.getByText("终端背景")).toBeTruthy();
+    const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;
+    expect(preview.src).toContain("terminal-bg://background/123-bg.png");
+
+    fireEvent.click(screen.getByRole("button", { name: "选择图片" }));
+    await waitFor(() => expect(onChooseTerminalBackground).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "清除" }));
+    await waitFor(() => expect(onClearTerminalBackground).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByRole("slider", { name: /不透明度/ }), { target: { value: "80" } });
+    expect(onTerminalBackgroundOpacityChange).toHaveBeenCalledWith(80);
+  });
+
+  it("disables background controls when no image is set", () => {
+    renderSettingsModal();
+    expect(screen.getByText("未设置背景图片")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "清除" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("slider", { name: /不透明度/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("slider", { name: /模糊/ }) as HTMLInputElement).disabled).toBe(true);
   });
 
   it("supports arrow-key category navigation", () => {

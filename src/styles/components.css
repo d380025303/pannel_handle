@@ -362,6 +362,40 @@
   gap: 14px;
 }
 
+.terminal-background-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.terminal-background-image-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.terminal-background-preview {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.terminal-background-none {
+  color: var(--color-text-muted, var(--color-text));
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.terminal-background-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.terminal-background-settings input[type="range"] {
+  width: min(320px, 100%);
+}
+
 .shortcut-recorder {
   width: min(320px, 100%);
   min-height: 38px;

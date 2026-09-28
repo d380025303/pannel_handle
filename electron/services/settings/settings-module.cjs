@@ -22,6 +22,9 @@ function createSettingsModule({
   openRouterCatalogFile,
   naraRouterCatalogFile,
   miniMaxCatalogFile,
+  dialog,
+  getWindowFromEvent,
+  userDataDir,
   createRouterService = createOpenRouterService
 }) {
   const openRouterService = createRouterService({
@@ -74,7 +77,10 @@ function createSettingsModule({
     naraRouterService,
     miniMaxService,
     codeBuddyCodexBridgeService,
-    getMobileRemoteService
+    getMobileRemoteService,
+    dialog,
+    getWindowFromEvent,
+    userDataDir
   });
   let stopped = false;
 

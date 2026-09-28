@@ -1,5 +1,5 @@
 import type { EnvironmentSelection } from "./vite-env";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -51,6 +51,7 @@ import { useInputRecovery } from "./hooks/inputRecovery";
 import { DEFAULT_LOCALE, I18nProvider, normalizeLocale, useI18n } from "./i18n";
 import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import { DEFAULT_SCREENSHOT_SHORTCUT, matchesScreenshotShortcut } from "./utils/screenshotShortcut";
+import { getTerminalBackgroundUrl } from "./utils/terminalBackground";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
@@ -122,6 +123,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [savedSidebarWidth, setSavedSidebarWidth] = useState(290);
   const [rightToolsWidth, setRightToolsWidth] = useState(380);
+  const [terminalBackgroundImage, setTerminalBackgroundImage] = useState("");
+  const [terminalBackgroundOpacity, setTerminalBackgroundOpacity] = useState(40);
+  const [terminalBackgroundBlur, setTerminalBackgroundBlur] = useState(0);
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
@@ -184,10 +188,21 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const isAppServerSession = terminalSessions.activeSession?.runtimeMode === "app-server";
   const appServerFooter = useCodexAppServerFooter(isAppServerSession ? terminalSessions.activeId : undefined);
   const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
+  const terminalTheme = useMemo(() => (
+    terminalBackgroundImage
+      ? { ...activeTheme.terminal, background: "transparent" }
+      : activeTheme.terminal
+  ), [activeTheme, terminalBackgroundImage]);
+  const terminalBackground = useMemo(() => {
+    const imageUrl = getTerminalBackgroundUrl(terminalBackgroundImage);
+    return imageUrl
+      ? { imageUrl, opacity: terminalBackgroundOpacity, blur: terminalBackgroundBlur }
+      : undefined;
+  }, [terminalBackgroundImage, terminalBackgroundOpacity, terminalBackgroundBlur]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
     isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
-    terminalTheme: activeTheme.terminal,
+    terminalTheme,
     sessions: terminalSessions.sessions
   });
   useInputRecovery({
@@ -285,6 +300,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         onLocaleChange(normalizeLocale(config.locale));
         setSavedSidebarWidth(config.sidebarWidth);
         setRightToolsWidth(config.rightToolsWidth);
+        setTerminalBackgroundImage(config.terminalBackgroundImage);
+        setTerminalBackgroundOpacity(config.terminalBackgroundOpacity);
+        setTerminalBackgroundBlur(config.terminalBackgroundBlur);
       }
     });
     return () => {
@@ -590,6 +608,30 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     onLocaleChange(normalizeLocale(config.locale));
   }, [onLocaleChange]);
 
+  const handleChooseTerminalBackground = useCallback(async () => {
+    const result = await window.terminalApi.chooseTerminalBackgroundImage();
+    if (result.canceled || !result.name) return;
+    const config = await window.terminalApi.setConfig({ terminalBackgroundImage: result.name });
+    setTerminalBackgroundImage(config.terminalBackgroundImage);
+  }, []);
+
+  const handleClearTerminalBackground = useCallback(async () => {
+    const config = await window.terminalApi.setConfig({ terminalBackgroundImage: "" });
+    setTerminalBackgroundImage(config.terminalBackgroundImage);
+  }, []);
+
+  const handleTerminalBackgroundOpacityChange = useCallback(async (value: number) => {
+    setTerminalBackgroundOpacity(value);
+    const config = await window.terminalApi.setConfig({ terminalBackgroundOpacity: value });
+    setTerminalBackgroundOpacity(config.terminalBackgroundOpacity);
+  }, []);
+
+  const handleTerminalBackgroundBlurChange = useCallback(async (value: number) => {
+    setTerminalBackgroundBlur(value);
+    const config = await window.terminalApi.setConfig({ terminalBackgroundBlur: value });
+    setTerminalBackgroundBlur(config.terminalBackgroundBlur);
+  }, []);
+
   useEffect(() => {
     if (!terminalSessions.activeSession) {
       if (rightTool === "files" || rightTool === "git" || rightTool === "monitor") {
@@ -831,6 +873,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onWheel={terminalInstances.handleTerminalWheel}
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
+                  terminalBackground={terminalBackground}
                 />
                 {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
                   ref={appServerSessionRef}
@@ -1153,6 +1196,13 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onScreenshotShortcutChange={handleScreenshotShortcutChange}
           onThemeChange={handleThemeChange}
           onLocaleChange={handleLocaleChange}
+          terminalBackgroundImage={terminalBackgroundImage}
+          terminalBackgroundOpacity={terminalBackgroundOpacity}
+          terminalBackgroundBlur={terminalBackgroundBlur}
+          onChooseTerminalBackground={handleChooseTerminalBackground}
+          onClearTerminalBackground={handleClearTerminalBackground}
+          onTerminalBackgroundOpacityChange={handleTerminalBackgroundOpacityChange}
+          onTerminalBackgroundBlurChange={handleTerminalBackgroundBlurChange}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}
