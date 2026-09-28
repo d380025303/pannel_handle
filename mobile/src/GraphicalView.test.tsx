@@ -478,6 +478,16 @@ it("offers Gemini in the graphical Agent switcher", () => {
     .toMatchObject({ provider: "gemini" });
 });
 
+it("offers Grok in the graphical Agent switcher", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  const agents = openSheet("切换 Agent");
+  fireEvent.click(within(agents).getByRole("button", { name: "Grok" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  expect(send.mock.calls.map(([message]) => message).find(message => message.type === "session.switch-agent"))
+    .toMatchObject({ provider: "grok" });
+});
+
 it("opens history and starts a new conversation from the single menu", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });

@@ -1,6 +1,6 @@
 function createAcpProviderPolicy(provider) {
   const codeBuddy = provider === "codebuddy";
-  const agentName = codeBuddy ? "CodeBuddy" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : "OpenCode";
+  const agentName = codeBuddy ? "CodeBuddy" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "OpenCode";
 
   function updateCapabilities(entry) {
     entry.capabilities.plan = entry.modes.some(mode => /plan/i.test(mode.id));

@@ -13,6 +13,15 @@ afterEach(() => {
 });
 
 describe("CreateSessionModal structure", () => {
+  it("defaults a new Grok session to graphical ACP", async () => {
+    const onCreate = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Grok CLI" }));
+    expect(screen.getByRole("checkbox", { name: "使用图形会话" })).toHaveProperty("checked", true);
+    fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ agentProvider: "grok", graphicalSessionEnabled: true })));
+  });
   it("defaults a new Gemini session to graphical ACP", async () => {
     const onCreate = vi.fn(async () => undefined);
     render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);

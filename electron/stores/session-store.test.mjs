@@ -43,6 +43,23 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps existing Grok templates terminal-based until explicitly enabled", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "old", type: "windows", cwd: "C:\\work", agentProvider: "grok", graphicalSessionEnabled: true },
+      { id: "old-wsl", type: "wsl", cwd: "/work", agentProvider: "grok", graphicalSessionEnabled: false }
+    ]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("old").graphicalSessionEnabled).toBe(false);
+    expect(store.getTemplate("old-wsl").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("old", { graphicalSessionEnabled: true });
+    expect(createStore(sessionsFile).loadLibrary().find(template => template.id === "old").graphicalSessionEnabled).toBe(true);
+    store.addToLibrary({ id: "new", type: "windows", cwd: "C:\\work", agentProvider: "grok", graphicalSessionEnabled: true });
+    expect(createStore(sessionsFile).loadLibrary().find(template => template.id === "new").graphicalSessionEnabled).toBe(true);
+    store.importLibrary([{ id: "imported", type: "windows", cwd: "C:\\work", agentProvider: "grok", graphicalSessionEnabled: true }]);
+    expect(store.getLibrary().at(-1).graphicalSessionEnabled).toBe(false);
+  });
   it("keeps existing Gemini templates terminal-based until explicitly enabled", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([

@@ -43,6 +43,7 @@ const { createClaudeAcpSessionService } = require("./services/claude-acp/session
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQoderAcpSessionService } = require("./services/qoder-acp/session-service.cjs");
 const { createGeminiAcpSessionService } = require("./services/gemini-acp/session-service.cjs");
+const { createGrokAcpSessionService } = require("./services/grok-acp/session-service.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createDiagnosticsStore } = require("./services/codex-app-server/diagnostics-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
@@ -325,7 +326,11 @@ if (!gotSingleInstanceLock) {
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
       historyService: agentConversationHistoryService
     });
-    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService, claudeGraphicalService, qoderGraphicalService, geminiGraphicalService);
+    const grokGraphicalService = createGrokAcpSessionService({
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      historyService: agentConversationHistoryService
+    });
+    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService, claudeGraphicalService, qoderGraphicalService, geminiGraphicalService, grokGraphicalService);
     const codexVersionService = createCodexVersionService({ terminalManager, sshAgentTransport });
     const codeBuddyVersionService = createCodeBuddyVersionService({ terminalManager, sshAgentTransport });
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,

@@ -62,7 +62,7 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
 }
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
-type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "qoder" | "gemini" };
+type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "qoder" | "gemini" | "grok" };
 const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 type InlineImage = { token: string; path: string | null };
@@ -786,9 +786,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ? history.filter(thread => `${thread.title} ${thread.id}`.toLocaleLowerCase().includes(normalizedHistoryQuery))
     : [...history]).sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)) || b.updatedAt - a.updatedAt);
 
-  const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : snapshot.provider === "qoder" ? "Qoder" : snapshot.provider === "gemini" ? "Gemini" : "Codex";
+  const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : snapshot.provider === "qoder" ? "Qoder" : snapshot.provider === "gemini" ? "Gemini" : snapshot.provider === "grok" ? "Grok" : "Codex";
   const canSendWhileBusy = agentName === "Codex" && !snapshot.compacting;
-  const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini"
+  const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
   const modelDetails = (modelId: string) => {
     if (snapshot.provider !== "codebuddy") return "";
@@ -799,7 +799,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const acpContextWindow = snapshot.provider === "codebuddy" ? snapshot.acpOptions?.find(option => option.id === "context_window" && option.type === "select" && (option.options?.length ?? 0) > 1) : undefined;
   const multitaskOption = snapshot.provider === "codebuddy" && snapshot.capabilities?.multitask === true
     ? snapshot.acpOptions?.find(option => option.id === "multitask" && option.type === "boolean") : undefined;
-  const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini";
+  const isAcp = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok";
   const currentModel = (snapshot.models || []).find(model => model.id === snapshot.model);
   const selectionTitles: Record<SelectionKind, string> = {
     mode: isAcp ? `${agentName} 模式` : "模式", model: "模型", effort: "思考强度",
@@ -907,16 +907,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     { id: "files", label: "附加文件", disabled: !canAttach }
   ];
   const localCommandNames = new Set(localSlashCommands.map(command => command.id.toLocaleLowerCase()));
-  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy" || snapshot.provider === "qoder" || snapshot.provider === "gemini"
+  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
     ? [...localSlashCommands, ...(snapshot.availableCommands || [])
       .filter(command => !localCommandNames.has(command.name.toLocaleLowerCase()))
-      .map(command => ({ id: command.name, label: command.description || `${agentName} 命令`, source: snapshot.provider === "qoder" ? "qoder" as const : snapshot.provider === "gemini" ? "gemini" as const : "codebuddy" as const }))]
+      .map(command => ({ id: command.name, label: command.description || `${agentName} 命令`, source: snapshot.provider === "qoder" ? "qoder" as const : snapshot.provider === "gemini" ? "gemini" as const : snapshot.provider === "grok" ? "grok" as const : "codebuddy" as const }))]
     : localSlashCommands;
   const slashQuery = !slashDismissed && /^\/[^\s]*$/.test(draft) ? draft.slice(1).toLocaleLowerCase() : null;
   const visibleSlashCommands = slashQuery === null ? [] : slashCommands.filter(command => `${command.id} ${command.label}`.toLocaleLowerCase().includes(slashQuery));
   function executeSlashCommand(command: SlashCommand) {
     if (command.disabled) return;
-    if (command.source === "codebuddy" || command.source === "qoder" || command.source === "gemini") {
+    if (command.source === "codebuddy" || command.source === "qoder" || command.source === "gemini" || command.source === "grok") {
       setSlashDismissed(true); setSelectedSlashIndex(0);
       setDraft(`/${command.id} `);
       window.requestAnimationFrame(() => textareaRef.current?.focus());
@@ -1148,7 +1148,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             if (target && !snapshot.pendingPlan) void changeNativeMode(target.id);
             return;
           }
-          if (snapshot.provider !== "opencode" && snapshot.provider !== "claude" && snapshot.provider !== "qoder" && snapshot.provider !== "gemini") {
+          if (snapshot.provider !== "opencode" && snapshot.provider !== "claude" && snapshot.provider !== "qoder" && snapshot.provider !== "gemini" && snapshot.provider !== "grok") {
             event.preventDefault();
             void changeMode(snapshot.mode === "plan" ? "default" : "plan");
           }
@@ -1176,8 +1176,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
                 <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
-              <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || "默认"
-                : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>
+              {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"
+                : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>}
               {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
               {(acpModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
               {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
@@ -1220,9 +1220,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               </div>
             </div>}
           </div>
-          <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{isAcp
+          {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{isAcp
             ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}`
-            : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>
+            : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>}
           {isCodex && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}
           {isCodex && snapshot.backend === "openai" && <span className="codex-app-server-permission-status">{(snapshot.models || []).find(model => model.id === snapshot.model)?.displayName || snapshot.model || "默认模型"}{snapshot.effort ? ` · ${effortLabel(snapshot.effort)}` : ""}{snapshot.fastMode ? " · 快速" : ""}</span>}

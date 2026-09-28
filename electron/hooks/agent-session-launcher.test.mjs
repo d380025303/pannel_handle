@@ -824,6 +824,17 @@ describe("agent-session-launcher", () => {
     expect(codexAppServerSessionService.start.mock.lastCall[1].acpArgs).toBe("--experimental-acp");
   });
 
+  it("starts Grok graphically on Windows and WSL while preserving terminal mode", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    const windows = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "grok", graphicalSessionEnabled: true });
+    const wsl = await mocks.launcher.createSession({ type: "wsl", wslDistro: "Ubuntu", cwd: "/work", agentProvider: "grok", graphicalSessionEnabled: true });
+    const terminal = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "grok", graphicalSessionEnabled: false });
+    expect([windows.runtimeMode, wsl.runtimeMode, terminal.runtimeMode]).toEqual(["app-server", "app-server", undefined]);
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
+    expect(mocks.spawnSync.mock.calls.some(([command, args]) => command === "wsl.exe" && args.some(value => String(value).includes("command -v grok")))).toBe(true);
+  });
+
   it("continues launching Codex when the runtime tunnel lookup fails", async () => {
     const mocks = createMocks();
     mocks.sshHookTunnelService.ensureTunnel.mockRejectedValue(new Error("tunnel unavailable"));

@@ -253,16 +253,20 @@ describe("mobile graphical session route", () => {
     f.snapshot.approvals = [];
     f.snapshot.questions = [];
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
-    for (const current of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"]) {
+    for (const current of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"]) {
       f.session.agentProvider = current;
       f.snapshot.provider = current;
-      for (const provider of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"].filter(value => value !== current)) {
+      for (const provider of ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"].filter(value => value !== current)) {
         expect(f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider }))
           .toBe("graph-1");
       }
     }
     f.session.agentProvider = "codex";
     f.snapshot.provider = "codex";
+    f.session.type = "ssh";
+    expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "thread-1", provider: "grok" }))
+      .toThrow("无效的目标");
+    f.session.type = "windows";
     expect(() => f.handlers.assertSwitchAllowed(f.socket, { sessionId: "graph-1", threadId: "old", provider: "codebuddy" }))
       .toThrow("已切换");
     for (const provider of ["codex", "invalid"]) {

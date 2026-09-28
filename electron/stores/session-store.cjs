@@ -180,6 +180,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexExperimentalAcknowledged,
       graphicalSessionEnabled,
       ...(agentProvider === "gemini" ? { geminiGraphicalConfigured: template.geminiGraphicalConfigured === true } : {}),
+      ...(agentProvider === "grok" ? { grokGraphicalConfigured: template.grokGraphicalConfigured === true } : {}),
       codexAppServerModel,
       codexAppServerEffort,
       codexAppServerFastMode,
@@ -246,11 +247,14 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const legacyEnabled = getLegacyCodexAppServerEnabled();
     const needsMigration = saved.some(template => typeof template?.graphicalSessionEnabled !== "boolean"
       || template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
+      || template?.agentProvider === "grok" && template.grokGraphicalConfigured !== true
       || "codexAppServerEnabled" in template || "codeBuddyAcpEnabled" in template || "openCodeAcpEnabled" in template);
     librarySessions = saved.map(template => normalizeTemplate({
       ...template,
       ...(template?.agentProvider === "gemini" && template.geminiGraphicalConfigured !== true
         ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
+      ...(template?.agentProvider === "grok" && template.grokGraphicalConfigured !== true
+        ? { graphicalSessionEnabled: false, grokGraphicalConfigured: true } : {}),
       ...(template?.agentProvider === "codex" && template.type !== "ssh" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
         ? { codexAppServerEnabled: legacyEnabled } : {}),
       ...(template?.agentProvider === "codex" && template.type === "ssh" && template.agentLocation === "local" && typeof template.graphicalSessionEnabled !== "boolean" && typeof template.codexAppServerEnabled !== "boolean"
@@ -274,7 +278,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
 
   function addToLibrary(sessionMeta) {
     const template = normalizeTemplate(sessionMeta.agentProvider === "gemini"
-      ? { ...sessionMeta, geminiGraphicalConfigured: true } : sessionMeta);
+      ? { ...sessionMeta, geminiGraphicalConfigured: true }
+      : sessionMeta.agentProvider === "grok" ? { ...sessionMeta, grokGraphicalConfigured: true } : sessionMeta);
     const idx = librarySessions.findIndex(s => s.id === template.id);
     if (idx >= 0) {
       librarySessions[idx] = template;
@@ -318,6 +323,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
         ...nextUpdates,
         ...(nextUpdates.agentProvider === "gemini" && typeof nextUpdates.graphicalSessionEnabled === "boolean"
           ? { geminiGraphicalConfigured: true } : {}),
+        ...(librarySessions[idx].agentProvider === "grok" || nextUpdates.agentProvider === "grok"
+          ? { grokGraphicalConfigured: true } : {}),
         sshConfig: nextUpdates.sshConfig
           ? normalizeSshConfig(nextUpdates.sshConfig, librarySessions[idx].sshConfig)
           : librarySessions[idx].sshConfig
@@ -375,6 +382,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
         ...item,
         ...(item.agentProvider === "gemini" && item.geminiGraphicalConfigured !== true
           ? { graphicalSessionEnabled: false, geminiGraphicalConfigured: true } : {}),
+        ...(item.agentProvider === "grok" && item.grokGraphicalConfigured !== true
+          ? { graphicalSessionEnabled: false, grokGraphicalConfigured: true } : {}),
         id
       });
       imported.push(template);

@@ -22,7 +22,7 @@ type Props = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini"];
+const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
 const permissions = [
   { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
@@ -457,8 +457,8 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
           {snapshot.provider === "codex"
             ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode || snapshot.capabilities?.permissions === false}
               onClick={() => { setError(""); setActiveSheet("permission"); }}><span>执行权限</span><small>{permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
-            : <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode || !snapshot.nativeModes?.length}
-              onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span>切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button>}
+            : snapshot.nativeModes?.length ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
+              onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span>切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span>切换模型</span><small>{modelLabel(snapshot)}</small></button>
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>
@@ -476,7 +476,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
           </label>
         </div>}
         {activeSheet === "agent" && <div className="graphical-sheet-list">
-          {graphicalProviders.filter(provider => session.type !== "ssh" || provider !== "gemini").map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
+          {graphicalProviders.filter(provider => session.type !== "ssh" || provider !== "gemini" && provider !== "grok").map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
             aria-pressed={provider === snapshot.provider} onClick={() => { setSelectedProvider(provider); setActiveSheet("agent-confirm"); }}>
             <span>{providerLabel(provider)}</span>{provider === snapshot.provider && <small>当前使用</small>}
           </button>)}
