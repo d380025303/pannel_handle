@@ -18,6 +18,7 @@ function createMobileRemoteService({
   agentSessionLauncher,
   graphicalService,
   getAgentUsage,
+  getOpenCodeVerifiedModels,
   sessionStore,
   accessStore,
   stateHub,
@@ -55,7 +56,7 @@ function createMobileRemoteService({
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
-    terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now,
+    terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, stateHub, now,
     auth, sizes, uploads, files, send, sendError,
     getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });
@@ -83,15 +84,16 @@ function createMobileRemoteService({
     const config = accessStore.getConfig();
     const interfaces = listPrivateInterfaces(networkInterfaces());
     const hostname = getMobileHostname();
-    const running = Boolean(server?.listening && localServer?.listening);
+    const running = Boolean(localServer?.listening);
+    const lanRunning = Boolean(server?.listening);
     return {
       config,
       interfaces,
       running,
       hostname,
       address: currentAddress,
-      canonicalUrl: running ? `http://${hostname}:${config.port}` : "",
-      fallbackUrl: running ? `http://${currentAddress}:${config.port}` : "",
+      canonicalUrl: lanRunning ? `http://${hostname}:${config.port}` : "",
+      fallbackUrl: lanRunning ? `http://${currentAddress}:${config.port}` : "",
       localUrl: running ? `http://127.0.0.1:${config.port}` : "",
       lastError,
       activeConnections: auth.getClients().map(client => ({
@@ -154,32 +156,52 @@ function createMobileRemoteService({
     if (server?.listening && localServer?.listening) return currentState();
     const config = accessStore.getConfig();
     if (!config.enabled) return currentState();
+    if (!localServer?.listening) {
+      localServer = createHttpServer(handleHttp);
+      webSocketServer = createWebSocketServer({ noServer: true, maxPayload: MAX_INPUT_BYTES });
+      attachUpgradeHandler(localServer);
+      try {
+        await listen(localServer, config.port, "127.0.0.1");
+      } catch (error) {
+        lastError = error.code === "EADDRINUSE" ? `端口 ${config.port} 已被占用。` : (error.message || String(error));
+        webSocketServer.close();
+        localServer = null;
+        webSocketServer = null;
+        broadcastState();
+        throw new Error(lastError);
+      }
+      heartbeatTimer = setInterval(() => {
+        for (const socket of webSocketServer.clients) {
+          if (socket.readyState !== WebSocket.OPEN) continue;
+          if (now() - socket.lastAliveAt >= HEARTBEAT_TIMEOUT_MS) {
+            socket.mobileCloseReason = "heartbeat-timeout";
+            accessStore.recordAudit("connection.heartbeat-timeout", { deviceId: socket.mobileDevice?.id, deviceName: socket.mobileDevice?.name });
+            socket.terminate();
+            continue;
+          }
+          socket.ping();
+        }
+      }, HEARTBEAT_MS);
+    }
     const selected = listPrivateInterfaces(networkInterfaces()).find((item) => item.name === config.interfaceName);
     if (!selected) {
       lastError = "选择的局域网网卡不可用，请重新选择。";
       broadcastState();
-      throw new Error(lastError);
+      return currentState();
+    }
+    server = createHttpServer(handleHttp);
+    attachUpgradeHandler(server);
+    try {
+      await listen(server, config.port, selected.address);
+    } catch (error) {
+      lastError = error.code === "EADDRINUSE" ? `局域网端口 ${config.port} 已被占用。`
+        : error.code === "EADDRNOTAVAIL" ? "选择的局域网网卡不可用，请重新选择。" : (error.message || String(error));
+      server = null;
+      broadcastState();
+      return currentState();
     }
     currentAddress = selected.address;
     lastError = "";
-    server = createHttpServer(handleHttp);
-    localServer = createHttpServer(handleHttp);
-    webSocketServer = createWebSocketServer({ noServer: true, maxPayload: MAX_INPUT_BYTES });
-    attachUpgradeHandler(server);
-    attachUpgradeHandler(localServer);
-    try {
-      await listen(server, config.port, currentAddress);
-      await listen(localServer, config.port, "127.0.0.1");
-    } catch (error) {
-      lastError = error.code === "EADDRINUSE" ? `端口 ${config.port} 已被占用。` : (error.message || String(error));
-      await Promise.all([closeHttpServer(server), closeHttpServer(localServer)]);
-      webSocketServer.close();
-      server = null;
-      localServer = null;
-      webSocketServer = null;
-      broadcastState();
-      throw new Error(lastError);
-    }
     bonjour = createDiscovery();
     bonjourService = bonjour.publish({
       name: `Pannel Handle ${os.hostname()}`,
@@ -188,18 +210,6 @@ function createMobileRemoteService({
       port: config.port,
       txt: { protocol: String(PROTOCOL_VERSION), address: currentAddress }
     });
-    heartbeatTimer = setInterval(() => {
-      for (const socket of webSocketServer.clients) {
-        if (socket.readyState !== WebSocket.OPEN) continue;
-        if (now() - socket.lastAliveAt >= HEARTBEAT_TIMEOUT_MS) {
-          socket.mobileCloseReason = "heartbeat-timeout";
-          accessStore.recordAudit("connection.heartbeat-timeout", { deviceId: socket.mobileDevice?.id, deviceName: socket.mobileDevice?.name });
-          socket.terminate();
-          continue;
-        }
-        socket.ping();
-      }
-    }, HEARTBEAT_MS);
     broadcastState();
     return currentState();
   }
@@ -233,7 +243,7 @@ function createMobileRemoteService({
     const before = accessStore.getConfig();
     const next = accessStore.updateConfig(partial);
     const changed = before.enabled !== next.enabled || before.interfaceName !== next.interfaceName || before.port !== next.port;
-    if (changed && server) await stop();
+    if (changed && (server || localServer)) await stop();
     if (next.enabled) await start().catch(() => undefined);
     broadcastState();
     return currentState();

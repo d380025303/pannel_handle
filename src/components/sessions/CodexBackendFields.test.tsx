@@ -11,7 +11,7 @@ describe("CodexBackendFields", () => {
     Object.defineProperty(window, "openRouterApi", {
       configurable: true,
       value: {
-        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: ["vendor/model"], defaultModelId: "vendor/model" }),
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
         listModels: vi.fn().mockResolvedValue([{
           id: "vendor/model",
           name: "Priced Model",
@@ -25,20 +25,10 @@ describe("CodexBackendFields", () => {
         }])
       }
     });
-    Object.defineProperty(window, "codeBuddyCodexApi", {
-      configurable: true,
-      value: {
-        getConfig: vi.fn().mockResolvedValue({ favoriteModelIds: ["glm-5.2"], defaultModelId: "glm-5.2", catalogVersion: "2.142.0", experimentalAcknowledged: true }),
-        getStatus: vi.fn().mockResolvedValue({ available: true, version: "2.142.0", experimental: true }),
-        listModels: vi.fn().mockResolvedValue([{ id: "glm-5.2", name: "glm-5.2", verification: { status: "passed", checkedAt: 1 } }]),
-        refreshModels: vi.fn(),
-        verifyModel: vi.fn().mockResolvedValue({ modelId: "glm-5.2", status: "passed", checkedAt: 1, stages: [] })
-      }
-    });
     Object.defineProperty(window, "naraRouterApi", {
       configurable: true,
       value: {
-        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: ["gpt-test"], defaultModelId: "gpt-test" }),
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
         listModels: vi.fn().mockResolvedValue([{
           id: "gpt-test",
           name: "Nara GPT",
@@ -55,7 +45,7 @@ describe("CodexBackendFields", () => {
     Object.defineProperty(window, "miniMaxApi", {
       configurable: true,
       value: {
-        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true, favoriteModelIds: ["MiniMax-M2.5"], defaultModelId: "MiniMax-M2.5" }),
+        getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
         listModels: vi.fn().mockResolvedValue([{
           id: "MiniMax-M2.5",
           name: "MiniMax M2.5",
@@ -73,7 +63,12 @@ describe("CodexBackendFields", () => {
 
   afterEach(cleanup);
 
-  it("shows input and output prices in the favorite model selector", async () => {
+  it("does not offer CodeBuddy as a Codex backend", () => {
+    render(<I18nProvider locale="zh-CN"><CodexBackendFields backend="openai" onBackendChange={vi.fn()} onModelChange={vi.fn()} /></I18nProvider>);
+    expect(screen.queryByRole("button", { name: "CodeBuddy" })).toBeNull();
+  });
+
+  it("shows input and output prices in the verified model selector", async () => {
     render(
       <I18nProvider locale="en-US">
         <CodexBackendFields backend="openrouter" model="vendor/model" onBackendChange={vi.fn()} onModelChange={vi.fn()} />
@@ -83,7 +78,7 @@ describe("CodexBackendFields", () => {
     expect(await screen.findByRole("option", { name: "Priced Model · vendor/model · Verified · $2/M input · $6/M output" })).toBeTruthy();
   });
 
-  it("keeps an unverified favorite disabled and reports the requirement", async () => {
+  it("omits an unverified model and reports the requirement", async () => {
     vi.mocked(window.openRouterApi.listModels).mockResolvedValueOnce([{
       id: "vendor/model",
       name: "Pending Model",
@@ -101,9 +96,10 @@ describe("CodexBackendFields", () => {
       </I18nProvider>
     );
 
-    const option = await screen.findByRole("option", { name: /Pending Model/ });
-    expect((option as HTMLOptionElement).disabled).toBe(true);
-    expect(screen.getByText("请先在设置中检测并保存至少一个兼容模型。")).toBeTruthy();
+    await screen.findByRole("option", { name: "选择已验证模型" });
+    await vi.waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true));
+    expect(screen.queryByRole("option", { name: /Pending Model/ })).toBeNull();
+    expect(await screen.findByText("请先在设置中检测至少一个兼容模型。")).toBeTruthy();
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(false));
   });
 
@@ -141,24 +137,7 @@ describe("CodexBackendFields", () => {
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 
-  it("selects a globally configured CodeBuddy model without live verification", async () => {
-    const onReadyChange = vi.fn();
-    function Harness() {
-      const [model, setModel] = useState<string>();
-      return <CodexBackendFields backend="codebuddy" model={model} onBackendChange={vi.fn()} onModelChange={setModel} onReadyChange={onReadyChange} />;
-    }
-    render(
-      <I18nProvider locale="zh-CN">
-        <Harness />
-      </I18nProvider>
-    );
-    expect(await screen.findByRole("option", { name: "glm-5.2 · glm-5.2" })).toBeTruthy();
-    await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
-    expect(window.codeBuddyCodexApi.verifyModel).not.toHaveBeenCalled();
-    expect(window.codeBuddyCodexApi.getStatus).not.toHaveBeenCalled();
-  });
-
-  it("selects the independent NaraRouter default and reports readiness", async () => {
+  it("requires explicit NaraRouter model selection and reports readiness", async () => {
     const onReadyChange = vi.fn();
     function Harness() {
       const [model, setModel] = useState<string>();
@@ -167,10 +146,12 @@ describe("CodexBackendFields", () => {
     render(<I18nProvider locale="zh-CN"><Harness /></I18nProvider>);
 
     expect(await screen.findByRole("option", { name: /Nara GPT · gpt-test · 已验证/ })).toBeTruthy();
+    expect(onReadyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "gpt-test" } });
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 
-  it("selects the independent MiniMax default and reports readiness", async () => {
+  it("requires explicit MiniMax model selection and reports readiness", async () => {
     const onReadyChange = vi.fn();
     function Harness() {
       const [model, setModel] = useState<string>();
@@ -179,6 +160,8 @@ describe("CodexBackendFields", () => {
     render(<I18nProvider locale="zh-CN"><Harness /></I18nProvider>);
 
     expect(await screen.findByRole("option", { name: /MiniMax M2.5 · MiniMax-M2.5 · 已验证/ })).toBeTruthy();
+    expect(onReadyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "MiniMax-M2.5" } });
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
   });
 });

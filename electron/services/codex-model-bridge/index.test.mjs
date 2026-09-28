@@ -19,12 +19,9 @@ describe("Codex model bridge module", () => {
   it("owns provider transports, launch registrations, and lifecycle", async () => {
     const naraRouter = createBridge();
     const miniMax = createBridge();
-    const codeBuddy = createBridge({ getLaunchConfig: vi.fn(async () => ({ model: "glm-5.3", registrationId: "launch:codebuddy" })) });
     const responses = [naraRouter, miniMax];
     const module = createCodexModelBridgeModule({
-      codeBuddy: { marker: true },
-      createResponsesBridge: vi.fn(() => responses.shift()),
-      createCodeBuddyBridge: vi.fn(() => codeBuddy)
+      createResponsesBridge: vi.fn(() => responses.shift())
     });
 
     const verificationInput = { apiKey: "secret", body: { model: "gpt-test" } };
@@ -41,27 +38,20 @@ describe("Codex model bridge module", () => {
     expect(miniMax.bindSession).toHaveBeenCalledWith("session-1", "launch:test");
     expect(miniMax.releaseRegistration).toHaveBeenCalledWith("launch:test");
 
-    const codeBuddyLaunch = await module.getCodeBuddyLaunchConfig({ agentProvider: "codex", codexBackend: "codebuddy" });
-    expect(codeBuddyLaunch.bridgeRegistration).toEqual({ backend: "codebuddy", id: "launch:codebuddy" });
-    expect(module.codeBuddyService).toBe(codeBuddy);
-
     module.disconnect("session-1");
     expect(naraRouter.disconnect).toHaveBeenCalledWith("session-1");
     expect(miniMax.disconnect).toHaveBeenCalledWith("session-1");
-    expect(codeBuddy.disconnect).toHaveBeenCalledWith("session-1");
 
     await module.shutdown();
     expect(naraRouter.shutdown).toHaveBeenCalledOnce();
     expect(miniMax.shutdown).toHaveBeenCalledOnce();
-    expect(codeBuddy.shutdown).toHaveBeenCalledOnce();
   });
 
   it("rejects bridge-only operations for unknown backends", () => {
     const module = createCodexModelBridgeModule({
-      codeBuddy: {},
-      createResponsesBridge: vi.fn(() => createBridge()),
-      createCodeBuddyBridge: vi.fn(() => createBridge())
+      createResponsesBridge: vi.fn(() => createBridge())
     });
     expect(() => module.getLaunchAdapter("openrouter")).toThrow("Unsupported Codex bridge backend: openrouter");
+    expect(() => module.getLaunchAdapter("codebuddy")).toThrow("Unsupported Codex bridge backend: codebuddy");
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, ChevronDown, LoaderCircle, X } from "lucide-react";
+import { Bot, LoaderCircle, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, TerminalSession } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS, getAgentProviderLabel, supportsLocalBridge } from "../sessions/agentProviders";
@@ -46,6 +46,7 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
 
   const disabled = Boolean(switchingTo);
   const title = t("agentSwitch.title");
+  const tooltip = `${title}：${switchingTo ? t("agentSwitch.switching", { provider: getAgentProviderLabel(switchingTo) }) : getAgentProviderLabel(session.agentProvider)}`;
 
   const switchTo = async (provider: AgentProvider) => {
     setOpen(false);
@@ -66,7 +67,7 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
         ref={triggerRef}
         className="agent-switcher-trigger"
         type="button"
-        title={title}
+        title={tooltip}
         aria-label={title}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -74,8 +75,6 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
         onClick={() => setOpen(value => !value)}
       >
         {switchingTo ? <LoaderCircle className="spin" aria-hidden="true" /> : <Bot aria-hidden="true" />}
-        <span>{switchingTo ? t("agentSwitch.switching", { provider: getAgentProviderLabel(switchingTo) }) : getAgentProviderLabel(session.agentProvider)}</span>
-        {!switchingTo && <ChevronDown aria-hidden="true" />}
       </button>
       {open && (
         <div className="agent-switcher-menu" role="menu" aria-label={t("agentSwitch.menu")}>

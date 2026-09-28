@@ -103,7 +103,7 @@ describe("useTerminalSessions", () => {
     expect(result.current.activeId).toBe("run-3");
   });
 
-  it("selects the replacement runtime returned by Codex backend switching", async () => {
+  it("selects the replacement runtime returned by graphical Codex model switching", async () => {
     let onSessionsChanged = (_sessions: TerminalSession[]) => {};
     const replacement = { ...session("run-3", "codex"), codexBackend: "openrouter" as const };
     window.terminalApi = {
@@ -114,7 +114,7 @@ describe("useTerminalSessions", () => {
         return () => {};
       }),
       onAgentStatus: vi.fn((_callback: (payload: AgentStatusPayload) => void) => () => {}),
-      switchCodexBackend: vi.fn(async () => replacement)
+      switchModelSource: vi.fn(async () => replacement)
     } as unknown as typeof window.terminalApi;
     window.launchTemplateApi = {
       list: vi.fn(async () => [])
@@ -124,9 +124,9 @@ describe("useTerminalSessions", () => {
     await waitFor(() => expect(window.terminalApi.loadSavedSessions).toHaveBeenCalled());
     act(() => onSessionsChanged([session("run-1", "codex")]));
 
-    await act(async () => result.current.switchCodexBackend("run-1", "openrouter"));
+    await act(async () => result.current.switchCodexGraphicalModel("run-1", "openrouter", "vendor/model"));
 
-    expect(window.terminalApi.switchCodexBackend).toHaveBeenCalledWith("run-1", "openrouter");
+    expect(window.terminalApi.switchModelSource).toHaveBeenCalledWith("run-1", "openrouter", true, "vendor/model");
     expect(result.current.activeId).toBe("run-3");
   });
 

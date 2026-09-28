@@ -25,10 +25,10 @@ function createDiagnosticsStore({ userData, Database = DatabaseSync }) {
       ON CONFLICT(thread_id, turn_id) DO UPDATE SET diff=excluded.diff, updated_at=excluded.updated_at`)
       .run(threadId, turnId, diff, updatedAt);
   }
-  function list(threadId) {
+  function list(threadId, { includeHooks = true } = {}) {
     return {
       events: db.prepare(`SELECT id, turn_id, kind, created_at, payload_json FROM diagnostic_events
-        WHERE thread_id=? ORDER BY id`).all(threadId).map(row => ({
+        WHERE thread_id=? ${includeHooks ? "" : "AND kind NOT LIKE 'hook/%'"} ORDER BY id`).all(threadId).map(row => ({
         id: String(row.id), turnId: row.turn_id, kind: row.kind, at: row.created_at,
         payload: JSON.parse(row.payload_json)
       })),

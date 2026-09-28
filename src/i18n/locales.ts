@@ -122,6 +122,7 @@ export type TranslationKey =
   | "settings.mobilePasswordNeeded"
   | "settings.mobilePasswordSaved"
   | "settings.mobileOpenHint"
+  | "settings.mobileLocalOpenHint"
   | "settings.mobileActiveDevice"
   | "settings.mobileDisconnect"
   | "settings.mobileNoActiveDevice"
@@ -188,13 +189,10 @@ export type TranslationKey =
   | "settings.openRouterCleared"
   | "settings.openRouterRefreshModels"
   | "settings.openRouterModelsRefreshed"
-  | "settings.openRouterFavorites"
+  | "settings.openRouterModels"
   | "settings.openRouterFreeModelsOnly"
   | "settings.openRouterNoMatchingModels"
-  | "settings.openRouterDefaultModel"
   | "settings.openRouterRefreshHint"
-  | "settings.openRouterSaveFavorites"
-  | "settings.openRouterFavoritesSaved"
   | "settings.openRouterNewSessionsHint"
   | "settings.openRouterPriceInput"
   | "settings.openRouterPriceOutput"
@@ -220,7 +218,6 @@ export type TranslationKey =
   | "settings.naraRouterTestSuccess"
   | "settings.naraRouterCleared"
   | "settings.naraRouterModelsRefreshed"
-  | "settings.naraRouterFavoritesSaved"
   | "settings.naraRouterRefreshHint"
   | "settings.naraRouterVerificationSuccess"
   | "settings.naraRouterRateLimitHint"
@@ -229,29 +226,14 @@ export type TranslationKey =
   | "settings.miniMaxTestSuccess"
   | "settings.miniMaxCleared"
   | "settings.miniMaxModelsRefreshed"
-  | "settings.miniMaxFavoritesSaved"
   | "settings.miniMaxRefreshHint"
   | "settings.miniMaxVerificationSuccess"
   | "settings.miniMaxRateLimitHint"
-  | "settings.codeBuddyCodexTitle"
-  | "settings.codeBuddyCodexNotConfigured"
-  | "settings.codeBuddyCodexDescription"
-  | "settings.codeBuddyCodexRefreshModels"
-  | "settings.codeBuddyCodexModelsRefreshed"
-  | "settings.codeBuddyCodexModels"
-  | "settings.codeBuddyCodexVerified"
-  | "settings.codeBuddyCodexVerificationPending"
-  | "settings.codeBuddyCodexVerificationFailed"
-  | "settings.codeBuddyCodexVerificationSuccess"
-  | "settings.codeBuddyCodexVerify"
-  | "settings.codeBuddyCodexVerifying"
-  | "settings.codeBuddyCodexDefaultModel"
-  | "settings.codeBuddyCodexRefreshHint"
-  | "settings.codeBuddyCodexSaveFavorites"
-  | "settings.codeBuddyCodexFavoritesSaved"
-  | "settings.codeBuddyCodexAcknowledge"
-  | "settings.codeBuddyCodexAcknowledgementSaved"
-  | "settings.codeBuddyCodexNewSessionsHint"
+  | "settings.miniMaxUsageTitle"
+  | "settings.miniMaxUsageBalanceSummary"
+  | "settings.miniMaxUsagePlanSummary"
+  | "settings.miniMaxUsageRefresh"
+  | "settings.miniMaxUsageRetryHint"
   | "language.zhCN"
   | "language.enUS"
   | "common.cancel"
@@ -359,9 +341,6 @@ export type TranslationKey =
   | "agentSwitch.menu"
   | "agentSwitch.switching"
   | "agentSwitch.localSshUnavailable"
-  | "codexBackendSwitch.title"
-  | "codexBackendSwitch.menu"
-  | "codexBackendSwitch.switching"
   | "session.agentCwdRequired"
   | "settings.defaultWindowsShell"
   | "settings.defaultWindowsShellHint"
@@ -373,24 +352,18 @@ export type TranslationKey =
   | "session.codexModel"
   | "session.codexModelSelect"
   | "session.openRouterKeyRequired"
-  | "session.openRouterFavoriteRequired"
   | "session.openRouterModelHint"
   | "session.openRouterVerifiedRequired"
   | "session.openRouterExperimentalAcknowledge"
   | "session.openRouterExperimentalRequired"
   | "session.naraRouterModel"
   | "session.naraRouterKeyRequired"
-  | "session.naraRouterFavoriteRequired"
   | "session.naraRouterModelHint"
   | "session.naraRouterVerifiedRequired"
   | "session.miniMaxModel"
   | "session.miniMaxKeyRequired"
-  | "session.miniMaxFavoriteRequired"
   | "session.miniMaxModelHint"
   | "session.miniMaxVerifiedRequired"
-  | "session.codeBuddyCodexModel"
-  | "session.codeBuddyCodexConfigRequired"
-  | "session.codeBuddyCodexModelHint"
   | "session.agentLocation"
   | "session.agentLocationLocal"
   | "session.agentLocationRemote"
@@ -1081,7 +1054,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentTitle": "环境变量",
     "settings.environmentNavDescription": "集中管理可供会话复用的普通环境变量配置。",
     "settings.modelsTitle": "模型服务",
-    "settings.modelsDescription": "配置模型服务凭据、在线模型和默认选择。",
+    "settings.modelsDescription": "配置模型服务凭据、在线模型和兼容性验证。",
     "settings.mobileNavDescription": "配置局域网访问、设备密码与连接安全。",
     "settings.notificationsTitle": "通知",
     "settings.notificationsDescription": "配置会话状态的外部通知渠道。",
@@ -1135,6 +1108,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobilePasswordNeeded": "请先设置密码，再启用移动访问。",
     "settings.mobilePasswordSaved": "密码已保存，在线连接已断开。",
     "settings.mobileOpenHint": "手机可打开前两个局域网地址；在本机打开 127.0.0.1 地址。连接时输入移动访问密码。",
+    "settings.mobileLocalOpenHint": "当前仅可在本机打开 127.0.0.1 地址。选择可用的局域网网卡后，手机才能访问。",
     "settings.mobileActiveDevice": "在线连接",
     "settings.mobileDisconnect": "断开",
     "settings.mobileNoActiveDevice": "当前没有手机在线。",
@@ -1201,14 +1175,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterCleared": "OpenRouter API Key 已清除。",
     "settings.openRouterRefreshModels": "刷新在线模型",
     "settings.openRouterModelsRefreshed": "OpenRouter 模型目录已刷新。",
-    "settings.openRouterFavorites": "模型与收藏",
+    "settings.openRouterModels": "模型",
     "settings.openRouterFreeModelsOnly": "仅看免费模型",
     "settings.openRouterNoMatchingModels": "没有匹配的模型。",
-    "settings.openRouterDefaultModel": "设为默认模型",
     "settings.openRouterRefreshHint": "请先刷新在线模型目录。仅显示支持 tools 和 tool_choice 的模型。",
-    "settings.openRouterSaveFavorites": "保存收藏与默认模型",
-    "settings.openRouterFavoritesSaved": "OpenRouter 收藏模型已保存。",
-    "settings.openRouterNewSessionsHint": "收藏和默认模型用于新启动的会话；运行中切换来源会重启 Agent。各 Agent 的模型兼容性需分别验证。",
+    "settings.openRouterNewSessionsHint": "创建或编辑会话时选择已通过对应 Agent 验证的模型。",
     "settings.openRouterPriceInput": "输入",
     "settings.openRouterPriceOutput": "输出",
     "settings.openRouterPriceUnavailable": "价格未知",
@@ -1233,7 +1204,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.naraRouterTestSuccess": "NaraRouter 连接成功。",
     "settings.naraRouterCleared": "NaraRouter API Key 已清除。",
     "settings.naraRouterModelsRefreshed": "NaraRouter 模型目录已刷新。",
-    "settings.naraRouterFavoritesSaved": "NaraRouter 收藏模型已保存。",
     "settings.naraRouterRefreshHint": "请先配置 API Key 并刷新当前账号可用的在线模型目录。",
     "settings.naraRouterVerificationSuccess": "NaraRouter 模型兼容性检测通过。",
     "settings.naraRouterRateLimitHint": "NaraRouter 请求受限。当前模型档位可能已达到频率或每日额度限制，请 60 秒后重试或更换其他可用模型。",
@@ -1242,29 +1212,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.miniMaxTestSuccess": "MiniMax 连接成功。",
     "settings.miniMaxCleared": "MiniMax API Key 已清除。",
     "settings.miniMaxModelsRefreshed": "MiniMax 模型目录已刷新。",
-    "settings.miniMaxFavoritesSaved": "MiniMax 收藏模型已保存。",
     "settings.miniMaxRefreshHint": "请先配置 API Key 并刷新当前密钥可用的在线模型目录。",
     "settings.miniMaxVerificationSuccess": "MiniMax 模型兼容性检测通过。",
     "settings.miniMaxRateLimitHint": "MiniMax 请求受限。请等待当前速率或 Token Plan 额度窗口恢复后重试。",
-    "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
-    "settings.codeBuddyCodexNotConfigured": "尚未配置",
-    "settings.codeBuddyCodexDescription": "集中加载并验证 CodeBuddy 模型。会话只读取这里保存的模型，不再执行实时检测。",
-    "settings.codeBuddyCodexRefreshModels": "刷新本机模型",
-    "settings.codeBuddyCodexModelsRefreshed": "CodeBuddy 模型目录已刷新。",
-    "settings.codeBuddyCodexModels": "已检测模型与收藏",
-    "settings.codeBuddyCodexVerified": "已验证",
-    "settings.codeBuddyCodexVerificationPending": "待检测",
-    "settings.codeBuddyCodexVerificationFailed": "检测失败",
-    "settings.codeBuddyCodexVerificationSuccess": "CodeBuddy 模型兼容性检测通过。",
-    "settings.codeBuddyCodexVerify": "检测",
-    "settings.codeBuddyCodexVerifying": "检测中…",
-    "settings.codeBuddyCodexDefaultModel": "设为默认模型",
-    "settings.codeBuddyCodexRefreshHint": "请先刷新本机 CodeBuddy 模型目录。",
-    "settings.codeBuddyCodexSaveFavorites": "保存收藏与默认模型",
-    "settings.codeBuddyCodexFavoritesSaved": "CodeBuddy 收藏模型已保存。",
-    "settings.codeBuddyCodexAcknowledge": "我已了解该私有桥不预设 CLI 兼容版本；升级后同名且已检测通过的模型继续视为可用，新模型仍需检测。",
-    "settings.codeBuddyCodexAcknowledgementSaved": "CodeBuddy 实验风险确认已更新。",
-    "settings.codeBuddyCodexNewSessionsHint": "会话仅可选择这里已验证并收藏的模型；CLI 版本变化不会重置同名模型的检测、收藏和风险确认。",
+    "settings.miniMaxUsageTitle": "剩余额度",
+    "settings.miniMaxUsageBalanceSummary": "可用余额 ¥{available}",
+    "settings.miniMaxUsagePlanSummary": "主额度剩余 {remaining}%",
+    "settings.miniMaxUsageRefresh": "刷新额度",
+    "settings.miniMaxUsageRetryHint": "读取额度失败",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "取消",
@@ -1372,9 +1327,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "选择要切换到的 Agent",
     "agentSwitch.switching": "正在切换到 {provider}",
     "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持在 Codex、CodeBuddy 与 OpenCode 之间切换",
-    "codexBackendSwitch.title": "切换当前 Codex 会话的模型后端",
-    "codexBackendSwitch.menu": "选择要切换到的 Codex 模型后端",
-    "codexBackendSwitch.switching": "正在切换到 {backend}",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "settings.defaultWindowsShell": "Windows 默认 Shell",
     "settings.defaultWindowsShellHint": "保存后对新建会话生效，已有会话和模板保留原 Shell。PowerShell 7 需要单独安装。",
@@ -1383,27 +1335,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.preLaunchCommand": "CLI 启动前命令",
     "session.codexBackend": "Codex 模型后端",
     "session.codexBackendOpenAI": "OpenAI（Codex 默认）",
-    "session.codexModel": "OpenRouter 默认模型",
-    "session.codexModelSelect": "选择已收藏模型",
+    "session.codexModel": "OpenRouter 模型",
+    "session.codexModelSelect": "选择已验证模型",
     "session.openRouterKeyRequired": "请先在设置中配置 OpenRouter API Key。",
-    "session.openRouterFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
-    "session.openRouterModelHint": "进入会话后可使用 Codex 原生 /model 随时切换收藏目录中的模型。",
-    "session.openRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
+    "session.openRouterModelHint": "进入会话后可使用 Codex 原生 /model 切换已验证模型。",
+    "session.openRouterVerifiedRequired": "请先在设置中检测至少一个兼容模型。",
     "session.openRouterExperimentalAcknowledge": "该模型仅部分兼容。我了解 Codex 可能在首轮请求或编辑操作时失败，并同意实验启动。",
     "session.openRouterExperimentalRequired": "请先确认部分兼容模型的实验风险。",
-    "session.naraRouterModel": "NaraRouter 默认模型",
+    "session.naraRouterModel": "NaraRouter 模型",
     "session.naraRouterKeyRequired": "请先在设置中配置 NaraRouter API Key。",
-    "session.naraRouterFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
-    "session.naraRouterModelHint": "进入会话后可使用 Codex 原生 /model 随时切换收藏目录中的模型。",
-    "session.naraRouterVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
-    "session.miniMaxModel": "MiniMax 默认模型",
+    "session.naraRouterModelHint": "进入会话后可使用 Codex 原生 /model 切换已验证模型。",
+    "session.naraRouterVerifiedRequired": "请先在设置中检测至少一个兼容模型。",
+    "session.miniMaxModel": "MiniMax 模型",
     "session.miniMaxKeyRequired": "请先在设置中配置 MiniMax API Key。",
-    "session.miniMaxFavoriteRequired": "请先在设置中收藏兼容模型并选择默认模型。",
-    "session.miniMaxModelHint": "进入会话后可使用 Codex 原生 /model 切换已收藏的 MiniMax 模型。",
-    "session.miniMaxVerifiedRequired": "请先在设置中检测并保存至少一个兼容模型。",
-    "session.codeBuddyCodexModel": "CodeBuddy 模型",
-    "session.codeBuddyCodexConfigRequired": "请先在全局设置中验证、收藏 CodeBuddy 模型并确认实验风险。",
-    "session.codeBuddyCodexModelHint": "仅显示全局设置中已验证并收藏的模型。",
+    "session.miniMaxModelHint": "进入会话后可使用 Codex 原生 /model 切换已验证模型。",
+    "session.miniMaxVerifiedRequired": "请先在设置中检测至少一个兼容模型。",
     "session.agentLocation": "Agent 运行位置",
     "session.agentLocationLocal": "本地桥接",
     "session.agentLocationRemote": "远端运行",
@@ -2086,7 +2032,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentTitle": "Environment variables",
     "settings.environmentNavDescription": "Manage reusable non-secret environment variables for sessions.",
     "settings.modelsTitle": "Model services",
-    "settings.modelsDescription": "Configure provider credentials, online models, and defaults.",
+    "settings.modelsDescription": "Configure provider credentials, online models, and compatibility verification.",
     "settings.mobileNavDescription": "Configure LAN access, the device password, and connection security.",
     "settings.notificationsTitle": "Notifications",
     "settings.notificationsDescription": "Configure external notifications for session states.",
@@ -2140,6 +2086,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobilePasswordNeeded": "Set a password before enabling mobile access.",
     "settings.mobilePasswordSaved": "Password saved. Active connections were disconnected.",
     "settings.mobileOpenHint": "Open either of the first two LAN addresses on your phone, or the 127.0.0.1 address on this computer. Enter the mobile password to connect.",
+    "settings.mobileLocalOpenHint": "Open the 127.0.0.1 address on this computer. Select an available LAN adapter to restore phone access.",
     "settings.mobileActiveDevice": "Active connections",
     "settings.mobileDisconnect": "Disconnect",
     "settings.mobileNoActiveDevice": "No mobile device is online.",
@@ -2206,14 +2153,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.openRouterCleared": "OpenRouter API key cleared.",
     "settings.openRouterRefreshModels": "Refresh online models",
     "settings.openRouterModelsRefreshed": "OpenRouter model catalog refreshed.",
-    "settings.openRouterFavorites": "Models and favorites",
+    "settings.openRouterModels": "Models",
     "settings.openRouterFreeModelsOnly": "Free models only",
     "settings.openRouterNoMatchingModels": "No matching models.",
-    "settings.openRouterDefaultModel": "Set as default model",
     "settings.openRouterRefreshHint": "Refresh the online catalog first. Only models supporting tools and tool_choice are shown.",
-    "settings.openRouterSaveFavorites": "Save favorites and default",
-    "settings.openRouterFavoritesSaved": "OpenRouter favorite models saved.",
-    "settings.openRouterNewSessionsHint": "Favorites and defaults apply to new sessions. Switching sources restarts a running Agent. Verify model compatibility separately for each Agent.",
+    "settings.openRouterNewSessionsHint": "Select a model verified for the Agent when creating or editing a session.",
     "settings.openRouterPriceInput": "input",
     "settings.openRouterPriceOutput": "output",
     "settings.openRouterPriceUnavailable": "Pricing unavailable",
@@ -2238,7 +2182,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.naraRouterTestSuccess": "NaraRouter connection succeeded.",
     "settings.naraRouterCleared": "NaraRouter API key cleared.",
     "settings.naraRouterModelsRefreshed": "NaraRouter model catalog refreshed.",
-    "settings.naraRouterFavoritesSaved": "NaraRouter favorite models saved.",
     "settings.naraRouterRefreshHint": "Configure an API key and refresh the online models available to this account.",
     "settings.naraRouterVerificationSuccess": "NaraRouter model compatibility verified.",
     "settings.naraRouterRateLimitHint": "The NaraRouter request was rate limited. This model tier may have reached its request or daily quota; retry after 60 seconds or choose another available model.",
@@ -2247,29 +2190,14 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.miniMaxTestSuccess": "MiniMax connection succeeded.",
     "settings.miniMaxCleared": "MiniMax API key cleared.",
     "settings.miniMaxModelsRefreshed": "MiniMax model catalog refreshed.",
-    "settings.miniMaxFavoritesSaved": "MiniMax favorite models saved.",
     "settings.miniMaxRefreshHint": "Configure an API key and refresh the online models available to this key.",
     "settings.miniMaxVerificationSuccess": "MiniMax model compatibility verified.",
     "settings.miniMaxRateLimitHint": "The MiniMax request was rate limited. Wait for the rate or Token Plan quota window to recover, then retry.",
-    "settings.codeBuddyCodexTitle": "CodeBuddy Codex",
-    "settings.codeBuddyCodexNotConfigured": "Not configured",
-    "settings.codeBuddyCodexDescription": "Load and verify CodeBuddy models once in Settings. Session forms only read saved models and never run live verification.",
-    "settings.codeBuddyCodexRefreshModels": "Refresh local models",
-    "settings.codeBuddyCodexModelsRefreshed": "CodeBuddy model catalog refreshed.",
-    "settings.codeBuddyCodexModels": "Verified models and favorites",
-    "settings.codeBuddyCodexVerified": "Verified",
-    "settings.codeBuddyCodexVerificationPending": "Not verified",
-    "settings.codeBuddyCodexVerificationFailed": "Verification failed",
-    "settings.codeBuddyCodexVerificationSuccess": "CodeBuddy model compatibility verified.",
-    "settings.codeBuddyCodexVerify": "Verify",
-    "settings.codeBuddyCodexVerifying": "Verifying…",
-    "settings.codeBuddyCodexDefaultModel": "Set as default model",
-    "settings.codeBuddyCodexRefreshHint": "Refresh the local CodeBuddy model catalog first.",
-    "settings.codeBuddyCodexSaveFavorites": "Save favorites and default",
-    "settings.codeBuddyCodexFavoritesSaved": "CodeBuddy favorite models saved.",
-    "settings.codeBuddyCodexAcknowledge": "I understand this private bridge does not assume CLI version compatibility; after an upgrade, unchanged models that already passed verification remain available, while new models still require verification.",
-    "settings.codeBuddyCodexAcknowledgementSaved": "CodeBuddy experimental acknowledgement updated.",
-    "settings.codeBuddyCodexNewSessionsHint": "Sessions can only select verified favorites saved here. CLI version changes preserve verification, favorites, and risk acknowledgement for unchanged models.",
+    "settings.miniMaxUsageTitle": "Remaining quota",
+    "settings.miniMaxUsageBalanceSummary": "Available balance ¥{available}",
+    "settings.miniMaxUsagePlanSummary": "Primary quota {remaining}% left",
+    "settings.miniMaxUsageRefresh": "Refresh quota",
+    "settings.miniMaxUsageRetryHint": "Failed to read quota",
     "language.zhCN": "中文",
     "language.enUS": "English",
     "common.cancel": "Cancel",
@@ -2377,9 +2305,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "Choose an Agent to switch to",
     "agentSwitch.switching": "Switching to {provider}",
     "agentSwitch.localSshUnavailable": "Local SSH bridge sessions can only switch between Codex, CodeBuddy, and OpenCode",
-    "codexBackendSwitch.title": "Switch the model backend for this Codex session",
-    "codexBackendSwitch.menu": "Choose a Codex model backend",
-    "codexBackendSwitch.switching": "Switching to {backend}",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "settings.defaultWindowsShell": "Default Windows shell",
     "settings.defaultWindowsShellHint": "Applies to new sessions after saving. Existing sessions and templates keep their shell. PowerShell 7 requires a separate installation.",
@@ -2388,27 +2313,21 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.preLaunchCommand": "Command before CLI startup",
     "session.codexBackend": "Codex model backend",
     "session.codexBackendOpenAI": "OpenAI (Codex default)",
-    "session.codexModel": "Default OpenRouter model",
-    "session.codexModelSelect": "Select a favorite model",
+    "session.codexModel": "OpenRouter model",
+    "session.codexModelSelect": "Select a verified model",
     "session.openRouterKeyRequired": "Configure an OpenRouter API key in Settings first.",
-    "session.openRouterFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
-    "session.openRouterModelHint": "After launch, use Codex's native /model command to switch among favorite models.",
-    "session.openRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
+    "session.openRouterModelHint": "After launch, use Codex's native /model command to switch among verified models.",
+    "session.openRouterVerifiedRequired": "Verify at least one compatible model in Settings first.",
     "session.openRouterExperimentalAcknowledge": "This model is only partially compatible. I understand Codex may fail on its first request or while editing, and accept experimental launch.",
     "session.openRouterExperimentalRequired": "Acknowledge the experimental risk for this partially compatible model first.",
-    "session.naraRouterModel": "Default NaraRouter model",
+    "session.naraRouterModel": "NaraRouter model",
     "session.naraRouterKeyRequired": "Configure a NaraRouter API key in Settings first.",
-    "session.naraRouterFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
-    "session.naraRouterModelHint": "After launch, use Codex's native /model command to switch among favorite models.",
-    "session.naraRouterVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
-    "session.miniMaxModel": "Default MiniMax model",
+    "session.naraRouterModelHint": "After launch, use Codex's native /model command to switch among verified models.",
+    "session.naraRouterVerifiedRequired": "Verify at least one compatible model in Settings first.",
+    "session.miniMaxModel": "MiniMax model",
     "session.miniMaxKeyRequired": "Configure a MiniMax API key in Settings first.",
-    "session.miniMaxFavoriteRequired": "Favorite a compatible model and select a default in Settings first.",
-    "session.miniMaxModelHint": "After launch, use Codex's native /model command to switch among favorite MiniMax models.",
-    "session.miniMaxVerifiedRequired": "Verify and save at least one compatible model in Settings first.",
-    "session.codeBuddyCodexModel": "CodeBuddy model",
-    "session.codeBuddyCodexConfigRequired": "Verify and favorite CodeBuddy models and acknowledge the experimental risk in Settings first.",
-    "session.codeBuddyCodexModelHint": "Only verified favorites from global Settings are shown.",
+    "session.miniMaxModelHint": "After launch, use Codex's native /model command to switch among verified models.",
+    "session.miniMaxVerifiedRequired": "Verify at least one compatible model in Settings first.",
     "session.agentLocation": "Agent location",
     "session.agentLocationLocal": "Local bridge",
     "session.agentLocationRemote": "Run remotely",

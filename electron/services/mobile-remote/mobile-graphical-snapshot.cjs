@@ -24,7 +24,7 @@ function toMobileUsageSnapshot(value) {
   };
 }
 
-function toMobileGraphicalSnapshot(value) {
+function toMobileGraphicalSnapshot(value, modelOptions) {
   const snapshot = value || {};
   return {
     threadId: snapshot.threadId ?? null,
@@ -44,7 +44,7 @@ function toMobileGraphicalSnapshot(value) {
     executionPermission: snapshot.executionPermission || null,
     acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort")
       .map(option => ({ id: option.id, currentValue: option.currentValue,
-        options: (option.options || []).map(value => ({ value: value.value, name: value.name })) })),
+        options: (option.id === "model" && modelOptions ? modelOptions : option.options || []).map(value => ({ value: value.value, name: value.name })) })),
     capabilities: snapshot.capabilities || null,
     pendingPlan: snapshot.pendingPlan || null,
     items: (snapshot.items || []).map(item => ({

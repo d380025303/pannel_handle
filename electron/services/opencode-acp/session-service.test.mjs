@@ -119,6 +119,65 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
+  it("remembers successful model and mode choices across OpenCode sessions and new threads", async () => {
+    const saved = new Map();
+    const requests = [];
+    let nextThread = 0;
+    const sessionStore = {
+      getTemplate: vi.fn(id => ({ openCodeGraphicalOptions: saved.get(id) })),
+      updateLibrary: vi.fn((id, update) => saved.set(id, update.openCodeGraphicalOptions))
+    };
+    const makeChild = () => fakeChild((message, emit) => {
+      requests.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
+        result: { sessionId: `thread-${++nextThread}`, configOptions } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
+        result: { configOptions: configOptions.map(option => option.id === message.params.configId
+          ? { ...option, currentValue: message.params.value } : option) } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, sessionStore, broadcast: vi.fn(), spawnProcess: makeChild });
+    const session = { id: "one", templateId: "saved-1", type: "windows", cwd: "C:\\work", shell: "powershell.exe" };
+    await service.start(session);
+    await service.setModel("one", "openai/gpt-5.5");
+    await service.setNativeMode("one", "plan");
+    expect(saved.get("saved-1")).toEqual({ model: "openai/gpt-5.5", mode: "plan" });
+
+    await service.newThread("one");
+    expect(service.snapshot("one").nativeMode).toBe("plan");
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5.5");
+    service.close("one");
+
+    await service.start({ ...session, id: "two" });
+    expect(service.snapshot("two").nativeMode).toBe("plan");
+    expect(service.snapshot("two").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5.5");
+    await service.start({ id: "other", templateId: "saved-2", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    expect(service.snapshot("other").nativeMode).toBe("build");
+    expect(service.snapshot("other").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5");
+    expect(requests.filter(request => request.method === "session/set_config_option" && request.params.value === "openai/gpt-5.5")).toHaveLength(3);
+    service.shutdown();
+  });
+
+  it("ignores unavailable saved choices and does not save failed changes", async () => {
+    const saved = { mode: "removed", model: "openai/removed" };
+    const sessionStore = { getTemplate: vi.fn(() => ({ openCodeGraphicalOptions: saved })), updateLibrary: vi.fn() };
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions } });
+      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
+        error: { code: -32000, message: "rejected" } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, sessionStore, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", templateId: "saved-1", type: "windows", cwd: "C:\\work" });
+    expect(service.snapshot("one").nativeMode).toBe("build");
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5");
+    await expect(service.setModel("one", "openai/gpt-5.5")).rejects.toThrow("rejected");
+    expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
+    service.shutdown();
+  });
+
   it("selects a configured external model after ACP exposes it", async () => {
     const requests = [];
     const options = [{ id: "model", type: "select", currentValue: "opencode/free", options: [
@@ -165,8 +224,10 @@ describe("OpenCode ACP sessions", () => {
       else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id, result: {} });
     });
     const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
-    await service.start({ id: "bridge", type: "ssh", cwd: "/srv/app", shell: "powershell.exe" },
+      terminalManager: { broadcastAgentStatus: vi.fn() },
+      sessionStore: { getTemplate: () => ({ openCodeGraphicalOptions: { mode: "build" } }) },
+      broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "bridge", templateId: "saved-bridge", type: "ssh", cwd: "/srv/app", shell: "powershell.exe" },
       { localBridge: true, workspaceCwd: "C:\\bridge", requiredMode: "pannel-handle-remote" });
     expect(requests.some(message => message.method === "session/set_config_option" && message.params.value === "pannel-handle-remote")).toBe(true);
     expect(service.snapshot("bridge").nativeModes.map(mode => mode.id)).toEqual(["pannel-handle-remote"]);

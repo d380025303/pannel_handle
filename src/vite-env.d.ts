@@ -55,6 +55,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexExperimentalAcknowledged?: boolean;
   graphicalSessionEnabled?: boolean;
   codeBuddyGraphicalOptions?: { mode?: string; model?: string; contextWindow?: string; multitask?: boolean };
+  openCodeGraphicalOptions?: { mode?: string; model?: string };
   codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
@@ -495,34 +496,9 @@ export type ProjectSearchOptions = {
 };
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
-export type CodexBackend = "openai" | "openrouter" | "nararouter" | "minimax" | "codebuddy";
-export type AgentModelSource = "native" | "openrouter" | "nararouter" | "minimax" | "codebuddy";
-
-export type CodeBuddyCodexVerification = {
-  status: "passed" | "failed" | "unavailable";
-  checkedAt: number;
-  error?: string;
-  stages?: Array<{ stage: "responses" | "function_tools" | "codex_tools"; status: "passed" | "failed"; error?: string }>;
-};
-export type CodeBuddyCodexPromotion = { id: string; label: string; color?: string; descriptionZh?: string; descriptionEn?: string };
-export type CodeBuddyCodexModel = { id: string; name: string; promotions?: CodeBuddyCodexPromotion[]; verification?: CodeBuddyCodexVerification };
-export type CodeBuddyCodexStatus = { available: boolean; version?: string; experimental: true; error?: string };
-export type CodeBuddyCodexConfig = {
-  favoriteModelIds: string[];
-  defaultModelId?: string;
-  catalogVersion?: string;
-  fetchedAt?: number;
-  experimentalAcknowledged: boolean;
-};
-export type CodeBuddyCodexApi = {
-  getConfig: () => Promise<CodeBuddyCodexConfig>;
-  getStatus: () => Promise<CodeBuddyCodexStatus>;
-  listModels: () => Promise<CodeBuddyCodexModel[]>;
-  refreshModels: () => Promise<CodeBuddyCodexModel[]>;
-  verifyModel: (input: { modelId: string; force?: boolean }) => Promise<CodeBuddyCodexVerification & { modelId: string }>;
-  setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<CodeBuddyCodexConfig>;
-  setExperimentalAcknowledged: (input: { acknowledged: boolean }) => Promise<CodeBuddyCodexConfig>;
-};
+export type CodexBackend = "openai" | "openrouter" | "nararouter" | "minimax";
+export type AgentModelSource = "native" | "openrouter" | "nararouter" | "minimax";
+export type CodeBuddyPromotion = { id: string; label: string; color?: string; descriptionZh?: string; descriptionEn?: string };
 
 export type OpenRouterModel = {
   id: string;
@@ -570,8 +546,6 @@ export type OpenRouterVerificationStage = {
 
 export type OpenRouterConfig = {
   hasApiKey: boolean;
-  favoriteModelIds: string[];
-  defaultModelId?: string;
   fetchedAt?: number;
 };
 
@@ -584,7 +558,6 @@ export type OpenRouterApi = {
   test: () => Promise<{ ok: true }>;
   verifyModels: (input: { modelIds: string[]; force?: boolean }) => Promise<Array<OpenRouterModelVerification & { modelId: string }>>;
   verifyAgentModels: (input: { agent: "opencode" | "codebuddy"; modelIds: string[]; force?: boolean }) => Promise<Array<{ modelId: string; status: "passed" | "failed" | "unavailable"; checkedAt: number; error?: string }>>;
-  setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<OpenRouterConfig>;
 };
 
 export type NaraRouterModel = OpenRouterModel;
@@ -592,7 +565,29 @@ export type NaraRouterConfig = OpenRouterConfig;
 export type NaraRouterApi = OpenRouterApi;
 export type MiniMaxModel = OpenRouterModel;
 export type MiniMaxConfig = OpenRouterConfig;
-export type MiniMaxApi = OpenRouterApi;
+export type MiniMaxUsageLimit = {
+  id: string;
+  name: string;
+  usedPercent: number;
+  remainingPercent: number;
+  windowDurationMins?: number;
+  total?: number;
+  used?: number;
+  remaining?: number;
+  resetsAt?: number;
+  available?: boolean;
+  unlimited?: boolean;
+};
+export type MiniMaxUsageSnapshot = {
+  provider: "minimax";
+  fetchedAt: number;
+  primaryLimitId: string;
+  summary?: AgentUsageCurrencySummary;
+  limits: MiniMaxUsageLimit[];
+};
+export type MiniMaxApi = OpenRouterApi & {
+  getUsage: (options?: { force?: boolean }) => Promise<MiniMaxUsageSnapshot>;
+};
 export type AgentLocation = "local" | "remote";
 export type HookProvider = AgentProvider;
 
@@ -1087,7 +1082,7 @@ export type CodexSessionCapabilities = {
 
 export type CodexAppServerApi = {
   snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
-  listModelMetadata: (id: string) => Promise<Array<{ id: string; creditMultiplier?: string; promotions: CodeBuddyCodexPromotion[] }>>;
+  listModelMetadata: (id: string) => Promise<Array<{ id: string; creditMultiplier?: string; promotions: CodeBuddyPromotion[] }>>;
   readAccount: (id: string) => Promise<CodexAccountState>;
   startLogin: (id: string, type: "chatgpt" | "chatgptDeviceCode") => Promise<CodexAccountState>;
   cancelLogin: (id: string) => Promise<CodexAccountState>;
@@ -1185,7 +1180,6 @@ export type TerminalApi = {
   createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; modelSource?: AgentModelSource; modelId?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
   updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; modelSource?: AgentModelSource | null; modelId?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
-  switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
   switchModelSource: (id: string, source: AgentModelSource, restart?: boolean, modelId?: string) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   reconnectSession: (id: string) => Promise<TerminalSession>;
@@ -1536,7 +1530,6 @@ declare global {
     openRouterApi: OpenRouterApi;
     naraRouterApi: NaraRouterApi;
     miniMaxApi: MiniMaxApi;
-    codeBuddyCodexApi: CodeBuddyCodexApi;
     windowApi: WindowApi;
   }
 }

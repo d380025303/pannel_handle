@@ -150,8 +150,8 @@ export function useTerminalSessions() {
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
       ...(!isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") ? { modelSource: modelSource || "native", modelId } : {}),
       graphicalSessionEnabled: graphicalSessionEnabled !== false,
-      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
-      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
+      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && codexModel ? { codexModel } : {}),
+      ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
       tags,
       environmentProfileId, environmentOverrides,
       ...(typeof persist === "boolean" ? { persist } : {})
@@ -197,9 +197,9 @@ export function useTerminalSessions() {
         ? typeof modelSource !== "undefined" ? { modelSource, modelId: modelId ?? null } : {}
         : { modelSource: null, modelId: null }),
       ...(typeof graphicalSessionEnabled === "boolean" ? { graphicalSessionEnabled } : {}),
-      codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") ? codexModel ?? null : null,
+      codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") ? codexModel ?? null : null,
       ...(typeof codexExperimentalAcknowledged !== "undefined"
-        ? { codexExperimentalAcknowledged: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? codexExperimentalAcknowledged : null }
+        ? { codexExperimentalAcknowledged: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && codexModel ? codexExperimentalAcknowledged : null }
         : {}),
       sshConfig,
       quickCommands,
@@ -295,11 +295,6 @@ export function useTerminalSessions() {
 
   const switchAgent = useCallback(async (id: string, provider: AgentProvider) => {
     const replacement = await window.terminalApi.switchAgent(id, provider);
-    setActiveId(replacement.id);
-  }, []);
-
-  const switchCodexBackend = useCallback(async (id: string, backend: CodexBackend) => {
-    const replacement = await window.terminalApi.switchCodexBackend(id, backend);
     setActiveId(replacement.id);
   }, []);
 
@@ -422,7 +417,6 @@ export function useTerminalSessions() {
     updateSession,
     switchAgent,
     openOtherSessionMode,
-    switchCodexBackend,
     switchModelSource,
     switchCodeBuddyModel,
     switchCodexGraphicalModel,

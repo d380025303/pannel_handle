@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { formatOpenRouterPricing } from "../../utils/openRouterPricing";
+import { MiniMaxUsageSection } from "./MiniMaxUsageSection";
 import type { OpenRouterConfig, OpenRouterModel } from "../../vite-env";
 
 function verificationStageKey(stage?: string) {
@@ -29,7 +30,7 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
   const providerName = isNaraRouter ? "NaraRouter" : isMiniMax ? "MiniMax" : "OpenRouter";
   const routerApi = isNaraRouter ? window.naraRouterApi : isMiniMax ? window.miniMaxApi : window.openRouterApi;
   const [open, setOpen] = useState(false);
-  const [config, setConfig] = useState<OpenRouterConfig>({ hasApiKey: false, favoriteModelIds: [] });
+  const [config, setConfig] = useState<OpenRouterConfig>({ hasApiKey: false });
   const [models, setModels] = useState<OpenRouterModel[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [query, setQuery] = useState("");
@@ -89,17 +90,6 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
     }
   };
 
-  const toggleFavorite = (id: string) => {
-    const favoriteModelIds = config.favoriteModelIds.includes(id)
-      ? config.favoriteModelIds.filter(item => item !== id)
-      : [...config.favoriteModelIds, id];
-    setConfig(current => ({
-      ...current,
-      favoriteModelIds,
-      defaultModelId: favoriteModelIds.includes(current.defaultModelId || "") ? current.defaultModelId : favoriteModelIds[0]
-    }));
-  };
-
   const verifyModel = async (modelId: string) => {
     setVerifyingModelId(modelId);
     setResult(null);
@@ -149,8 +139,9 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
           <button className="modal-button danger" type="button" disabled={busy || !config.hasApiKey} onClick={() => void run(async () => { await routerApi.clearApiKey(); }, t(isNaraRouter ? "settings.naraRouterCleared" : isMiniMax ? "settings.miniMaxCleared" : "settings.openRouterCleared"))}>{t("settings.openRouterClear")}</button>
           <button className="modal-button" type="button" disabled={busy || ((isNaraRouter || isMiniMax) && !config.hasApiKey)} onClick={() => void run(async () => { setModels(await routerApi.refreshModels()); }, t(isNaraRouter ? "settings.naraRouterModelsRefreshed" : isMiniMax ? "settings.miniMaxModelsRefreshed" : "settings.openRouterModelsRefreshed"))}>{t("settings.openRouterRefreshModels")}</button>
         </div>
+        {isMiniMax && <MiniMaxUsageSection hasApiKey={config.hasApiKey} />}
         <label className="settings-field">
-          <span className="modal-label">{t("settings.openRouterFavorites")}</span>
+          <span className="modal-label">{t("settings.openRouterModels")}</span>
           <input className="modal-input" type="search" value={query} placeholder={t("common.search")} onChange={event => setQuery(event.target.value)} />
         </label>
         {!isMiniMax && <label className="auto-restore-label">
@@ -160,18 +151,15 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
         </label>}
         <div className="openrouter-model-list">
           {compatibleModels.map(model => <div key={model.id} className="openrouter-model-row">
-            <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} onChange={() => toggleFavorite(model.id)} />
             <span><strong>{model.name}</strong><small>{model.id}</small><small className="openrouter-model-price">{formatOpenRouterPricing(model.pricing, locale, { input: t("settings.openRouterPriceInput"), output: t("settings.openRouterPriceOutput"), unavailable: t("settings.openRouterPriceUnavailable") })}</small><small className={`openrouter-verification ${model.verification?.status || "pending"}`}>Codex：{verificationText(model)}</small>{(["opencode", "codebuddy"] as const).map(agent => <small key={agent} className={`openrouter-verification ${model.agentVerifications?.[agent]?.status || "pending"}`}>{agent === "opencode" ? "OpenCode" : "CodeBuddy"}：{model.agentVerifications?.[agent]?.status === "passed" ? "已通过" : model.agentVerifications?.[agent]?.error || "待验证"}</small>)}</span>
             <span className="openrouter-model-actions">
               <button className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId)} onClick={() => void verifyModel(model.id)}>{verifyingModelId === model.id ? t("settings.openRouterVerifying") : t("settings.openRouterVerifyRetry")}</button>
               {(["opencode", "codebuddy"] as const).map(agent => <button key={agent} className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId) || !config.hasApiKey} onClick={() => void verifyAgentModel(model.id, agent)}>{verifyingModelId === `${agent}:${model.id}` ? "验证中" : `验证 ${agent === "opencode" ? "OpenCode" : "CodeBuddy"}`}</button>)}
-              {config.favoriteModelIds.includes(model.id) && <input type="radio" name={`${provider}-default`} checked={config.defaultModelId === model.id} aria-label={t("settings.openRouterDefaultModel")} onChange={() => setConfig(current => ({ ...current, defaultModelId: model.id }))} />}
             </span>
           </div>)}
           {!models.length && <p className="settings-help">{t(isNaraRouter ? "settings.naraRouterRefreshHint" : isMiniMax ? "settings.miniMaxRefreshHint" : "settings.openRouterRefreshHint")}</p>}
           {Boolean(models.length) && !compatibleModels.length && <p className="settings-help">{t("settings.openRouterNoMatchingModels")}</p>}
         </div>
-        <button className="modal-button primary" type="button" disabled={busy || !config.favoriteModelIds.length} onClick={() => void run(async () => { await routerApi.setFavorites({ favoriteModelIds: config.favoriteModelIds, defaultModelId: config.defaultModelId }); }, t(isNaraRouter ? "settings.naraRouterFavoritesSaved" : isMiniMax ? "settings.miniMaxFavoritesSaved" : "settings.openRouterFavoritesSaved"))}>{t("settings.openRouterSaveFavorites")}</button>
         <p className="settings-help">{t("settings.openRouterNewSessionsHint")}</p>
         {result && <p className={`settings-result ${result.kind}`} role="status">{result.message}</p>}
       </>}

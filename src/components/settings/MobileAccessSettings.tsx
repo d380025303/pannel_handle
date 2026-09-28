@@ -91,8 +91,8 @@ export function MobileAccessSettings() {
             <label className="settings-field"><span className="modal-label">{t("settings.mobilePort")}</span><input className="modal-input" type="number" min="1024" max="65535" value={port} disabled={busy} onChange={(event) => setPort(event.target.value)} /></label>
           </div>
           <div className="ding-talk-actions"><button className="modal-button" type="button" disabled={busy || !interfaceName} onClick={saveNetwork}>{t("common.save")}</button></div>
-          {state.running && <div className="mobile-access-addresses"><code>{state.canonicalUrl}</code><code>{state.fallbackUrl}</code><code>{state.localUrl}</code></div>}
-          {state.running && <p className="settings-help">{t("settings.mobileOpenHint")}</p>}
+          {state.running && <div className="mobile-access-addresses">{state.canonicalUrl && <code>{state.canonicalUrl}</code>}{state.fallbackUrl && <code>{state.fallbackUrl}</code>}<code>{state.localUrl}</code></div>}
+          {state.running && <p className="settings-help">{state.fallbackUrl ? t("settings.mobileOpenHint") : t("settings.mobileLocalOpenHint")}</p>}
           {state.lastError && <p className="ding-talk-result error">{state.lastError}</p>}
           {error && <p className="ding-talk-result error">{error}</p>}
           <div className="mobile-access-subsection">

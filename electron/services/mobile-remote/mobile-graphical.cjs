@@ -1,9 +1,9 @@
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
-const { availableModelIds, nativeModeFor } = require("./graphical-command-policy.cjs");
+const { availableModelIds, visibleOpenCodeOptions, nativeModeFor } = require("./graphical-command-policy.cjs");
 
 const MAX_TEXT_BYTES = 16 * 1024;
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, uploads, send }) {
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -12,8 +12,12 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
   }
 
   function sendSnapshot(socket, sessionId, snapshot) {
-    if (socket.graphicalSessionId === sessionId)
-      send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot) });
+    if (socket.graphicalSessionId === sessionId) {
+      const session = terminalManager.getSession(sessionId);
+      const models = snapshot.provider === "opencode"
+        ? visibleOpenCodeOptions(snapshot, session, session?.type === "ssh" ? undefined : getOpenCodeVerifiedModels?.()) : undefined;
+      send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot, models) });
+    }
   }
 
   function assertSwitchAllowed(socket, message) {
@@ -68,7 +72,8 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     } else if (message.type === "graphical.model") {
       if (!current.threadId || current.busy || current.archived) throw new Error("当前会话不可切换模型。");
       const modelId = message.modelId;
-      const options = availableModelIds(current);
+      const options = availableModelIds(current, session,
+        current.provider === "opencode" && session.type !== "ssh" ? getOpenCodeVerifiedModels?.() : undefined);
       if (typeof modelId !== "string" || !options.includes(modelId)) throw new Error("请选择当前会话可用的模型。");
       await graphicalService.setModel(sessionId, modelId);
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));

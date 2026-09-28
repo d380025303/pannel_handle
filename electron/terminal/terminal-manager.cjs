@@ -827,9 +827,11 @@ function createTerminalManager({
       tags: options.tags || []
     };
 
-    const session = startSessionFromTemplate(template, { ...options, persist });
+    const { normalizeRemovedCodexBackend } = require("../services/model-sources/model-selection.cjs");
+    const normalizedTemplate = normalizeRemovedCodexBackend(template);
+    const session = startSessionFromTemplate(normalizedTemplate, { ...options, persist });
     if (persist) {
-      sessionStore.addToLibrary(template);
+      sessionStore.addToLibrary(normalizedTemplate);
     }
     broadcast("sessions:changed", listSessions());
     syncLastActiveIds();
@@ -956,7 +958,7 @@ function createTerminalManager({
       libraryUpdates.modelId = selection.modelId || null;
     }
     if (typeof codexBackend !== "undefined") {
-      session.codexBackend = codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy" ? codexBackend : session.agentProvider === "codex" ? "openai" : undefined;
+      session.codexBackend = codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" ? codexBackend : session.agentProvider === "codex" ? "openai" : undefined;
       libraryUpdates.codexBackend = session.codexBackend || null;
     }
     if (typeof graphicalSessionEnabled === "boolean") {
@@ -964,12 +966,12 @@ function createTerminalManager({
       libraryUpdates.graphicalSessionEnabled = graphicalSessionEnabled;
     }
     if (typeof codexModel !== "undefined") {
-      session.codexModel = session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy" ? String(codexModel || "").trim() || undefined : undefined;
+      session.codexModel = session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" ? String(codexModel || "").trim() || undefined : undefined;
       libraryUpdates.codexModel = session.codexModel || null;
     }
     const codexSelectionChanged = previousCodexBackend !== session.codexBackend || previousCodexModel !== session.codexModel;
     if (typeof codexExperimentalAcknowledged !== "undefined" || codexSelectionChanged) {
-      session.codexExperimentalAcknowledged = (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy") && Boolean(session.codexModel) && codexExperimentalAcknowledged === true
+      session.codexExperimentalAcknowledged = (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax") && Boolean(session.codexModel) && codexExperimentalAcknowledged === true
         ? true
         : undefined;
       libraryUpdates.codexExperimentalAcknowledged = session.codexExperimentalAcknowledged || null;

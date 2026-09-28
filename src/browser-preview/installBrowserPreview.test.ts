@@ -11,7 +11,7 @@ describe("installBrowserPreview", () => {
   it("installs every renderer bridge used by the application", () => {
     expect(Object.keys(window)).toEqual(expect.arrayContaining([
       "environmentApi", "terminalApi", "screenshotApi", "openRouterApi", "naraRouterApi", "miniMaxApi",
-      "codeBuddyCodexApi", "agentConversationApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
+      "agentConversationApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
       "dingTalkApi", "clipboardApi", "externalLinkApi", "remoteFileApi", "remoteSystemApi", "skillsApi",
       "mcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
       "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi"

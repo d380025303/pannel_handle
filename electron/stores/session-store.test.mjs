@@ -236,7 +236,7 @@ describe("session-store", () => {
     expect(session).toMatchObject({ codexBackend: "openrouter", codexModel: "openai/gpt-5.4", codexExperimentalAcknowledged: true });
   });
 
-  it("persists verified CodeBuddy Codex metadata for local sessions", () => {
+  it("normalizes saved CodeBuddy Codex sessions to OpenAI", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{
       id: "1",
@@ -250,7 +250,9 @@ describe("session-store", () => {
     }]));
 
     const [session] = createStore(sessionsFile).loadLibrary();
-    expect(session).toMatchObject({ codexBackend: "codebuddy", codexModel: "glm-5.2", codexExperimentalAcknowledged: true });
+    expect(session).toMatchObject({ codexBackend: "openai", modelSource: "native" });
+    expect(session.codexModel).toBeUndefined();
+    expect(session.codexExperimentalAcknowledged).toBeUndefined();
   });
 
   it("persists NaraRouter Codex metadata for local sessions", () => {
@@ -523,6 +525,22 @@ describe("session-store", () => {
       mode: "bypassPermissions", model: "glm-5.3", contextWindow: "1000000", multitask: false
     } });
     expect(reloaded.duplicateInLibrary("1").codeBuddyGraphicalOptions).toEqual(reloaded.getTemplate("1").codeBuddyGraphicalOptions);
+  });
+
+  it("keeps OpenCode graphical choices separately for each saved template", () => {
+    const sessionsFile = createTempSessionsFile();
+    const store = createStore(sessionsFile);
+    store.addToLibrary({ id: "1", title: "Codex", agentProvider: "codex" });
+    store.addToLibrary({ id: "2", title: "Other", agentProvider: "opencode" });
+    store.updateLibrary("1", { openCodeGraphicalOptions: { mode: "plan", model: "openai/gpt-5.5" } });
+
+    const reloaded = createStore(sessionsFile);
+    reloaded.loadLibrary();
+    expect(reloaded.getTemplate("1")).toMatchObject({ agentProvider: "codex", openCodeGraphicalOptions: {
+      mode: "plan", model: "openai/gpt-5.5"
+    } });
+    expect(reloaded.getTemplate("2").openCodeGraphicalOptions).toBeUndefined();
+    expect(reloaded.duplicateInLibrary("1").openCodeGraphicalOptions).toEqual(reloaded.getTemplate("1").openCodeGraphicalOptions);
   });
 
   it("returns an empty library for missing or invalid session files", () => {

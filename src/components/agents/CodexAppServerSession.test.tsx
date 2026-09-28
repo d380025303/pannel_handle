@@ -84,6 +84,10 @@ describe("CodexAppServerSession", () => {
       check: vi.fn().mockResolvedValue({ status: "current", currentVersion: "2.157.0", latestVersion: "2.157.0", restartRequired: false }),
       update: vi.fn()
     } });
+    Object.defineProperty(window, "openCodeVersionApi", { configurable: true, value: {
+      check: vi.fn().mockResolvedValue({ status: "current", currentVersion: "2.0.18", latestVersion: "2.0.18", restartRequired: false }),
+      update: vi.fn()
+    } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
@@ -110,7 +114,7 @@ describe("CodexAppServerSession", () => {
       onDraftReferencesChange={onDraftReferencesChange} onLinkClick={onLinkClick} sessionRefs={sessionRefs} />);
 
     const { container, rerender } = render(<>{panels("run-1")}</>);
-    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(1));
     expect(container.querySelectorAll(".graphical-session-panel")).toHaveLength(2);
     expect(sessionRefs.size).toBe(2);
     onDraftChange.mockClear();
@@ -124,15 +128,19 @@ describe("CodexAppServerSession", () => {
     expect(onDraftChange).not.toHaveBeenCalled();
     act(() => sessionRefs.get("run-2")?.appendFilePath("active.txt"));
     expect(onDraftChange).toHaveBeenCalledWith("run-2", expect.any(Function));
-    expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
     act(() => listeners.forEach(listener => listener({ id: "run-1", snapshot: {
       threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null,
       pendingPlan: null, items: [{ id: "answer-1", type: "agentMessage", text: "后台新消息" }], approvals: []
     } })));
-    expect(container.textContent).toContain("后台新消息");
+    expect(container.textContent).not.toContain("后台新消息");
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({
+      threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null,
+      pendingPlan: null, items: [{ id: "answer-1", type: "agentMessage", text: "后台新消息" }], approvals: []
+    });
     rerender(<>{panels("run-1")}</>);
-    expect(container.querySelectorAll(".graphical-session-panel")[0].textContent).toContain("后台新消息");
-    expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(container.querySelectorAll(".graphical-session-panel")[0].textContent).toContain("后台新消息"));
+    expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(3);
 
     rerender(<GraphicalSessionPanel session={sessions[1]} isActive draft="" draftReferences={[]}
       onDraftChange={onDraftChange} onDraftReferencesChange={onDraftReferencesChange}
@@ -148,7 +156,7 @@ describe("CodexAppServerSession", () => {
       onDraftReferencesChange={vi.fn()} onLinkClick={vi.fn()} sessionRefs={sessionRefs} />);
 
     const { container, rerender } = render(<>{panels("run-1")}</>);
-    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(1));
     const messages = container.querySelectorAll<HTMLElement>(".codex-app-server-messages");
     Object.defineProperty(messages[0], "scrollHeight", { configurable: true, value: 600 });
     Object.defineProperty(messages[1], "scrollHeight", { configurable: true, value: 800 });
@@ -210,6 +218,28 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default", busy: false,
       error: null, items: [{ id: "user-1", type: "userMessage", text: "继续" }], approvals: [] } }));
     expect(screen.queryByRole("group", { name: "CodeBuddy CLI 更新" })).toBeNull();
+  });
+
+  it("checks and confirms OpenCode V2 updates only in the empty state", async () => {
+    const check = vi.mocked(window.openCodeVersionApi.check);
+    const update = vi.mocked(window.openCodeVersionApi.update);
+    check.mockResolvedValue({ status: "available", currentVersion: "2.0.18", latestVersion: "2.0.19", method: "npm", environment: "windows" });
+    update.mockResolvedValue({ status: "current", currentVersion: "2.0.19", latestVersion: "2.0.19", environment: "windows", restartRequired: true });
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "thread-1", provider: "opencode", mode: "default",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] });
+
+    const { container } = render(<CodexAppServerSession sessionId="run-1" />);
+    const updates = await screen.findByRole("group", { name: "OpenCode CLI 更新" });
+    expect(container.querySelector(".codex-app-server-empty")?.contains(updates)).toBe(true);
+    await waitFor(() => expect(check).toHaveBeenCalledWith("run-1"));
+    fireEvent.click(screen.getByRole("button", { name: "更新 OpenCode" }));
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确认更新" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("run-1"));
+    expect(await screen.findByText("更新已安装，手动重启会话后生效")).toBeTruthy();
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "opencode", mode: "default", busy: false,
+      error: null, items: [{ id: "user-1", type: "userMessage", text: "继续" }], approvals: [] } }));
+    expect(screen.queryByRole("group", { name: "OpenCode CLI 更新" })).toBeNull();
   });
 
   it("offers Windows CodeBuddy rewind only for messages with a stable ID", async () => {
@@ -757,6 +787,17 @@ describe("CodexAppServerSession", () => {
 
   it("keeps verified service models selectable and offers reconnect in an external OpenCode session", async () => {
     const reconnect = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
+      listModels: vi.fn().mockResolvedValue([{ id: "b", agentVerifications: { opencode: { status: "passed" } } }])
+    } });
+    Object.defineProperty(window, "naraRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
+      listModels: vi.fn().mockResolvedValue([{ id: "a", agentVerifications: { opencode: { status: "passed" } } }])
+    } });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }), listModels: vi.fn().mockResolvedValue([])
+    } });
     setModel.mockResolvedValueOnce({ threadId: "open-1", provider: "opencode", busy: false, error: null,
       mode: "default", executionPermission: "askApproval", items: [], approvals: [],
       acpOptions: [{ id: "model", type: "select", currentValue: "openrouter/b", options: [
@@ -770,11 +811,86 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.getByRole("menuitem", { name: "重新连接以更新模型" })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
-    fireEvent.click(screen.getByRole("radio", { name: "B" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "B" }));
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "openrouter/b"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "重新连接以更新模型" }));
     await waitFor(() => expect(reconnect).toHaveBeenCalledWith("run-1"));
+  });
+  it("shows only OpenCode-verified service models while keeping native ACP models", async () => {
+    const serviceApi = (hasApiKey: boolean, models: Array<{ id: string; status: string }>) => ({
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey, favoriteModelIds: [] }),
+      listModels: vi.fn().mockResolvedValue(models.map(model => ({ id: model.id, agentVerifications: { opencode: { status: model.status } } })))
+    });
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: serviceApi(true, [
+      { id: "ready", status: "passed" }, { id: "failed", status: "failed" }
+    ]) });
+    Object.defineProperty(window, "naraRouterApi", { configurable: true, value: serviceApi(false, [{ id: "no-key", status: "passed" }]) });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: serviceApi(true, [
+      { id: "MiniMax-M2.7", status: "passed" }, { id: "MiniMax-M3", status: "passed" },
+      { id: "MiniMax-M2", status: "failed" }, { id: "MiniMax-M1", status: "unavailable" }
+    ]) });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "windows", agentProvider: "opencode" } as TerminalSession}
+      draft="" setDraft={vi.fn()} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "opencode/free", options: [
+        { value: "opencode/free", name: "Free" }, { value: "openrouter/ready", name: "Ready" },
+        { value: "openrouter/failed", name: "Failed" }, { value: "nararouter/no-key", name: "No key" },
+        { value: "minimax/MiniMax-M2.7", name: "MiniMax M2.7" }, { value: "minimax/MiniMax-M3", name: "MiniMax M3" },
+        { value: "minimax/MiniMax-M2", name: "MiniMax M2" }, { value: "minimax/MiniMax-M1", name: "MiniMax M1" },
+        { value: "minimax-cn/MiniMax-M3", name: "China MiniMax M3" },
+        { value: "minimax-cn-coding-plan/MiniMax-M2.7", name: "Coding Plan MiniMax M2.7" }
+      ] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(screen.getByRole("radio", { name: "Free" })).toBeTruthy();
+    expect(await screen.findByRole("radio", { name: "MiniMax M3" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "MiniMax M2.7" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Ready" })).toBeTruthy();
+    for (const name of ["Failed", "No key", "MiniMax M2", "MiniMax M1", "China MiniMax M3", "Coding Plan MiniMax M2.7"])
+      expect(screen.queryByRole("radio", { name })).toBeNull();
+  });
+  it("keeps failed OpenCode model catalogs hidden and retries when the menu reopens", async () => {
+    const listModels = vi.fn().mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce([{ id: "MiniMax-M3", agentVerifications: { opencode: { status: "passed" } } }]);
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }), listModels: vi.fn().mockResolvedValue([])
+    } });
+    Object.defineProperty(window, "naraRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }), listModels: vi.fn().mockResolvedValue([])
+    } });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }), listModels
+    } });
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "wsl", agentProvider: "opencode" } as TerminalSession}
+      draft="" setDraft={vi.fn()} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "opencode/free", options: [
+        { value: "opencode/free", name: "Free" }, { value: "minimax/MiniMax-M3", name: "MiniMax M3" }
+      ] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "模型" }).textContent).toContain("MiniMax 模型读取失败"));
+    expect(screen.queryByRole("radio", { name: "MiniMax M3" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(await screen.findByRole("radio", { name: "MiniMax M3" })).toBeTruthy();
+    expect(listModels).toHaveBeenCalledTimes(2);
+  });
+  it("keeps remote OpenCode ACP models visible in SSH sessions", () => {
+    render(<SessionView sessionId="run-1" session={{ id: "run-1", type: "ssh", agentProvider: "opencode" } as TerminalSession}
+      sessionType="ssh" draft="" setDraft={vi.fn()} />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", busy: false, error: null,
+      mode: "default", executionPermission: "askApproval", items: [], approvals: [],
+      acpOptions: [{ id: "model", type: "select", currentValue: "opencode/free", options: [
+        { value: "opencode/free", name: "Free" }, { value: "minimax/remote", name: "Remote MiniMax" }
+      ] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(screen.getByRole("radio", { name: "Remote MiniMax" })).toBeTruthy();
   });
   it("lists CodeBuddy-verified service models without favorites and switches to the selected model", async () => {
     const switchModel = vi.fn().mockResolvedValue(undefined);

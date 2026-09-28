@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -22,10 +22,9 @@ function createStore() {
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe("openrouter-config-store", () => {
-  it("keeps shared favorites when Codex is incompatible and tracks each Agent independently", () => {
+  it("tracks each Agent verification independently when Codex is incompatible", () => {
     const { store, configFile } = createStore();
     store.setCachedModels([{ id: "vendor/model", name: "Model", supported_parameters: [] }]);
-    expect(store.setFavorites(["vendor/model"], "vendor/model").favoriteModelIds).toEqual(["vendor/model"]);
     store.setAgentModelVerification("opencode", "vendor/model", { status: "passed" });
     store.setAgentModelVerification("codebuddy", "vendor/model", { status: "failed", error: "unsupported" });
     expect(store.getAgentModelVerifications("opencode")["vendor/model"].status).toBe("passed");
@@ -75,14 +74,26 @@ describe("openrouter-config-store", () => {
     expect(readFileSync(configFile, "utf-8")).not.toContain("sk-secret");
   });
 
-  it("allows cached models to be favorited independently of Codex compatibility", () => {
+  it("ignores legacy favorites and defaults and removes them on the next save", () => {
+    const { store, configFile } = createStore();
+    writeFileSync(configFile, JSON.stringify({ cachedModels: [{ id: "legacy" }], favoriteModelIds: ["legacy"], defaultModelId: "legacy" }));
+    store.load();
+    expect(store.getPublicConfig()).not.toHaveProperty("favoriteModelIds");
+    expect(store.getPublicConfig()).not.toHaveProperty("defaultModelId");
+    store.setCachedModels(store.getCachedModels());
+    const saved = JSON.parse(readFileSync(configFile, "utf-8"));
+    expect(saved).not.toHaveProperty("favoriteModelIds");
+    expect(saved).not.toHaveProperty("defaultModelId");
+  });
+
+  it("keeps cached models independently of Codex compatibility", () => {
     const { store } = createStore();
     store.setCachedModels([
       { id: "good", supported_parameters: ["tools", "tool_choice"] },
       { id: "bad", supported_parameters: ["tools"] }
     ], 123);
-    expect(store.setFavorites(["good"], "good")).toMatchObject({ favoriteModelIds: ["good"], defaultModelId: "good" });
-    expect(store.setFavorites(["bad"], "bad").favoriteModelIds).toEqual(["bad"]);
+    expect(Object.fromEntries(store.getCachedModels().map(model => [model.id, model.compatible]))).toEqual({ good: true, bad: false });
+    expect(store.getPublicConfig()).not.toHaveProperty("defaultModelId");
   });
 
   it("lets NaraRouter models without capability metadata proceed to live verification", () => {
@@ -101,7 +112,6 @@ describe("openrouter-config-store", () => {
     });
     store.setCachedModels([{ id: "gpt-test", pricing: { prompt: "0.000001" } }], 123);
     expect(store.getCachedModels()[0]).toMatchObject({ compatible: true, pricing: { prompt: "0.000001" } });
-    expect(store.setFavorites(["gpt-test"], "gpt-test")).toMatchObject({ favoriteModelIds: ["gpt-test"], defaultModelId: "gpt-test" });
   });
 
   it("persists model verification results and clears them when the API key changes", () => {
@@ -128,7 +138,7 @@ describe("openrouter-config-store", () => {
     bridgeStore.load();
     expect(bridgeStore.getCachedModels()).toHaveLength(1);
     expect(bridgeStore.getModelVerifications()).toEqual({});
-    bridgeStore.setFavorites(["model-a"], "model-a");
+    bridgeStore.setCachedModels(bridgeStore.getCachedModels());
     expect(JSON.parse(readFileSync(configFile, "utf-8")).verificationProfile).toBe("chat-completions-bridge-v1");
   });
 

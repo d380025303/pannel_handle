@@ -1,5 +1,4 @@
 const { buildCodexBackendCommand } = require("./codex-command.cjs");
-const { createCodeBuddyCodexBridgeService } = require("./codebuddy-bridge-service.cjs");
 const { createResponsesChatCompletionsBridgeService } = require("./responses-chat-completions-bridge-service.cjs");
 const {
   MINIMAX_BASE_URL,
@@ -12,8 +11,6 @@ const {
 const NARAROUTER_BRIDGE_API_KEY_ENV = "PANNEL_HANDLE_NARAROUTER_BRIDGE_KEY";
 
 function createCodexModelBridgeModule({
-  codeBuddy,
-  createCodeBuddyBridge = createCodeBuddyCodexBridgeService,
   createResponsesBridge = createResponsesChatCompletionsBridgeService
 }) {
   const bridges = {
@@ -32,8 +29,7 @@ function createCodexModelBridgeModule({
       ignoredToolTypes: ["web_search", "web_search_preview"],
       requestAdapter: adaptMiniMaxChatRequest,
       allowFinishReasonAsDone: true
-    }),
-    codebuddy: createCodeBuddyBridge(codeBuddy)
+    })
   };
 
   function getBridge(backend) {
@@ -56,10 +52,6 @@ function createCodexModelBridgeModule({
     };
   }
 
-  async function getCodeBuddyLaunchConfig(session) {
-    return getLaunchAdapter("codebuddy")(session);
-  }
-
   function bindSession(sessionId, registration) {
     if (registration?.id) getBridge(registration.backend).bindSession(sessionId, registration.id);
   }
@@ -77,10 +69,8 @@ function createCodexModelBridgeModule({
   }
 
   return {
-    codeBuddyService: bridges.codebuddy,
     getResponsesTransport,
     getLaunchAdapter,
-    getCodeBuddyLaunchConfig,
     bindSession,
     releaseRegistration,
     disconnect,
@@ -97,6 +87,5 @@ module.exports = {
   adaptMiniMaxChatRequest,
   buildCodexBackendCommand,
   createCodexModelBridgeModule,
-  createCodeBuddyCodexBridgeService,
   createResponsesChatCompletionsBridgeService
 };

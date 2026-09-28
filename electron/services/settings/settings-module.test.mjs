@@ -37,15 +37,6 @@ describe("settings module", () => {
       getResponsesTransport: vi.fn(backend => `${backend}-transport`),
       getLaunchAdapter: vi.fn(backend => `${backend}-launch`)
     };
-    const codeBuddyCodexBridgeService = {
-      getConfig: vi.fn(),
-      getStatus: vi.fn(),
-      listModels: vi.fn(),
-      refreshModels: vi.fn(),
-      verifyModel: vi.fn(),
-      setFavorites: vi.fn(),
-      setExperimentalAcknowledged: vi.fn()
-    };
     const module = createSettingsModule({
       ipcMain,
       configStore: { getConfig: vi.fn(), updateConfig: vi.fn() },
@@ -56,7 +47,6 @@ describe("settings module", () => {
       openRouterConfigStore: "openrouter-store",
       naraRouterConfigStore: "nararouter-store",
       miniMaxConfigStore: "minimax-store",
-      codeBuddyCodexBridgeService,
       codexModelBridgeModule,
       openRouterCatalogFile: "openrouter-catalog.json",
       naraRouterCatalogFile: "nararouter-catalog.json",

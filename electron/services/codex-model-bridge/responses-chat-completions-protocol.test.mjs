@@ -3,7 +3,7 @@ import protocol from "./responses-chat-completions-protocol.cjs";
 
 const { responsesToChat, createResponseAccumulator } = protocol;
 
-describe("CodeBuddy Codex protocol", () => {
+describe("Responses to Chat Completions protocol", () => {
   it("converts Responses messages and custom tools to Chat Completions", () => {
     const result = responsesToChat({ model: "glm-5.3", instructions: "system", input: [
       { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },

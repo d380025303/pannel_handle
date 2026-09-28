@@ -14,16 +14,15 @@ export type AgentUsageViewState =
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
-  const isCodeBuddyCodexBackend = session?.agentProvider === "codex" && session.codexBackend === "codebuddy";
   const isMiniMaxCodexBackend = session?.agentProvider === "codex" && session.codexBackend === "minimax";
   const configuredProvider = session?.agentProvider === "codex" || session?.agentProvider === "codebuddy" || session?.agentProvider === "qoder" || session?.agentProvider === "copilot" || session?.agentProvider === "gemini" || session?.agentProvider === "grok"
     ? session.agentProvider
     : undefined;
-  const provider = isCodeBuddyCodexBackend ? "codebuddy" : isMiniMaxCodexBackend ? "minimax" : configuredProvider;
+  const provider = isMiniMaxCodexBackend ? "minimax" : configuredProvider;
   const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter" && session?.codexBackend !== "nararouter")
     || provider === "minimax"
     || provider === "copilot" || provider === "grok"
-    || (provider === "codebuddy" && (session?.agentProvider !== "codebuddy" || !session.modelSource || session.modelSource === "native") && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
+    || (provider === "codebuddy" && (!session?.modelSource || session.modelSource === "native") && session?.type === "windows")
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
     || (provider === "gemini" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });

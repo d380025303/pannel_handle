@@ -10,7 +10,6 @@ import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { CodeBuddyContextUsage } from "./components/agents/CodeBuddyContextUsage";
 import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { SessionModeSwitch } from "./components/agents/SessionModeSwitch";
-import { AgentModelSourceSwitcher } from "./components/agents/AgentModelSourceSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import type { CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
@@ -967,7 +966,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <div className="terminal-status-cluster">
                       <SessionModeSwitch session={terminalSessions.activeSession} onOpenOtherMode={terminalSessions.openOtherSessionMode} />
                       <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
-                      <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                       <AgentTokenLiveStatus state={agentTokenLive} />
                       <AgentUsageStatus
                         state={agentUsage.state}
@@ -996,7 +994,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   <div className="terminal-status-cluster">
                     <SessionModeSwitch session={terminalSessions.activeSession} onOpenOtherMode={terminalSessions.openOtherSessionMode} />
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
-                    <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                     <AgentTokenLiveStatus
                       state={terminalSessions.activeSession?.agentProvider === "codebuddy" ? agentTokenLive : appServerFooter.tokenState}
                       source={terminalSessions.activeSession?.agentProvider === "codebuddy" ? "transcript" : "app-server"}

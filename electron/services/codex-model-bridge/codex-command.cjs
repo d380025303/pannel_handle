@@ -20,7 +20,7 @@ function commandArg(session, value) {
 
 function buildCodexBackendCommand(session, config) {
   const providerId = String(config.providerId || "openrouter");
-  const providerName = String(config.providerName || (providerId === "codebuddy" ? "CodeBuddy" : "OpenRouter"));
+  const providerName = String(config.providerName || "OpenRouter");
   const overrides = [
     `model_provider=${providerId}`,
     `model_providers.${providerId}.name=${providerName}`,

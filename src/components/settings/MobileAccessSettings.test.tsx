@@ -61,4 +61,16 @@ describe("MobileAccessSettings", () => {
     render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
     expect(await screen.findByText("http://127.0.0.1:6174")).toBeTruthy();
   });
+
+  it("shows only the local address and the adapter error when LAN is unavailable", async () => {
+    vi.mocked(window.mobileAccessApi.getState).mockResolvedValueOnce({
+      ...mobileAccessState, address: "", canonicalUrl: "", fallbackUrl: "",
+      lastError: "选择的局域网网卡不可用，请重新选择。"
+    });
+    render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
+    expect(await screen.findByText("http://127.0.0.1:6174")).toBeTruthy();
+    expect(screen.queryByText("http://192.168.1.10:6174")).toBeNull();
+    expect(screen.getByText("选择的局域网网卡不可用，请重新选择。")).toBeTruthy();
+    expect(screen.getByText(/当前仅可在本机打开/)).toBeTruthy();
+  });
 });

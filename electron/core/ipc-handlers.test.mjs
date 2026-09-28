@@ -98,14 +98,14 @@ describe("session IPC handlers", () => {
     };
     await updateSessionFromIpc(terminalManager, {
       id: "template-1",
-      codexBackend: "codebuddy",
-      codexModel: "glm-5.3",
+      codexBackend: "openrouter",
+      codexModel: "vendor/model",
       codexExperimentalAcknowledged
     });
 
     expect(terminalManager.updateSession).toHaveBeenCalledWith("template-1", expect.objectContaining({
-      codexBackend: "codebuddy",
-      codexModel: "glm-5.3",
+      codexBackend: "openrouter",
+      codexModel: "vendor/model",
       codexExperimentalAcknowledged
     }));
   });

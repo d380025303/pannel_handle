@@ -10,6 +10,8 @@ describe("shared Agent model selection", () => {
     expect(normalizeModelSelection({ agentProvider: "codex", type: "windows", codexBackend: "openrouter", codexModel: "vendor/coder" }))
       .toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder", codexBackend: "openrouter", codexModel: "vendor/coder" });
     expect(normalizeModelSelection({ agentProvider: "opencode", type: "windows" })).toEqual({ modelSource: "native", modelId: undefined });
+    expect(normalizeModelSelection({ agentProvider: "codex", type: "windows", modelSource: "codebuddy", codexBackend: "codebuddy", codexModel: "glm-5.2" }))
+      .toEqual({ modelSource: "native", modelId: undefined, codexBackend: "openai", codexModel: undefined, codexExperimentalAcknowledged: undefined });
     expect(normalizeModelSelection({ agentProvider: "codebuddy", type: "ssh", modelSource: "openrouter" })).toEqual({});
   });
 

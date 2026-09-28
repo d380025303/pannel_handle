@@ -6,8 +6,6 @@ import { I18nProvider } from "../../i18n";
 import type { TerminalSession } from "../../vite-env";
 import { EditSessionModal } from "./EditSessionModal";
 
-vi.mock("./CodexBackendFields", () => ({ CodexBackendFields: () => null }));
-
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -45,6 +43,44 @@ describe("EditSessionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
     expect((onSave.mock.calls[0] as unknown[])[14]).toBe(true);
+  });
+  it("preserves an existing Codex backend and model when editing other fields", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", codexBackend: "openrouter", codexModel: "vendor/model", codexExperimentalAcknowledged: true }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    expect(screen.queryByText("Codex 模型后端")).toBeNull();
+    fireEvent.change(screen.getByLabelText("会话名称"), { target: { value: "Updated project" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    const args = onSave.mock.calls[0] as unknown[];
+    expect(args[1]).toBe("Updated project");
+    expect(args[7]).toBe("openrouter");
+    expect(args[8]).toBe("vendor/model");
+    expect(args[12]).toBe(true);
+  });
+  it("uses the OpenAI backend when changing a session to Codex", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={session} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.queryByText("Codex 模型后端")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    const args = onSave.mock.calls[0] as unknown[];
+    expect(args[4]).toBe("codex");
+    expect(args[7]).toBe("openai");
+    expect(args[8]).toBeUndefined();
+    expect(args[12]).toBeUndefined();
+  });
+  it("clears Codex backend values when changing to another provider", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "codex", codexBackend: "openrouter", codexModel: "vendor/model", codexExperimentalAcknowledged: true }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Claude" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+    const args = onSave.mock.calls[0] as unknown[];
+    expect(args[4]).toBe("claude");
+    expect(args[7]).toBeUndefined();
+    expect(args[8]).toBeUndefined();
+    expect(args[12]).toBeUndefined();
   });
   it("saves the App Server setting for an SSH remote Codex template", async () => {
     const onSave = vi.fn(async () => undefined);

@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 
+// Keep retired CodeBuddy Codex sources readable for existing user databases and JSON imports.
 const SOURCES = [
   "sessions.json", "config.json", "launch-templates.json", "template-usage.json",
   "environment-profiles.json", "openrouter.json", "nararouter.json", "minimax.json",
@@ -95,7 +96,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
       }
     } else if (MODEL_SOURCES.has(name)) {
       for (const [key, field] of entriesOf(value, name)) {
-        if (key === "cachedModels" || key === "favoriteModelIds") {
+        if (key === "cachedModels") {
           if (!Array.isArray(field)) throw new Error(`${name}.${key} must be an array.`);
           if (field.length === 0) putSetting(name, key, []);
           putRecords(name, key, field.map((item, index) => [index, item]));
@@ -123,7 +124,7 @@ function createBusinessDataStore({ userData, databaseFile = path.join(userData, 
     if (name === "launch-templates.json") return { ...fields, launchTemplates: listRecords(name, "items").map(([, value]) => value) };
     if (name === "mobile-access.json") return { ...fields, devices: listRecords(name, "devices").map(([, value]) => value), audit: listRecords(name, "audit").map(([, value]) => value) };
     if (MODEL_SOURCES.has(name)) {
-      for (const group of ["cachedModels", "favoriteModelIds"]) {
+      for (const group of ["cachedModels"]) {
         if (hasRecords(name, group)) fields[group] = listRecords(name, group).map(([, value]) => value);
       }
       if (hasRecords(name, "modelVerifications")) fields.modelVerifications = Object.fromEntries(listRecords(name, "modelVerifications"));

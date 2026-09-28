@@ -78,6 +78,8 @@ describe("Codex App Server diagnostics", () => {
       expect(store.list("thread-1").events).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: "hook/started", payload: expect.objectContaining({ run: { name: "PreToolUse", input: { secret: "full detail" } } }) })
       ]));
+      expect(store.list("thread-1", { includeHooks: false }).events.every(event => !event.kind.startsWith("hook/"))).toBe(true);
+      expect(service.snapshot("run-1").diagnostics.every(event => !event.kind.startsWith("hook/"))).toBe(true);
       expect(store.list("thread-1").diffs).toHaveLength(1);
       service.close("run-1");
       store.close();
@@ -90,13 +92,38 @@ describe("Codex App Server diagnostics", () => {
       try {
         await restored.start({ id: "run-2", type: "windows", shell: "cmd.exe", cwd: "C:\\project" }, { resumeThreadId: "thread-1" });
         expect(restored.snapshot("run-2").turnDiffs).toMatchObject([{ turnId: "turn-1", diff: "new diff" }]);
-        expect(restored.snapshot("run-2").diagnostics.some(event => event.kind === "hook/started")).toBe(true);
+        expect(restored.snapshot("run-2").diagnostics.some(event => event.kind === "hook/started")).toBe(false);
       } finally { restored.close("run-2"); }
       reopened.close();
     } finally {
       service.close("run-1");
       fs.rmSync(userData, { recursive: true, force: true });
     }
+  });
+
+  it("coalesces streaming snapshots while delivering turn completion immediately", async () => {
+    const child = fakeProcess();
+    const broadcasts = [];
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: (channel, payload) => {
+        if (channel === "codex-app-server:changed") broadcasts.push(payload);
+      }, spawnProcess: () => child });
+    const emit = (method, params = {}) => child.emitNotification(method, { threadId: "thread-1", ...params });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      emit("turn/started", { turn: { id: "turn-1" } });
+      emit("item/started", { turnId: "turn-1", item: { id: "message-1", type: "agentMessage", text: "" } });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items).toHaveLength(1));
+      broadcasts.length = 0;
+      emit("hook/started", { turnId: "turn-1", run: { name: "PreToolUse" } });
+      for (let index = 0; index < 20; index += 1) emit("item/agentMessage/delta", { itemId: "message-1", delta: "x" });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items[0].text).toHaveLength(20));
+      expect(broadcasts).toHaveLength(0);
+      await vi.waitFor(() => expect(broadcasts).toHaveLength(1));
+      expect(broadcasts[0].snapshot.items[0].text).toHaveLength(20);
+      emit("turn/completed", { turn: { id: "turn-1", status: "completed" } });
+      await vi.waitFor(() => expect(broadcasts.at(-1).snapshot.turnStatus).toBe("completed"));
+    } finally { service.close("run-1"); }
   });
 
   it("records a durable error when a turn fails without an error object", async () => {

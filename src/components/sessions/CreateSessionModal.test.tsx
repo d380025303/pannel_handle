@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import { CreateSessionModal } from "./CreateSessionModal";
 
-vi.mock("./CodexBackendFields", () => ({ CodexBackendFields: () => null }));
-
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -64,12 +62,15 @@ describe("CreateSessionModal structure", () => {
     const onCreate = vi.fn(async () => undefined);
     render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.queryByText("Codex 模型后端")).toBeNull();
     const toggle = screen.getByRole("checkbox", { name: "使用图形会话" });
     expect(toggle).toHaveProperty("checked", true);
     fireEvent.click(toggle);
     fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
     fireEvent.click(screen.getByRole("button", { name: "创建" }));
-    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ graphicalSessionEnabled: false })));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      agentProvider: "codex", codexBackend: "openai", graphicalSessionEnabled: false
+    })));
   });
   it("keeps one mode choice when switching providers", () => {
     render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={vi.fn()} onCancel={() => undefined} /></I18nProvider>);

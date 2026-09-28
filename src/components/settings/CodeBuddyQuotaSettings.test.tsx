@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { AgentUsageSnapshot } from "../../vite-env";
-import { CodeBuddyQuotaSettings } from "./CodeBuddyQuotaSettings";
+import { CodeBuddyQuotaSection, CodeBuddyQuotaSettings } from "./CodeBuddyQuotaSettings";
 
 function snapshot(): AgentUsageSnapshot {
   return {
@@ -47,6 +47,17 @@ describe("CodeBuddyQuotaSettings", () => {
   });
 
   afterEach(cleanup);
+
+  it("keeps the independent quota section idle until opened", async () => {
+    getCodeBuddyUsage.mockResolvedValue(snapshot());
+    render(<I18nProvider locale="zh-CN"><CodeBuddyQuotaSection /></I18nProvider>);
+    const trigger = screen.getByRole("button", { name: "CodeBuddy 额度" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(getCodeBuddyUsage).not.toHaveBeenCalled();
+    fireEvent.click(trigger);
+    expect((await screen.findAllByText("剩余 750 / 1,000 Credits")).length).toBeGreaterThan(0);
+    expect(getCodeBuddyUsage).toHaveBeenCalledWith({ force: false });
+  });
 
   it("loads and displays the complete account quota without a terminal session", async () => {
     getCodeBuddyUsage.mockResolvedValue(snapshot());

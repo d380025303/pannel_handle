@@ -67,7 +67,7 @@ const { createKnownHostStore } = require("./stores/known-host-store.cjs");
 const { createLaunchTemplateStore } = require("./stores/launch-template-store.cjs");
 const { createMobileAccessStore } = require("./stores/mobile-access-store.cjs");
 const { createOpenRouterConfigStore } = require("./stores/openrouter-config-store.cjs");
-const { createCodeBuddyCodexConfigStore } = require("./stores/codebuddy-codex-config-store.cjs");
+
 const { createSessionStore } = require("./stores/session-store.cjs");
 const { createBusinessDataStore } = require("./stores/business-data-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
@@ -89,7 +89,7 @@ const resolveConfiguredShell = (preference, requireAvailable = true) => getDefau
 let openRouterConfigStore = null;
 let naraRouterConfigStore = null;
 let miniMaxConfigStore = null;
-let codeBuddyCodexConfigStore = null;
+
 let settingsModule = null;
 let screenshotModule = null;
 let codexModelBridgeModule = null;
@@ -198,26 +198,10 @@ if (!gotSingleInstanceLock) {
       assumeCompatibleWhenCapabilitiesMissing: true,
       verificationProfile: "chat-completions-bridge-v1"
     });
-    codeBuddyCodexConfigStore = createCodeBuddyCodexConfigStore({
-      configFile: path.join(app.getPath("userData"), "codebuddy-codex.json"), dataStore: businessDataStore
-    });
-    dingTalkConfigStore = createDingTalkConfigStore({
-      configFile: path.join(app.getPath("userData"), "dingtalk.json"), dataStore: businessDataStore,
-      safeStorage
-    });
-    knownHostStore = createKnownHostStore({
-      knownHostsFile: path.join(app.getPath("userData"), "known-hosts.json"), dataStore: businessDataStore
-    });
-    mobileAccessStore = createMobileAccessStore({
-      accessFile: path.join(app.getPath("userData"), "mobile-access.json"), dataStore: businessDataStore,
-      safeStorage
-    });
-    hookConfigManager = createHookConfigManager();
-    configStore.loadConfig();
     openRouterConfigStore.load();
     naraRouterConfigStore.load();
     miniMaxConfigStore.load();
-    codeBuddyCodexConfigStore.load();
+
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
@@ -400,17 +384,7 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
-    codexModelBridgeModule = createCodexModelBridgeModule({
-      codeBuddy: {
-        store: codeBuddyCodexConfigStore,
-        workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
-        verificationFile: path.join(app.getPath("userData"), "codebuddy-codex-verifications.json"), dataStore: businessDataStore,
-        catalogFile: path.join(modelCatalogDir, "codebuddy-codex-model-catalog.json"),
-        preloadFile: app.isPackaged
-          ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "services", "codex-model-bridge", "codebuddy-preload.cjs")
-          : path.join(__dirname, "services", "codex-model-bridge", "codebuddy-preload.cjs")
-      }
-    });
+    codexModelBridgeModule = createCodexModelBridgeModule({});
     settingsModule = createSettingsModule({
       ipcMain,
       configStore,
@@ -421,7 +395,7 @@ if (!gotSingleInstanceLock) {
       openRouterConfigStore,
       naraRouterConfigStore,
       miniMaxConfigStore,
-      codeBuddyCodexBridgeService: codexModelBridgeModule.codeBuddyService,
+
       codexModelBridgeModule,
       openRouterCatalogFile: path.join(modelCatalogDir, "openrouter-model-catalog.json"),
       naraRouterCatalogFile: path.join(modelCatalogDir, "nararouter-model-catalog.json"),
@@ -515,6 +489,14 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       graphicalService: codexAppServerSessionService,
       getAgentUsage: (sessionId, options) => tokenUsageModule.getUsage(sessionId, options),
+      getOpenCodeVerifiedModels: () => Object.fromEntries([
+        ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
+      ].map(([source, store]) => {
+        if (!store.getApiKey()) return [source, new Set()];
+        const verified = store.getAgentModelVerifications("opencode");
+        return [source, new Set(store.getCachedModels().filter(model => verified[model.id]?.status === "passed")
+          .map(model => `${source}/${model.id}`))];
+      })),
       accessStore: mobileAccessStore,
       stateHub: terminalStateHub,
       getStaticRoot: () => app.isPackaged

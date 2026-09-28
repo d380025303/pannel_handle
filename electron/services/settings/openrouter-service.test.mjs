@@ -22,7 +22,7 @@ function fixture(overrides = {}) {
     ? { [model.id]: { status: "passed", checkedAt: 100000 } }
     : { ...overrides.verifications };
   const store = {
-    getPublicConfig: vi.fn(() => ({ hasApiKey: true, favoriteModelIds: [model.id], defaultModelId: model.id })),
+    getPublicConfig: vi.fn(() => ({ hasApiKey: true })),
     getCachedModels: vi.fn(() => [model]),
     getApiKey: vi.fn(() => "sk-secret"),
     getModelVerifications: vi.fn(() => ({ ...verifications })),
@@ -30,7 +30,6 @@ function fixture(overrides = {}) {
       verifications[id] = { ...verification };
       return { ...verification };
     }),
-    setFavorites: vi.fn((favoriteModelIds, defaultModelId) => ({ hasApiKey: true, favoriteModelIds, defaultModelId })),
     setCachedModels: vi.fn(models => models),
     setApiKey: vi.fn(),
     clearApiKey: vi.fn(),
@@ -66,11 +65,11 @@ describe("openrouter-service", () => {
       serviceOptions: { providerId: "minimax", apiKeyEnv: "PANNEL_HANDLE_MINIMAX_BRIDGE_KEY" } });
     expect(service.getOpenCodeRuntimeEnv()).toEqual({ MINIMAX_API_KEY: "sk-secret" });
   });
-  it("synchronizes verified OpenCode models even when they are not favorites", async () => {
+  it("synchronizes verified OpenCode models", async () => {
     const sync = vi.fn();
     const { service, model } = fixture({
       store: {
-        getPublicConfig: vi.fn(() => ({ hasApiKey: true, favoriteModelIds: [] })),
+        getPublicConfig: vi.fn(() => ({ hasApiKey: true })),
         getAgentModelVerifications: vi.fn(() => ({ [modelId]: { status: "passed", checkedAt: Date.now() } }))
       },
       serviceOptions: { onOpenCodeModelsChanged: sync }
@@ -80,11 +79,11 @@ describe("openrouter-service", () => {
     await service.verifyAgentModels({ agent: "opencode", modelIds: [modelId] });
     expect(sync).toHaveBeenCalledTimes(1);
   });
-  it("allows a CodeBuddy-verified model without a favorite while rejecting other verification", () => {
+  it("allows a CodeBuddy-verified model while rejecting other verification", () => {
     const verified = { status: "passed", checkedAt: Date.now() };
     const agentStates = { opencode: {}, codebuddy: {} };
     const { service, model } = fixture({ store: {
-      getPublicConfig: vi.fn(() => ({ hasApiKey: true, favoriteModelIds: [] })),
+      getPublicConfig: vi.fn(() => ({ hasApiKey: true })),
       getAgentModelVerifications: vi.fn(agent => agentStates[agent])
     } });
     agentStates.codebuddy[model.id] = verified;
@@ -92,7 +91,7 @@ describe("openrouter-service", () => {
     agentStates.codebuddy[model.id] = { status: "failed" };
     expect(() => service.getAgentLaunchConfig("codebuddy", model.id)).toThrow("尚未通过 CodeBuddy 验证");
   });
-  it("generates a Codex catalog from favorite models", () => {
+  it("generates a Codex catalog from verified models", () => {
     const catalog = buildCodexModelCatalog([{ id: "vendor/model", name: "Model", contextLength: 64000, inputModalities: ["video", "image", "text", "file"], supportedParameters: [] }]);
     expect(catalog.models[0]).toMatchObject({ slug: "vendor/model", context_window: 64000, input_modalities: ["text", "image"], shell_type: "shell_command" });
   });
@@ -104,19 +103,35 @@ describe("openrouter-service", () => {
 
   it("returns a Windows launch config while keeping the key out of the catalog", async () => {
     const { service, catalogFile } = fixture();
-    const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" });
+    const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" });
     expect(launch).toMatchObject({ apiKey: "sk-secret", apiKeyEnv: "OPENROUTER_API_KEY", model: "openai/gpt-test", catalogPath: catalogFile });
     expect(readFileSync(catalogFile, "utf-8")).not.toContain("sk-secret");
   });
-  it("launches a Codex-verified model without a favorite and includes it in the catalog", async () => {
+  it("launches a Codex-verified model and includes it in the catalog", async () => {
     const { service, store, catalogFile, model } = fixture();
-    store.getPublicConfig.mockReturnValue({ hasApiKey: true, favoriteModelIds: [], defaultModelId: undefined });
+    store.getPublicConfig.mockReturnValue({ hasApiKey: true });
     const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex",
       codexBackend: "openrouter", codexModel: model.id });
     expect(launch.model).toBe(model.id);
     expect(JSON.parse(readFileSync(catalogFile, "utf-8")).models).toEqual([
       expect.objectContaining({ slug: model.id })
     ]);
+  });
+
+  it("requires an explicit model and catalogs every verified compatible model", async () => {
+    const { service, store, catalogFile, model, spawnSync } = fixture();
+    const second = { ...model, id: "vendor/second", name: "Second" };
+    const failed = { ...model, id: "vendor/failed", name: "Failed" };
+    store.getCachedModels.mockReturnValue([model, second, failed]);
+    store.getModelVerifications.mockReturnValue({
+      [model.id]: { status: "passed", checkedAt: 100000 },
+      [second.id]: { status: "passed", checkedAt: 100000 },
+      [failed.id]: { status: "failed", checkedAt: 100000 }
+    });
+    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" })).rejects.toThrow("请选择 OpenRouter 模型");
+    expect(spawnSync).not.toHaveBeenCalled();
+    await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: model.id });
+    expect(JSON.parse(readFileSync(catalogFile, "utf-8")).models.map(item => item.slug)).toEqual([model.id, second.id]);
   });
 
   it("supports an authenticated NaraRouter catalog and isolated launch provider", async () => {
@@ -155,7 +170,7 @@ describe("openrouter-service", () => {
     expect(Number(cachedModels[0].pricing.completion)).toBeCloseTo(0.0000003, 12);
     expect(JSON.stringify(fetchImpl.mock.calls.filter(([url]) => !url.endsWith("/models")))).not.toContain("sk-secret");
 
-    const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "nararouter" });
+    const launch = await service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "nararouter", codexModel: "openai/gpt-test" });
     expect(launch).toMatchObject({ providerId: "nararouter", providerName: "NaraRouter", apiKeyEnv: "NARAROUTER_API_KEY", catalogPath: catalogFile });
   });
 
@@ -184,13 +199,13 @@ describe("openrouter-service", () => {
       ? { status: 0, stdout: "/mnt/c/catalog.json\n" }
       : { status: 0, stdout: "supported" });
     const { service } = fixture({ spawnSync });
-    expect((await service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: "openrouter" })).catalogPath).toBe("/mnt/c/catalog.json");
+    expect((await service.getLaunchConfig({ type: "wsl", wslDistro: "Ubuntu", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" })).catalogPath).toBe("/mnt/c/catalog.json");
   });
 
   it("rejects SSH and Codex installations without custom catalog support", async () => {
     const { service } = fixture({ spawnSync: vi.fn(() => ({ status: 1 })) });
     await expect(service.getLaunchConfig({ type: "ssh", agentProvider: "codex", codexBackend: "openrouter" })).rejects.toThrow("Windows 和 WSL");
-    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" })).rejects.toThrow("升级 Codex");
+    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" })).rejects.toThrow("升级 Codex");
   });
 
   it("builds a streaming Codex-shaped verification request", () => {
@@ -416,7 +431,7 @@ describe("openrouter-service", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("allows a partial model to be saved and launched only after per-session acknowledgement", async () => {
+  it("launches a partial model only after per-session acknowledgement", async () => {
     const partial = {
       status: "partial",
       checkedAt: 100000,
@@ -429,25 +444,15 @@ describe("openrouter-service", () => {
         { stage: "codex_tools", status: "failed", error: "custom tools are unsupported", errorKind: "unsupported" }
       ]
     };
-    const { service, store } = fixture({ verifications: { "openai/gpt-test": partial } });
-
-    await expect(service.setFavorites({ favoriteModelIds: ["openai/gpt-test"], defaultModelId: "openai/gpt-test" })).resolves.toMatchObject({ defaultModelId: "openai/gpt-test" });
-    expect(store.setFavorites).toHaveBeenCalled();
+    const { service } = fixture({ verifications: { "openai/gpt-test": partial } });
     await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" })).rejects.toThrow("确认实验风险");
     await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test", codexExperimentalAcknowledged: true })).resolves.toMatchObject({ model: "openai/gpt-test" });
-  });
-
-  it("allows shared favorites independently of Codex verification", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: "provider unavailable" } }), { status: 500 }));
-    const { service, store } = fixture({ fetchImpl, verifications: {} });
-    await expect(service.setFavorites({ favoriteModelIds: ["openai/gpt-test"], defaultModelId: "openai/gpt-test" })).resolves.toMatchObject({ defaultModelId: "openai/gpt-test" });
-    expect(store.setFavorites).toHaveBeenCalled();
   });
 
   it("blocks launch when the selected model fails verification", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Internal Server Error" } }), { status: 500 }));
     const { service, spawnSync } = fixture({ fetchImpl, verifications: {} });
-    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" })).rejects.toThrow("未通过 Codex 兼容性检测");
+    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" })).rejects.toThrow("未通过 Codex 兼容性检测");
     expect(spawnSync).not.toHaveBeenCalled();
   });
 
@@ -464,7 +469,7 @@ describe("openrouter-service", () => {
     expect(cooledDown).toEqual(first);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(store.setModelVerification).not.toHaveBeenCalled();
-    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter" })).resolves.toMatchObject({ model: "openai/gpt-test" });
+    await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test" })).resolves.toMatchObject({ model: "openai/gpt-test" });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     currentTime += MODEL_VERIFICATION_RATE_LIMIT_COOLDOWN_MS + 1;

@@ -291,6 +291,20 @@ describe("agent-session-launcher", () => {
     expect(again.codeBuddyGraphicalOptions).toEqual(original.codeBuddyGraphicalOptions);
     expect(mocks.sessionStore.updateLibrary).not.toHaveBeenCalledWith("1", expect.objectContaining({ agentProvider: "codebuddy" }));
   });
+  it("loads saved OpenCode choices when switching back from another Agent", async () => {
+    const mocks = createMocks({ codexAppServerSessionService: { start: vi.fn(async () => {}) } });
+    const original = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex",
+      graphicalSessionEnabled: true, persist: true });
+    const saved = { mode: "plan", model: "openai/gpt-5.5" };
+    mocks.sessionStore.getTemplate.mockReturnValue({ openCodeGraphicalOptions: saved });
+
+    const openCode = await mocks.launcher.switchAgent(original.id, "opencode");
+    const codex = await mocks.launcher.switchAgent(openCode.id, "codex");
+    const again = await mocks.launcher.switchAgent(codex.id, "opencode");
+
+    expect(again.openCodeGraphicalOptions).toEqual(saved);
+    expect(mocks.sessionStore.updateLibrary).not.toHaveBeenCalledWith("1", expect.objectContaining({ agentProvider: "opencode" }));
+  });
   it("starts SSH remote Codex through App Server and keeps the opt-out terminal path", async () => {
     const codexAppServerSessionService = { start: vi.fn().mockResolvedValue({}) };
     const mocks = createMocks({ codexAppServerSessionService });
@@ -713,24 +727,20 @@ describe("agent-session-launcher", () => {
     expect(codexModelBridgeModule.bindSession).toHaveBeenCalledWith(expect.any(String), { backend: "minimax", id: "launch:minimax" });
   });
 
-  it("injects the CodeBuddy bridge token only through the terminal environment", async () => {
-    const codexModelBridgeModule = { getCodeBuddyLaunchConfig: vi.fn(() => ({
-      baseUrl: "http://127.0.0.1:4567/v1",
-      apiKeyEnv: "PANNEL_HANDLE_CODEBUDDY_CODEX_KEY",
-      apiKey: "session-secret",
-      catalogPath: "C:\\Data\\codebuddy-models.json",
-      model: "glm-5.3",
-      registrationId: "launch:test",
-      bridgeRegistration: { backend: "codebuddy", id: "launch:test" }
-    })), bindSession: vi.fn(), releaseRegistration: vi.fn() };
-    const mocks = createMocks({ codexModelBridgeModule });
-    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", codexBackend: "codebuddy", codexModel: "glm-5.3" });
+  it("moves legacy CodeBuddy Codex requests to the OpenAI backend", async () => {
+    const mocks = createMocks();
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex",
+      codexBackend: "codebuddy", codexModel: "glm-5.3", graphicalSessionEnabled: false });
     expect(mocks.terminalManager.createSession).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeEnv: { PANNEL_HANDLE_CODEBUDDY_CODEX_KEY: "session-secret" },
-      runtimeWslEnvKeys: ["PANNEL_HANDLE_CODEBUDDY_CODEX_KEY"],
-      runtimeInitialCommand: expect.not.stringContaining("session-secret")
+      codexBackend: "openai", modelSource: "native", codexModel: undefined
     }));
-    expect(codexModelBridgeModule.bindSession).toHaveBeenCalledWith(expect.any(String), { backend: "codebuddy", id: "launch:test" });
+  });
+
+  it("rejects switching Codex to the removed CodeBuddy backend", async () => {
+    const mocks = createMocks();
+    mocks.sessions.push({ id: "run-1", agentProvider: "codex", type: "windows" });
+    await expect(mocks.launcher.switchModelSource("run-1", "codebuddy"))
+      .rejects.toThrow("Unsupported Codex backend: codebuddy");
   });
 
   it("starts CodeBuddy with its canonical command", () => {
@@ -900,21 +910,14 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.createSession.mock.calls[0][0].runtimeInitialCommand).not.toContain("private-key");
   });
 
-  it("validates an OpenCode source before replacing the running session", async () => {
-    const openRouterService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({ defaultModelId: "vendor/coder" })),
+  it("requires a model before replacing an OpenCode session", async () => {
+    const openRouterService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({})),
       getAgentLaunchConfig: vi.fn(() => { throw new Error("尚未通过 OpenCode 验证"); }) };
     const mocks = createMocks({ openRouterService });
     const initial = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: false });
-    await expect(mocks.launcher.switchModelSource(initial.id, "openrouter")).rejects.toThrow("尚未通过 OpenCode 验证");
+    await expect(mocks.launcher.switchModelSource(initial.id, "openrouter")).rejects.toThrow("请选择 openrouter 模型");
     expect(mocks.terminalManager.getSession(initial.id)).toBeDefined();
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
-    openRouterService.getAgentLaunchConfig.mockReturnValue({ providerId: "openrouter", providerName: "OpenRouter", model: "vendor/coder", baseUrl: "https://openrouter.ai/api/v1", apiKey: "secret", apiKeyEnv: "OPENROUTER_API_KEY" });
-    const replacement = await mocks.launcher.switchModelSource(initial.id, "openrouter");
-    expect(replacement).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
-    expect(mocks.terminalManager.getSession(initial.id)).toBeUndefined();
-    const reconnected = await mocks.launcher.switchModelSource(replacement.id, "openrouter", true);
-    expect(reconnected).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
-    expect(reconnected.id).not.toBe(replacement.id);
   });
   it("switches a graphical CodeBuddy session to a selected verified model", async () => {
     const openRouterService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({ defaultModelId: "other" })),
@@ -1415,7 +1418,7 @@ describe("agent-session-launcher", () => {
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
   });
 
-  it("switches only the running Codex session to a backend default model", async () => {
+  it("switches only the running Codex session to a selected backend model", async () => {
     const openRouterService = {
       getConfig: vi.fn(() => ({ defaultModelId: "openai/gpt-5.4" })),
       getLaunchConfig: vi.fn(async session => session.codexBackend === "openrouter" ? {
@@ -1442,9 +1445,8 @@ describe("agent-session-launcher", () => {
       codexBackend: "openai"
     });
 
-    const result = await mocks.launcher.switchCodexBackend("run-1", "openrouter");
+    const result = await mocks.launcher.switchModelSource("run-1", "openrouter", true, "openai/gpt-5.4");
 
-    expect(openRouterService.getConfig).toHaveBeenCalledOnce();
     expect(mocks.terminalManager.closeSession).toHaveBeenCalledWith("run-1");
     expect(mocks.terminalManager.launchSession).toHaveBeenCalledWith(expect.objectContaining({
       codexBackend: "openrouter",
@@ -1459,7 +1461,7 @@ describe("agent-session-launcher", () => {
     expect(result).toMatchObject({ id: "run-1", codexBackend: "openrouter", codexModel: "openai/gpt-5.4" });
   });
 
-  it("keeps the current Codex session when the target backend has no default model", async () => {
+  it("keeps the current Codex session when no target model is selected", async () => {
     const openRouterService = {
       getConfig: vi.fn(() => ({ defaultModelId: "" })),
       getLaunchConfig: vi.fn(async () => null)
@@ -1476,7 +1478,7 @@ describe("agent-session-launcher", () => {
       codexBackend: "openai"
     });
 
-    await expect(mocks.launcher.switchCodexBackend("run-1", "openrouter")).rejects.toThrow("OpenRouter 默认模型");
+    await expect(mocks.launcher.switchModelSource("run-1", "openrouter")).rejects.toThrow("请选择 OpenRouter 模型");
 
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
     expect(mocks.terminalManager.launchSession).not.toHaveBeenCalled();
@@ -1504,8 +1506,8 @@ describe("agent-session-launcher", () => {
     mocks.sessions.push({ id: "run-1", type: "ssh", cwd: "/work", agentProvider: "codex", codexBackend: "openai" });
     mocks.sessions.push({ id: "run-2", type: "windows", cwd: "C:\\work", agentProvider: "claude" });
 
-    await expect(mocks.launcher.switchCodexBackend("run-1", "openrouter")).rejects.toThrow("Windows 和 WSL");
-    await expect(mocks.launcher.switchCodexBackend("run-2", "openrouter")).rejects.toThrow("Only Codex");
+    await expect(mocks.launcher.switchModelSource("run-1", "openrouter")).rejects.toThrow("Windows 和 WSL");
+    await expect(mocks.launcher.switchModelSource("run-2", "openrouter")).rejects.toThrow("该会话不支持模型来源切换");
     expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
   });
 

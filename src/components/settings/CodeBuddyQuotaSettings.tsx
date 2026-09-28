@@ -9,7 +9,7 @@ type QuotaState =
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
   | { status: "error"; message: string };
 
-export function CodeBuddyQuotaSettings() {
+export function CodeBuddyQuotaSettings({ showTitle = true }: { showTitle?: boolean } = {}) {
   const { t } = useI18n();
   const [state, setState] = useState<QuotaState>({ status: "loading" });
   const requestIdRef = useRef(0);
@@ -43,7 +43,7 @@ export function CodeBuddyQuotaSettings() {
   return (
     <section className="codebuddy-quota-settings" aria-label={t("usage.codebuddyTitle")}>
       <div className="codebuddy-quota-settings-header">
-        <h5>{t("usage.codebuddyTitle")}</h5>
+        {showTitle && <h5>{t("usage.codebuddyTitle")}</h5>}
         <button
           type="button"
           className="icon-button"
@@ -73,6 +73,21 @@ export function CodeBuddyQuotaSettings() {
           <CodeBuddyQuotaDetails snapshot={state.snapshot} showUpdatedAt />
         </div>
       )}
+    </section>
+  );
+}
+
+export function CodeBuddyQuotaSection() {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="settings-section">
+      <button className="collapsible-header" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+        <span className={`collapsible-chevron${open ? "" : " collapsed"}`} aria-hidden="true">▾</span>
+        <strong>{t("usage.codebuddyTitle")}</strong>
+      </button>
+      {open && <CodeBuddyQuotaSettings showTitle={false} />}
     </section>
   );
 }

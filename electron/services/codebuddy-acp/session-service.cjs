@@ -139,23 +139,27 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   const policy = createAcpProviderPolicy(provider);
   const agentName = policy.agentName;
   function savedOptions(entry) {
-    if (provider !== "codebuddy") return {};
-    return (entry.session.templateId && sessionStore?.getTemplate(entry.session.templateId)?.codeBuddyGraphicalOptions)
-      || entry.session.codeBuddyGraphicalOptions || {};
+    const key = provider === "codebuddy" ? "codeBuddyGraphicalOptions" : provider === "opencode" ? "openCodeGraphicalOptions" : null;
+    if (!key) return {};
+    return (entry.session.templateId && sessionStore?.getTemplate(entry.session.templateId)?.[key])
+      || entry.session[key] || {};
   }
   function saveOption(entry, key, value) {
-    if (provider !== "codebuddy") return;
+    const optionsKey = provider === "codebuddy" ? "codeBuddyGraphicalOptions" : provider === "opencode" ? "openCodeGraphicalOptions" : null;
+    if (!optionsKey || provider === "opencode" && key !== "model" && key !== "mode") return;
     const options = { ...savedOptions(entry), [key]: value };
-    entry.session.codeBuddyGraphicalOptions = options;
+    entry.session[optionsKey] = options;
     const running = terminalManager.getSession?.(entry.session.id);
-    if (running) running.codeBuddyGraphicalOptions = options;
-    if (entry.session.templateId) sessionStore?.updateLibrary(entry.session.templateId, { codeBuddyGraphicalOptions: options });
+    if (running) running[optionsKey] = options;
+    if (entry.session.templateId) sessionStore?.updateLibrary(entry.session.templateId, { [optionsKey]: options });
   }
   async function restoreOptions(entry) {
-    if (provider !== "codebuddy") return;
+    if (provider !== "codebuddy" && provider !== "opencode") return;
     const saved = savedOptions(entry);
+    if (provider === "opencode" && !entry.runtime.requiredMode) await enforceRequiredMode(entry, true);
     for (const [key, optionId] of [["model", "model"], ["contextWindow", "context_window"], ["multitask", "multitask"]]) {
-      if (optionId === "model" && entry.session.modelSource && entry.session.modelSource !== "native") continue;
+      if (provider === "opencode" && key !== "model") continue;
+      if (provider === "codebuddy" && optionId === "model" && entry.session.modelSource && entry.session.modelSource !== "native") continue;
       const option = entry.configOptions.find(item => item.id === optionId);
       const value = saved[key];
       if (!option || value === undefined || option.currentValue === value
@@ -167,7 +171,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
           ...(optionId === "multitask" ? { type: "boolean" } : {}), value });
         entry.configOptions = Array.isArray(result?.configOptions) ? result.configOptions
           : entry.configOptions.map(item => item.id === optionId ? { ...item, currentValue: value } : item);
-      } catch (error) { console.error(`Failed to restore CodeBuddy ${optionId}:`, error); }
+      } catch (error) { console.error(`Failed to restore ${agentName} ${optionId}:`, error); }
     }
   }
   function applySessionOptions(entry, result) {
@@ -187,7 +191,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function enforceRequiredMode(entry, restoreSavedMode = false) {
     const requiredMode = entry.runtime.requiredMode;
-    const modeId = requiredMode || (restoreSavedMode && provider === "codebuddy" ? savedOptions(entry).mode : undefined);
+    const modeId = requiredMode || (restoreSavedMode && (provider === "codebuddy" || provider === "opencode") ? savedOptions(entry).mode : undefined);
     if (!modeId) return;
     if (!entry.modes.some(mode => mode.id === modeId)) {
       if (!requiredMode) return;
@@ -201,7 +205,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         configOption ? { sessionId: entry.threadId, configId: "mode", value: modeId } : { sessionId: entry.threadId, modeId });
     } catch (error) {
       if (requiredMode) throw error;
-      console.error("Failed to restore CodeBuddy mode:", error);
+      console.error(`Failed to restore ${agentName} mode:`, error);
       return;
     }
     if (result?.configOptions) entry.configOptions = result.configOptions;
@@ -691,9 +695,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             : entry.configOptions.map(item => item.id === "model" ? { ...item, currentValue: runtime.openCodeModel } : item);
         }
       }
+      await restoreOptions(entryFor(session.id));
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
-      await restoreOptions(entryFor(session.id));
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
       reportTokenLive(entry, "sessionStart", { resumed: Boolean(runtime.resumeThreadId) });
     } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" || provider === "grok" ? withStderr(error) : error; close(session.id); throw failure; }
@@ -859,6 +863,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     applySessionOptions(entry, result);
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
+    if (provider === "opencode") await restoreOptions(entry);
     publish(id);
     await recordTokenUsage(entry, { resumed: true });
     return snapshot(id);
@@ -883,8 +888,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     applySessionOptions(entry, result);
     try { await enforceRequiredMode(entry, true); }
     catch (error) { close(id); throw error; }
-    publish(id);
     await restoreOptions(entryFor(id));
+    publish(id);
     status(id, entry, "cleared");
     return snapshot(id);
   }
@@ -942,7 +947,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       (provider === "gemini" || provider === "grok") && optionId === "model" ? { sessionId: entry.threadId, modelId: value } : { sessionId: entry.threadId, configId: optionId, value });
     entry.configOptions = result?.configOptions || entry.configOptions.map(item => item.id === optionId ? { ...item, currentValue: value } : item);
     if (provider === "codebuddy" && (optionId === "model" || optionId === "context_window")) entry.contextUsage = null;
-    if (provider === "codebuddy") saveOption(entry, optionId === "context_window" ? "contextWindow" : optionId, value);
+    if (provider === "codebuddy" || provider === "opencode") saveOption(entry, optionId === "context_window" ? "contextWindow" : optionId, value);
     if (optionId === "mode") {
       entry.nativeMode = value;
       reflectNativeMode(entry);

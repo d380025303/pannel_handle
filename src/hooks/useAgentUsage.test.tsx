@@ -174,45 +174,6 @@ describe("useAgentUsage", () => {
     expect(getUsage).toHaveBeenLastCalledWith("run-1", { force: false });
   });
 
-  it("uses CodeBuddy quota for a Codex session backed by CodeBuddy", async () => {
-    vi.useFakeTimers();
-    const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    const consumeResetCredit = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit, cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
-    const activeSession = { ...session("run-1", "codex"), codexBackend: "codebuddy" as const };
-    const { result } = renderHook(() => useAgentUsage(activeSession));
-
-    expect(result.current.state).toEqual({ status: "loading", provider: "codebuddy" });
-    await act(async () => Promise.resolve());
-    expect(result.current.state.status === "ready" && result.current.state.snapshot.provider).toBe("codebuddy");
-    expect(getUsage).toHaveBeenCalledWith("run-1", { force: false });
-
-    await act(async () => vi.advanceTimersByTimeAsync(CODEBUDDY_USAGE_POLL_INTERVAL_MS));
-    expect(getUsage).toHaveBeenCalledTimes(2);
-    await expect(result.current.consumeResetCredit("reset-1", "attempt-1"))
-      .rejects.toThrow("Codex usage reset is unavailable");
-    expect(consumeResetCredit).not.toHaveBeenCalled();
-  });
-
-  it("force refreshes CodeBuddy quota after a completed Codex CLI event", async () => {
-    const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
-    let agentStatus: AgentStatusPayload | undefined;
-    const activeSession = { ...session("run-1", "codex"), codexBackend: "codebuddy" as const };
-    const { rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));
-    await waitFor(() => expect(getUsage).toHaveBeenCalledWith("run-1", { force: false }));
-
-    agentStatus = {
-      id: "run-1",
-      provider: "codex",
-      status: "completed",
-      eventName: "Stop",
-      timestamp: 2
-    };
-    rerender();
-    await waitFor(() => expect(getUsage).toHaveBeenCalledWith("run-1", { force: true }));
-  });
-
   it("polls an active Qoder session every minute", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("qoder-total", "qoder"));

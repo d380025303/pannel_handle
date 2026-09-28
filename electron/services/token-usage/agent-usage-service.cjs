@@ -367,9 +367,7 @@ async function runCodexResetCreditRequest(transport, { creditId, idempotencyKey,
 }
 
 function getCacheKey(session) {
-  const provider = session.agentProvider === "codex" && session.codexBackend === "codebuddy"
-    ? "codebuddy"
-    : session.agentProvider === "codex" && session.codexBackend === "minimax"
+  const provider = session.agentProvider === "codex" && session.codexBackend === "minimax"
       ? "minimax"
       : session.agentProvider || "unknown";
   if (session.type === "windows" || isLocalSshBridge(session)) return `${provider}:windows`;
@@ -382,7 +380,7 @@ function isLocalSshBridge(session) {
 }
 
 function isCodeBuddyQuotaSession(session) {
-  return session?.agentProvider === "codebuddy" || (session?.agentProvider === "codex" && session?.codexBackend === "codebuddy");
+  return session?.agentProvider === "codebuddy";
 }
 
 function createAgentUsageService({

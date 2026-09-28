@@ -280,9 +280,6 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     return agentSessionLauncher.switchAgent(String(id || ""), provider);
   });
 
-  ipcMain.handle("sessions:switch-codex-backend", async (_event, { id, backend }) => {
-    return agentSessionLauncher.switchCodexBackend(String(id || ""), backend);
-  });
   ipcMain.handle("sessions:switch-model-source", async (_event, { id, source, restart, modelId }) => {
     return agentSessionLauncher.switchModelSource(String(id || ""), source, restart === true, modelId);
   });

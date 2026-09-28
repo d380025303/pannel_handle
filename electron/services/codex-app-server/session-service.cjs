@@ -10,6 +10,7 @@ const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, act
 const { mergeEnvironment } = require("../environment/index.cjs");
 const { toWslHostPath } = require("../../core/wsl-paths.cjs");
 const SUMMARY_BROADCAST_INTERVAL_MS = 150;
+const PUBLISH_COALESCE_MS = 80;
 const HISTORY_CURSOR_PREFIX = "pannel-history-v1:";
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const IMAGE_PREVIEW_LIMIT = 10 * 1024 * 1024;
@@ -99,6 +100,7 @@ function buildInvocation(session, runtime, environment) {
 function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
   sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
+  const publishTimers = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const projectCwd = entry => entry.runtime.workspaceCwd || entry.session.cwd;
   const mcpErrorText = (entry, value) => startupStderrDetail(value,
@@ -166,7 +168,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return { cwd: projectCwd(entry), environment: { ...environmentService.resolve(entry.session), ...(entry.runtime.runtimeEnv || {}) },
       localBridge: Boolean(entry.runtime.localBridge), shell: entry.runtime.shell || entry.session.shell };
   }
-  function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
+  function publish(id) {
+    const timer = publishTimers.get(id);
+    if (timer) { clearTimeout(timer); publishTimers.delete(id); }
+    if (sessions.has(id)) broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
+  }
+  function schedulePublish(id) {
+    if (!sessions.has(id) || publishTimers.has(id)) return;
+    publishTimers.set(id, setTimeout(() => {
+      publishTimers.delete(id);
+      publish(id);
+    }, PUBLISH_COALESCE_MS));
+  }
   function recordDiagnostic(entry, kind, payload, turnId = null) {
     const at = Date.now();
     if (!entry.threadId) {
@@ -176,7 +189,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     let eventId = `live-${randomUUID()}`;
     try { if (diagnosticsStore) eventId = String(diagnosticsStore.addEvent(entry.threadId, turnId, kind, payload, at)); }
     catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
-    entry.diagnostics.push({ id: eventId, turnId, kind, at, payload });
+    if (!kind.startsWith("hook/")) entry.diagnostics.push({ id: eventId, turnId, kind, at, payload });
   }
   function recordError(entry, value, turnId) {
     const structured = structuredError(value);
@@ -189,9 +202,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function loadDiagnostics(entry) {
     entry.diagnostics = []; entry.turnDiffs = new Map();
     try {
-      const saved = diagnosticsStore?.list(entry.threadId);
+      const saved = diagnosticsStore?.list(entry.threadId, { includeHooks: false });
       if (saved) {
-        entry.diagnostics = saved.events;
+        entry.diagnostics = saved.events.filter(event => !event.kind.startsWith("hook/"));
         entry.turnDiffs = new Map(saved.diffs.map(diff => [diff.turnId, diff]));
       }
       entry.diagnosticStoreError = null;
@@ -200,7 +213,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       let eventId = `live-${randomUUID()}`;
       try { if (diagnosticsStore) eventId = String(diagnosticsStore.addEvent(entry.threadId, event.turnId, event.kind, event.payload, event.at)); }
       catch (error) { entry.diagnosticStoreError = `诊断记录保存失败：${error.message}`; }
-      entry.diagnostics.push({ ...event, id: eventId });
+      if (!event.kind.startsWith("hook/")) entry.diagnostics.push({ ...event, id: eventId });
     }
   }
   function setTurnDiff(entry, turnId, diff) {
@@ -282,6 +295,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry) return;
     sessions.delete(id);
+    const publishTimer = publishTimers.get(id);
+    if (publishTimer) { clearTimeout(publishTimer); publishTimers.delete(id); }
     if (entry.statusTimer) clearTimeout(entry.statusTimer);
     entry.elicitations.clear();
     void releasePastedImages(id, entry);
@@ -406,12 +421,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       broadcastStatus(id, entry, true);
     }
     if (message.method === "turn/diff/updated") setTurnDiff(entry, params.turnId, params.diff);
+    const isHookNotification = message.method === "hook/started" || message.method === "hook/completed";
     if (message.method === "configWarning" || message.method === "warning"
       || message.method === "hook/started" || message.method === "hook/completed"
       || message.method === "model/rerouted" || message.method === "model/safetyBuffering/updated"
       || message.method === "model/verification") {
+      const previousStoreError = entry.diagnosticStoreError;
       recordDiagnostic(entry, message.method, params, params.turnId || entry.turnId || null);
       if (message.method === "model/rerouted" && typeof params.toModel === "string") entry.effectiveModel = params.toModel;
+      if (isHookNotification) {
+        if (entry.diagnosticStoreError !== previousStoreError) publish(id);
+        return;
+      }
     }
     if (message.method === "thread/tokenUsage/updated" && updateTokenUsage(entry, params)) recordTokenUsage(entry);
     if (message.method === "thread/goal/updated") {
@@ -535,7 +556,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         : params.turn?.status === "interrupted" ? "interrupted" : "failed";
       broadcastStatus(id, entry, true);
     }
-    publish(id);
+    if (["item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
+      "turn/diff/updated"].includes(message.method)) schedulePublish(id);
+    else publish(id);
   }
 
   async function start(session, runtime = {}) {

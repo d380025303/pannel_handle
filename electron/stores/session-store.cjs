@@ -128,7 +128,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const { normalizeModelSelection } = require("../services/model-sources/model-selection.cjs");
     const selection = normalizeModelSelection({ ...template, agentProvider });
     const { modelSource, modelId, codexBackend, codexModel } = selection;
-    const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
+    const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
     const graphicalSessionEnabled = typeof template.graphicalSessionEnabled === "boolean"
@@ -154,6 +154,13 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
           ...(typeof savedCodeBuddyOptions.model === "string" && savedCodeBuddyOptions.model.trim() ? { model: savedCodeBuddyOptions.model.trim() } : {}),
           ...(typeof savedCodeBuddyOptions.contextWindow === "string" && savedCodeBuddyOptions.contextWindow.trim() ? { contextWindow: savedCodeBuddyOptions.contextWindow.trim() } : {}),
           ...(typeof savedCodeBuddyOptions.multitask === "boolean" ? { multitask: savedCodeBuddyOptions.multitask } : {})
+        }
+      : undefined;
+    const savedOpenCodeOptions = template.openCodeGraphicalOptions;
+    const openCodeGraphicalOptions = savedOpenCodeOptions && typeof savedOpenCodeOptions === "object" && !Array.isArray(savedOpenCodeOptions)
+      ? {
+          ...(typeof savedOpenCodeOptions.mode === "string" && savedOpenCodeOptions.mode.trim() ? { mode: savedOpenCodeOptions.mode.trim() } : {}),
+          ...(typeof savedOpenCodeOptions.model === "string" && savedOpenCodeOptions.model.trim() ? { model: savedOpenCodeOptions.model.trim() } : {})
         }
       : undefined;
     return {
@@ -185,6 +192,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexAppServerFastMode,
       codexExecutionPermission,
       ...(codeBuddyGraphicalOptions && Object.keys(codeBuddyGraphicalOptions).length ? { codeBuddyGraphicalOptions } : {}),
+      ...(openCodeGraphicalOptions && Object.keys(openCodeGraphicalOptions).length ? { openCodeGraphicalOptions } : {}),
       type: template.type,
       wslDistro: template.wslDistro,
       sshConfig: template.sshConfig,

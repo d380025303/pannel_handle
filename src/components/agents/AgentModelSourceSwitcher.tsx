@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
+import { LoaderCircle, SlidersHorizontal } from "lucide-react";
 import type { AgentModelSource, TerminalSession } from "../../vite-env";
-import { CodexBackendSwitcher } from "./CodexBackendSwitcher";
 
 const SOURCES: Array<{ id: AgentModelSource; label: string }> = [
   { id: "native", label: "原生模型" },
@@ -9,19 +9,18 @@ const SOURCES: Array<{ id: AgentModelSource; label: string }> = [
   { id: "minimax", label: "MiniMax" }
 ];
 
-export function AgentModelSourceSwitcher({ session, onSwitch, onSwitchCodex }: {
+export function AgentModelSourceSwitcher({ session, onSwitch }: {
   session?: TerminalSession;
   onSwitch: (id: string, source: AgentModelSource) => Promise<void>;
-  onSwitchCodex: (id: string, backend: "openai" | "openrouter" | "nararouter" | "minimax" | "codebuddy") => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => { setOpen(false); setError(""); }, [session?.id]);
-  if (session?.agentProvider === "codex") return <CodexBackendSwitcher session={session} onSwitch={onSwitchCodex} />;
   if (session?.agentProvider === "codebuddy" && session.runtimeMode === "app-server") return null;
   if (!session || session.type === "ssh" || (session.agentProvider !== "opencode" && session.agentProvider !== "codebuddy")) return null;
   const current = session.modelSource || "native";
+  const tooltip = `切换模型来源：${busy ? "正在切换" : SOURCES.find(item => item.id === current)?.label || "原生模型"}`;
   const choose = async (source: AgentModelSource) => {
     setOpen(false);
     setBusy(true);
@@ -30,8 +29,10 @@ export function AgentModelSourceSwitcher({ session, onSwitch, onSwitchCodex }: {
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
-  return <div className="agent-switcher codex-backend-switcher">
-    <button className="agent-switcher-trigger" type="button" disabled={busy} aria-label="切换模型来源" aria-expanded={open} onClick={() => setOpen(value => !value)}>{busy ? "正在切换" : SOURCES.find(item => item.id === current)?.label || "原生模型"} ▾</button>
+  return <div className="agent-switcher">
+    <button className="agent-switcher-trigger" type="button" title={tooltip} disabled={busy} aria-label="切换模型来源" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+      {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <SlidersHorizontal aria-hidden="true" />}
+    </button>
     {open && <div className="agent-switcher-menu" role="menu" aria-label="模型来源">
       <small>切换将重启 Agent，并重新建立对话上下文。</small>
       {SOURCES.filter(item => item.id !== current).map(item => <button key={item.id} type="button" role="menuitem" onClick={() => void choose(item.id)}>{item.label}</button>)}

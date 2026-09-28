@@ -69,15 +69,6 @@ function createHarness(overrides = {}) {
   const openRouterService = createRouterService("openrouter");
   const naraRouterService = createRouterService("nararouter");
   const miniMaxService = createRouterService("minimax");
-  const codeBuddyCodexBridgeService = {
-    getConfig: vi.fn(() => "codebuddy-config"),
-    getStatus: vi.fn(() => "codebuddy-status"),
-    listModels: vi.fn(() => "codebuddy-models"),
-    refreshModels: vi.fn(() => "codebuddy-refreshed"),
-    verifyModel: vi.fn(input => input),
-    setFavorites: vi.fn(input => input),
-    setExperimentalAcknowledged: vi.fn(input => input)
-  };
   const mobileRemoteService = {
     getState: vi.fn(() => "mobile-state"),
     updateConfig: vi.fn(input => input),
@@ -85,6 +76,13 @@ function createHarness(overrides = {}) {
     listAudit: vi.fn(() => "audit"),
     disconnectConnection: vi.fn(input => input),
     disconnectActiveDevice: vi.fn(() => "disconnected")
+  };
+  let miniMaxApiKey = overrides.miniMaxApiKey ?? "sk-cp-test";
+  const miniMaxConfigStore = { getApiKey: vi.fn(() => miniMaxApiKey) };
+  const miniMaxUsageOptions = {
+    ...(overrides.miniMaxFetch ? { fetchImpl: overrides.miniMaxFetch } : {}),
+    ...(overrides.miniMaxNow ? { now: overrides.miniMaxNow } : {}),
+    ...(overrides.miniMaxCacheTtlMs !== undefined ? { cacheTtlMs: overrides.miniMaxCacheTtlMs } : {})
   };
   const unregister = registerSettingsIpcHandlers({
     ipcMain,
@@ -95,7 +93,8 @@ function createHarness(overrides = {}) {
     openRouterService,
     naraRouterService,
     miniMaxService,
-    codeBuddyCodexBridgeService,
+    miniMaxConfigStore,
+    miniMaxUsageOptions,
     getMobileRemoteService: () => mobileRemoteService,
     dialog: overrides.dialog,
     getWindowFromEvent: overrides.getWindowFromEvent,
@@ -109,11 +108,38 @@ function createHarness(overrides = {}) {
     openRouterService,
     naraRouterService,
     miniMaxService,
-    codeBuddyCodexBridgeService,
+    miniMaxConfigStore,
+    setMiniMaxApiKey: value => { miniMaxApiKey = value; },
     mobileRemoteService,
     unregister
   };
 }
+
+const TOKEN_PLAN_PAYLOAD = {
+  base_resp: { status_code: 0 },
+  model_remains: [{
+    model_name: "MiniMax-M2",
+    current_interval_status: 1,
+    current_interval_total_count: 100,
+    current_interval_usage_count: 25,
+    current_interval_remaining_percent: 75,
+    end_time: 1893456000000,
+    current_weekly_status: 1,
+    current_weekly_total_count: 1000,
+    current_weekly_usage_count: 100,
+    current_weekly_remaining_percent: 90,
+    weekly_end_time: 1893456000000
+  }]
+};
+
+const BALANCE_PAYLOAD = {
+  base_resp: { status_code: 0 },
+  available_amount: 12.34,
+  cash_balance: 10,
+  voucher_balance: 2,
+  credit_balance: 0.34,
+  owed_amount: 0
+};
 
 describe("settings IPC handlers", () => {
   it("normalizes title bar preferences and requires durable saving", () => {
@@ -184,7 +210,6 @@ describe("settings IPC handlers", () => {
     expect(harness.ipcMain.handlers.get("openrouter:verify-agent-models")({}, { agent: "opencode", modelIds: ["vendor/model"] }))
       .toEqual({ agent: "opencode", modelIds: ["vendor/model"] });
     expect(harness.ipcMain.handlers.get("minimax:test")()).toBe("minimax-tested");
-    expect(harness.ipcMain.handlers.get("codebuddy-codex:verify-model")({}, { modelId: "glm" })).toEqual({ modelId: "glm" });
     expect(harness.ipcMain.handlers.get("dingtalk:set-config")({}, { enabled: true })).toEqual({ enabled: true });
     expect(harness.ipcMain.handlers.get("mobile-access:disconnect-connection")({}, "phone-1")).toBe("phone-1");
     expect(harness.mobileRemoteService.disconnectConnection).toHaveBeenCalledWith("phone-1");
@@ -257,5 +282,56 @@ describe("settings IPC handlers", () => {
     const failed = await harness.ipcMain.handlers.get("terminal-background:choose-image")({});
     expect(failed.canceled).toBe(false);
     expect(failed.error).toBeTruthy();
+  });
+
+  it("reads MiniMax token plan usage and caches it within the TTL", async () => {
+    let currentTime = 1000;
+    const miniMaxFetch = vi.fn(async () => ({ ok: true, json: async () => TOKEN_PLAN_PAYLOAD }));
+    const harness = createHarness({ miniMaxFetch, miniMaxNow: () => currentTime });
+
+    const snapshot = await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(miniMaxFetch).toHaveBeenCalledTimes(1);
+    expect(miniMaxFetch.mock.calls[0][0]).toBe("https://www.minimaxi.com/v1/token_plan/remains");
+    expect(snapshot.provider).toBe("minimax");
+    expect(snapshot.limits).toHaveLength(2);
+    expect(snapshot.primaryLimitId).toBe("MiniMax-M2:interval");
+    expect(snapshot.limits[0]).toMatchObject({ remainingPercent: 75, usedPercent: 25 });
+
+    currentTime += 29_000;
+    const cached = await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(miniMaxFetch).toHaveBeenCalledTimes(1);
+    expect(cached).toBe(snapshot);
+
+    currentTime += 2_000;
+    await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(miniMaxFetch).toHaveBeenCalledTimes(2);
+
+    await harness.ipcMain.handlers.get("minimax:get-usage")({}, { force: true });
+    expect(miniMaxFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("reads MiniMax account balance for pay-as-you-go keys and invalidates cache on key change", async () => {
+    const miniMaxFetch = vi.fn(async () => ({ ok: true, json: async () => BALANCE_PAYLOAD }));
+    const harness = createHarness({ miniMaxFetch, miniMaxApiKey: "sk-api-test" });
+
+    const snapshot = await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(miniMaxFetch).toHaveBeenCalledTimes(1);
+    expect(miniMaxFetch.mock.calls[0][0]).toBe("https://api.minimaxi.com/account/query_balance");
+    expect(snapshot.summary).toMatchObject({ kind: "currency", available: 12.34, cash: 10, voucher: 2, credit: 0.34, owed: 0 });
+
+    const cached = await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(cached).toBe(snapshot);
+    expect(miniMaxFetch).toHaveBeenCalledTimes(1);
+
+    harness.setMiniMaxApiKey("sk-api-other");
+    await harness.ipcMain.handlers.get("minimax:get-usage")({}, {});
+    expect(miniMaxFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects MiniMax usage reads without a configured key", async () => {
+    const miniMaxFetch = vi.fn();
+    const harness = createHarness({ miniMaxFetch, miniMaxApiKey: "" });
+    await expect(harness.ipcMain.handlers.get("minimax:get-usage")({}, {})).rejects.toThrow("请先在设置中配置 MiniMax API Key。");
+    expect(miniMaxFetch).not.toHaveBeenCalled();
   });
 });

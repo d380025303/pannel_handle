@@ -271,7 +271,7 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   const advertisement = { stop: vi.fn() };
   const discovery = { publish: vi.fn(() => advertisement), destroy: vi.fn() };
   const broadcast = vi.fn();
-  const createHttpServer = vi.fn().mockReturnValueOnce(server).mockReturnValueOnce(localServer);
+  const createHttpServer = vi.fn().mockReturnValueOnce(localServer).mockReturnValueOnce(server);
   const service = createMobileRemoteService({
     terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
     agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
@@ -338,13 +338,85 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   expect(service.getState().localUrl).toBe("");
 });
 
-it("closes the LAN listener if the local port cannot be bound", async () => {
+it("keeps local access running when the selected LAN interface is missing, then retries on save", async () => {
+  vi.useFakeTimers();
   const f = fixture();
-  const server = Object.assign(new EventEmitter(), {
-    listening: false,
-    listen: vi.fn(() => { server.listening = true; server.emit("listening"); }),
-    close: vi.fn(callback => { server.listening = false; callback(); })
+  let interfaces = {};
+  f.accessStore.updateConfig = vi.fn(() => f.accessStore.getConfig());
+  const createServer = () => {
+    const instance = Object.assign(new EventEmitter(), {
+      listening: false,
+      listen: vi.fn(() => { instance.listening = true; instance.emit("listening"); }),
+      close: vi.fn(callback => { instance.listening = false; callback(); })
+    });
+    return instance;
+  };
+  const localServer = createServer();
+  const lanServer = createServer();
+  const wss = { clients: new Set(), close: vi.fn(), handleUpgrade: vi.fn() };
+  const discovery = { publish: vi.fn(() => ({ stop: vi.fn() })), destroy: vi.fn() };
+  const createHttpServer = vi.fn().mockReturnValueOnce(localServer).mockReturnValueOnce(lanServer);
+  const service = createMobileRemoteService({
+    terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
+    agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
+    getStaticRoot: () => ".", desktopBroadcast: vi.fn(), notifyConnection: f.notifyConnection,
+    networkInterfaces: () => interfaces, createHttpServer,
+    createWebSocketServer: () => wss, createDiscovery: () => discovery
   });
+  expect(await service.start()).toMatchObject({ running: true, address: "", canonicalUrl: "", fallbackUrl: "",
+    localUrl: "http://127.0.0.1:43123", lastError: "选择的局域网网卡不可用，请重新选择。" });
+  expect(localServer.listen).toHaveBeenCalledWith(43123, "127.0.0.1");
+  expect(createHttpServer).toHaveBeenCalledTimes(1);
+  expect(discovery.publish).not.toHaveBeenCalled();
+  localServer.emit("upgrade", { url: "/api/v1/ws", headers: { host: "127.0.0.1:43123" } }, {}, Buffer.alloc(0));
+  expect(wss.handleUpgrade).toHaveBeenCalledTimes(1);
+  interfaces = { LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] };
+  expect(await service.updateConfig({ interfaceName: "LAN" })).toMatchObject({ running: true,
+    address: "192.168.1.1", fallbackUrl: "http://192.168.1.1:43123", lastError: "" });
+  expect(lanServer.listen).toHaveBeenCalledWith(43123, "192.168.1.1");
+  expect(localServer.close).not.toHaveBeenCalled();
+  expect(discovery.publish).toHaveBeenCalledTimes(1);
+  await service.stop();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps local access running if binding the LAN address fails", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  let config = f.accessStore.getConfig();
+  f.accessStore.getConfig = () => config;
+  f.accessStore.updateConfig = vi.fn(partial => (config = { ...config, ...partial }));
+  const localServer = Object.assign(new EventEmitter(), {
+    listening: false,
+    listen: vi.fn(() => { localServer.listening = true; localServer.emit("listening"); }),
+    close: vi.fn(callback => { localServer.listening = false; callback(); })
+  });
+  const lanServer = Object.assign(new EventEmitter(), {
+    listening: false,
+    listen: vi.fn(() => { const error = new Error("address unavailable"); error.code = "EADDRNOTAVAIL"; lanServer.emit("error", error); }),
+    close: vi.fn()
+  });
+  const wss = { clients: new Set(), close: vi.fn() };
+  const discovery = { publish: vi.fn(), destroy: vi.fn() };
+  const service = createMobileRemoteService({
+    terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
+    agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
+    getStaticRoot: () => ".", desktopBroadcast: vi.fn(), notifyConnection: f.notifyConnection,
+    networkInterfaces: () => ({ LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] }),
+    createHttpServer: vi.fn().mockReturnValueOnce(localServer).mockReturnValueOnce(lanServer),
+    createWebSocketServer: () => wss, createDiscovery: () => discovery
+  });
+  expect(await service.start()).toMatchObject({ running: true, address: "", canonicalUrl: "", fallbackUrl: "",
+    localUrl: "http://127.0.0.1:43123", lastError: "选择的局域网网卡不可用，请重新选择。" });
+  expect(discovery.publish).not.toHaveBeenCalled();
+  expect(await service.updateConfig({ enabled: false })).toMatchObject({ running: false, localUrl: "" });
+  expect(localServer.close).toHaveBeenCalledTimes(1);
+  expect(wss.close).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("does not start the LAN listener if the local port cannot be bound", async () => {
+  const f = fixture();
   const localServer = Object.assign(new EventEmitter(), {
     listening: false,
     listen: vi.fn(() => { const error = new Error("in use"); error.code = "EADDRINUSE"; localServer.emit("error", error); }),
@@ -356,11 +428,10 @@ it("closes the LAN listener if the local port cannot be bound", async () => {
     agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
     getStaticRoot: () => ".", desktopBroadcast: vi.fn(), notifyConnection: f.notifyConnection,
     networkInterfaces: () => ({ LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] }),
-    createHttpServer: vi.fn().mockReturnValueOnce(server).mockReturnValueOnce(localServer),
+    createHttpServer: vi.fn().mockReturnValueOnce(localServer),
     createWebSocketServer: () => wss, createDiscovery: vi.fn()
   });
   await expect(service.start()).rejects.toThrow("端口 43123 已被占用");
-  expect(server.close).toHaveBeenCalledTimes(1);
   expect(localServer.close).not.toHaveBeenCalled();
   expect(wss.close).toHaveBeenCalledTimes(1);
   expect(service.getState()).toMatchObject({ running: false, localUrl: "" });

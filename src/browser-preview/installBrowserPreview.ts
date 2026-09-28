@@ -161,19 +161,19 @@ function createGitSnapshot(cwd: string): GitRepositorySnapshot {
   };
 }
 
-function createRouterState(defaultModelId: string): { config: OpenRouterConfig; models: OpenRouterModel[] } {
+function createRouterState(modelId: string): { config: OpenRouterConfig; models: OpenRouterModel[] } {
   return {
-    config: { hasApiKey: true, favoriteModelIds: [defaultModelId], defaultModelId, fetchedAt: now },
+    config: { hasApiKey: true, fetchedAt: now },
     models: [{
-      id: defaultModelId,
-      name: defaultModelId,
+      id: modelId,
+      name: modelId,
       description: "浏览器预览模型",
       contextLength: 200_000,
       inputModalities: ["text", "image"],
       supportedParameters: ["tools", "reasoning"],
       pricing: { prompt: "0.000001", completion: "0.000004" },
       compatible: true,
-      verification: { modelId: defaultModelId, status: "passed", checkedAt: now }
+      verification: { modelId, status: "passed", checkedAt: now }
     }]
   };
 }
@@ -249,7 +249,6 @@ export function installBrowserPreview() {
       test: async () => ({ ok: true }),
       verifyModels: async ({ modelIds }) => modelIds.map((id) => ({ modelId: id, status: "passed", checkedAt: Date.now() })),
       verifyAgentModels: async ({ modelIds }) => modelIds.map((id) => ({ modelId: id, status: "passed", checkedAt: Date.now() })),
-      setFavorites: async (input) => Object.assign(state.config, input)
     };
   };
 
@@ -283,10 +282,6 @@ export function installBrowserPreview() {
     }),
     switchAgent: async (id, provider) => {
       updateSession(id, { agentProvider: provider });
-      return copy(sessions.find((session) => session.id === id)!);
-    },
-    switchCodexBackend: async (id, backend) => {
-      updateSession(id, { codexBackend: backend });
       return copy(sessions.find((session) => session.id === id)!);
     },
     switchModelSource: async (id, source) => {
@@ -414,16 +409,15 @@ export function installBrowserPreview() {
     screenshotApi: { captureRegion: async () => ({ status: "launched" }) } satisfies Window["screenshotApi"],
     openRouterApi: routerApi("openai/gpt-5"),
     naraRouterApi: routerApi("nvidia/llama-3.3-nemotron-super-49b-v1"),
-    miniMaxApi: routerApi("MiniMax-M2.5"),
-    codeBuddyCodexApi: {
-      getConfig: async () => ({ favoriteModelIds: ["glm-5"], defaultModelId: "glm-5", catalogVersion: "preview", fetchedAt: now, experimentalAcknowledged: true }),
-      getStatus: async () => ({ available: true, version: "preview", experimental: true }),
-      listModels: async () => [{ id: "glm-5", name: "GLM-5", verification: { status: "passed", checkedAt: now } }],
-      refreshModels: async () => [{ id: "glm-5", name: "GLM-5", verification: { status: "passed", checkedAt: now } }],
-      verifyModel: async ({ modelId }) => ({ modelId, status: "passed", checkedAt: Date.now() }),
-      setFavorites: async (input) => ({ ...input, catalogVersion: "preview", fetchedAt: now, experimentalAcknowledged: true }),
-      setExperimentalAcknowledged: async ({ acknowledged }) => ({ favoriteModelIds: ["glm-5"], defaultModelId: "glm-5", catalogVersion: "preview", fetchedAt: now, experimentalAcknowledged: acknowledged })
-    } satisfies Window["codeBuddyCodexApi"],
+    miniMaxApi: {
+      ...routerApi("MiniMax-M2.5"),
+      getUsage: async () => ({
+        provider: "minimax" as const,
+        fetchedAt: Date.now(),
+        primaryLimitId: "MiniMax-M2.5:interval",
+        limits: [{ id: "MiniMax-M2.5:interval", name: "MiniMax-M2.5 · 5 小时", usedPercent: 25, remainingPercent: 75 }]
+      })
+    } satisfies Window["miniMaxApi"],
     agentConversationApi: {
       setActiveSession: () => undefined,
       getSnapshot: async () => ({ activeSessionId: sessions[0]?.id || null, turn: sessions[0] ? { sessionId: sessions[0].id, sessionTitle: sessions[0].title, provider: "codex", status: "running", supported: true, messages: [{ id: "preview-message-1", provider: "codex", kind: "user", text: "请检查浏览器预览界面。", timestamp: now - 30_000 }, { id: "preview-message-2", provider: "codex", kind: "commentary", text: "正在核对布局和交互状态。", timestamp: now - 20_000 }] } : null }),
@@ -511,6 +505,10 @@ export function installBrowserPreview() {
       check: async () => ({ status: "available", currentVersion: "0.156.0", latestVersion: "0.157.0", method: "npm", environment: "windows" }),
       update: async () => ({ status: "current", currentVersion: "0.157.0", latestVersion: "0.157.0", method: "npm", environment: "windows", restartRequired: true })
     } satisfies Window["codexVersionApi"],
+    openCodeVersionApi: {
+      check: async () => ({ status: "available", currentVersion: "2.0.18", latestVersion: "2.0.19", method: "npm", environment: "windows" }),
+      update: async () => ({ status: "current", currentVersion: "2.0.19", latestVersion: "2.0.19", method: "npm", environment: "windows", restartRequired: true })
+    } satisfies Window["openCodeVersionApi"],
     launchTemplateApi: {
       list: async () => copy(launchTemplates),
       create: async (input) => { const entry = { id: `preview-launch-${nextId++}`, ...input, createdAt: Date.now(), updatedAt: Date.now() }; launchTemplates = [...launchTemplates, entry]; return copy(entry); },
@@ -634,7 +632,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "codeBuddyCodexApi" | "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "codexVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

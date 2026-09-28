@@ -83,8 +83,6 @@ function normalizeVerification(value) {
 function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logger = console, providerName = "OpenRouter", assumeCompatibleWhenCapabilitiesMissing = false, verificationProfile = "" }) {
   let config = {
     encryptedApiKey: "",
-    favoriteModelIds: [],
-    defaultModelId: "",
     cachedModels: [],
     modelVerifications: {},
     agentModelVerifications: { opencode: {}, codebuddy: {} },
@@ -109,8 +107,6 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
   function serialize() {
     return {
       encryptedApiKey: config.encryptedApiKey,
-      favoriteModelIds: [...config.favoriteModelIds],
-      defaultModelId: config.defaultModelId,
       cachedModels: config.cachedModels.map(model => ({ ...model, pricing: { ...model.pricing }, supportedParameters: [...model.supportedParameters], inputModalities: [...model.inputModalities] })),
       modelVerifications: Object.fromEntries(Object.entries(config.modelVerifications).map(([id, verification]) => [id, { ...verification, ...(verification.stages ? { stages: verification.stages.map(stage => ({ ...stage })) } : {}) }])),
       agentModelVerifications: config.agentModelVerifications,
@@ -130,17 +126,11 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
         ? parsed.cachedModels.map(model => normalizeModel(model, { assumeCompatibleWhenCapabilitiesMissing })).filter(Boolean)
         : [];
       const availableIds = new Set(cachedModels.map(model => model.id));
-      const favoriteModelIds = Array.isArray(parsed?.favoriteModelIds)
-        ? [...new Set(parsed.favoriteModelIds.map(value => String(value || "").trim()).filter(id => availableIds.has(id)))]
-        : [];
-      const defaultModelId = favoriteModelIds.includes(parsed?.defaultModelId) ? parsed.defaultModelId : favoriteModelIds[0] || "";
       const modelVerifications = Object.fromEntries(Object.entries(!verificationProfile || parsed?.verificationProfile === verificationProfile ? parsed?.modelVerifications || {} : {})
         .map(([id, value]) => [id, normalizeVerification(value)])
         .filter(([id, value]) => availableIds.has(id) && value));
       config = {
         encryptedApiKey: typeof parsed?.encryptedApiKey === "string" ? parsed.encryptedApiKey : "",
-        favoriteModelIds,
-        defaultModelId,
         cachedModels,
         modelVerifications,
         agentModelVerifications: Object.fromEntries(["opencode", "codebuddy"].map(agent => [agent,
@@ -155,8 +145,6 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
   function getPublicConfig() {
     return {
       hasApiKey: Boolean(config.encryptedApiKey),
-      favoriteModelIds: [...config.favoriteModelIds],
-      defaultModelId: config.defaultModelId || undefined,
       fetchedAt: config.fetchedAt || undefined
     };
   }
@@ -220,28 +208,9 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     config.cachedModels = [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
     config.modelVerifications = Object.fromEntries(Object.entries(config.modelVerifications).filter(([id]) => byId.has(id)));
     for (const agent of ["opencode", "codebuddy"]) config.agentModelVerifications[agent] = Object.fromEntries(Object.entries(config.agentModelVerifications[agent]).filter(([id]) => byId.has(id)));
-    config.favoriteModelIds = config.favoriteModelIds.filter(id => byId.has(id));
-    if (!config.favoriteModelIds.includes(config.defaultModelId)) {
-      config.defaultModelId = config.favoriteModelIds[0] || "";
-    }
     config.fetchedAt = fetchedAt;
     save();
     return getCachedModels();
-  }
-
-  function setFavorites(favoriteModelIds, defaultModelId) {
-    const byId = new Map(config.cachedModels.map(model => [model.id, model]));
-    const ids = [...new Set((Array.isArray(favoriteModelIds) ? favoriteModelIds : []).map(value => String(value || "").trim()).filter(Boolean))];
-    for (const id of ids) {
-      const model = byId.get(id);
-      if (!model) throw new Error(`${providerName} 模型不存在或目录尚未刷新：${id}`);
-    }
-    const nextDefault = String(defaultModelId || "").trim();
-    if (nextDefault && !ids.includes(nextDefault)) throw new Error("默认模型必须位于收藏列表中。");
-    config.favoriteModelIds = ids;
-    config.defaultModelId = nextDefault || ids[0] || "";
-    save();
-    return getPublicConfig();
   }
 
   return {
@@ -255,8 +224,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     getAgentModelVerifications,
     setAgentModelVerification,
     setModelVerification,
-    setCachedModels,
-    setFavorites
+    setCachedModels
   };
 }
 

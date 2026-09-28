@@ -40,9 +40,8 @@ export function SessionModeSwitch({ session, onOpenOtherMode }: Props) {
   };
 
   return <div className="agent-switcher">
-    <button className="agent-switcher-trigger" type="button" title={label} disabled={pending} onClick={() => void openOtherMode()}>
+    <button className="agent-switcher-trigger" type="button" title={pending ? t("session.openingOtherMode") : label} aria-label={label} disabled={pending} onClick={() => void openOtherMode()}>
       {pending ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowLeftRight aria-hidden="true" />}
-      <span>{pending ? t("session.openingOtherMode") : label}</span>
     </button>
     {error && <div className="agent-switcher-error" role="alert">
       <span>{error}</span>

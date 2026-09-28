@@ -8,7 +8,7 @@ import type { Locale, ThemeId, TitleBarActionId, WindowsShell } from "../../vite
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
-import { CodeBuddyCodexSettings } from "./CodeBuddyCodexSettings";
+import { CodeBuddyQuotaSection } from "./CodeBuddyQuotaSettings";
 import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
@@ -610,7 +610,7 @@ export function SettingsModal({
               <OpenRouterSettings />
               <OpenRouterSettings provider="nararouter" />
               <OpenRouterSettings provider="minimax" />
-              <CodeBuddyCodexSettings />
+              <CodeBuddyQuotaSection />
             </section>
 
             <section id="settings-panel-mobile" role="tabpanel" aria-labelledby="settings-tab-mobile" hidden={activeCategory !== "mobile"} className="settings-page settings-page-stack">

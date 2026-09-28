@@ -99,13 +99,13 @@ describe("OpenRouterSettings", () => {
     expect(await screen.findByText(/Codex：已验证/)).toBeTruthy();
   });
 
-  it("shows a partial model's failed stage and keeps it eligible for favorites", async () => {
+  it("shows a partial model's failed stage without a favorite control", async () => {
     verification = { status: "partial", checkedAt: 2, failedStage: "codex_tools", error: "custom tools unsupported" };
     render(<I18nProvider locale="zh-CN"><OpenRouterSettings /></I18nProvider>);
     fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
 
     expect(await screen.findByText(/部分兼容：完整 Codex 工具协议 · custom tools unsupported/)).toBeTruthy();
-    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });
 
   it("explains a free-model rate limit instead of exposing only the provider error", async () => {
@@ -130,7 +130,7 @@ describe("OpenRouterSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
 
     expect(await screen.findByText(/基础 Responses · 当前模型未通过 Codex 所需的 Responses 请求，请更换模型。 服务端详情：The model rejected this request./)).toBeTruthy();
-    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "检测" }));
     expect(await screen.findByText(/vendor\/model：检测失败：基础 Responses · 当前模型未通过 Codex 所需的 Responses 请求/)).toBeTruthy();

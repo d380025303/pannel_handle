@@ -298,7 +298,7 @@ describe("terminal-manager", () => {
     expect(manager.getSession(session.id).codexExperimentalAcknowledged).toBeUndefined();
   });
 
-  it("clears CodeBuddy Codex acknowledgement when the model changes", () => {
+  it("normalizes removed CodeBuddy Codex backend on session creation", () => {
     const { manager } = createManager();
     const session = manager.createSession({
       title: "CodeBuddy Codex",
@@ -308,9 +308,9 @@ describe("terminal-manager", () => {
       codexExperimentalAcknowledged: true
     });
 
-    expect(session.codexExperimentalAcknowledged).toBe(true);
-    manager.updateSession(session.id, { codexModel: "kimi-k2.5" });
-    expect(manager.getSession(session.id).codexExperimentalAcknowledged).toBeUndefined();
+    expect(session.codexBackend).toBe("openai");
+    expect(session.codexModel).toBeUndefined();
+    expect(session.codexExperimentalAcknowledged).toBeUndefined();
   });
 
   it("creates a transient session without persisting or restoring it", () => {

@@ -25,7 +25,7 @@ const OPENCODE_CONFIG_ENV = "OPENCODE_CONFIG_CONTENT";
 const CODEBUDDY_REMOTE_INSTRUCTIONS_ENV = "PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS";
 const OPTIONAL_SSH_COMMAND_CHECK_PROVIDERS = new Set(["claude", "codex"]);
 const OPTIONAL_SSH_HOOK_PROVIDERS = new Set(["claude", "codex", "codebuddy", "qoder"]);
-const CODEX_BACKENDS = new Set(["openai", "openrouter", "nararouter", "minimax", "codebuddy"]);
+const CODEX_BACKENDS = new Set(["openai", "openrouter", "nararouter", "minimax"]);
 const AGENT_EXIT_MARKER_PREFIX = "__PANNEL_HANDLE_";
 const AGENT_EXIT_MARKER_SUFFIX = "AGENT_EXIT__";
 
@@ -137,11 +137,9 @@ function buildAgentStartCommand(session, runtime = {}) {
     if (inheritedArgs) agentCommand += ` ${inheritedArgs}`;
   }
   if (session.agentProvider === "codex") {
-    const backend = runtime.openRouter || runtime.naraRouter || runtime.miniMax || runtime.codeBuddyCodex;
+    const backend = runtime.openRouter || runtime.naraRouter || runtime.miniMax;
     if (backend) {
-      agentCommand = buildCodexBackendCommand(session, runtime.codeBuddyCodex
-        ? { providerId: "codebuddy", providerName: "CodeBuddy", ...backend }
-        : backend);
+      agentCommand = buildCodexBackendCommand(session, backend);
     }
   }
 
@@ -372,8 +370,8 @@ function createAgentSessionLauncher({
     if (session.type === "ssh" && session.agentLocation === "local" && !LOCAL_BRIDGE_PROVIDERS.has(session.agentProvider)) {
       throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy、OpenCode、Claude 和 Qoder。");
     }
-    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy")) {
-      const backendName = session.codexBackend === "codebuddy" ? "CodeBuddy" : session.codexBackend === "nararouter" ? "NaraRouter" : session.codexBackend === "minimax" ? "MiniMax" : "OpenRouter";
+    if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax")) {
+      const backendName = session.codexBackend === "nararouter" ? "NaraRouter" : session.codexBackend === "minimax" ? "MiniMax" : "OpenRouter";
       throw new Error(`${backendName} Codex 首期仅支持 Windows 和 WSL 会话。`);
     }
   }
@@ -545,8 +543,7 @@ function createAgentSessionLauncher({
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
     const miniMax = await miniMaxService?.getLaunchConfig(session);
-    const codeBuddyCodex = await codexModelBridgeModule?.getCodeBuddyLaunchConfig?.(session);
-    const backend = openRouter || naraRouter || miniMax || codeBuddyCodex;
+    const backend = openRouter || naraRouter || miniMax;
     const source = session.agentProvider !== "codex" && EXTERNAL_SOURCES.has(session.modelSource)
       ? session.modelSource === "openrouter" ? openRouterService : session.modelSource === "nararouter" ? naraRouterService : miniMaxService
       : null;
@@ -558,20 +555,16 @@ function createAgentSessionLauncher({
         OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: `${agentModel.providerId}/${agentModel.model}` }) }
       : agentModel ? buildAgentModelEnvironment(session.agentProvider, agentModel) : {};
     const verifiedOpenCodeEnv = session.agentProvider === "opencode" && useAppServer(session) ? openCodeVerifiedEnv() : {};
-    const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
+    const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration;
     return {
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
-      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
-      codexCommand: backend ? buildCodexBackendCommand(session, runtimeConfigForBackend(backend, codeBuddyCodex)) : "codex",
+      runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax })),
+      codexCommand: backend ? buildCodexBackendCommand(session, backend) : "codex",
       runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...verifiedOpenCodeEnv, ...agentModelEnv },
       runtimeWslEnvKeys: [...(backend ? [backend.apiKeyEnv] : []), ...Object.keys(verifiedOpenCodeEnv), ...Object.keys(agentModelEnv)],
       ...(agentModel && session.agentProvider === "opencode" ? { openCodeModel: `${agentModel.providerId}/${agentModel.model}` } : {}),
       codexBridgeRegistration: bridgeRegistration
     };
-  }
-
-  function runtimeConfigForBackend(backend, codeBuddyCodex) {
-    return codeBuddyCodex ? { providerId: "codebuddy", providerName: "CodeBuddy", ...backend } : backend;
   }
 
   async function launchPreparedLocal(create, target, runtime, removeSavedOnFailure = false) {
@@ -738,6 +731,7 @@ function createAgentSessionLauncher({
 
   async function createSession(options = {}) {
     let request = { ...options, type: options.type || "windows" };
+    request = require("../services/model-sources/model-selection.cjs").normalizeRemovedCodexBackend(request);
     if (!request.agentProvider) return terminalManager.createSession(request);
     request = resolveLocalShell(resolveDefaultWorkingDirectory(request));
     validateAgentSession(request);
@@ -768,7 +762,8 @@ function createAgentSessionLauncher({
 
   async function launchSession(template, options = {}) {
     const { recordUsage = false, ...launchOptions } = options;
-    const launchTemplate = template.agentProvider ? resolveLocalShell(template) : template;
+    const normalizedTemplate = require("../services/model-sources/model-selection.cjs").normalizeRemovedCodexBackend(template);
+    const launchTemplate = normalizedTemplate.agentProvider ? resolveLocalShell(normalizedTemplate) : normalizedTemplate;
     let session;
     if (!launchTemplate.agentProvider) {
       session = terminalManager.launchSession(launchTemplate, launchOptions);
@@ -845,6 +840,9 @@ function createAgentSessionLauncher({
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
       graphicalSessionEnabled: session.graphicalSessionEnabled,
       codeBuddyGraphicalOptions: session.codeBuddyGraphicalOptions,
+      openCodeGraphicalOptions: session.templateId
+        ? sessionStore?.getTemplate(session.templateId)?.openCodeGraphicalOptions || session.openCodeGraphicalOptions
+        : session.openCodeGraphicalOptions,
       type: session.type,
       wslDistro: session.wslDistro,
       sshConfig: session.sshConfig,
@@ -869,16 +867,11 @@ function createAgentSessionLauncher({
 
     const service = backend === "openrouter"
       ? openRouterService
-      : backend === "nararouter"
-        ? naraRouterService
-        : backend === "minimax"
-          ? miniMaxService
-          : codexModelBridgeModule?.codeBuddyService;
-    const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : backend === "minimax" ? "MiniMax" : "CodeBuddy";
+      : backend === "nararouter" ? naraRouterService : miniMaxService;
+    const providerName = backend === "openrouter" ? "OpenRouter" : backend === "nararouter" ? "NaraRouter" : "MiniMax";
     if (!service?.getConfig) throw new Error(`${providerName} Codex 服务不可用。`);
-    const config = await service.getConfig();
-    const model = String(requestedModelId || config?.defaultModelId || "").trim();
-    if (!model) throw new Error(`请先在设置中配置 ${providerName} 默认模型。`);
+    const model = String(requestedModelId || "").trim();
+    if (!model) throw new Error(`请选择 ${providerName} 模型。`);
     return {
       ...createReplacementTemplate(session, "codex"),
       codexBackend: backend,
@@ -950,7 +943,7 @@ function createAgentSessionLauncher({
       if (!CODEX_BACKENDS.has(backend)) throw new Error(`Unsupported Codex backend: ${backend}.`);
       if (session.type === "ssh") throw new Error("Codex 模型后端切换仅支持 Windows 和 WSL 会话。");
       const modelId = requestedModelId === undefined ? undefined : String(requestedModelId).trim();
-      if (requestedModelId !== undefined && (!modelId || backend === "openai" || backend === "codebuddy"))
+      if (requestedModelId !== undefined && (!modelId || backend === "openai"))
         throw new Error("当前 Codex 模型选择无效。");
       if ((session.codexBackend || "openai") === backend && (!modelId || session.codexModel === modelId)) {
         const current = terminalManager.listSessions().find(entry => entry.id === sessionId);
@@ -1005,7 +998,7 @@ function createAgentSessionLauncher({
       const session = terminalManager.getSession(sessionId);
       if (!session || !["codex", "opencode", "codebuddy"].includes(session.agentProvider)) throw new Error("该会话不支持模型来源切换。");
       if (session.type === "ssh") throw new Error("模型来源切换仅支持 Windows 和 WSL 会话。");
-      if (source !== "native" && !EXTERNAL_SOURCES.has(source) && !(session.agentProvider === "codex" && source === "codebuddy")) throw new Error("不支持的模型来源。");
+      if (source !== "native" && !EXTERNAL_SOURCES.has(source)) throw new Error("不支持的模型来源。");
       const selectedModel = requestedModelId === undefined ? undefined : String(requestedModelId).trim();
       if (requestedModelId !== undefined && (!selectedModel || session.agentProvider !== "codebuddy" || session.runtimeMode !== "app-server"))
         throw new Error("当前会话无法选择此模型。");
@@ -1015,8 +1008,8 @@ function createAgentSessionLauncher({
       if (source !== "native") {
         const service = source === "openrouter" ? openRouterService : source === "nararouter" ? naraRouterService : miniMaxService;
         if (typeof service?.getConfig !== "function") throw new Error(`${source} 模型来源服务不可用。`);
-        modelId = String(modelId || (await service.getConfig()).defaultModelId || "").trim();
-        if (!modelId) throw new Error(`请先配置 ${source} 默认模型。`);
+        modelId = String(modelId || "").trim();
+        if (!modelId) throw new Error(`请选择 ${source} 模型。`);
       }
       const target = { ...createReplacementTemplate(session, session.agentProvider), modelSource: source, modelId };
       const runtime = await prepareLocal(target);
@@ -1030,7 +1023,7 @@ function createAgentSessionLauncher({
     finally { switchingSessions.delete(sessionId); }
   }
 
-  return { createSession, launchSession, launchSessions, duplicateRunningSession, openOtherSessionMode, switchAgent, switchCodexBackend, switchModelSource };
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, openOtherSessionMode, switchAgent, switchModelSource };
 }
 
 module.exports = {

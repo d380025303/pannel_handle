@@ -288,8 +288,8 @@ function createOpenRouterService({
 
   function getAgentLaunchConfig(agent, requestedModel) {
     if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
-    const config = store.getPublicConfig();
-    const model = String(requestedModel || config.defaultModelId || "").trim();
+    const model = String(requestedModel || "").trim();
+    if (!model) throw new Error(`请选择 ${providerName} 模型。`);
     if (agent === "codebuddy" && !store.getCachedModels().some(item => item.id === model))
       throw new Error(`${providerName} 模型不存在：${model}`);
     const verification = store.getAgentModelVerifications?.(agent)?.[model];
@@ -609,24 +609,16 @@ function createOpenRouterService({
     return results;
   }
 
-  function writeCatalog(selectedModelId) {
-    const config = store.getPublicConfig();
-    const byId = new Map(store.getCachedModels().map(model => [model.id, model]));
-    const ids = [...new Set([...config.favoriteModelIds, ...(selectedModelId ? [selectedModelId] : [])])];
-    const models = ids.map(id => byId.get(id)).filter(model => model?.compatible &&
-      ["passed", "partial"].includes(store.getModelVerifications()[model.id]?.status));
-    if (!models.length) throw new Error(`请先收藏至少一个兼容的 ${providerName} 模型。`);
+  function writeCatalog() {
+    const verifications = store.getModelVerifications();
+    const models = store.getCachedModels().filter(model => model.compatible &&
+      ["passed", "partial"].includes(verifications[model.id]?.status));
+    if (!models.length) throw new Error(`请先验证至少一个兼容的 ${providerName} 模型。`);
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
     const tmpPath = `${catalogFile}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(buildCodexModelCatalog(models, providerName, catalogCapabilities), null, 2), "utf-8");
     fs.renameSync(tmpPath, catalogFile);
     return catalogFile;
-  }
-
-  async function setFavorites(input = {}) {
-    const config = store.setFavorites(input.favoriteModelIds, input.defaultModelId);
-    if (config.favoriteModelIds.some(id => ["passed", "partial"].includes(store.getModelVerifications()[id]?.status))) writeCatalog();
-    return config;
   }
 
   function toWslPath(windowsPath, distro) {
@@ -656,8 +648,8 @@ function createOpenRouterService({
     if (session.type === "ssh") throw new Error(`${providerName} Codex 首期仅支持 Windows 和 WSL 会话。`);
     const apiKey = store.getApiKey();
     if (!apiKey) throw new Error(`请先在设置中配置 ${providerName} API Key。`);
-    const publicConfig = store.getPublicConfig();
-    const requestedModel = String(session.codexModel || publicConfig.defaultModelId || "").trim();
+    const requestedModel = String(session.codexModel || "").trim();
+    if (!requestedModel) throw new Error(`请选择 ${providerName} 模型。`);
     const verification = await verifyModel(requestedModel);
     const experimentalAllowed = verification.status === "partial" && session.codexExperimentalAcknowledged === true;
     if (verification.status !== "passed" && !experimentalAllowed) {
@@ -667,7 +659,7 @@ function createOpenRouterService({
       throw new Error(`${providerName} 模型 ${requestedModel} 未通过 Codex 兼容性检测：${verification.error || "未知错误"}`);
     }
     assertCodexCompatibility(session);
-    const windowsCatalogPath = writeCatalog(requestedModel);
+    const windowsCatalogPath = writeCatalog();
     const config = {
       apiKey,
       providerId,
@@ -691,7 +683,6 @@ function createOpenRouterService({
     verifyAgentModels,
     getAgentLaunchConfig,
     getOpenCodeRuntimeEnv,
-    setFavorites,
     writeCatalog,
     getLaunchConfig
   };

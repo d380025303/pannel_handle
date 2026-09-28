@@ -7,6 +7,7 @@ const {
   normalizeTerminalBackgroundBlur,
   normalizeTerminalBackgroundPosition
 } = require("../../stores/config-store.cjs");
+const { readMiniMaxUsage } = require("../token-usage/minimax-usage-client.cjs");
 
 const SETTINGS_IPC_CHANNELS = [
   "config:get",
@@ -24,7 +25,6 @@ const SETTINGS_IPC_CHANNELS = [
   "openrouter:test",
   "openrouter:verify-models",
   "openrouter:verify-agent-models",
-  "openrouter:set-favorites",
   "nararouter:get-config",
   "nararouter:list-models",
   "nararouter:refresh-models",
@@ -33,7 +33,6 @@ const SETTINGS_IPC_CHANNELS = [
   "nararouter:test",
   "nararouter:verify-models",
   "nararouter:verify-agent-models",
-  "nararouter:set-favorites",
   "minimax:get-config",
   "minimax:list-models",
   "minimax:refresh-models",
@@ -42,14 +41,7 @@ const SETTINGS_IPC_CHANNELS = [
   "minimax:test",
   "minimax:verify-models",
   "minimax:verify-agent-models",
-  "minimax:set-favorites",
-  "codebuddy-codex:get-config",
-  "codebuddy-codex:get-status",
-  "codebuddy-codex:list-models",
-  "codebuddy-codex:refresh-models",
-  "codebuddy-codex:verify-model",
-  "codebuddy-codex:set-favorites",
-  "codebuddy-codex:set-experimental-acknowledged",
+  "minimax:get-usage",
   "mobile-access:get-state",
   "mobile-access:update-config",
   "mobile-access:set-password",
@@ -66,7 +58,6 @@ function registerRouterIpcHandlers(ipcMain, prefix, service) {
   ipcMain.handle(`${prefix}:test`, () => service.testConnection());
   ipcMain.handle(`${prefix}:verify-models`, (_event, input) => service.verifyModels(input));
   ipcMain.handle(`${prefix}:verify-agent-models`, (_event, input) => service.verifyAgentModels(input));
-  ipcMain.handle(`${prefix}:set-favorites`, (_event, input) => service.setFavorites(input));
 }
 
 function registerSettingsIpcHandlers({
@@ -78,7 +69,8 @@ function registerSettingsIpcHandlers({
   openRouterService,
   naraRouterService,
   miniMaxService,
-  codeBuddyCodexBridgeService,
+  miniMaxConfigStore,
+  miniMaxUsageOptions = {},
   getMobileRemoteService,
   dialog,
   getWindowFromEvent,
@@ -194,13 +186,26 @@ function registerSettingsIpcHandlers({
   registerRouterIpcHandlers(ipcMain, "nararouter", naraRouterService);
   registerRouterIpcHandlers(ipcMain, "minimax", miniMaxService);
 
-  ipcMain.handle("codebuddy-codex:get-config", () => codeBuddyCodexBridgeService.getConfig());
-  ipcMain.handle("codebuddy-codex:get-status", () => codeBuddyCodexBridgeService.getStatus());
-  ipcMain.handle("codebuddy-codex:list-models", () => codeBuddyCodexBridgeService.listModels());
-  ipcMain.handle("codebuddy-codex:refresh-models", () => codeBuddyCodexBridgeService.refreshModels());
-  ipcMain.handle("codebuddy-codex:verify-model", (_event, input) => codeBuddyCodexBridgeService.verifyModel(input));
-  ipcMain.handle("codebuddy-codex:set-favorites", (_event, input) => codeBuddyCodexBridgeService.setFavorites(input));
-  ipcMain.handle("codebuddy-codex:set-experimental-acknowledged", (_event, input) => codeBuddyCodexBridgeService.setExperimentalAcknowledged(input));
+  const MINIMAX_USAGE_CACHE_TTL_MS = 30 * 1000;
+  const miniMaxUsageNow = miniMaxUsageOptions.now || (() => Date.now());
+  let miniMaxUsageCache = null;
+  ipcMain.handle("minimax:get-usage", async (_event, options = {}) => {
+    const apiKey = String(miniMaxConfigStore?.getApiKey?.() || "").trim();
+    if (!apiKey) throw new Error("请先在设置中配置 MiniMax API Key。");
+    const ttlMs = miniMaxUsageOptions.cacheTtlMs ?? MINIMAX_USAGE_CACHE_TTL_MS;
+    if (!options?.force && miniMaxUsageCache && miniMaxUsageCache.apiKey === apiKey
+      && miniMaxUsageNow() - miniMaxUsageCache.snapshot.fetchedAt < ttlMs) {
+      return miniMaxUsageCache.snapshot;
+    }
+    const snapshot = await readMiniMaxUsage({
+      apiKey,
+      timeoutMs: 10_000,
+      now: miniMaxUsageNow,
+      ...(miniMaxUsageOptions.fetchImpl ? { fetchImpl: miniMaxUsageOptions.fetchImpl } : {})
+    });
+    miniMaxUsageCache = { apiKey, snapshot };
+    return snapshot;
+  });
 
   ipcMain.handle("mobile-access:get-state", () => getMobileRemoteService().getState());
   ipcMain.handle("mobile-access:update-config", (_event, partial) => getMobileRemoteService().updateConfig(partial));

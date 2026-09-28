@@ -168,6 +168,39 @@ describe("mobile graphical session route", () => {
     await expect(f.handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1", modelId: "model-a" })).rejects.toThrow("不可切换");
   });
 
+  it("filters local OpenCode MiniMax variants and rejects hidden models on mobile", async () => {
+    const f = fixture();
+    f.session.type = "windows";
+    f.session.agentProvider = "opencode";
+    f.snapshot.provider = "opencode";
+    f.snapshot.acpOptions = [{ id: "model", currentValue: "minimax-cn/MiniMax-M2.7-highspeed", options: [
+      { value: "minimax-cn/MiniMax-M2.7-highspeed", name: "Current CN" },
+      { value: "minimax-cn-coding-plan/MiniMax-M2.7", name: "Coding Plan" },
+      { value: "minimax/MiniMax-M3", name: "Verified" },
+      { value: "minimax/MiniMax-M2", name: "Unverified" },
+      { value: "opencode/free", name: "Free" }
+    ] }];
+    const getOpenCodeVerifiedModels = vi.fn(() => ({ minimax: new Set(["minimax/MiniMax-M3"]) }));
+    const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager,
+      graphicalService: f.graphicalService, getOpenCodeVerifiedModels, send: f.send });
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    const modelOption = f.send.mock.calls.at(-1)[1].snapshot.acpOptions[0];
+    expect(modelOption.currentValue).toBe("minimax-cn/MiniMax-M2.7-highspeed");
+    expect(modelOption.options.map(option => option.value)).toEqual(["minimax/MiniMax-M3", "opencode/free"]);
+    await expect(handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1",
+      modelId: "minimax-cn/MiniMax-M2.7-highspeed" })).rejects.toThrow("可用的模型");
+    await handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1",
+      modelId: "minimax/MiniMax-M3" });
+    expect(f.graphicalService.setModel).toHaveBeenCalledWith("graph-1", "minimax/MiniMax-M3");
+    f.session.type = "ssh";
+    f.send.mockClear();
+    await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    expect(f.send.mock.calls.at(-1)[1].snapshot.acpOptions[0].options).toHaveLength(5);
+    await handlers.handle(f.socket, { type: "graphical.model", sessionId: "graph-1", threadId: "thread-1",
+      modelId: "minimax-cn/MiniMax-M2.7-highspeed" });
+    expect(f.graphicalService.setModel).toHaveBeenCalledWith("graph-1", "minimax-cn/MiniMax-M2.7-highspeed");
+  });
+
   it("sends only uploaded files belonging to this socket and thread", async () => {
     const f = fixture();
     const uploads = { prepare: vi.fn(() => ({ fileId: "file-1", url: "/upload" })),

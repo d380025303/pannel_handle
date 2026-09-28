@@ -1192,6 +1192,16 @@
   margin: 0;
 }
 
+.settings-section > button.collapsible-header {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
 .ding-talk-toggle {
   margin-left: auto;
 }
@@ -1471,6 +1481,61 @@
   margin-left: auto;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.minimax-usage-section {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.minimax-usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.minimax-usage-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.minimax-usage-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minimax-usage-summary-text.warning {
+  color: var(--color-warning-text);
+}
+
+.minimax-usage-summary-text.danger {
+  color: var(--color-danger-text);
+}
+
+.minimax-usage-spin {
+  animation: minimax-usage-rotate 0.8s linear infinite;
+}
+
+@keyframes minimax-usage-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.minimax-usage-details {
+  display: grid;
+  gap: 8px;
+}
+
+.minimax-usage-details > small {
+  color: var(--color-text-muted);
 }
 
 .openrouter-model-list {

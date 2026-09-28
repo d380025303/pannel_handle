@@ -172,18 +172,27 @@ export function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
   const groups = groupTools(snapshot.items);
   const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
   const diffs = snapshot.turnDiffs || [];
+  const eventsByTurn = new Map<string, Diagnostic[]>();
+  const unassignedEvents: Diagnostic[] = [];
+  for (const event of events) {
+    if (!event.turnId) { unassignedEvents.push(event); continue; }
+    const turnEvents = eventsByTurn.get(event.turnId) || [];
+    turnEvents.push(event);
+    eventsByTurn.set(event.turnId, turnEvents);
+  }
+  const diffsByTurn = new Map(diffs.map(diff => [diff.turnId, diff]));
   const lastIndex = new Map<string, number>();
   groups.forEach((group, index) => {
     const turnId = group.kind === "tools" ? group.items.at(-1)?.turnId : group.item.turnId;
     if (turnId) lastIndex.set(turnId, index);
   });
-  const result: DisplayItem[] = events.filter(event => !event.turnId).map(event => ({ kind: "diagnostic", event }));
+  const result: DisplayItem[] = unassignedEvents.map(event => ({ kind: "diagnostic", event }));
   groups.forEach((group, index) => {
     result.push(group);
     const turnId = group.kind === "tools" ? group.items.at(-1)?.turnId : group.item.turnId;
     if (!turnId || lastIndex.get(turnId) !== index) return;
-    result.push(...events.filter(event => event.turnId === turnId).map(event => ({ kind: "diagnostic" as const, event })));
-    const diff = diffs.find(value => value.turnId === turnId);
+    result.push(...(eventsByTurn.get(turnId) || []).map(event => ({ kind: "diagnostic" as const, event })));
+    const diff = diffsByTurn.get(turnId);
     if (diff) result.push({ kind: "diff", diff });
   });
   const seenTurns = new Set(lastIndex.keys());
