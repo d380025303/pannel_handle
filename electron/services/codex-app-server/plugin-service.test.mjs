@@ -96,7 +96,8 @@ describe("Codex plugin service", () => {
 
   it("preserves unrelated TOML settings when changing project plugin state", async () => {
     const existing = 'model = "gpt-6-sol"\n[plugins."demo@local"]\nother = "keep"\n';
-    const { service, calls } = harness(undefined, [Buffer.from(existing).toString("base64"), ""]);
+    const { service, calls } = harness(undefined, [Buffer.from(existing).toString("base64"), "",
+      JSON.stringify({ installed: [{ pluginId: "demo@local", enabled: false }] })]);
     const result = await service.setEnabled("one", "project", { plugin: "demo", marketplace: "local", enabled: false });
     expect(result.overrides["demo@local"]).toEqual({ enabled: false });
     expect(calls[1].args.at(-1)).toContain("Codex 配置已变化，请刷新后重试");
@@ -106,13 +107,66 @@ describe("Codex plugin service", () => {
     expect(Buffer.from(next, "base64").toString()).toContain('model = "gpt-6-sol"');
   });
 
+  it("restores the config and reports when Codex still sees an enabled plugin", async () => {
+    const existing = 'model = "gpt-6-sol"\n';
+    const { service, calls } = harness(undefined, [Buffer.from(existing).toString("base64"), "",
+      JSON.stringify({ installed: [{ pluginId: "figma@openai-curated-remote", enabled: true }] }), ""]);
+    await expect(service.setEnabled("one", "user", { plugin: "figma", marketplace: "openai-curated-remote", enabled: false }))
+      .rejects.toThrow("已恢复原配置");
+    expect(calls).toHaveLength(4);
+    const [writtenExpected, writtenNext] = calls[1].input.trimEnd().split("\n");
+    expect(calls[3].input.trimEnd().split("\n")).toEqual([writtenNext, writtenExpected]);
+  });
+
+  it("reports an unverified change without claiming the plugin was disabled", async () => {
+    const { service, calls } = harness(undefined, ["", "", JSON.stringify({ installed: [] })]);
+    await expect(service.setEnabled("one", "user", { plugin: "figma", marketplace: "openai-curated-remote", enabled: false }))
+      .rejects.toThrow("配置已写入，但无法核对");
+    expect(calls).toHaveLength(3);
+  });
+
+  it("does not write a local override for a remote account plugin", async () => {
+    const session = { id: "one", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\project" };
+    const spawnProcess = vi.fn();
+    const service = createCodexPluginService({ terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => session.cwd, listPlugins: async () => ({ marketplaces: [{ name: "official", plugins: [
+        { id: "figma@official", name: "figma", marketplaceName: "official", source: { type: "remote" } }] }] }) },
+      environmentService: { resolve: () => ({}) }, spawnProcess });
+    await expect(service.setEnabled("one", "user", { plugin: "figma", marketplace: "official", enabled: false }))
+      .rejects.toThrow("官方远程插件无法通过本地配置停用");
+    expect(spawnProcess).not.toHaveBeenCalled();
+  });
+
+  it("uses the active App Server runtime environment when reading user config and checking status", async () => {
+    const session = { id: "bridge", type: "ssh", agentLocation: "local", shell: "cmd.exe", initialCommand: "echo remote-only",
+      runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\remote" };
+    const calls = [];
+    const spawnProcess = vi.fn((executable, args, options) => {
+      calls.push({ executable, args, options });
+      const child = new EventEmitter(); child.stdin = new EventEmitter(); child.stdin.end = () => {};
+      child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+      queueMicrotask(() => { child.stdout.end(calls.length === 1 ? "" : calls.length === 2 ? ""
+        : JSON.stringify({ installed: [{ pluginId: "demo@team", enabled: false }] })); child.emit("close", 0); });
+      return child;
+    });
+    const service = createCodexPluginService({ terminalManager: { getSession: () => session },
+      graphicalService: { getWorkspaceCwd: () => "C:\\bridge", getPluginRuntime: () => ({ cwd: "C:\\bridge",
+        shell: "powershell.exe", localBridge: true, environment: { CODEX_HOME: "C:\\custom-codex" } }) },
+      environmentService: { resolve: () => ({ CODEX_HOME: "C:\\wrong-home" }) }, spawnProcess });
+    await service.setEnabled("bridge", "user", { plugin: "demo", marketplace: "team", enabled: false });
+    expect(calls.every(call => call.options.env.CODEX_HOME === "C:\\custom-codex")).toBe(true);
+    expect(calls.every(call => call.executable === "powershell.exe")).toBe(true);
+    expect(calls.every(call => !call.args.join(" ").includes("remote-only"))).toBe(true);
+  });
+
   it("keeps large project and user configs out of Windows process arguments", async () => {
     const existing = `# ${"a".repeat(50000)}\nmodel = "gpt-6-sol"\n`;
     const encoded = Buffer.from(existing).toString("base64");
-    const { service, calls } = harness(undefined, [encoded, "", encoded, ""]);
+    const { service, calls } = harness(undefined, [encoded, "", JSON.stringify({ installed: [{ pluginId: "demo@local", enabled: true }] }),
+      encoded, "", JSON.stringify({ installed: [{ pluginId: "demo@local", enabled: false }] })]);
     await service.setEnabled("one", "project", { plugin: "demo", marketplace: "local", enabled: true });
     await service.setEnabled("one", "user", { plugin: "demo", marketplace: "local", enabled: false });
-    for (const call of [calls[1], calls[3]]) {
+    for (const call of [calls[1], calls[4]]) {
       expect(call.args.join(" ").length).toBeLessThan(4000);
       expect(call.input.length).toBeGreaterThan(60000);
       expect(call.input.split("\n")[0]).toBe(encoded);
@@ -120,12 +174,14 @@ describe("Codex plugin service", () => {
   });
 
   it("sends WSL and SSH config writes through stdin", async () => {
-    const wsl = harness({ id: "w", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "codex", cwd: "/home/me/project" }, ["", ""]);
+    const wsl = harness({ id: "w", type: "wsl", wslDistro: "Ubuntu", runtimeMode: "app-server", agentProvider: "codex", cwd: "/home/me/project" },
+      ["", "", JSON.stringify({ installed: [{ pluginId: "demo@local", enabled: true }] })]);
     await wsl.service.setEnabled("w", "project", { plugin: "demo", marketplace: "local", enabled: true });
     expect(wsl.calls[1].options.stdio[0]).toBe("pipe");
     expect(wsl.calls[1].args.at(-1)).toContain("read -r expected");
     expect(wsl.calls[1].input).toContain("\n");
-    const ssh = harness({ id: "s", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex", cwd: "/srv/project" }, ["", ""]);
+    const ssh = harness({ id: "s", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex", cwd: "/srv/project" },
+      ["", "", JSON.stringify({ installed: [{ pluginId: "demo@local", enabled: false }] })]);
     await ssh.service.setEnabled("s", "user", { plugin: "demo", marketplace: "local", enabled: false });
     expect(ssh.sshAgentTransport.exec.mock.calls[1][1]).toContain("read -r expected");
     expect(ssh.sshAgentTransport.exec.mock.calls[1][2].stdin).toContain("\n");
@@ -148,8 +204,17 @@ describe("Codex plugin service", () => {
       fs.writeFileSync(configPath, `# ${"a".repeat(50000)}\nmodel = "gpt-6-sol"\n`);
       const session = { id: "local", type: "windows", shell: "cmd.exe", runtimeMode: "app-server",
         agentProvider: "codex", cwd: root, initialCommand: 'chcp 65001 && set "PANNEL_PLUGIN_TEST=1"' };
+      let firstCommands = 0;
       const service = createCodexPluginService({ terminalManager: { getSession: () => session },
-        graphicalService: { getWorkspaceCwd: () => root }, environmentService: { resolve: () => ({}) } });
+        graphicalService: { getWorkspaceCwd: () => root }, environmentService: { resolve: () => ({}) },
+        spawnProcess: (executable, args, options) => {
+          if (++firstCommands === 3) {
+            const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+            queueMicrotask(() => { child.stdout.end(JSON.stringify({ installed: [{ pluginId: "review@team", enabled: false }] })); child.emit("close", 0); });
+            return child;
+          }
+          return spawn(executable, args, options);
+        } });
       await service.setEnabled("local", "project", { plugin: "review", marketplace: "team", enabled: false });
       const saved = fs.readFileSync(configPath, "utf8");
       expect(saved).toContain('model = "gpt-6-sol"');
@@ -165,5 +230,5 @@ describe("Codex plugin service", () => {
       await expect(conflictService.setEnabled("local", "project", { plugin: "review", marketplace: "team", enabled: true })).rejects.toThrow();
       expect(fs.readFileSync(configPath, "utf8")).toBe(`${saved}# external change\n`);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  });
+  }, 15000);
 });

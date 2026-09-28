@@ -1,6 +1,7 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { readCodeBuddyUsage } = require("./codebuddy-usage-client.cjs");
+const { sanitizeDiagnostic } = require("../codebuddy-acp/http-transport.cjs");
 const { QODER_CACHE_TTL_MS, readQoderUsage } = require("./qoder-usage-client.cjs");
 const { GEMINI_CACHE_TTL_MS, readGeminiUsage } = require("./gemini-usage-client.cjs");
 const { readMiniMaxUsage } = require("./minimax-usage-client.cjs");
@@ -16,6 +17,15 @@ const RATE_LIMITS_REQUEST_ID = "pannel-handle-rate-limits";
 const RESET_CREDIT_REQUEST_ID = "pannel-handle-reset-credit";
 const SETTINGS_CODEBUDDY_SESSION_ID = "settings:codebuddy-usage";
 const RESET_CREDIT_OUTCOMES = new Set(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]);
+
+function canceledUsageError() {
+  return Object.assign(new Error("Usage request was canceled."), { code: "USAGE_CANCELED" });
+}
+
+function exitDiagnostic(stderr, fallback) {
+  const detail = sanitizeDiagnostic(stderr).trim().slice(-500);
+  return detail ? `${fallback} ${detail}` : fallback;
+}
 
 function clampPercent(value) {
   return Math.min(100, Math.max(0, Math.round(value)));
@@ -311,8 +321,8 @@ function runCodexAppServerRequest(transport, {
     });
     transport.on("error", error => finish(error));
     transport.on("close", (code) => {
-      const detail = stderr.trim();
-      finish(new Error(detail || `Codex App Server exited before returning usage${Number.isInteger(code) ? ` (code ${code})` : ""}.`));
+      finish(new Error(exitDiagnostic(stderr,
+        `Codex App Server exited before returning usage${Number.isInteger(code) ? ` (code ${code})` : ""}.`)));
     });
 
     transport.write(`${JSON.stringify({
@@ -484,6 +494,9 @@ function createAgentUsageService({
         maxOutputBytes
       });
       return normalizeRateLimitResponse(result, now());
+    } catch (error) {
+      if (canceled) throw canceledUsageError();
+      throw error;
     } finally {
       if (activeRequests.get(session.id) === request) activeRequests.delete(session.id);
     }

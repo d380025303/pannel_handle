@@ -254,6 +254,8 @@ describe("mobile component collaboration", () => {
 it("assembles mobile resources, forwards terminal events and stops repeatedly without leaking timers", async () => {
   vi.useFakeTimers();
   const f = fixture();
+  let terminalText = "";
+  f.stateHub.getText = vi.fn(async () => terminalText);
   const createServer = () => {
     const instance = Object.assign(new EventEmitter(), {
       listening: false,
@@ -288,10 +290,20 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   localServer.emit("upgrade", { url: "/api/v1/ws", headers: { host: "127.0.0.1:43123", origin: "http://127.0.0.1:43123" }, socket: { remoteAddress: "127.0.0.1" } }, {}, Buffer.alloc(0));
   expect(wss.handleUpgrade).toHaveBeenCalledTimes(2);
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "password.login", password: "correct-password", deviceName: "Phone" }));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
+    overview: { sessionId: "run-1", status: "运行中", summary: "暂无最近内容" } }));
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
+  terminalText = "latest output";
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "output" });
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.data", sessionId: "run-1", data: "output", seq: 1 }));
-  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.advanceTimersByTimeAsync(100);
+  terminalText = "latest output after more data";
+  service.handleTerminalEvent("terminal:data", { id: "run-1", data: "more data" });
+  await vi.advanceTimersByTimeAsync(200);
+  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
+    overview: { sessionId: "run-1", status: "运行中", summary: "latest output after more data" } }));
+  await vi.advanceTimersByTimeAsync(29_700);
   expect(client.ping).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(30_000);
   expect(client.terminate).not.toHaveBeenCalled();

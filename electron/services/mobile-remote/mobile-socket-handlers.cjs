@@ -1,21 +1,29 @@
 const { PROTOCOL_VERSION, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND } = require("./mobile-protocol.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
+const { sessionOverview } = require("./mobile-session-overview.cjs");
 
 function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, files, send, sendError }) {
   const { getSizeState, applySize } = sizes;
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send });
 
   function sendReady(socket) {
+    const sessions = terminalManager.listSessions();
     send(socket, {
       type: "ready",
       payload: {
         deviceId: socket.mobileDevice.id,
         deviceName: socket.mobileDevice.name,
-        sessions: terminalManager.listSessions().map(toRuntimeSession),
+        sessions: sessions.map(toRuntimeSession),
         templates: toSavedTemplates(sessionStore, terminalManager)
       }
     });
+    for (const session of sessions) {
+      void sessionOverview(session, graphicalService, stateHub).then(overview => {
+        if (socket.authenticated && terminalManager.getSession(session.id))
+          send(socket, { type: "session.overview", overview });
+      }).catch(() => undefined);
+    }
   }
 
   function checkInputRate(socket, bytes) {

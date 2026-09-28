@@ -149,7 +149,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
       <button
         className="agent-usage-status error"
         type="button"
-        title={t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isMiniMax ? "usage.miniMaxRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
+        title={state.status === "error" && state.message || t(isCopilot ? "usage.copilotUnavailable" : isGrok ? "usage.grokUnavailable" : isCodeBuddy ? "usage.codebuddyRetry" : isMiniMax ? "usage.miniMaxRetry" : isQoder ? "usage.qoderRetry" : isGemini ? "usage.geminiRetry" : "usage.retry")}
         onClick={onRefresh}
         disabled={isCopilot || isGrok}
       >

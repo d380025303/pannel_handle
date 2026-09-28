@@ -46,14 +46,18 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     const session = terminalManager.getSession(String(id || ""));
     if (!session || session.runtimeMode !== "app-server" || (session.agentProvider && session.agentProvider !== "codex"))
       throw new Error("仅 Codex 图形会话支持插件管理。");
-    const cwd = graphicalService.getWorkspaceCwd(session.id);
+    const runtime = graphicalService.getPluginRuntime?.(session.id);
+    const cwd = runtime?.cwd || graphicalService.getWorkspaceCwd(session.id);
     if (!cwd) throw new Error("Codex 项目目录不可用。");
-    return { session, cwd, remote: session.type === "ssh" && session.agentLocation !== "local",
-      linux: session.type === "wsl" || (session.type === "ssh" && session.agentLocation !== "local") };
+    const remote = session.type === "ssh" && !runtime?.localBridge && session.agentLocation !== "local";
+    return { session, cwd, environment: runtime?.environment || environmentService.resolve(session),
+      before: runtime?.localBridge ? "" : String(session.initialCommand || "").trim(),
+      shell: runtime?.shell || session.shell, remote,
+      linux: session.type === "wsl" || remote };
   }
   async function run(value, args) {
-    const environment = environmentService.resolve(value.session);
-    const before = String(value.session.initialCommand || "").trim();
+    const environment = value.environment;
+    const before = value.before;
     if (value.linux) {
       const script = [
         ...Object.entries(environment).map(([key, val]) => {
@@ -73,9 +77,9 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     return runWindows(value, script, environment);
   }
   function runWindows(value, script, environment, input = null) {
-    const before = String(value.session.initialCommand || "").trim();
+    const before = value.before;
     const env = { ...process.env, ...environment };
-    if (before && !isPowerShell(value.session.shell)) {
+    if (before && !isPowerShell(value.shell)) {
       const encoded = Buffer.from(script, "utf16le").toString("base64");
       return runProcess("cmd.exe", ["/d", "/s", "/c",
         `(${before}) 1>&2 && powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`],
@@ -162,17 +166,26 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
   async function config(id, scope, input = null) {
     const value = target(id);
     if (scope !== "project" && scope !== "user") throw new Error("插件配置范围无效。");
+    const key = input && `${requiredName(input.plugin, "插件名")}@${requiredName(input.marketplace, "来源名")}`;
+    if (input && typeof input.enabled !== "boolean") throw new Error("插件启停状态无效。");
+    if (input && typeof graphicalService.listPlugins === "function") {
+      const catalog = await graphicalService.listPlugins(id);
+      const plugin = catalog.marketplaces.flatMap(marketplace => marketplace.plugins || [])
+        .find(item => item.id === key || (item.name === input.plugin && item.marketplaceName === input.marketplace));
+      if (plugin?.source?.type === "remote")
+        throw new Error("Codex 官方远程插件无法通过本地配置停用，请在 Codex 官方插件面板管理。插件仍保持已安装状态。");
+    }
     const file = scope === "project" ? `${value.cwd.replace(/[\\/]$/, "")}/.codex/config.toml` : null;
     const location = value.linux ? (file || '${CODEX_HOME:-$HOME/.codex}/config.toml') : file;
     const readScript = value.linux
       ? `target=${file ? bashQuote(location) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'}; if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi`
       : `$target = ${file ? psQuote(location) : "if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex/config.toml' }"}; if (Test-Path -LiteralPath $target) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) }`;
-    const environment = environmentService.resolve(value.session);
+    const environment = value.environment;
     const exports = Object.entries(environment).map(([key, val]) => {
       if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(key)) throw new Error("环境变量名无效。");
       return `export ${key}=${bashQuote(val)}`;
     });
-    const before = String(value.session.initialCommand || "").trim();
+    const before = value.before;
     const linuxCommand = script => [...exports, `cd ${bashQuote(value.cwd)}`, ...(before ? [`{ ${before}; } 1>&2`] : []), script].join(" && ");
     const shell = async (script, input = null) => value.remote
       ? sshAgentTransport.exec(value.session.id, `bash -lic ${bashQuote(linuxCommand(script))}`, { actionName: "Codex plugin configuration", timeoutMs: TIMEOUT_MS, ...(input === null ? {} : { stdin: input }) })
@@ -185,17 +198,29 @@ function createCodexPluginService({ terminalManager, graphicalService, environme
     try { document = original.trim() ? parseToml(original) : {}; } catch (error) { throw new Error(`Codex 配置无法解析：${error.message}`); }
     const settings = document.plugins || {};
     if (!input) return { overrides: publicOverrides(settings) };
-    const key = `${requiredName(input.plugin, "插件名")}@${requiredName(input.marketplace, "来源名")}`;
-    if (typeof input.enabled !== "boolean") throw new Error("插件启停状态无效。");
     document.plugins = { ...settings, [key]: { ...(settings[key] || {}), enabled: input.enabled } };
-    const next = stringifyToml(document);
-    const nextEncoded = Buffer.from(next, "utf8").toString("base64");
+    const nextEncoded = Buffer.from(stringifyToml(document), "utf8").toString("base64");
     const expected = Buffer.from(original, "utf8").toString("base64");
     const writeScript = value.linux
       ? `IFS= read -r expected && IFS= read -r next || exit 1; target=${file ? bashQuote(location) : '"${CODEX_HOME:-$HOME/.codex}/config.toml"'}; current=$(if [ -f "$target" ]; then base64 < "$target" | tr -d '\\n'; fi); [ "$current" = "$expected" ] || { echo 'Codex 配置已变化，请刷新后重试。' >&2; exit 3; }; mkdir -p "$(dirname "$target")" && tmp="${'${target}'}.pannel-handle.tmp" && printf %s "$next" | base64 -d > "$tmp" && mv "$tmp" "$target"`
-      : `$expected = [Console]::In.ReadLine(); $next = [Console]::In.ReadLine(); $target = ${file ? psQuote(location) : "if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex/config.toml' }"}; $current = if (Test-Path -LiteralPath $target) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) } else { '' }; if ($current -ne $expected) { throw 'Codex 配置已变化，请刷新后重试。' }; [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null; $tmp = "${'${target}'}.pannel-handle.tmp"; [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($next)); Move-Item -LiteralPath $tmp -Destination $target -Force`;
+      : `$ErrorActionPreference = 'Stop'; $expected = [Console]::In.ReadLine(); $next = [Console]::In.ReadLine(); $target = ${file ? psQuote(location) : "if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME 'config.toml' } else { Join-Path $env:USERPROFILE '.codex/config.toml' }"}; $current = if (Test-Path -LiteralPath $target) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) } else { '' }; if ($current -ne $expected) { throw 'Codex 配置已变化，请刷新后重试。' }; [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null; $tmp = "${'${target}'}.pannel-handle.tmp"; [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($next)); Move-Item -LiteralPath $tmp -Destination $target -Force`;
     await shell(writeScript, `${expected}\n${nextEncoded}\n`);
-    return { overrides: publicOverrides(document.plugins) };
+    let actual;
+    try {
+      const plugins = await json(value, ["plugin", "list"]);
+      actual = (plugins.installed || []).find(plugin =>
+        (plugin.pluginId === key || plugin.id === key || (plugin.name === input.plugin && plugin.marketplaceName === input.marketplace)));
+      if (!actual || typeof actual.enabled !== "boolean") throw new Error("Codex 未返回该插件的实际启停状态。");
+    } catch (error) {
+      throw new Error(`插件配置已写入，但无法核对 Codex 是否生效：${error.message}`);
+    }
+    if (actual.enabled !== input.enabled) {
+      try { await shell(writeScript, `${nextEncoded}\n${expected}\n`); }
+      catch (error) { throw new Error(`Codex 仍报告插件${actual.enabled ? "开启" : "关闭"}，且恢复原配置失败：${error.message}`); }
+      throw new Error(scope === "user" ? "Codex 仍报告插件未按用户级设置生效；可能受到项目配置或插件策略影响。已恢复原配置。"
+        : "Codex 仍报告插件未按项目级设置生效；请确认项目受信任且该插件支持项目级启停。已恢复原配置。");
+    }
+    return { overrides: publicOverrides(document.plugins), pluginId: key, enabled: actual.enabled };
   }
   return { list, install, uninstall, addMarketplace, refreshMarketplace, removeMarketplace, readConfig: (id, scope) => config(id, scope), setEnabled: (id, scope, input) => config(id, scope, input) };
 }

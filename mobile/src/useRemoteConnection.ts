@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getWebSocketUrl, parseServerMessage, serializeClientMessage } from "./protocol";
-import { PROTOCOL_VERSION, type ClientMessage, type ConnectionStatus, type RuntimeSession, type SavedTemplate, type ServerMessage } from "./types";
+import { PROTOCOL_VERSION, type ClientMessage, type ConnectionStatus, type RuntimeSession, type SavedTemplate, type ServerMessage, type SessionOverview } from "./types";
 
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
@@ -29,6 +29,7 @@ export function useRemoteConnection() {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [statusMessage, setStatusMessage] = useState("正在连接电脑…");
   const [sessions, setSessions] = useState<RuntimeSession[]>([]);
+  const [overviews, setOverviews] = useState<Record<string, SessionOverview>>({});
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [device, setDevice] = useState<{ deviceId: string; deviceName: string } | null>(null);
   const [lastLaunchedId, setLastLaunchedId] = useState<string | null>(null);
@@ -105,6 +106,7 @@ export function useRemoteConnection() {
               deviceName: message.payload.deviceName
             });
             setSessions(message.payload.sessions);
+            setOverviews({});
             setTemplates(message.payload.templates);
             setStatus("connected");
             setStatusMessage("已连接");
@@ -112,6 +114,10 @@ export function useRemoteConnection() {
             break;
           case "sessions.changed":
             setSessions(message.sessions);
+            setOverviews(current => Object.fromEntries(Object.entries(current).filter(([id]) => message.sessions.some(session => session.id === id))));
+            break;
+          case "session.overview":
+            setOverviews(current => ({ ...current, [message.overview.sessionId]: message.overview }));
             break;
           case "templates.changed":
             setTemplates(message.templates);
@@ -250,6 +256,7 @@ export function useRemoteConnection() {
     status,
     statusMessage,
     sessions,
+    overviews,
     templates,
     device,
     lastLaunchedId,

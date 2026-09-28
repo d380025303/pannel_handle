@@ -174,6 +174,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const modelMetadataSessionRef = useRef<string | null>(null);
   const modelMetadataRequestRef = useRef(0);
   const loadedSessionIdRef = useRef<string | null>(null);
+  const threadIdRef = useRef<string | null>(null);
   const pastedImagesRef = useRef(new Set<string>());
   const inlineImagesRef = useRef<InlineImage[]>([]);
   const imageTokenCounterRef = useRef(0);
@@ -241,6 +242,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
 
   useEffect(() => {
     loadedSessionIdRef.current = null;
+    threadIdRef.current = null;
     timelineRef.current = null;
     setSnapshot(empty);
     setCopyNotice(null);
@@ -297,6 +299,17 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     return subscribeGraphicalSession(sessionId, {
       onSnapshot(next) {
         loadedSessionIdRef.current = sessionId;
+        if (threadIdRef.current && threadIdRef.current !== next.threadId) {
+          setAttachments([]);
+          setInlineImages([]);
+          inlineImagesRef.current = [];
+          pastedImagesRef.current.clear();
+          setDraft(current => current.replace(/〔图片 \d+〕/g, ""));
+          setPreviewFile(null);
+          setPreview(null);
+          setPreviewError("");
+        }
+        threadIdRef.current = next.threadId;
         if (timelineRef.current?.threadId !== next.threadId) setExpandedGroupId(null);
         timelineRef.current = next;
         setSnapshot(next);
@@ -342,14 +355,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     if (messages) messages.scrollTop = messages.scrollHeight;
   }, [snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
-    if (!previewFile) return;
+    if (!previewFile || !snapshot.threadId) return;
     let active = true;
     setPreview(null); setPreviewError("");
     void window.codexAppServerApi.previewAttachment(sessionId, previewFile.path).then(result => {
       if (active) setPreview(result);
     }).catch(cause => { if (active) setPreviewError(message(cause)); });
     return () => { active = false; };
-  }, [sessionId, previewFile]);
+  }, [sessionId, snapshot.threadId, previewFile]);
   useEffect(() => {
     if (!historyOpen) return;
     const timer = window.setTimeout(() => void loadHistory(null, historyQuery), historyQuery.trim() ? 150 : 0);
@@ -534,7 +547,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   async function selectHistory(threadId: string) {
     setResumingHistory(true); setHistoryError("");
     try { const value = await window.codexAppServerApi.resume(sessionId, threadId);
-      if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
+      if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); closeHistory(); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setPreviewFile(null); setDraft(""); setDraftReferences([]); setCapabilities(null); setCapabilityOpen(false); } }
     catch (cause) { if (currentSessionRef.current === sessionId) setHistoryError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) setResumingHistory(false); }
   }
@@ -561,7 +574,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         const next = await window.codexAppServerApi.forkThread(sessionId, threadId);
         if (currentSessionRef.current === sessionId) {
           timelineRef.current = next; setExpandedGroupId(null); setSnapshot(next);
-          setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear();
+          setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setPreviewFile(null);
           setCapabilities(null); setCapabilityOpen(false); closeHistory();
         }
       } else if (currentSessionRef.current === sessionId) {
@@ -864,7 +877,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function startNewConversation() {
     void window.codexAppServerApi.newThread(sessionId)
-      .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
+      .then(value => { if (currentSessionRef.current === sessionId) { timelineRef.current = value; setExpandedGroupId(null); setSnapshot(value); setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setPreviewFile(null); setHistoryOpen(false); setCapabilities(null); setCapabilityOpen(false); } })
       .catch(cause => { if (currentSessionRef.current === sessionId) setError(message(cause)); });
   }
   function closeSelection() { if (selectionPending) return; setSelectionKind(null); setSelectionError(""); menuButtonRef.current?.focus(); }
@@ -887,6 +900,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } finally { if (currentSessionRef.current === sessionId) setSelectionPending(false); }
   }
   const isCodex = !snapshot.provider || snapshot.provider === "codex";
+  const versionProvider = snapshot.provider === "codebuddy" ? "codebuddy"
+    : isCodex ? "codex" : null;
+  const canCheckVersion = Boolean(snapshot.threadId && versionProvider
+    && (!session || session.runtimeMode === "app-server" && session.agentProvider === versionProvider));
   const canAttach = (!snapshot.busy || canSendWhileBusy) && !sending && !pastingImage && attachments.length < 10;
   const localSlashCommands: SlashCommand[] = [
     { id: "new", label: "新对话", disabled: snapshot.busy || sending || pastingImage },
@@ -953,7 +970,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite">
-      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片{snapshot.capabilities?.plan ? "与规划模式" : ""}</span>{(isCodex || snapshot.provider === "codebuddy") && snapshot.threadId && <CodexVersionControl sessionId={sessionId} provider={snapshot.provider === "codebuddy" ? "codebuddy" : "codex"} />}</div>}
+      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片{snapshot.capabilities?.plan ? "与规划模式" : ""}</span>{canCheckVersion && <CodexVersionControl key={`${sessionId}:${snapshot.threadId}:${versionProvider}`} sessionId={sessionId} provider={versionProvider!} />}</div>}
       {timeline.map(entry => {
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;

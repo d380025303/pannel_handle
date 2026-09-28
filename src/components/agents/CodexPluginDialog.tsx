@@ -54,12 +54,16 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   const mcpError = mcpState.sessionId === sessionId ? mcpState.error : "";
   const installed = useMemo(() => (catalog?.installed || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
   const available = useMemo(() => (catalog?.available || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
-  async function act(action: () => Promise<CodexPluginCatalog | { overrides: Record<string, { enabled?: boolean }> }>, changed = true) {
+  async function act(action: () => Promise<CodexPluginCatalog | { overrides: Record<string, { enabled?: boolean }>; pluginId: string; enabled: boolean }>, changed = true) {
     setBusy(true); setError(""); setNotice("");
     try {
       const result = await action();
       if ("installed" in result) setCatalog(result);
-      else setOverrides(result.overrides || {});
+      else {
+        setOverrides(result.overrides || {});
+        setCatalog(current => current && { ...current, installed: current.installed.map(plugin =>
+          `${nameOf(plugin)}@${marketplaceOf(plugin)}` === result.pluginId ? { ...plugin, enabled: result.enabled } : plugin) });
+      }
       if (changed) { setNotice("setupRequired" in result && Array.isArray(result.setupRequired) && result.setupRequired.length
         ? `插件已安装，还需连接：${result.setupRequired.join("、")}。请开启新的 Codex 会话以加载变更。`
         : "插件状态已更新。请开启新的 Codex 会话以加载变更。"); onChanged(); }
@@ -70,14 +74,15 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
     const name = nameOf(item); const marketplace = marketplaceOf(item);
     const key = `${name}@${marketplace}`;
     const override = overrides[key]?.enabled;
-    const effective = override ?? item.enabled === true;
+    const effective = item.enabled === true;
     const displayName = value(item, "displayName", "name") || name;
     const unavailable = item.availability && item.availability !== "AVAILABLE";
     const managed = item.installPolicy === "INSTALLED_BY_DEFAULT";
+    const remote = (item.source as { type?: string } | null)?.type === "remote";
     return <article className="codex-plugin-row" key={key}>
-      <div className="codex-plugin-identity"><span className="codex-plugin-icon"><Package aria-hidden="true" /></span><span><strong>{displayName || "未知插件"}</strong><small>{descriptionOf(item) || marketplace || "未知来源"}</small></span></div>
+      <div className="codex-plugin-identity"><span className="codex-plugin-icon"><Package aria-hidden="true" /></span><span><strong>{displayName || "未知插件"}</strong><small>{descriptionOf(item) || marketplace || "未知来源"}</small>{remote && <small>官方远程插件请在 Codex 官方插件面板启停</small>}{typeof override === "boolean" && override !== effective && <small>所选范围的配置与 Codex 实际状态不一致</small>}</span></div>
       <div className="codex-plugin-row-actions">
-        {isInstalled && <button className="codex-plugin-toggle" type="button" role="switch" aria-label={`${displayName} ${effective ? "停用" : "启用"}`} aria-checked={effective} disabled={busy || !name || !marketplace || Boolean(unavailable) || managed} title={managed ? "由 Codex 管理的默认插件" : unavailable ? String(item.disabledReason || "当前账号或工作区不可用") : undefined}
+        {isInstalled && <button className="codex-plugin-toggle" type="button" role="switch" aria-label={`${displayName} ${effective ? "停用" : "启用"}`} aria-checked={effective} disabled={busy || !name || !marketplace || Boolean(unavailable) || managed || remote} title={remote ? "官方远程插件请在 Codex 官方插件面板启停" : managed ? "由 Codex 管理的默认插件" : unavailable ? String(item.disabledReason || "当前账号或工作区不可用") : undefined}
           onClick={() => void act(() => window.codexPluginApi.setEnabled(sessionId, scope, { plugin: name, marketplace, enabled: !effective }))}>
           <span /></button>}
         {!isInstalled && <button type="button" disabled={busy || !name || !marketplace || Boolean(unavailable) || item.installPolicy === "NOT_AVAILABLE"} title={unavailable ? String(item.disabledReason || "当前账号或工作区不可用") : undefined}

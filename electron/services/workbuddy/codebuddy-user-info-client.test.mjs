@@ -45,4 +45,17 @@ describe("codebuddy-user-info-client", () => {
       maxOutputBytes: 1024
     })).rejects.toThrow("sign in");
   });
+
+  it("reports an ACP exit code and redacts its diagnostic", async () => {
+    const events = new EventEmitter();
+    const transport = {
+      close: vi.fn(),
+      on: (eventName, listener) => events.on(eventName, listener),
+      write: vi.fn()
+    };
+    const request = runCodeBuddyUserInfoRequest(transport, { timeoutMs: 1000, maxOutputBytes: 1024 });
+    events.emit("stderr", "Token=private-value\nLogin failed");
+    events.emit("close", 1);
+    await expect(request).rejects.toThrow(/code 1.*Token=\[已隐藏\].*Login failed/s);
+  });
 });

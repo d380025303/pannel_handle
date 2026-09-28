@@ -24,7 +24,7 @@ let remote: ReturnType<typeof useRemoteConnection>;
 
 beforeEach(() => {
   remote = {
-    status: "connected", statusMessage: "已连接", sessions: [first, second], templates: [],
+    status: "connected", statusMessage: "已连接", sessions: [first, second], overviews: {}, templates: [],
     device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
     onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
@@ -41,7 +41,7 @@ afterEach(() => {
 it("restores the selected session after a page refresh", () => {
   const page = render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  fireEvent.click(screen.getByRole("button", { name: /第二个会话/ }));
+  fireEvent.click(screen.getAllByRole("button", { name: /第二个会话/ }).at(-1)!);
   expect(screen.getByText("终端：第二个会话")).toBeTruthy();
   expect(localStorage.getItem(storageKey)).toBe("second");
 
@@ -51,12 +51,16 @@ it("restores the selected session after a page refresh", () => {
   expect(localStorage.getItem(storageKey)).toBe("second");
   remote = { ...remote, status: "connected", sessions: [first, second] };
   refreshed.rerender(<App />);
+  expect(screen.getByRole("button", { name: "打开第二个会话详情" })).toBeTruthy();
+  expect(screen.queryByText("终端：第二个会话")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开第二个会话详情" }));
   expect(screen.getByText("终端：第二个会话")).toBeTruthy();
 });
 
 it("keeps the current session visible while reconnecting", () => {
   remote = { ...remote, device: { deviceId: "phone-1", deviceName: "Phone" } };
   const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开第一个会话详情" }));
   expect(screen.getByText("终端：第一个会话")).toBeTruthy();
   remote = { ...remote, status: "disconnected", statusMessage: "连接已断开，正在重试…" };
   page.rerender(<App />);
@@ -71,7 +75,7 @@ it("keeps the current session visible while reconnecting", () => {
 it("falls back when the saved session is no longer running", () => {
   localStorage.setItem(storageKey, "closed");
   render(<App />);
-  expect(screen.getByText("终端：第一个会话")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "打开第一个会话详情" })).toBeTruthy();
   expect(localStorage.getItem(storageKey)).toBe("first");
 });
 
@@ -93,7 +97,7 @@ it("selects a newly launched session once, then respects a manual switch", () =>
   expect(localStorage.getItem(storageKey)).toBe("launched");
 
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  fireEvent.click(screen.getByRole("button", { name: /第二个会话/ }));
+  fireEvent.click(screen.getAllByRole("button", { name: /第二个会话/ }).at(-1)!);
   remote = { ...remote, sessions: [first, second, launched] };
   page.rerender(<App />);
   expect(screen.getByText("终端：第二个会话")).toBeTruthy();
@@ -105,8 +109,29 @@ it("keeps session selection usable when browser storage is unavailable", () => {
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
-  fireEvent.click(screen.getByRole("button", { name: /第二个会话/ }));
+  fireEvent.click(screen.getAllByRole("button", { name: /第二个会话/ }).at(-1)!);
   expect(screen.getByText("终端：第二个会话")).toBeTruthy();
+});
+
+it("shows live overviews on the home cards and returns from details", () => {
+  remote = { ...remote, overviews: { first: { sessionId: "first", status: "运行中", summary: "构建已完成" } } };
+  render(<App />);
+  expect(screen.getByText("构建已完成")).toBeTruthy();
+  expect(screen.getByText("运行中")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "打开第一个会话详情" }));
+  expect(screen.getByText("终端：第一个会话")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "返回首页" }));
+  expect(screen.getByText("构建已完成")).toBeTruthy();
+});
+
+it("returns home when the open session ends", () => {
+  const page = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开第二个会话详情" }));
+  expect(screen.getByText("终端：第二个会话")).toBeTruthy();
+  remote = { ...remote, sessions: [first] };
+  page.rerender(<App />);
+  expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
+  expect(screen.queryByText("终端：第一个会话")).toBeNull();
 });
 
 it("searches saved templates by title and available metadata without changing running sessions", () => {
@@ -132,7 +157,7 @@ it("searches saved templates by title and available metadata without changing ru
   expect(screen.getByText("Production API")).toBeTruthy();
   expect(screen.getByText("开发环境")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "运行中 (2)" }));
-  expect(screen.getByRole("button", { name: /第一个会话/ })).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /第一个会话/ }).at(-1)).toBeTruthy();
   expect(screen.queryByRole("searchbox", { name: "搜索已保存模板" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "已保存模板 (2)" }));
   expect(screen.getByRole("searchbox", { name: "搜索已保存模板" }).getAttribute("value")).toBe("");

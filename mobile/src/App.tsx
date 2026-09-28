@@ -34,6 +34,7 @@ function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
 export default function App() {
   const remote = useRemoteConnection();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [view, setView] = useState<"home" | "detail">("home");
   const [filesOpen, setFilesOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"running" | "templates">("running");
   const [templateQuery, setTemplateQuery] = useState("");
@@ -70,9 +71,15 @@ export default function App() {
       && remote.sessions.some((session) => session.id === remote.lastLaunchedId)) {
       handledLaunchedId.current = remote.lastLaunchedId;
       setActiveId(remote.lastLaunchedId);
+      setView("detail");
+      setFilesOpen(false);
       setDrawerOpen(false);
     }
   }, [remote.lastLaunchedId, remote.sessions]);
+
+  useEffect(() => {
+    if (remote.status === "connected" && view === "detail" && !activeSession) setView("home");
+  }, [activeSession, remote.status, view]);
 
   useEffect(() => {
     if (remote.status !== "connected") return;
@@ -184,6 +191,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
+        {view === "detail" && !filesOpen && <button type="button" className="home-button" onClick={() => setView("home")} aria-label="返回首页">‹</button>}
         <button type="button" className="menu-button" onClick={() => setDrawerOpen(true)} aria-label="打开会话列表">☰</button>
         <div className="app-title"><strong>Pannel Handle</strong><span><i />{remote.device?.deviceName ?? "移动设备"}</span></div>
         <button type="button" className="mobile-files-button" onClick={() => setFilesOpen(current => !current)}>{filesOpen ? "会话" : "电脑文件"}</button>
@@ -193,7 +201,23 @@ export default function App() {
       {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
       {recoveryNotice && <div className="command-error" role="alert">{recoveryNotice}<button type="button" onClick={() => setRecoveryNotice("")}>关闭</button></div>}
 
-      {filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} /> : activeSession?.runtimeMode === "app-server" ? (
+      {filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} /> : view === "home" ? (
+        <section className="mobile-home">
+          <div className="mobile-home-heading"><div><span>会话总览</span><h1>运行中的会话</h1></div><strong>{remote.sessions.length}</strong></div>
+          {remote.sessions.length ? <div className="mobile-home-list">{remote.sessions.map(session => {
+            const overview = remote.overviews[session.id];
+            return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>
+              <button type="button" className="mobile-home-card-main" onClick={() => { setActiveId(session.id); setView("detail"); }} aria-label={`打开${session.title}详情`}>
+                <div className="mobile-home-card-top"><span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span><span className="mobile-home-status" data-status={overview?.status}>{overview?.status ?? "获取状态中"}</span></div>
+                <strong>{session.title}</strong>
+                <p>{overview?.summary ?? "正在获取最近内容…"}</p>
+                <span className="mobile-home-card-open">查看详情 ›</span>
+              </button>
+              <div className="mobile-home-card-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button type="button" className="danger" onClick={() => closeSession(session)}>关闭</button></div>
+            </article>;
+          })}</div> : <div className="mobile-home-empty"><h2>没有运行中的会话</h2><p>从电脑已保存的模板启动一个会话。</p><button className="primary large" type="button" onClick={() => { setDrawerTab("templates"); setDrawerOpen(true); }}>选择模板</button></div>}
+        </section>
+      ) : activeSession?.runtimeMode === "app-server" ? (
         <GraphicalView key={activeSession.id} session={activeSession} connectionEpoch={remote.connectionEpoch} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
           draft={graphicalDrafts[activeSession.id]?.text ?? ""}
           setDraft={update => updateGraphicalDraft(activeSession.id, update)}
@@ -235,7 +259,7 @@ export default function App() {
             <div className="session-list">
               {drawerTab === "running" ? remote.sessions.map((session) => (
                 <article className={session.id === activeId ? "session-card selected" : "session-card"} key={session.id}>
-                  <button className="session-main" type="button" onClick={() => { setActiveId(session.id); setDrawerOpen(false); }}>
+                  <button className="session-main" type="button" onClick={() => { setActiveId(session.id); setView("detail"); setFilesOpen(false); setDrawerOpen(false); }}>
                     <strong>{session.title}</strong><span>{kindLabel(session.type)} · {modeLabel(session)}{session.cwd ? ` · ${session.cwd}` : ""}</span>
                   </button>
                   <div className="session-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button className="danger" type="button" onClick={() => closeSession(session)}>关闭</button></div>

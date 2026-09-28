@@ -1841,6 +1841,22 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "预览 notes.txt" })).toHaveLength(2));
   });
 
+  it("clears a draft attachment and its preview when the active thread changes", async () => {
+    vi.mocked(window.codexAppServerApi.previewAttachment).mockResolvedValue({ kind: "text", text: "旧内容" });
+    chooseFiles.mockResolvedValueOnce(["C:\\project\\old.txt"]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "附加文件" }));
+    fireEvent.click(await screen.findByRole("button", { name: "预览 old.txt" }));
+    expect(await screen.findByRole("dialog", { name: "预览 old.txt" })).toBeTruthy();
+
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-2", mode: "default", busy: false,
+      error: null, approvals: [], items: [] } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "预览 old.txt" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "预览 old.txt" })).toBeNull();
+  });
+
   it("leaves text paste alone and reports a missing clipboard image", async () => {
     pasteImage.mockResolvedValueOnce({ status: "no_image" });
     render(<CodexAppServerSession sessionId="run-1" />);

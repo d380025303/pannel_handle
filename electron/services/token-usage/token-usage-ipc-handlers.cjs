@@ -14,12 +14,16 @@ function registerTokenUsageIpcHandlers({
   agentTokenStatsService,
   onStatsCleared = () => {}
 }) {
+  const canceledAsNull = promise => Promise.resolve(promise).catch(error => {
+    if (error?.code === "USAGE_CANCELED") return null;
+    throw error;
+  });
   ipcMain.handle("agent-usage:get", (_event, { sessionId, force }) => {
-    return agentUsageService.getUsage(sessionId, { force: Boolean(force) });
+    return canceledAsNull(agentUsageService.getUsage(sessionId, { force: Boolean(force) }));
   });
 
   ipcMain.handle("agent-usage:get-codebuddy", (_event, { force }) => {
-    return agentUsageService.getCodeBuddyUsage({ force: Boolean(force) });
+    return canceledAsNull(agentUsageService.getCodeBuddyUsage({ force: Boolean(force) }));
   });
 
   ipcMain.handle("agent-usage:consume-reset-credit", (_event, { sessionId, creditId, idempotencyKey }) => {

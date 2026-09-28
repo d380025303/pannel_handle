@@ -194,8 +194,10 @@ describe("AgentUsageStatus", () => {
     rerender(<AgentUsageStatus state={{ status: "loading", provider: "codex" }} onRefresh={onRefresh} />);
     expect(screen.getByRole("status").textContent).toContain("正在读取 Codex 用量");
 
-    rerender(<AgentUsageStatus state={{ status: "error", provider: "codex" }} onRefresh={onRefresh} />);
-    fireEvent.click(screen.getByRole("button", { name: "Codex 用量不可用" }));
+    rerender(<AgentUsageStatus state={{ status: "error", provider: "codex", message: "CLI exited" }} onRefresh={onRefresh} />);
+    const retry = screen.getByRole("button", { name: "Codex 用量不可用" });
+    expect(retry.getAttribute("title")).toBe("CLI exited");
+    fireEvent.click(retry);
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 

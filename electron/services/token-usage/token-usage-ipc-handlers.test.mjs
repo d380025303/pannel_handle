@@ -35,6 +35,11 @@ describe("token-usage-ipc-handlers", () => {
     expect(agentUsageService.getCodeBuddyUsage).toHaveBeenCalledWith({ force: true });
     expect(agentUsageService.cancelCodeBuddyUsage).toHaveBeenCalledTimes(1);
 
+    agentUsageService.getUsage.mockRejectedValueOnce(Object.assign(new Error("canceled"), { code: "USAGE_CANCELED" }));
+    await expect(handlers.get("agent-usage:get")({}, { sessionId: "run-1" })).resolves.toBeNull();
+    agentUsageService.getUsage.mockRejectedValueOnce(new Error("CLI exited"));
+    await expect(handlers.get("agent-usage:get")({}, { sessionId: "run-1" })).rejects.toThrow("CLI exited");
+
     dispose();
     expect(handlers.has("agent-usage:get-codebuddy")).toBe(false);
     expect(listeners.has("agent-usage:cancel-codebuddy")).toBe(false);

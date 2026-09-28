@@ -1,5 +1,6 @@
 const CODEBUDDY_ACP_INITIALIZE_ID = "pannel-handle-codebuddy-initialize";
 const CODEBUDDY_USER_INFO_ID = "pannel-handle-codebuddy-user-info";
+const { sanitizeDiagnostic } = require("../codebuddy-acp/http-transport.cjs");
 
 function appendLimited(current, chunk, maxBytes) {
   const next = Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk || "");
@@ -84,10 +85,8 @@ function runCodeBuddyUserInfoRequest(transport, {
     });
     transport.on("error", () => finish(new Error("Unable to start CodeBuddy ACP.")));
     transport.on("close", code => {
-      const detail = stderr.trim();
-      finish(new Error(detail
-        ? "CodeBuddy ACP exited before returning login information."
-        : `CodeBuddy ACP exited before returning login information${Number.isInteger(code) ? ` (code ${code})` : ""}.`));
+      const detail = sanitizeDiagnostic(stderr).trim().slice(-500);
+      finish(new Error(`CodeBuddy ACP exited before returning login information${Number.isInteger(code) ? ` (code ${code})` : ""}.${detail ? ` ${detail}` : ""}`));
     });
 
     transport.write(`${JSON.stringify({

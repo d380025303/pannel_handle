@@ -65,6 +65,19 @@ it("stores a password only after successful login and uses it after refresh", ()
   refreshed.unmount();
 });
 
+it("updates and removes session overviews as sessions change", () => {
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  act(() => socket.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone",
+    sessions: [{ id: "one", title: "One", type: "windows", runtimeMode: "terminal" }], templates: [] } }));
+  act(() => socket.receive("session.overview", { overview: { sessionId: "one", status: "运行中", summary: "ready" } }));
+  expect(hook.result.current.overviews.one.summary).toBe("ready");
+  act(() => socket.receive("sessions.changed", { sessions: [] }));
+  expect(hook.result.current.overviews.one).toBeUndefined();
+});
+
 it("clears a rejected saved password and waits for a new one", () => {
   localStorage.setItem(passwordKey, "old-password");
   const hook = setup();

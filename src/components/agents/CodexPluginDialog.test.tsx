@@ -13,7 +13,7 @@ it("manages the selected Codex environment and explicit enable scope", async () 
     marketplaces: [{ name: "team", path: "/home/me/marketplace" }] };
   const list = vi.fn().mockResolvedValue(catalog);
   const readConfig = vi.fn().mockResolvedValue({ overrides: {} });
-  const setEnabled = vi.fn().mockResolvedValue({ overrides: { "review@team": { enabled: false } } });
+  const setEnabled = vi.fn().mockResolvedValue({ overrides: { "review@team": { enabled: false } }, pluginId: "review@team", enabled: false });
   const install = vi.fn().mockResolvedValue({ ...catalog, installed: [...catalog.installed, catalog.available[0]], available: [] });
   Object.assign(window, { codexPluginApi: { list, readConfig, setEnabled, install },
     codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [] }) } });
@@ -24,6 +24,7 @@ it("manages the selected Codex environment and explicit enable scope", async () 
   await waitFor(() => expect(readConfig).toHaveBeenCalledWith("wsl-1", "user"));
   fireEvent.click(screen.getByRole("switch", { name: "review 停用" }));
   await waitFor(() => expect(setEnabled).toHaveBeenCalledWith("wsl-1", "user", { plugin: "review", marketplace: "team", enabled: false }));
+  expect((await screen.findByRole("switch", { name: "review 启用" })).getAttribute("aria-checked")).toBe("false");
   fireEvent.click(screen.getByRole("button", { name: "添加" }));
   fireEvent.click(screen.getByRole("button", { name: "安装" }));
   await waitFor(() => expect(install).toHaveBeenCalledWith("wsl-1", "docs", "team"));
@@ -103,17 +104,20 @@ it("shows MCP read errors, retries, and clears the prior session count", async (
 
 it("shows account plugin names and effective enabled states from the catalog", async () => {
   const installed = [
-    { name: "figma", displayName: "Figma", marketplaceName: "openai-curated-remote", enabled: true },
+    { name: "figma", displayName: "Figma", marketplaceName: "openai-curated-remote", enabled: true, source: { type: "remote" } },
     { name: "github", displayName: "GitHub", marketplaceName: "openai-curated-remote", enabled: true },
     { name: "computer-use", displayName: "Computer Use", marketplaceName: "openai-bundled", enabled: false },
     { name: "visualize", displayName: "Visualize", marketplaceName: "openai-bundled", enabled: true }
   ];
   Object.assign(window, { codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed, available: [], marketplaces: [] }),
-    readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    readConfig: vi.fn().mockResolvedValue({ overrides: { "figma@openai-curated-remote": { enabled: false } } }) },
   codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [] }) } });
   render(<CodexPluginDialog sessionId="windows-1" onClose={vi.fn()} onChanged={vi.fn()} />);
   expect(await screen.findByRole("tab", { name: "插件 4" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "Figma 停用" }).getAttribute("aria-checked")).toBe("true");
+  expect((screen.getByRole("switch", { name: "Figma 停用" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("官方远程插件请在 Codex 官方插件面板启停")).toBeTruthy();
+  expect(await screen.findByText("所选范围的配置与 Codex 实际状态不一致")).toBeTruthy();
   expect(screen.getByRole("switch", { name: "Computer Use 启用" }).getAttribute("aria-checked")).toBe("false");
   fireEvent.change(screen.getByRole("searchbox", { name: "搜索插件" }), { target: { value: "github" } });
   expect(screen.getByText("GitHub")).toBeTruthy();

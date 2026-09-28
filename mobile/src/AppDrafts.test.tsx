@@ -34,7 +34,7 @@ function switchTo(name: string) {
 beforeEach(() => {
   localStorage.clear();
   listeners.clear();
-  remote = { status: "connected", statusMessage: "已连接", sessions: [first, second, terminal], templates: [], device: null,
+  remote = { status: "connected", statusMessage: "已连接", sessions: [first, second, terminal], overviews: {}, templates: [], device: null,
     lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1, send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
     onTerminalMessage: vi.fn(() => () => true),
     onGraphicalMessage: vi.fn(listener => { listeners.add(listener); return () => listeners.delete(listener); }),
@@ -45,6 +45,7 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });
 
 it("restores separate graphical drafts and the terminal paste dialog after switching sessions", () => {
   render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开图形一详情" }));
   showGraphical(first.id);
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "第一条草稿" } });
   switchTo("图形二");
@@ -65,6 +66,7 @@ it("restores separate graphical drafts and the terminal paste dialog after switc
 
 it("handles a submit reply while another session is selected without deleting newer edits", () => {
   render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开图形一详情" }));
   showGraphical(first.id);
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "待发送" } });
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
@@ -90,6 +92,7 @@ it("handles a submit reply while another session is selected without deleting ne
 
 it("keeps a failed graphical submission available for retry after switching away", () => {
   render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开图形一详情" }));
   showGraphical(first.id);
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "重试内容" } });
   fireEvent.click(screen.getByRole("button", { name: "发送" }));

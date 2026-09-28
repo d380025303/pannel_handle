@@ -156,6 +156,12 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return projectCwd(entry);
   }
+  function getPluginRuntime(id) {
+    const entry = sessions.get(id);
+    if (!entry) throw new Error("Codex App Server 会话不存在。");
+    return { cwd: projectCwd(entry), environment: { ...environmentService.resolve(entry.session), ...(entry.runtime.runtimeEnv || {}) },
+      localBridge: Boolean(entry.runtime.localBridge), shell: entry.runtime.shell || entry.session.shell };
+  }
   function publish(id) { broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) }); }
   function recordDiagnostic(entry, kind, payload, turnId = null) {
     const at = Date.now();
@@ -940,7 +946,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         description: plugin.interface?.shortDescription || "",
         logo: plugin.interface?.logo || plugin.interface?.logoDark || null,
         logoUrl: plugin.interface?.logoUrl || plugin.interface?.logoUrlDark || null,
-        installed: plugin.installed === true, enabled: plugin.enabled === true,
+        installed: plugin.installed === true, enabled: plugin.enabled === true, source: plugin.source || null,
         installPolicy: plugin.installPolicy, installPolicySource: plugin.installPolicySource,
         availability: plugin.availability,
         disabledReason: plugin.disabledReason || null
@@ -1411,7 +1417,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

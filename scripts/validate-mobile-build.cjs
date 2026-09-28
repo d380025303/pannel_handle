@@ -18,7 +18,7 @@ try {
   process.exit(1);
 }
 
-if (manifest.application !== "pannel-handle-mobile" || manifest.protocolVersion !== 7) {
+if (manifest.application !== "pannel-handle-mobile" || manifest.protocolVersion !== 8) {
   console.error("Mobile build manifest is incompatible with desktop remote protocol v2.");
   process.exit(1);
 }

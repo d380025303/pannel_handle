@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectAssistantPage } from "./ProjectAssistantPage";
+import type { ProjectAssistantCodexSession } from "../../vite-env";
 
 vi.mock("./CodexSessionMirror", () => ({ CodexSessionMirror: ({ sessionId }: { sessionId: string }) => <div>Mirror {sessionId}</div> }));
 
@@ -66,5 +67,14 @@ describe("ProjectAssistantPage Codex controls", () => {
     await waitFor(() => expect(screen.queryByText("旧消息")).toBeNull());
     expect((screen.getByPlaceholderText("询问 Codex 进展，或描述希望它执行的操作") as HTMLTextAreaElement).value).toBe("");
     expect(screen.getByText("Mirror codex-1")).toBeTruthy();
+  });
+
+  it("does not mount a mirror for a session removed from the current list", async () => {
+    let resolveSessions!: (value: ProjectAssistantCodexSession[]) => void;
+    window.projectAssistantApi.listCodexSessions = () => new Promise(resolve => { resolveSessions = resolve; });
+    render(<ProjectAssistantPage initialSessionId="closed" />);
+    expect(screen.queryByText("Mirror closed")).toBeNull();
+    resolveSessions([{ id: "codex-1", title: "First", type: "windows", cwd: "C:\\one", status: "running" }]);
+    expect(await screen.findByText("Mirror codex-1")).toBeTruthy();
   });
 });

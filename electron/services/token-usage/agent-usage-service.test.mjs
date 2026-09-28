@@ -427,7 +427,7 @@ describe("agent-usage-service", () => {
     const request = service.getUsage(session.id);
     await Promise.resolve();
     service.disconnect(session.id);
-    await expect(request).rejects.toThrow("exited before returning usage");
+    await expect(request).rejects.toMatchObject({ code: "USAGE_CANCELED" });
     expect(hanging.close).toHaveBeenCalled();
     await expect(service.getUsage("missing")).rejects.toThrow("Session is not running");
   });
@@ -442,6 +442,15 @@ describe("agent-usage-service", () => {
 
     await expect(service.getUsage(session.id)).rejects.toThrow("only available for Windows");
     expect(transportFactory).not.toHaveBeenCalled();
+  });
+
+  it("keeps a short redacted CLI diagnostic when Codex exits unexpectedly", async () => {
+    const transport = createProtocolTransport();
+    transport.write = vi.fn();
+    const request = runCodexRateLimitRequest(transport);
+    transport.emit("stderr", "Token=private-value\nCodex startup failed");
+    transport.emit("close", 1);
+    await expect(request).rejects.toThrow(/code 1.*Token=\[已隐藏\].*Codex startup failed/s);
   });
 
   it("reads settings CodeBuddy quota without a terminal session and shares the Windows account cache", async () => {

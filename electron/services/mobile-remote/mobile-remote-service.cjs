@@ -5,6 +5,7 @@ const { createMobileUploads } = require("./mobile-uploads.cjs");
 const { createMobileFiles } = require("./mobile-files.cjs");
 const { createTerminalSizeOwner } = require("./terminal-size-owner.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
+const { sessionOverview } = require("./mobile-session-overview.cjs");
 const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces } = require("./mobile-network.cjs");
 const { PROTOCOL_VERSION, HEARTBEAT_MS, HEARTBEAT_TIMEOUT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
 const http = require("node:http");
@@ -37,6 +38,9 @@ function createMobileRemoteService({
   let heartbeatTimer = null;
   let currentAddress = "";
   let lastError = "";
+  const overviewTimers = new Map();
+  const lastOverviews = new Map();
+  const overviewRevisions = new Map();
   const uploads = createMobileUploads({ now });
   const files = createMobileFiles({ now });
 
@@ -107,6 +111,24 @@ function createMobileRemoteService({
       }
       webSocketServer.handleUpgrade(request, socket, head, (ws) => socketHandlers.handleWebSocket(ws, request));
     });
+  }
+
+  function queueOverview(sessionId, delay = 0) {
+    if (overviewTimers.has(sessionId)) return;
+    overviewTimers.set(sessionId, setTimeout(() => {
+      overviewTimers.delete(sessionId);
+      const session = terminalManager.getSession(sessionId);
+      if (!session) return;
+      const revision = (overviewRevisions.get(sessionId) || 0) + 1;
+      overviewRevisions.set(sessionId, revision);
+      void sessionOverview(session, graphicalService, stateHub).then(overview => {
+        if (!terminalManager.getSession(sessionId) || overviewRevisions.get(sessionId) !== revision) return;
+        const serialized = JSON.stringify(overview);
+        if (lastOverviews.get(sessionId) === serialized) return;
+        lastOverviews.set(sessionId, serialized);
+        for (const client of auth.getClients()) send(client.socket, { type: "session.overview", overview });
+      }).catch(() => undefined);
+    }, delay));
   }
 
   function listen(httpServer, port, address) {
@@ -181,6 +203,10 @@ function createMobileRemoteService({
   }
 
   async function stop() {
+    for (const timer of overviewTimers.values()) clearTimeout(timer);
+    overviewTimers.clear();
+    lastOverviews.clear();
+    overviewRevisions.clear();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     auth.disconnectAll("service-stopped");
@@ -220,6 +246,7 @@ function createMobileRemoteService({
   function handleDesktopEvent(channel, payload) {
     if (channel === "codex-app-server:changed") {
       for (const client of auth.getClients()) socketHandlers.handleGraphicalChanged(client.socket, payload);
+      if (payload?.id) queueOverview(payload.id);
       return;
     }
     if (channel === "terminal:started") {
@@ -231,10 +258,15 @@ function createMobileRemoteService({
         const socket = client.socket;
         if (socket.subscriptions?.has(payload.id)) send(socket, { type: "terminal.data", sessionId: payload.id, data: payload.data, seq });
       }
+      queueOverview(payload.id, 300);
     } else if (channel === "terminal:resized") {
       stateHub.resize(payload.id, payload.cols, payload.rows);
       sizes.observeResize(payload);
     } else if (channel === "terminal:exit") {
+      if (overviewTimers.has(payload.id)) clearTimeout(overviewTimers.get(payload.id));
+      overviewTimers.delete(payload.id);
+      lastOverviews.delete(payload.id);
+      overviewRevisions.delete(payload.id);
       for (const client of auth.getClients()) {
         const socket = client.socket;
         if (socket.subscriptions?.has(payload.id)) send(socket, { type: "terminal.exit", sessionId: payload.id, exitCode: payload.exitCode });
@@ -243,12 +275,16 @@ function createMobileRemoteService({
       sizes.remove(payload.id);
       uploads.releaseSession(payload.id);
     } else if (channel === "sessions:changed") {
+      const ids = new Set(payload.map(session => session.id));
+      for (const id of lastOverviews.keys()) if (!ids.has(id)) lastOverviews.delete(id);
+      for (const id of overviewRevisions.keys()) if (!ids.has(id)) overviewRevisions.delete(id);
       for (const client of auth.getClients()) {
         const socket = client.socket;
         if (socket.readyState !== WebSocket.OPEN) continue;
         send(socket, { type: "sessions.changed", sessions: payload.map(toRuntimeSession) });
         send(socket, { type: "templates.changed", templates: toSavedTemplates(sessionStore, terminalManager) });
       }
+      for (const session of payload) queueOverview(session.id);
     }
   }
 

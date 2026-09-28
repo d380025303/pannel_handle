@@ -22,9 +22,12 @@ export function ProjectAssistantPage({ initialSessionId }: { initialSessionId?: 
   const [codexSending, setCodexSending] = useState(false);
   const [codexError, setCodexError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const codexSessionsRequestRef = useRef(0);
   const showCodexError = useCallback((message: string) => setCodexError(message), []);
   const refreshCodexSessions = useCallback(async () => {
+    const requestId = ++codexSessionsRequestRef.current;
     const sessions = await window.projectAssistantApi.listCodexSessions();
+    if (requestId !== codexSessionsRequestRef.current) return;
     setCodexSessions(sessions);
     setSelectedSessionId(current => sessions.some(item => item.id === current)
       ? current : sessions.some(item => item.id === initialSessionId) ? initialSessionId! : sessions[0]?.id || null);
@@ -162,7 +165,7 @@ export function ProjectAssistantPage({ initialSessionId }: { initialSessionId?: 
           </select>
           <button type="button" onClick={() => void switchMode()} disabled={!selectedSessionId}>{t("projectAssistant.switchMode")}</button>
         </header>
-        {selectedSessionId ? <CodexSessionMirror key={selectedSessionId} sessionId={selectedSessionId} onError={showCodexError} />
+        {selectedSession ? <CodexSessionMirror key={selectedSession.id} sessionId={selectedSession.id} onError={showCodexError} />
           : <p className="project-assistant-codex-empty">{t("projectAssistant.noCodexSessions")}</p>}
         <p className="project-assistant-codex-hint">{t("projectAssistant.questionHint")}</p>
         {codexError && <div className="project-assistant-error" role="alert">{codexError}</div>}

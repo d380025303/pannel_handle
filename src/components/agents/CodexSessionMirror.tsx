@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+const sessionEnded = (error: unknown) => /会话不存在或已结束|Codex SSH 会话尚未连接/.test(errorText(error));
 
 export function CodexSessionMirror({ sessionId, onError }: { sessionId: string; onError: (message: string) => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -47,11 +48,14 @@ export function CodexSessionMirror({ sessionId, onError }: { sessionId: string; 
           }
         }
       } catch (error) {
-        if (!disposed) onError(errorText(error));
+        if (!disposed) {
+          if (sessionEnded(error)) ready = false;
+          onError(errorText(error));
+        }
       } finally { polling = false; }
     }
 
-    void reset().catch(error => { if (!disposed) onError(errorText(error)); });
+    void reset().catch(error => { if (!disposed) { ready = false; onError(errorText(error)); } });
     const timer = window.setInterval(() => { if (ready) void poll(); }, 120);
     return () => { disposed = true; window.clearInterval(timer); writer.dispose(); terminal.dispose(); };
   }, [sessionId, onError]);

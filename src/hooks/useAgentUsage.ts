@@ -10,7 +10,7 @@ export type AgentUsageViewState =
   | { status: "hidden" }
   | { status: "loading"; provider: "codex" | "codebuddy" | "minimax" | "qoder" | "copilot" | "gemini" | "grok" }
   | { status: "ready"; snapshot: AgentUsageSnapshot; refreshing: boolean }
-  | { status: "error"; provider: "codex" | "codebuddy" | "minimax" | "qoder" | "copilot" | "gemini" | "grok" };
+  | { status: "error"; provider: "codex" | "codebuddy" | "minimax" | "qoder" | "copilot" | "gemini" | "grok"; message?: string };
 
 export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStatusPayload) {
   const sessionId = session?.id;
@@ -44,11 +44,12 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
     try {
       const snapshot = await window.agentUsageApi.getUsage(sessionId, { force });
       if (requestSequenceRef.current === requestSequence) {
-        setState({ status: "ready", snapshot, refreshing: false });
+        setState(snapshot ? { status: "ready", snapshot, refreshing: false }
+          : { status: "error", provider, message: "额度查询已取消，请重试。" });
       }
-    } catch {
+    } catch (error) {
       if (requestSequenceRef.current === requestSequence) {
-        setState({ status: "error", provider });
+        setState({ status: "error", provider, message: error instanceof Error ? error.message : String(error) });
       }
     }
   }, [isSupported, provider, sessionId]);

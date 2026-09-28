@@ -793,8 +793,8 @@ export type AgentUsageResetResult = {
 };
 
 export type AgentUsageApi = {
-  getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
-  getCodeBuddyUsage: (options?: { force?: boolean }) => Promise<AgentUsageSnapshot>;
+  getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot | null>;
+  getCodeBuddyUsage: (options?: { force?: boolean }) => Promise<AgentUsageSnapshot | null>;
   consumeResetCredit: (sessionId: string, creditId: string, idempotencyKey: string) => Promise<AgentUsageResetResult>;
   cancel: (sessionId: string) => void;
   cancelCodeBuddyUsage: () => void;
@@ -1054,7 +1054,8 @@ export type CodexPluginApi = {
   refreshMarketplace: (id: string, name: string) => Promise<CodexPluginCatalog>;
   removeMarketplace: (id: string, name: string) => Promise<CodexPluginCatalog>;
   readConfig: (id: string, scope: CodexPluginScope) => Promise<{ overrides: Record<string, { enabled?: boolean }> }>;
-  setEnabled: (id: string, scope: CodexPluginScope, input: { plugin: string; marketplace: string; enabled: boolean }) => Promise<{ overrides: Record<string, { enabled?: boolean }> }>;
+  setEnabled: (id: string, scope: CodexPluginScope, input: { plugin: string; marketplace: string; enabled: boolean }) => Promise<{
+    overrides: Record<string, { enabled?: boolean }>; pluginId: string; enabled: boolean }>;
 };
 export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
 export type CodexSessionCapabilities = {

@@ -22,7 +22,8 @@ export function CodeBuddyQuotaSettings() {
     try {
       const snapshot = await window.agentUsageApi.getCodeBuddyUsage({ force });
       if (requestIdRef.current === requestId) {
-        setState({ status: "ready", snapshot, refreshing: false });
+        setState(snapshot ? { status: "ready", snapshot, refreshing: false }
+          : { status: "error", message: "额度查询已取消，请重试。" });
       }
     } catch (error) {
       if (requestIdRef.current === requestId) {
