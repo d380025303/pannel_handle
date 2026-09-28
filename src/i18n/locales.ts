@@ -56,21 +56,6 @@ export type TranslationKey =
   | "codeBuddyVersion.confirm"
   | "codeBuddyVersion.updating"
   | "projectAssistant.statusUnknown"
-  | "sessionOverview.title"
-  | "sessionOverview.openOverview"
-  | "sessionOverview.description"
-  | "sessionOverview.empty"
-  | "sessionOverview.emptyHint"
-  | "sessionOverview.selectSession"
-  | "sessionOverview.open"
-  | "sessionOverview.connecting"
-  | "sessionOverview.connected"
-  | "sessionOverview.reconnecting"
-  | "sessionOverview.disconnected"
-  | "sessionOverview.noAgent"
-  | "sessionOverview.noAgentStatus"
-  | "sessionOverview.summary"
-  | "sessionOverview.noSummary"
   | "settings.title"
   | "settings.subtitle"
   | "settings.categories"
@@ -144,6 +129,13 @@ export type TranslationKey =
   | "settings.autoWorkBuddyCheckin"
   | "settings.debugMode"
   | "settings.screenshotTitle"
+  | "settings.titleBarActionsTitle"
+  | "settings.titleBarActionsHint"
+  | "settings.titleBarDrag"
+  | "settings.titleBarShow"
+  | "settings.titleBarVisible"
+  | "settings.titleBarScreenshotUnavailable"
+  | "settings.titleBarSaveFailed"
   | "settings.screenshotDescription"
   | "settings.screenshotEnabled"
   | "settings.screenshotShortcut"
@@ -159,6 +151,9 @@ export type TranslationKey =
   | "settings.terminalBackgroundOpacity"
   | "settings.terminalBackgroundBlur"
   | "settings.terminalBackgroundNone"
+  | "settings.terminalBackgroundPositionHint"
+  | "settings.terminalBackgroundPositionReset"
+  | "settings.terminalBackgroundPositionError"
   | "settings.theme"
   | "settings.language"
   | "settings.close"
@@ -1066,21 +1061,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codeBuddyVersion.confirm": "将更新 {environment} 中的 CodeBuddy 至 {version}。当前会话继续运行，重启后生效。",
     "codeBuddyVersion.updating": "正在更新 CodeBuddy…",
     "projectAssistant.statusUnknown": "状态未知",
-    "sessionOverview.title": "实例总览",
-    "sessionOverview.openOverview": "打开实例总览",
-    "sessionOverview.description": "当前打开 {count} 个终端实例",
-    "sessionOverview.empty": "暂无终端实例",
-    "sessionOverview.emptyHint": "创建或启动会话后，实例会显示在这里。",
-    "sessionOverview.selectSession": "选择实例：{name}",
-    "sessionOverview.open": "会话已打开",
-    "sessionOverview.connecting": "SSH 连接中",
-    "sessionOverview.connected": "SSH 已连接",
-    "sessionOverview.reconnecting": "SSH 重连中",
-    "sessionOverview.disconnected": "SSH 已断开",
-    "sessionOverview.noAgent": "未配置 Agent",
-    "sessionOverview.noAgentStatus": "暂无 Agent 状态",
-    "sessionOverview.summary": "活动摘要",
-    "sessionOverview.noSummary": "暂无活动摘要",
     "settings.title": "设置",
     "settings.subtitle": "管理应用行为、模型服务与本地连接",
     "settings.categories": "设置分类",
@@ -1154,6 +1134,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
+    "settings.titleBarActionsTitle": "顶部图标",
+    "settings.titleBarActionsHint": "拖动手柄调整顺序，勾选显示图标；方向键也可移动聚焦的手柄。修改后立即保存。",
+    "settings.titleBarDrag": "拖动{name}调整顺序",
+    "settings.titleBarShow": "显示{name}",
+    "settings.titleBarVisible": "显示",
+    "settings.titleBarScreenshotUnavailable": "截图功能已关闭",
+    "settings.titleBarSaveFailed": "保存顶部图标配置失败",
     "settings.screenshotDescription": "调用 Windows 原生区域截图，完成后图片会复制到系统剪贴板。",
     "settings.screenshotEnabled": "启用截图功能",
     "settings.screenshotShortcut": "截图快捷键",
@@ -1169,6 +1156,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.terminalBackgroundOpacity": "不透明度",
     "settings.terminalBackgroundBlur": "模糊",
     "settings.terminalBackgroundNone": "未设置背景图片",
+    "settings.terminalBackgroundPositionHint": "拖动预览图片调整位置，松开后保存。终端背景会同步预览。",
+    "settings.terminalBackgroundPositionReset": "恢复居中",
+    "settings.terminalBackgroundPositionError": "保存背景位置失败",
     "settings.theme": "主题",
     "settings.language": "语言",
     "settings.close": "关闭",
@@ -2068,21 +2058,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codeBuddyVersion.confirm": "Update CodeBuddy in {environment} to {version}. The current session will keep running until restarted.",
     "codeBuddyVersion.updating": "Updating CodeBuddy…",
     "projectAssistant.statusUnknown": "Status unknown",
-    "sessionOverview.title": "Instance overview",
-    "sessionOverview.openOverview": "Open instance overview",
-    "sessionOverview.description": "{count} terminal instances open",
-    "sessionOverview.empty": "No terminal instances",
-    "sessionOverview.emptyHint": "Create or launch a session to see it here.",
-    "sessionOverview.selectSession": "Select instance: {name}",
-    "sessionOverview.open": "Session open",
-    "sessionOverview.connecting": "SSH connecting",
-    "sessionOverview.connected": "SSH connected",
-    "sessionOverview.reconnecting": "SSH reconnecting",
-    "sessionOverview.disconnected": "SSH disconnected",
-    "sessionOverview.noAgent": "No Agent configured",
-    "sessionOverview.noAgentStatus": "No Agent status yet",
-    "sessionOverview.summary": "Activity summary",
-    "sessionOverview.noSummary": "No activity summary yet",
     "settings.title": "Settings",
     "settings.subtitle": "Manage app behavior, model services, and local connections",
     "settings.categories": "Settings categories",
@@ -2156,6 +2131,13 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",
+    "settings.titleBarActionsTitle": "Title bar icons",
+    "settings.titleBarActionsHint": "Drag a handle to reorder icons, or use the arrow keys when focused. Changes are saved immediately.",
+    "settings.titleBarDrag": "Drag {name} to reorder",
+    "settings.titleBarShow": "Show {name}",
+    "settings.titleBarVisible": "Show",
+    "settings.titleBarScreenshotUnavailable": "Screenshots are disabled",
+    "settings.titleBarSaveFailed": "Could not save title bar icons",
     "settings.screenshotDescription": "Open the Windows region snipping UI and copy the result to the system clipboard.",
     "settings.screenshotEnabled": "Enable screenshots",
     "settings.screenshotShortcut": "Screenshot shortcut",
@@ -2171,6 +2153,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.terminalBackgroundOpacity": "Opacity",
     "settings.terminalBackgroundBlur": "Blur",
     "settings.terminalBackgroundNone": "No background image set",
+    "settings.terminalBackgroundPositionHint": "Drag the preview to reposition the image. Release to save and preview it in the terminal.",
+    "settings.terminalBackgroundPositionReset": "Center image",
+    "settings.terminalBackgroundPositionError": "Could not save background position",
     "settings.theme": "Theme",
     "settings.language": "Language",
     "settings.close": "Close",

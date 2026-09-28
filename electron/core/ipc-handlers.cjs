@@ -64,11 +64,14 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:history", (_event, id, cursor, archived, isPinned) => codexAppServerSessionService.listHistory(String(id || ""), cursor, archived, isPinned));
     ipcMain.handle("codex-app-server:initial-user-input", (_event, id, threadId) => codexAppServerSessionService.readInitialUserInput(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
+    ipcMain.handle("codex-app-server:rewind", (_event, id, messageId, scope) => codexAppServerSessionService.rewind(String(id || ""), messageId, scope));
     ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));
     ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId) => codexAppServerSessionService.forkThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:archive-thread", (_event, id, threadId) => codexAppServerSessionService.archiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:unarchive-thread", (_event, id, threadId) => codexAppServerSessionService.unarchiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:capabilities", (_event, id, refresh) => codexAppServerSessionService.listCapabilities(String(id || ""), refresh === true));
+    ipcMain.handle("codex-app-server:mcp-login", (_event, id, name) => codexAppServerSessionService.loginMcpServer(String(id || ""), name));
+    ipcMain.handle("codex-app-server:mcp-reload", (_event, id) => codexAppServerSessionService.reloadMcpServers(String(id || "")));
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
     ipcMain.handle("codex-app-server:compact", (_event, id) => codexAppServerSessionService.compactThread(String(id || "")));

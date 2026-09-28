@@ -23,6 +23,9 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         debugMode={false}
         screenshotEnabled
         screenshotShortcut="Ctrl+Shift+S"
+        titleBarActionOrder={["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"]}
+        titleBarHiddenActions={[]}
+        onTitleBarActionsChange={vi.fn().mockResolvedValue(undefined)}
         themeId="dark-slate"
         locale="zh-CN"
         themes={APP_THEMES}
@@ -36,10 +39,14 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         terminalBackgroundImage=""
         terminalBackgroundOpacity={40}
         terminalBackgroundBlur={0}
+        terminalBackgroundPositionX={50}
+        terminalBackgroundPositionY={50}
         onChooseTerminalBackground={vi.fn().mockResolvedValue(undefined)}
         onClearTerminalBackground={vi.fn().mockResolvedValue(undefined)}
         onTerminalBackgroundOpacityChange={vi.fn()}
         onTerminalBackgroundBlurChange={vi.fn()}
+        onTerminalBackgroundPositionPreview={vi.fn()}
+        onTerminalBackgroundPositionCommit={vi.fn().mockResolvedValue(undefined)}
         onCancel={vi.fn()}
         {...overrides}
       />
@@ -145,6 +152,33 @@ describe("SettingsModal navigation", () => {
     expect((screen.getByRole("button", { name: "清除" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("slider", { name: /不透明度/ }) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("slider", { name: /模糊/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "恢复居中" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("previews a dragged background position and saves it on release", async () => {
+    const onTerminalBackgroundPositionPreview = vi.fn();
+    const onTerminalBackgroundPositionCommit = vi.fn().mockResolvedValue(undefined);
+    renderSettingsModal({
+      terminalBackgroundImage: "123-bg.png",
+      onTerminalBackgroundPositionPreview,
+      onTerminalBackgroundPositionCommit
+    });
+    const preview = screen.getByRole("img", { name: "终端背景" });
+    vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({ width: 240, height: 135 } as DOMRect);
+    fireEvent.pointerDown(preview, { pointerId: 1, button: 0, clientX: 120, clientY: 60 });
+    fireEvent.pointerMove(preview, { pointerId: 1, clientX: 144, clientY: 33 });
+    expect(onTerminalBackgroundPositionPreview).toHaveBeenCalledWith(40, 70);
+    expect(onTerminalBackgroundPositionCommit).not.toHaveBeenCalled();
+    fireEvent.pointerUp(preview, { pointerId: 1 });
+    await waitFor(() => expect(onTerminalBackgroundPositionCommit).toHaveBeenCalledWith(40, 70));
+  });
+
+  it("shows a retryable error when centering cannot be saved", async () => {
+    const onTerminalBackgroundPositionCommit = vi.fn().mockRejectedValue(new Error("disk unavailable"));
+    renderSettingsModal({ terminalBackgroundImage: "123-bg.png", onTerminalBackgroundPositionCommit });
+    fireEvent.click(screen.getByRole("button", { name: "恢复居中" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "保存背景位置失败: disk unavailable");
+    await waitFor(() => expect((screen.getByRole("button", { name: "恢复居中" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("supports arrow-key category navigation", () => {

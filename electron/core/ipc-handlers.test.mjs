@@ -13,6 +13,8 @@ describe("session IPC handlers", () => {
       ["codex-app-server:account-cancel", "cancelLogin", []],
       ["codex-app-server:account-logout", "logout", []],
       ["codex-app-server:account-usage", "refreshAccountUsage", []],
+      ["codex-app-server:mcp-login", "loginMcpServer", ["files"]],
+      ["codex-app-server:mcp-reload", "reloadMcpServers", []],
       ["codex-app-server:resolve-elicitation", "resolveElicitation", [71, "accept", { name: "calendar" }]]
     ];
     const codex = Object.fromEntries(methods.map(([, method]) => [method, vi.fn((...args) => ({ method, args }))]));

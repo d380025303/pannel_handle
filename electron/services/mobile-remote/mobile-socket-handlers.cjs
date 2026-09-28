@@ -3,7 +3,7 @@ const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, files, send, sendError }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus }) {
   const { getSizeState, applySize } = sizes;
   const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, uploads, send });
 
@@ -19,7 +19,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       }
     });
     for (const session of sessions) {
-      void sessionOverview(session, graphicalService, stateHub).then(overview => {
+      void sessionOverview(session, graphicalService, stateHub, getAgentStatus?.(session.id)).then(overview => {
         if (socket.authenticated && terminalManager.getSession(session.id))
           send(socket, { type: "session.overview", overview });
       }).catch(() => undefined);

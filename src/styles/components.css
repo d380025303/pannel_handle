@@ -303,11 +303,49 @@
 
 #settings-panel-general {
   display: grid;
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
 }
 
 #settings-panel-general[hidden] {
   display: none;
+}
+
+.settings-general-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+#settings-panel-general .settings-section {
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+#settings-panel-general .settings-field {
+  min-width: 0;
+  gap: 4px;
+}
+
+#settings-panel-general .settings-choice-grid {
+  gap: 8px;
+}
+
+#settings-panel-general .settings-toggle-row {
+  min-height: 40px;
+  padding: 7px 10px;
+}
+
+#settings-panel-general .titlebar-action-list {
+  gap: 4px;
+}
+
+#settings-panel-general .titlebar-action-row {
+  min-height: 34px;
+  padding: 3px 8px;
 }
 
 .settings-choice-grid {
@@ -371,12 +409,16 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .terminal-background-preview {
-  width: 120px;
-  height: 68px;
+  width: 240px;
+  height: 135px;
   object-fit: cover;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
 }
@@ -390,10 +432,17 @@
 .terminal-background-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .terminal-background-settings input[type="range"] {
   width: min(320px, 100%);
+}
+
+@media (max-width: 1050px) {
+  #settings-panel-general {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .shortcut-recorder {

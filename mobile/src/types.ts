@@ -48,7 +48,7 @@ export type ReadyPayload = {
   sessions: RuntimeSession[];
   templates: SavedTemplate[];
 };
-export type SessionOverview = { sessionId: string; status: "运行中" | "空闲" | "处理中" | "待确认" | "连接中" | "重连中" | "已断开" | "错误"; summary: string };
+export type SessionOverview = { sessionId: string; status: "运行中" | "空闲" | "处理中" | "待确认" | "连接中" | "重连中" | "已断开" | "错误"; detail?: string; summary: string };
 
 export type ComputerFileEntry = { name: string; path: string; type: "drive" | "directory" | "file"; size: number | null };
 

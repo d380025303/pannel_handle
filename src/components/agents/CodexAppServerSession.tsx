@@ -95,6 +95,7 @@ export type CodexAppServerSessionHandle = {
 
 type CodexAppServerSessionProps = {
   sessionId: string;
+  isActive?: boolean;
   session?: TerminalSession;
   sessionType?: "windows" | "wsl" | "ssh";
   draft: string;
@@ -104,7 +105,7 @@ type CodexAppServerSessionProps = {
   onLinkClick?: (href: string) => void;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -135,6 +136,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [rewindTarget, setRewindTarget] = useState<{ messageId: string; text: string } | null>(null);
+  const [rewindScope, setRewindScope] = useState<"Code" | "Conversation" | "CodeAndConversation">("CodeAndConversation");
+  const [rewindPending, setRewindPending] = useState(false);
+  const [rewindError, setRewindError] = useState("");
   const [goalOpen, setGoalOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -160,6 +165,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [resumingHistory, setResumingHistory] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const wasActiveRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileSearchRequestRef = useRef(0);
@@ -212,12 +218,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
 
   useImperativeHandle(ref, () => ({
     appendFilePath(path) {
+      if (!isActive) return;
       setDraft(current => current + (current && !/\s$/.test(current) ? " " : "") + path);
       window.requestAnimationFrame(() => {
         if (currentSessionRef.current === sessionId) textareaRef.current?.focus();
       });
     },
     async applyQuickCommand(command) {
+      if (!isActive) return false;
       if (loadedSessionIdRef.current !== sessionId || !snapshot.threadId) return false;
       if (command.mode !== "auto-enter") {
         setDraft(current => current + command.command);
@@ -239,6 +247,18 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       }
     }
   }));
+
+  useEffect(() => {
+    if (isActive) return;
+    setHistoryOpen(false);
+    setGoalOpen(false);
+    setPluginOpen(false);
+    setMenuOpen(false);
+    setSelectionKind(null);
+    setCapabilityOpen(false);
+    setPreviewFile(null);
+    setRewindTarget(null);
+  }, [isActive]);
 
   useEffect(() => {
     loadedSessionIdRef.current = null;
@@ -275,6 +295,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setHistoryMutation(null);
     setRenamingThreadId(null);
     setHistoryOpen(false);
+    setRewindTarget(null);
+    setRewindScope("CodeAndConversation");
+    setRewindPending(false);
+    setRewindError("");
     setGoalOpen(false);
     setMenuOpen(false);
     setSelectionKind(null);
@@ -300,6 +324,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       onSnapshot(next) {
         loadedSessionIdRef.current = sessionId;
         if (threadIdRef.current && threadIdRef.current !== next.threadId) {
+          setRewindTarget(null);
           setAttachments([]);
           setInlineImages([]);
           inlineImagesRef.current = [];
@@ -351,9 +376,11 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     if (fileMention && fileResults[selectedFileIndex]) fileResultRefs.current[selectedFileIndex]?.scrollIntoView?.({ block: "nearest" });
   }, [fileMention, fileResults, selectedFileIndex]);
   useLayoutEffect(() => {
+    if (!isActive) { wasActiveRef.current = false; return; }
+    if (!wasActiveRef.current) { wasActiveRef.current = true; return; }
     const messages = messagesRef.current;
     if (messages) messages.scrollTop = messages.scrollHeight;
-  }, [snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
+  }, [isActive, snapshot.items, snapshot.approvals.length, snapshot.questions?.length, snapshot.elicitations?.length, snapshot.pendingPlan, error, snapshot.error]);
   useEffect(() => {
     if (!previewFile || !snapshot.threadId) return;
     let active = true;
@@ -369,18 +396,18 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     return () => { window.clearTimeout(timer); historyRequestRef.current += 1; };
   }, [historyOpen, historyQuery, historyArchived, sessionId]);
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen || !isActive) return;
     menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const onPointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !menuButtonRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [menuOpen]);
+  }, [menuOpen, isActive]);
   useEffect(() => {
-    if (selectionKind) (selectionDialogRef.current?.querySelector<HTMLButtonElement>('button[role="radio"]:not(:disabled)')
+    if (isActive && selectionKind) (selectionDialogRef.current?.querySelector<HTMLButtonElement>('button[role="radio"]:not(:disabled)')
       || selectionDialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus();
-  }, [selectionKind]);
+  }, [selectionKind, isActive]);
   useEffect(() => {
     if (snapshot.provider !== "codebuddy" || !snapshot.threadId) {
       modelMetadataRequestRef.current += 1;
@@ -399,13 +426,13 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }).catch(() => { if (modelMetadataRequestRef.current === requestId && currentSessionRef.current === sessionId) setModelMetadata([]); });
   }, [sessionId, snapshot.provider, snapshot.threadId, menuOpen]);
   useEffect(() => {
-    if (!capabilityOpen) return;
+    if (!capabilityOpen || !isActive) return;
     const onPointerDown = (event: PointerEvent) => {
       if (!capabilityRef.current?.contains(event.target as Node) && !menuButtonRef.current?.contains(event.target as Node)) setCapabilityOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [capabilityOpen]);
+  }, [capabilityOpen, isActive]);
 
   async function loadCapabilities(refresh = false) {
     const threadId = snapshot.threadId;
@@ -583,6 +610,24 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       }
     } catch (cause) { if (currentSessionRef.current === sessionId) setHistoryError(message(cause)); }
     finally { if (currentSessionRef.current === sessionId) setHistoryMutation(null); }
+  }
+  async function confirmRewind() {
+    if (!rewindTarget || rewindPending) return;
+    setRewindPending(true); setRewindError("");
+    try {
+      const result = await window.codexAppServerApi.rewind(sessionId, rewindTarget.messageId, rewindScope);
+      if (currentSessionRef.current !== sessionId) return;
+      timelineRef.current = result.snapshot;
+      setSnapshot(result.snapshot);
+      setExpandedGroupId(null);
+      if (rewindScope !== "Code") { setDraft(rewindTarget.text); setDraftReferences([]); }
+      setRewindTarget(null);
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId) {
+        setRewindError(message(cause));
+        try { setSnapshot(await window.codexAppServerApi.snapshot(sessionId)); } catch {}
+      }
+    } finally { if (currentSessionRef.current === sessionId) setRewindPending(false); }
   }
   async function addFiles() {
     setError("");
@@ -999,6 +1044,11 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
+          {item.type === "userMessage" && snapshot.provider === "codebuddy" && sessionType === "windows" && snapshot.capabilities?.rewind && item.rewindMessageId &&
+            <button type="button" disabled={snapshot.busy || rewindPending} onClick={() => {
+              setRewindTarget({ messageId: item.rewindMessageId!, text: item.text || "" });
+              setRewindScope("CodeAndConversation"); setRewindError("");
+            }}>回退到此处</button>}
         </article>;
         if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
           <strong>计划进度</strong>
@@ -1342,8 +1392,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID")}>复制 ID</button>
               {isCodex && <button type="button" disabled={Boolean(historyCopyingThreadId)} aria-label={`复制首条用户输入：${thread.id}`}
                 onClick={() => void copyInitialUserInput(thread.id)}>{historyCopyingThreadId === thread.id ? "读取中…" : "复制首条输入"}</button>}
+              {(isCodex || snapshot.provider === "codebuddy") && <button type="button" disabled={Boolean(historyMutation)} onClick={() => { setRenamingThreadId(thread.id); setRenameDraft(thread.title); }}>重命名</button>}
               {isCodex && <>
-              <button type="button" disabled={Boolean(historyMutation)} onClick={() => { setRenamingThreadId(thread.id); setRenameDraft(thread.title); }}>重命名</button>
               <button type="button" disabled={Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "pin", !thread.isPinned)}>{thread.isPinned ? "取消置顶" : "置顶"}</button>
               {thread.archived ? <button type="button" disabled={Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "unarchive")}>恢复归档</button> : <>
                 <button type="button" disabled={snapshot.busy || Boolean(historyMutation)} onClick={() => void mutateHistory(thread.id, "fork")}>分叉</button>
@@ -1358,6 +1408,19 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {loadingHistory && <p>正在加载历史会话…</p>}
           {!normalizedHistoryQuery && historyCursor && <button type="button" disabled={loadingHistory} onClick={() => void loadHistory(historyCursor)}>加载更多</button>}
         </div>
+      </div>
+    </div>}
+    {rewindTarget && <div className="modal-overlay" onMouseDown={event => { if (event.target === event.currentTarget && !rewindPending) setRewindTarget(null); }}>
+      <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="CodeBuddy 会话回退" onKeyDown={event => { if (event.key === "Escape" && !rewindPending) setRewindTarget(null); }}>
+        <h2>回退到此处</h2><p>{rewindTarget.text.slice(0, 160) || "所选用户消息"}</p>
+        <fieldset disabled={rewindPending}><legend>回退范围</legend>
+          {([ ["Conversation", "仅对话"], ["Code", "仅代码"], ["CodeAndConversation", "对话和代码"] ] as const).map(([value, label]) =>
+            <label key={value}><input type="radio" name="codebuddy-rewind-scope" checked={rewindScope === value} onChange={() => setRewindScope(value)} />{label}</label>)}
+        </fieldset>
+        <p>代码回退只覆盖 CodeBuddy 文件编辑工具记录的改动；终端命令和外部修改不在其中。</p>
+        {rewindError && <p role="alert">{rewindError}</p>}
+        <div><button type="button" disabled={rewindPending} onClick={() => setRewindTarget(null)}>取消</button>
+          <button type="button" disabled={rewindPending || snapshot.busy} onClick={() => void confirmRewind()}>{rewindPending ? "正在回退…" : "确认回退"}</button></div>
       </div>
     </div>}
     {previewFile && <div className="modal-overlay codex-app-server-preview-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewFile(null); }}>

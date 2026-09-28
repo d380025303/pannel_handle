@@ -36,6 +36,55 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("tracks current-thread MCP failures and reloads after OAuth completion", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "mcpServer/oauth/login"
+      ? { authorizationUrl: "https://auth.example.com/connect" } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/startupStatus/updated", params: {
+        threadId: "other-thread", name: "files", status: "failed", failureReason: "reauthenticationRequired" } })}\n`);
+      expect(service.snapshot("run-1").mcpRuntime).toEqual([]);
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/startupStatus/updated", params: {
+        threadId: "thread-1", name: "files", status: "failed", error: "token expired", failureReason: "reauthenticationRequired" } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").mcpRuntime).toEqual([{
+        name: "files", status: "failed", error: "token expired", failureReason: "reauthenticationRequired" }]));
+      await expect(service.loginMcpServer("run-1", "files")).resolves.toEqual({ authorizationUrl: "https://auth.example.com/connect" });
+      expect(received.find(item => item.method === "mcpServer/oauth/login").params).toEqual({ name: "files", threadId: "thread-1" });
+      await expect(service.loginMcpServer("run-1", "files")).rejects.toThrow("正在授权");
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/oauthLogin/completed", params: {
+        threadId: "other-thread", name: "files", success: true } })}\n`);
+      expect(received.some(item => item.method === "config/mcpServer/reload")).toBe(false);
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/oauthLogin/completed", params: {
+        threadId: "thread-1", name: "files", success: true } })}\n`);
+      await vi.waitFor(() => expect(received.some(item => item.method === "config/mcpServer/reload")).toBe(true));
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/startupStatus/updated", params: {
+        threadId: "thread-1", name: "files", status: "ready" } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").mcpLogins).toEqual([]));
+      expect(service.snapshot("run-1").mcpRuntime[0]).toMatchObject({ status: "ready", error: null, failureReason: null });
+    } finally { service.close("run-1"); }
+  });
+
+  it("retains MCP authorization and reload errors for retry", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "mcpServer/oauth/login"
+      ? { authorizationUrl: "file:///unsafe" } : request.method === "config/mcpServer/reload" ? { __error: "reload failed" } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await expect(service.loginMcpServer("run-1", "files")).rejects.toThrow("授权链接协议无效");
+      expect(service.snapshot("run-1").mcpLogins[0]).toMatchObject({ name: "files", status: "failed" });
+      await expect(service.reloadMcpServers("run-1")).rejects.toThrow("reload failed");
+      expect(service.snapshot("run-1").mcpReload).toEqual({ status: "failed", error: "reload failed" });
+      child.stdout.write(`${JSON.stringify({ method: "mcpServer/oauthLogin/completed", params: {
+        threadId: "thread-1", name: "files", success: false, error: "access denied" } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").mcpLogins[0]).toMatchObject({ status: "failed", error: "access denied" }));
+    } finally { service.close("run-1"); }
+  });
+
   it("reads and mutates plugins through the current graphical session", async () => {
     const received = [];
     const child = fakeProcess(received, request => {

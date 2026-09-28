@@ -116,4 +116,16 @@ describe("TitleBar session actions", () => {
     );
     expect(screen.queryByRole("button", { name: "区域截图" })).toBeNull();
   });
+
+  it("uses the configured order and hides selected icons while keeping settings available", () => {
+    const { container } = render(<TitleBar isMaximized={false} mobileAccessState={null}
+      actionOrder={["create", "terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent"]}
+      hiddenActions={["terminal", "library"]}
+      onOpenSettings={() => undefined} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
+    const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 3)).toEqual(["新建会话", "打开 Token 统计", "打开 Skills"]);
+    expect(screen.queryByRole("button", { name: "打开终端" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "从库中启动" })).toBeNull();
+    expect(screen.getByRole("button", { name: "打开设置" })).toBeTruthy();
+  });
 });

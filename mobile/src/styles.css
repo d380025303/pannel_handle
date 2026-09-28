@@ -36,12 +36,11 @@ button { color: inherit; }
 .mobile-home-card-main:focus-visible { outline: 2px solid #67e8f9; outline-offset: -3px; }
 .mobile-home-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
 .mobile-home-kind { min-width: 0; overflow: hidden; color: #9fb5ce; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-home-status { flex: none; padding: 5px 9px; border: 1px solid #0e7490; border-radius: 999px; color: #a5f3fc; background: #083344; font-size: 11px; }
+.mobile-home-status { flex: none; max-width: 48%; padding: 5px 9px; border: 1px solid #0e7490; border-radius: 999px; color: #a5f3fc; background: #083344; font-size: 11px; text-align: center; }
 .mobile-home-status[data-status="待确认"], .mobile-home-status[data-status="重连中"], .mobile-home-status[data-status="连接中"] { border-color: #92400e; color: #fcd34d; background: #422006; }
 .mobile-home-status[data-status="错误"], .mobile-home-status[data-status="已断开"] { border-color: #9f1239; color: #fecdd3; background: #4c0519; }
 .mobile-home-card-main > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
 .mobile-home-card-main > p { min-height: 38px; display: -webkit-box; overflow: hidden; margin: 9px 0 12px; color: #a9bdd4; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.mobile-home-card-open { color: #67e8f9; font-size: 12px; }
 .mobile-home-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid #29384c; }
 .mobile-home-card-actions button { min-height: 36px; padding: 6px 12px; border: 1px solid #36506e; border-radius: 9px; background: #1b2b40; font-size: 12px; }
 .mobile-home-empty { min-height: 45dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #9fb5ce; text-align: center; }

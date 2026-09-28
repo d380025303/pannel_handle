@@ -200,6 +200,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
     },
     send(message) { return request("POST", path, message); },
     sendTeamMessage(message) { return request("POST", "/api/v1/team/messages/send", message, { rawJson: true }); },
+    renameSession(sessionId, name) { return request("POST", `/api/v1/sessions/${encodeURIComponent(sessionId)}/rename`, { name }, { rawJson: true }); },
     close() {
       if (closed) return Promise.resolve();
       const deleteHeaders = headers();

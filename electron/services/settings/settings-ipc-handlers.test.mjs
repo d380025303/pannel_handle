@@ -115,6 +115,18 @@ function createHarness(overrides = {}) {
 }
 
 describe("settings IPC handlers", () => {
+  it("normalizes title bar preferences and requires durable saving", () => {
+    const harness = createHarness();
+    const result = harness.ipcMain.handlers.get("config:set")({}, {
+      titleBarActionOrder: ["create", "create", "overview", "unknown"],
+      titleBarHiddenActions: ["terminal", "overview", "unknown", "terminal"]
+    });
+    expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
+      titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent"],
+      titleBarHiddenActions: ["terminal"]
+    }, { throwOnSaveError: true });
+    expect(result.titleBarHiddenActions).toEqual(["terminal"]);
+  });
   it("validates general configuration and synchronizes automatic check-in", () => {
     const harness = createHarness();
     const result = harness.ipcMain.handlers.get("config:set")({}, {
@@ -189,18 +201,24 @@ describe("settings IPC handlers", () => {
     const result = harness.ipcMain.handlers.get("config:set")({}, {
       terminalBackgroundImage: "123-bg.png",
       terminalBackgroundOpacity: 80,
-      terminalBackgroundBlur: 10
+      terminalBackgroundBlur: 10,
+      terminalBackgroundPositionX: -5,
+      terminalBackgroundPositionY: 140
     });
 
     expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
       terminalBackgroundImage: "123-bg.png",
       terminalBackgroundOpacity: 80,
-      terminalBackgroundBlur: 10
-    });
+      terminalBackgroundBlur: 10,
+      terminalBackgroundPositionX: 0,
+      terminalBackgroundPositionY: 100
+    }, { throwOnSaveError: true });
     expect(result).toMatchObject({
       terminalBackgroundImage: "123-bg.png",
       terminalBackgroundOpacity: 80,
-      terminalBackgroundBlur: 10
+      terminalBackgroundBlur: 10,
+      terminalBackgroundPositionX: 0,
+      terminalBackgroundPositionY: 100
     });
 
     harness.configStore.updateConfig.mockClear();

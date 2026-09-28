@@ -12,6 +12,7 @@ const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs")
 const { codeBuddyInheritanceArgs } = require("./codex-inheritance.cjs");
 const { createAcpProviderPolicy } = require("./provider-policy.cjs");
 const { normalizeCwd } = require("../conversation-history/history-values.cjs");
+const { isRewindMessageId, runRewindControl } = require("./rewind-control.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PUBLISH_COALESCE_MS = 50;
@@ -112,7 +113,7 @@ async function createRemoteChild(transportService, session, environment, provide
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager, historyService,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
   httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
-  onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {} }) {
+  onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl }) {
   const sessions = new Map();
   const publishTimers = new Map();
   const policy = createAcpProviderPolicy(provider);
@@ -262,7 +263,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
       approvals: [...entry.approvals.values()].map(value => value.display),
-      questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })), capabilities: entry.capabilities, provider };
+      questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })),
+      capabilities: { ...entry.capabilities, rewind: provider === "codebuddy" && entry.session.type === "windows"
+        && !entry.runtime.localBridge && isRewindMessageId(entry.threadId) }, provider };
   }
   async function listModelMetadata(id) {
     const entry = entryFor(id);
@@ -389,9 +392,17 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const conversationRequestId = update._meta?.["codebuddy.ai/conversationRequestId"];
     const turnId = entry.unsolicitedTurns.has(requestId) ? requestId : conversationRequestId || entry.turnId;
     if (kind === "agent_message_chunk" || kind === "agent_thought_chunk" || kind === "user_message_chunk") {
-      if (kind !== "user_message_chunk" || entry.loadingThreadId || member) appendText(items,
-        kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
-        update.content?.text, update.messageId, turnId);
+      if (kind === "user_message_chunk" && !entry.loadingThreadId && !member) {
+        const submitted = items.findLast(item => item.type === "userMessage" && item.turnId === turnId);
+        if (submitted && isRewindMessageId(update.messageId)) submitted.rewindMessageId = update.messageId;
+      } else if (kind !== "user_message_chunk" || entry.loadingThreadId || member) {
+        appendText(items, kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
+          update.content?.text, update.messageId, turnId);
+        if (kind === "user_message_chunk" && isRewindMessageId(update.messageId)) {
+          const loaded = items.findLast(item => item.type === "userMessage" && item.id === update.messageId);
+          if (loaded) loaded.rewindMessageId = update.messageId;
+        }
+      }
     } else if (kind === "tool_call" || kind === "tool_call_update") {
       const toolId = update.toolCallId;
       if (toolId) {
@@ -735,6 +746,59 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return { data: matching.map(value => ({ id: value.sessionId, title: value.title || "未命名会话",
       updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : value.updatedAt ? Date.parse(value.updatedAt) / 1000 || 0 : 0,
       source: agentName, status: "saved" })), nextCursor: result.nextCursor || null };
+  }
+  async function renameThread(id, threadId, name) {
+    const entry = entryFor(id);
+    if (provider !== "codebuddy" || !entry.httpTransport?.renameSession) throw new Error("当前会话不支持重命名。");
+    if (typeof threadId !== "string" || !entry.listedThreadIds.has(threadId)) throw new Error("只能重命名当前项目列出的历史会话。");
+    const title = String(name || "").trim();
+    if (!title || title.length > 200) throw new Error("会话名称须为 1 到 200 个字符。");
+    const result = await entry.httpTransport.renameSession(threadId, title);
+    if (result?.error) throw new Error(result.error.message || "CodeBuddy 重命名失败。");
+  }
+  async function rewind(id, messageId, scope) {
+    const entry = entryFor(id);
+    if (provider !== "codebuddy" || entry.session.type !== "windows" || entry.runtime.localBridge)
+      throw new Error("仅 Windows CodeBuddy 图形会话支持回退。");
+    if (entry.busy || entry.pendingPlan || entry.approvals.size || entry.questions.size)
+      throw new Error("请等待当前轮次及待确认请求结束后再回退。");
+    if (!entry.threadId || !isRewindMessageId(messageId) || !entry.items.some(item => item.type === "userMessage" && item.rewindMessageId === messageId))
+      throw new Error("所选消息没有可用的回退标识。");
+    if (!["Code", "Conversation", "CodeAndConversation"].includes(scope)) throw new Error("无效的回退范围。");
+    const session = entry.session;
+    const runtime = { ...entry.runtime, resumeThreadId: entry.threadId };
+    const environment = { ...process.env, ...entry.environment };
+    const cwd = workspace(entry);
+    const child = entry.child;
+    close(id);
+    let result;
+    let failure;
+    try {
+      if (child.exitCode == null) await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("等待 CodeBuddy 图形进程退出超时。")), 10000);
+        child.once("exit", () => { clearTimeout(timer); resolve(); });
+        if (child.exitCode != null) { clearTimeout(timer); resolve(); }
+      });
+      result = await rewindControl({ sessionId: runtime.resumeThreadId, messageId, scope, cwd, env: environment, spawnProcess });
+    } catch (error) { failure = error; }
+    try {
+      if (codexInheritanceManager) {
+        await codexInheritanceManager.cleanup(id);
+        delete runtime.inheritance;
+      }
+      await start(session, runtime);
+    } catch (error) {
+      throw new Error(`${failure ? `${failure.message}；` : ""}恢复 CodeBuddy 图形会话失败：${error.message}`);
+    }
+    if (failure) throw failure;
+    if (result.fileRewindError) {
+      const current = entryFor(id);
+      current.items.push({ id: `turn-error:rewind:${randomUUID()}`, type: "turnError", turnId: null,
+        text: `对话已回退，但部分文件恢复失败：${sanitizeDiagnostic(result.fileRewindError)}` });
+      publish(id);
+    }
+    return { snapshot: snapshot(id), filesChanged: result.filesChanged || [],
+      historyRewound: result.historyRewound === true, fileRewindError: result.fileRewindError || null };
   }
   async function resume(id, threadId) {
     const entry = entryFor(id);
@@ -1093,7 +1157,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     publish(id);
     status(id, entry, "running");
   }
-  return { start, restart, close, shutdown, snapshot, listModelMetadata, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, resume, newThread,
+  return { start, restart, close, shutdown, snapshot, listModelMetadata, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, renameThread, rewind, resume, newThread,
     setMode, setNativeMode, setModel, setContextWindow, setEffort, setMultitask, sendTeamMessage, setExecutionPermission, dismissPlan, executePlan, allowFiles, allowPastedImage, discardPastedImage, previewAttachment,
     submit, interrupt, resolveApproval, answerQuestion, cancelQuestion };
 }

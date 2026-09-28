@@ -41,6 +41,7 @@ function createMobileRemoteService({
   const overviewTimers = new Map();
   const lastOverviews = new Map();
   const overviewRevisions = new Map();
+  const agentStatuses = new Map();
   const uploads = createMobileUploads({ now });
   const files = createMobileFiles({ now });
 
@@ -55,7 +56,8 @@ function createMobileRemoteService({
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, getAgentUsage, stateHub, now,
-    auth, sizes, uploads, files, send, sendError
+    auth, sizes, uploads, files, send, sendError,
+    getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
     accessStore, getAddress: () => currentAddress, getStaticRoot, uploads, files
@@ -121,7 +123,7 @@ function createMobileRemoteService({
       if (!session) return;
       const revision = (overviewRevisions.get(sessionId) || 0) + 1;
       overviewRevisions.set(sessionId, revision);
-      void sessionOverview(session, graphicalService, stateHub).then(overview => {
+      void sessionOverview(session, graphicalService, stateHub, agentStatuses.get(sessionId)).then(overview => {
         if (!terminalManager.getSession(sessionId) || overviewRevisions.get(sessionId) !== revision) return;
         const serialized = JSON.stringify(overview);
         if (lastOverviews.get(sessionId) === serialized) return;
@@ -207,6 +209,7 @@ function createMobileRemoteService({
     overviewTimers.clear();
     lastOverviews.clear();
     overviewRevisions.clear();
+    agentStatuses.clear();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     auth.disconnectAll("service-stopped");
@@ -244,6 +247,14 @@ function createMobileRemoteService({
   }
 
   function handleDesktopEvent(channel, payload) {
+    if (channel === "agent:status") {
+      if (payload?.id) {
+        if (payload.status === "cleared") agentStatuses.delete(payload.id);
+        else agentStatuses.set(payload.id, payload);
+        queueOverview(payload.id);
+      }
+      return;
+    }
     if (channel === "codex-app-server:changed") {
       for (const client of auth.getClients()) socketHandlers.handleGraphicalChanged(client.socket, payload);
       if (payload?.id) queueOverview(payload.id);
@@ -278,6 +289,7 @@ function createMobileRemoteService({
       const ids = new Set(payload.map(session => session.id));
       for (const id of lastOverviews.keys()) if (!ids.has(id)) lastOverviews.delete(id);
       for (const id of overviewRevisions.keys()) if (!ids.has(id)) overviewRevisions.delete(id);
+      for (const id of agentStatuses.keys()) if (!ids.has(id)) agentStatuses.delete(id);
       for (const client of auth.getClients()) {
         const socket = client.socket;
         if (socket.readyState !== WebSocket.OPEN) continue;

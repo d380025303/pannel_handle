@@ -886,9 +886,10 @@ describe("CodeBuddy ACP sessions", () => {
   });
 
   it("routes graphical calls by session provider", () => {
-    const codex = { snapshot: vi.fn(() => "codex"), close: vi.fn(), shutdown: vi.fn() };
+    const codex = { snapshot: vi.fn(() => "codex"), renameThread: vi.fn(() => "codex renamed"), close: vi.fn(), shutdown: vi.fn() };
     const buddy = { snapshot: vi.fn(() => "buddy"), setMultitask: vi.fn(() => "enabled"),
-      sendTeamMessage: vi.fn(() => "sent"), close: vi.fn(), shutdown: vi.fn() };
+      sendTeamMessage: vi.fn(() => "sent"), renameThread: vi.fn(() => "buddy renamed"),
+      rewind: vi.fn(() => "rewound"), close: vi.fn(), shutdown: vi.fn() };
     const router = createGraphicalSessionRouter(codex, buddy, { getSession: id => ({ agentProvider: id === "buddy" ? "codebuddy" : "codex" }) });
     expect(router.snapshot("buddy")).toBe("buddy");
     expect(router.snapshot("codex")).toBe("codex");
@@ -898,9 +899,73 @@ describe("CodeBuddy ACP sessions", () => {
     expect(router.sendTeamMessage("buddy", "team", "member", "hello")).toBe("sent");
     expect(buddy.sendTeamMessage).toHaveBeenCalledWith("buddy", "team", "member", "hello");
     expect(() => router.sendTeamMessage("codex", "team", "member", "hello")).toThrow("只有 CodeBuddy");
+    expect(router.renameThread("buddy", "thread", "New title")).toBe("buddy renamed");
+    expect(router.renameThread("codex", "thread", "New title")).toBe("codex renamed");
+    expect(router.rewind("buddy", "message", "Code")).toBe("rewound");
+    expect(() => router.rewind("codex", "message", "Code")).toThrow("只有 CodeBuddy");
     router.close("buddy");
     expect(codex.close).toHaveBeenCalledWith("buddy");
     expect(buddy.close).toHaveBeenCalledWith("buddy");
+  });
+
+  it("rewinds a stable Windows user message and reloads the same ACP session", async () => {
+    const threadId = "0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+    const messageId = "0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+    const spawnProcess = vi.fn(() => {
+      const child = fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+        else if (message.method === "session/new" || message.method === "session/load") {
+          emit({ method: "session/update", params: { sessionId: threadId, update: {
+            sessionUpdate: "user_message_chunk", messageId, content: { type: "text", text: "Original prompt" } } } });
+          emit({ id: message.id, result: { sessionId: threadId } });
+        }
+      });
+      child.kill = vi.fn(() => { child.exitCode = 0; child.emit("exit", 0); });
+      return child;
+    });
+    const rewindControl = vi.fn(async () => ({ canRewind: true, historyRewound: true, filesChanged: ["src/a.ts"] }));
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess, rewindControl });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" }, { resumeThreadId: threadId });
+    expect(service.snapshot("one").items[0].rewindMessageId).toBe(messageId);
+    await expect(service.rewind("one", "invalid", "Code")).rejects.toThrow("回退标识");
+    const result = await service.rewind("one", messageId, "CodeAndConversation");
+    expect(result).toMatchObject({ snapshot: { threadId }, historyRewound: true, filesChanged: ["src/a.ts"] });
+    expect(rewindControl).toHaveBeenCalledWith(expect.objectContaining({ sessionId: threadId, messageId, scope: "CodeAndConversation" }));
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+    rewindControl.mockRejectedValueOnce(new Error("checkpoint unavailable"));
+    await expect(service.rewind("one", messageId, "Code")).rejects.toThrow("checkpoint unavailable");
+    expect(service.snapshot("one").threadId).toBe(threadId);
+    expect(spawnProcess).toHaveBeenCalledTimes(3);
+    rewindControl.mockResolvedValueOnce({ canRewind: true, historyRewound: true, fileRewindError: "locked file" });
+    const partial = await service.rewind("one", messageId, "CodeAndConversation");
+    expect(partial.fileRewindError).toBe("locked file");
+    expect(partial.snapshot.items.at(-1)).toMatchObject({ type: "turnError", text: expect.stringContaining("locked file") });
+    service.shutdown();
+  });
+
+  it("renames only listed CodeBuddy history through the public HTTP endpoint", async () => {
+    const renameSession = vi.fn(async () => ({ data: { name: "New title" } }));
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "current" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      historyService: { listHistoryForSession: async () => ({ items: [
+        { ref: "codebuddy:old", provider: "codebuddy", cwd: "C:\\work", title: "Old" }], errors: [] }) },
+      httpTransportFactory: () => {
+        const events = new EventEmitter();
+        readline.createInterface({ input: child.stdout }).on("line", line => events.emit("message", JSON.parse(line)));
+        return { on: (name, listener) => events.on(name, listener), connect: async () => {},
+          send: async message => { child.stdin.write(`${JSON.stringify(message)}\n`); }, renameSession, close: () => {} };
+      } });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.listHistory("one");
+    await expect(service.renameThread("one", "other", "New title")).rejects.toThrow("当前项目");
+    await service.renameThread("one", "old", " New title ");
+    expect(renameSession).toHaveBeenCalledWith("old", "New title");
+    service.shutdown();
   });
 
   it("loads only listed history for this workspace and restores replayed messages", async () => {

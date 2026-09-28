@@ -208,10 +208,9 @@ export default function App() {
             const overview = remote.overviews[session.id];
             return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>
               <button type="button" className="mobile-home-card-main" onClick={() => { setActiveId(session.id); setView("detail"); }} aria-label={`打开${session.title}详情`}>
-                <div className="mobile-home-card-top"><span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span><span className="mobile-home-status" data-status={overview?.status}>{overview?.status ?? "获取状态中"}</span></div>
+                <div className="mobile-home-card-top"><span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span><span className="mobile-home-status" data-status={overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span></div>
                 <strong>{session.title}</strong>
                 <p>{overview?.summary ?? "正在获取最近内容…"}</p>
-                <span className="mobile-home-card-open">查看详情 ›</span>
               </button>
               <div className="mobile-home-card-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button type="button" className="danger" onClick={() => closeSession(session)}>关闭</button></div>
             </article>;

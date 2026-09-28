@@ -97,6 +97,8 @@ export type LaunchTemplateApi = {
 
 export type ThemeId = "dark-slate" | "dark-blue" | "dark-green" | "light";
 export type Locale = "zh-CN" | "en-US";
+export type { TitleBarActionId } from "./components/app/titleBarActions";
+import type { TitleBarActionId } from "./components/app/titleBarActions";
 
 export type WindowsShell = "cmd" | "powershell" | "pwsh";
 
@@ -108,6 +110,8 @@ export type AppConfig = {
   debugMode: boolean;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
+  titleBarActionOrder: TitleBarActionId[];
+  titleBarHiddenActions: TitleBarActionId[];
   lastActiveSessionIds: string[];
   themeId: ThemeId;
   locale: Locale;
@@ -116,6 +120,8 @@ export type AppConfig = {
   terminalBackgroundImage: string;
   terminalBackgroundOpacity: number;
   terminalBackgroundBlur: number;
+  terminalBackgroundPositionX: number;
+  terminalBackgroundPositionY: number;
 };
 
 export type MobileAccessInterface = { name: string; address: string };
@@ -990,10 +996,13 @@ export type CodexAppServerSnapshot = {
   availableCommands?: Array<{ name: string; description: string }>;
   codexInheritance?: { skills: string[]; mcpServers: string[]; warnings: string[] };
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
-  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; supportedPermissions?: CodexExecutionPermission[] };
+  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
   account?: CodexAccountState | null;
+  mcpRuntime?: Array<{ name: string; status: string; error: string | null; failureReason: string | null }>;
+  mcpLogins?: Array<{ name: string; status: "pending" | "refreshing" | "failed"; error: string | null }>;
+  mcpReload?: { status: "idle" | "reloading" | "queued" | "failed"; error: string | null };
   models?: Array<{ id: string; displayName: string; fastAvailable: boolean; defaultReasoningEffort: string | null;
     supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }> }>;
   effort?: string | null;
@@ -1013,7 +1022,7 @@ export type CodexAppServerSnapshot = {
   goalError?: string | null;
   error: string | null;
   pendingPlan: { itemId: string } | null;
-  items: Array<{ id: string; type: string; turnId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
+  items: Array<{ id: string; type: string; turnId?: string; rewindMessageId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
     result?: unknown; locations?: Array<{ path?: string; uri?: string }>;
     attachments?: Array<{ path: string; name: string }>;
@@ -1065,6 +1074,7 @@ export type CodexSessionCapabilities = {
   skills: Array<{ name: string; path: string; description: string; enabled: boolean; scope: string }>;
   apps: Array<{ id: string; name: string; description: string; accessible: boolean; enabled: boolean; callable: boolean }>;
   mcp: Array<{ name: string; status: string; authStatus: string; toolsError: string | null;
+    error?: string | null; failureReason?: string | null;
     tools: Array<{ name: string; description: string }> }>;
   errors: { skills?: string; apps?: string; mcp?: string };
 };
@@ -1080,11 +1090,15 @@ export type CodexAppServerApi = {
   listHistory: (id: string, cursor?: string | null, archived?: boolean, isPinned?: boolean | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
   readInitialUserInput: (id: string, threadId: string) => Promise<{ text: string; attachments: Array<{ path: string; name: string }> } | null>;
   renameThread: (id: string, threadId: string, name: string) => Promise<void>;
+  rewind: (id: string, messageId: string, scope: "Code" | "Conversation" | "CodeAndConversation") => Promise<{
+    snapshot: CodexAppServerSnapshot; filesChanged: string[]; historyRewound: boolean; fileRewindError: string | null }>;
   pinThread: (id: string, threadId: string, isPinned: boolean) => Promise<{ isPinned: boolean }>;
   forkThread: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   archiveThread: (id: string, threadId: string) => Promise<void>;
   unarchiveThread: (id: string, threadId: string) => Promise<void>;
   listCapabilities: (id: string, refresh?: boolean) => Promise<CodexSessionCapabilities>;
+  loginMcpServer: (id: string, name: string) => Promise<{ authorizationUrl: string }>;
+  reloadMcpServers: (id: string) => Promise<void>;
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
   compactThread: (id: string) => Promise<CodexAppServerSnapshot>;

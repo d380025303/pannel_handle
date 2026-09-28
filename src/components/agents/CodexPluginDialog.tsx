@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Package, Plus, RefreshCw, X } from "lucide-react";
-import type { CodexPluginCatalog, CodexPluginScope, TerminalSession } from "../../vite-env";
+import type { CodexAppServerSnapshot, CodexPluginCatalog, CodexPluginScope, CodexSessionCapabilities, TerminalSession } from "../../vite-env";
 import { McpManager } from "../mcp/McpManager";
 
 type Plugin = Record<string, unknown>;
@@ -14,9 +14,16 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   const [catalog, setCatalog] = useState<CodexPluginCatalog | null>(null);
   const [tab, setTab] = useState<"plugins" | "mcp">("plugins");
   const [showAvailable, setShowAvailable] = useState(false);
-  const [mcpState, setMcpState] = useState<{ sessionId: string; statuses: Array<{ name: string; status: string }> | null; error: string }>({ sessionId, statuses: null, error: "" });
+  const [mcpState, setMcpState] = useState<{ sessionId: string; statuses: CodexSessionCapabilities["mcp"] | null; error: string }>({ sessionId, statuses: null, error: "" });
   const [mcpRefresh, setMcpRefresh] = useState(0);
   const [mcpDirty, setMcpDirty] = useState(false);
+  const [mcpLive, setMcpLive] = useState<Pick<CodexAppServerSnapshot, "mcpRuntime" | "mcpLogins" | "mcpReload">>({});
+  const [mcpActionError, setMcpActionError] = useState("");
+  const [mcpBusy, setMcpBusy] = useState(false);
+  const [authorizationUrls, setAuthorizationUrls] = useState<Record<string, string>>({});
+  const reloadQueue = useRef<Promise<void>>(Promise.resolve());
+  const currentSession = useRef(sessionId);
+  currentSession.current = sessionId;
   const [scope, setScope] = useState<CodexPluginScope>("project");
   const [overrides, setOverrides] = useState<Record<string, { enabled?: boolean }>>({});
   const [query, setQuery] = useState("");
@@ -34,6 +41,9 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
     return () => { active = false; };
   }, [sessionId]);
   useEffect(() => {
+    if (mcpLive.mcpReload?.status === "queued") setMcpRefresh(value => value + 1);
+  }, [mcpLive.mcpReload?.status]);
+  useEffect(() => {
     let active = true;
     void window.codexPluginApi.readConfig(sessionId, scope)
       .then(config => { if (active) setOverrides(config.overrides || {}); })
@@ -46,12 +56,50 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
     void window.codexAppServerApi.listCapabilities(sessionId)
       .then(result => { if (active) setMcpState(result.errors?.mcp
         ? { sessionId, statuses: null, error: result.errors.mcp }
-        : { sessionId, statuses: result.mcp.map(item => ({ name: item.name, status: item.status })), error: "" }); })
+        : { sessionId, statuses: result.mcp, error: "" }); })
       .catch(cause => { if (active) setMcpState({ sessionId, statuses: null, error: errorText(cause) }); });
     return () => { active = false; };
   }, [sessionId, mcpRefresh]);
-  const mcpStatuses = mcpState.sessionId === sessionId ? mcpState.statuses : null;
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    setMcpLive({}); setMcpActionError(""); setMcpBusy(false); setAuthorizationUrls({});
+    if (window.codexAppServerApi.snapshot) void window.codexAppServerApi.snapshot(sessionId)
+      .then(value => { if (active && revision === 0) setMcpLive(value); }).catch(() => {});
+    const off = window.codexAppServerApi.onChanged?.(payload => {
+      if (active && payload.id === sessionId) { revision += 1; setMcpLive(payload.snapshot); }
+    });
+    return () => { active = false; off?.(); };
+  }, [sessionId]);
+  const mcpStatuses = mcpState.sessionId === sessionId ? mcpState.statuses?.map(item => ({
+    ...item, ...(mcpLive.mcpRuntime?.find(value => value.name === item.name) || {})
+  })) || null : null;
   const mcpError = mcpState.sessionId === sessionId ? mcpState.error : "";
+  async function reloadMcp(afterSave = false) {
+    const targetSession = sessionId;
+    const run = async () => {
+      if (currentSession.current === targetSession) { setMcpBusy(true); setMcpActionError(""); }
+      try {
+        await window.codexAppServerApi.reloadMcpServers(targetSession);
+        if (currentSession.current === targetSession) setMcpRefresh(value => value + 1);
+      } catch (cause) {
+        if (currentSession.current === targetSession) setMcpActionError(`${afterSave ? "配置已保存，但当前会话重载失败：" : "MCP 重载失败："}${errorText(cause)}`);
+      } finally { if (currentSession.current === targetSession) setMcpBusy(false); }
+    };
+    const operation = reloadQueue.current.then(run, run);
+    reloadQueue.current = operation;
+    await operation;
+  }
+  async function reconnectMcp(name: string) {
+    const targetSession = sessionId;
+    setMcpActionError("");
+    try {
+      const result = await window.codexAppServerApi.loginMcpServer(targetSession, name);
+      if (currentSession.current !== targetSession) return;
+      setAuthorizationUrls(current => ({ ...current, [name]: result.authorizationUrl }));
+      await window.externalLinkApi.open(result.authorizationUrl);
+    } catch (cause) { if (currentSession.current === targetSession) setMcpActionError(`${name} 重新连接失败：${errorText(cause)}`); }
+  }
   const installed = useMemo(() => (catalog?.installed || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
   const available = useMemo(() => (catalog?.available || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
   async function act(action: () => Promise<CodexPluginCatalog | { overrides: Record<string, { enabled?: boolean }>; pluginId: string; enabled: boolean }>, changed = true) {
@@ -132,16 +180,34 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
         </section></>}
       </div></> : <div className="codex-plugin-mcp">
         <section className="codex-plugin-mcp-runtime" aria-label="当前会话 MCP">
-          <div className="codex-plugin-mcp-runtime-heading"><div><h3>当前会话 MCP</h3><p>当前图形会话已发现的服务；配置修改需开启新会话后加载。</p></div>
+          <div className="codex-plugin-mcp-runtime-heading"><div><h3>当前会话 MCP</h3><p>配置修改后会请求当前会话重载；连接状态以 Codex 后续通知为准。</p></div>
             <button type="button" aria-label="刷新当前会话 MCP" onClick={() => setMcpRefresh(value => value + 1)}><RefreshCw aria-hidden="true" />刷新</button></div>
+          <button type="button" disabled={mcpBusy || mcpLive.mcpReload?.status === "reloading"} onClick={() => void reloadMcp()}>{mcpBusy || mcpLive.mcpReload?.status === "reloading" ? "正在重载 MCP…" : "重载 MCP"}</button>
+          {mcpActionError && <p role="alert">{mcpActionError}</p>}
+          {mcpLive.mcpReload?.status === "failed" && mcpLive.mcpReload.error && <p role="alert">MCP 重载失败：{mcpLive.mcpReload.error}</p>}
+          {mcpLive.mcpReload?.status === "queued" && <p role="status">已请求重载，等待服务启动状态更新。</p>}
           {mcpError ? <p role="alert">读取当前会话 MCP 失败：{mcpError}</p>
             : mcpStatuses === null ? <p>正在读取当前会话 MCP…</p>
-              : mcpStatuses.length ? <ul>{mcpStatuses.map(item => <li key={item.name}><strong>{item.name}</strong><span>{item.status}</span></li>)}</ul>
+              : mcpStatuses.length ? <ul>{mcpStatuses.map(item => {
+                const login = mcpLive.mcpLogins?.find(value => value.name === item.name);
+                return <li key={item.name}><div className="codex-plugin-mcp-runtime-details"><strong>{item.name}</strong><span>{item.status}</span>
+                  {item.error && <span role="alert">{item.error}</span>}
+                  {login?.error && <span role="alert">{login.error}</span>}
+                  {login?.status === "pending" && <span>等待浏览器授权…</span>}
+                  {login?.status === "refreshing" && <span>授权完成，正在刷新连接…</span>}</div>
+                  <div className="codex-plugin-mcp-runtime-actions">
+                  {(item.failureReason === "reauthenticationRequired" || item.status === "authenticationRequired"
+                    || (item.authStatus === "notLoggedIn" && item.status !== "connected" && item.status !== "ready") || login?.status === "failed")
+                    && <button type="button" disabled={login?.status === "pending" || login?.status === "refreshing"}
+                    onClick={() => void reconnectMcp(item.name)}>重新连接</button>}
+                  {authorizationUrls[item.name] && login?.status === "pending" && <button type="button" onClick={() => void window.externalLinkApi.open(authorizationUrls[item.name]).catch(cause => setMcpActionError(errorText(cause)))}>打开授权页面</button>}
+                  </div></li>;
+              })}</ul>
                 : <p>当前会话没有 MCP 服务。</p>}
         </section>
         <div className="codex-plugin-mcp-config"><h3>配置文件</h3><p>按用户级或项目级查看和编辑配置。此处仅显示所选作用域中的服务。</p></div>
         {session ? <McpManager key={sessionId} session={session} embeddedCodex runtimeStatuses={mcpStatuses || []}
-          onDirtyChange={setMcpDirty} onRegisterSave={() => undefined} /> : <p>当前会话信息不可用。</p>}
+          onDirtyChange={setMcpDirty} onRegisterSave={() => undefined} onCommitted={() => void reloadMcp(true)} /> : <p>当前会话信息不可用。</p>}
       </div>}
     </section>
   </div>;

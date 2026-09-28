@@ -10,6 +10,7 @@ import type {
   RemoteFileEntry,
   TerminalSession
 } from "../vite-env";
+import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "../components/app/titleBarActions";
 
 type Listener<T> = (value: T) => void;
 
@@ -82,6 +83,8 @@ const initialConfig: AppConfig = {
   debugMode: false,
   screenshotEnabled: true,
   screenshotShortcut: "Ctrl+Shift+A",
+  titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
+  titleBarHiddenActions: [],
   lastActiveSessionIds: savedSessions.map((session) => session.id),
   themeId: "dark-slate",
   locale: "zh-CN",
@@ -89,7 +92,9 @@ const initialConfig: AppConfig = {
   rightToolsWidth: 380,
   terminalBackgroundImage: "",
   terminalBackgroundOpacity: 40,
-  terminalBackgroundBlur: 0
+  terminalBackgroundBlur: 0,
+  terminalBackgroundPositionX: 50,
+  terminalBackgroundPositionY: 50
 };
 
 const initialTransfers: FileTransferTask[] = [
@@ -441,10 +446,13 @@ export function installBrowserPreview() {
       refreshAccountUsage: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       listHistory: async () => ({ data: [], nextCursor: null }),
       readInitialUserInput: async () => null,
+      rewind: async () => { throw new Error("预览模式不支持 CodeBuddy 回退。"); },
       listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: true, scope: "user" }],
         apps: [{ id: "github", name: "GitHub", description: "代码托管", accessible: true, enabled: true, callable: true }],
         mcp: [{ name: "filesystem", status: "connected", authStatus: "unsupported", toolsError: null,
           tools: [{ name: "read_file", description: "读取文件" }] }], errors: {} }),
+      loginMcpServer: async () => ({ authorizationUrl: "https://example.com/oauth" }),
+      reloadMcpServers: async () => undefined,
       resume: async (_id, threadId) => ({ threadId, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       newThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       renameThread: async () => undefined,

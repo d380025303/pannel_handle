@@ -5,6 +5,22 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
+const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"];
+const VALID_TITLE_BAR_ACTIONS = new Set(DEFAULT_TITLE_BAR_ACTION_ORDER);
+function normalizeTitleBarActionOrder(value) {
+  const seen = new Set();
+  const ordered = [];
+  for (const id of Array.isArray(value) ? value : []) {
+    if (VALID_TITLE_BAR_ACTIONS.has(id) && !seen.has(id)) {
+      seen.add(id);
+      ordered.push(id);
+    }
+  }
+  return [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id))];
+}
+function normalizeTitleBarHiddenActions(value) {
+  return DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => Array.isArray(value) && value.includes(id));
+}
 function normalizeThemeId(themeId) {
   return VALID_THEME_IDS.has(themeId) ? themeId : DEFAULT_THEME_ID;
 }
@@ -20,6 +36,7 @@ function normalizeWindowsShell(value) {
 const DEFAULT_TERMINAL_BACKGROUND_IMAGE = "";
 const DEFAULT_TERMINAL_BACKGROUND_OPACITY = 40;
 const DEFAULT_TERMINAL_BACKGROUND_BLUR = 0;
+const DEFAULT_TERMINAL_BACKGROUND_POSITION = 50;
 
 function normalizeTerminalBackgroundImage(value) {
   if (typeof value !== "string") return DEFAULT_TERMINAL_BACKGROUND_IMAGE;
@@ -41,6 +58,11 @@ function normalizeTerminalBackgroundBlur(value) {
   return Math.min(40, Math.max(0, Math.round(value)));
 }
 
+function normalizeTerminalBackgroundPosition(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_TERMINAL_BACKGROUND_POSITION;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
 function createConfigStore({ configFile, dataStore }) {
   let legacyCodexAppServerEnabled = true;
   let config = {
@@ -51,6 +73,8 @@ function createConfigStore({ configFile, dataStore }) {
     debugMode: false,
     screenshotEnabled: true,
     screenshotShortcut: DEFAULT_SCREENSHOT_SHORTCUT,
+    titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
+    titleBarHiddenActions: [],
     lastActiveSessionIds: [],
     themeId: DEFAULT_THEME_ID,
     locale: DEFAULT_LOCALE,
@@ -58,7 +82,9 @@ function createConfigStore({ configFile, dataStore }) {
     rightToolsWidth: 380,
     terminalBackgroundImage: DEFAULT_TERMINAL_BACKGROUND_IMAGE,
     terminalBackgroundOpacity: DEFAULT_TERMINAL_BACKGROUND_OPACITY,
-    terminalBackgroundBlur: DEFAULT_TERMINAL_BACKGROUND_BLUR
+    terminalBackgroundBlur: DEFAULT_TERMINAL_BACKGROUND_BLUR,
+    terminalBackgroundPositionX: DEFAULT_TERMINAL_BACKGROUND_POSITION,
+    terminalBackgroundPositionY: DEFAULT_TERMINAL_BACKGROUND_POSITION
   };
 
   function serializeConfig() {
@@ -70,6 +96,8 @@ function createConfigStore({ configFile, dataStore }) {
       debugMode: config.debugMode,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
+      titleBarActionOrder: config.titleBarActionOrder,
+      titleBarHiddenActions: config.titleBarHiddenActions,
       lastActiveSessionIds: config.lastActiveSessionIds,
       themeId: config.themeId,
       locale: config.locale,
@@ -77,7 +105,9 @@ function createConfigStore({ configFile, dataStore }) {
       rightToolsWidth: config.rightToolsWidth,
       terminalBackgroundImage: config.terminalBackgroundImage,
       terminalBackgroundOpacity: config.terminalBackgroundOpacity,
-      terminalBackgroundBlur: config.terminalBackgroundBlur
+      terminalBackgroundBlur: config.terminalBackgroundBlur,
+      terminalBackgroundPositionX: config.terminalBackgroundPositionX,
+      terminalBackgroundPositionY: config.terminalBackgroundPositionY
     };
   }
 
@@ -94,6 +124,8 @@ function createConfigStore({ configFile, dataStore }) {
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
           screenshotShortcut: normalizeScreenshotShortcut(parsed.screenshotShortcut) || DEFAULT_SCREENSHOT_SHORTCUT,
+          titleBarActionOrder: normalizeTitleBarActionOrder(parsed.titleBarActionOrder),
+          titleBarHiddenActions: normalizeTitleBarHiddenActions(parsed.titleBarHiddenActions),
           lastActiveSessionIds: Array.isArray(parsed.lastActiveSessionIds)
             ? parsed.lastActiveSessionIds.filter(id => typeof id === "string")
             : [],
@@ -107,7 +139,9 @@ function createConfigStore({ configFile, dataStore }) {
             ? parsed.rightToolsWidth : 380,
           terminalBackgroundImage: normalizeTerminalBackgroundImage(parsed.terminalBackgroundImage),
           terminalBackgroundOpacity: normalizeTerminalBackgroundOpacity(parsed.terminalBackgroundOpacity),
-          terminalBackgroundBlur: normalizeTerminalBackgroundBlur(parsed.terminalBackgroundBlur)
+          terminalBackgroundBlur: normalizeTerminalBackgroundBlur(parsed.terminalBackgroundBlur),
+          terminalBackgroundPositionX: normalizeTerminalBackgroundPosition(parsed.terminalBackgroundPositionX),
+          terminalBackgroundPositionY: normalizeTerminalBackgroundPosition(parsed.terminalBackgroundPositionY)
         };
       }
     } catch (err) {
@@ -116,11 +150,12 @@ function createConfigStore({ configFile, dataStore }) {
     }
   }
 
-  function saveConfig() {
+  function saveConfig(throwOnError = false) {
     try {
       writeJson(dataStore, configFile, serializeConfig());
     } catch (err) {
       console.error("Failed to save config:", err);
+      if (throwOnError) throw err;
     }
   }
 
@@ -133,6 +168,8 @@ function createConfigStore({ configFile, dataStore }) {
       debugMode: config.debugMode,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
+      titleBarActionOrder: [...config.titleBarActionOrder],
+      titleBarHiddenActions: [...config.titleBarHiddenActions],
       lastActiveSessionIds: [...config.lastActiveSessionIds],
       themeId: config.themeId,
       locale: config.locale,
@@ -140,11 +177,14 @@ function createConfigStore({ configFile, dataStore }) {
       rightToolsWidth: config.rightToolsWidth,
       terminalBackgroundImage: config.terminalBackgroundImage,
       terminalBackgroundOpacity: config.terminalBackgroundOpacity,
-      terminalBackgroundBlur: config.terminalBackgroundBlur
+      terminalBackgroundBlur: config.terminalBackgroundBlur,
+      terminalBackgroundPositionX: config.terminalBackgroundPositionX,
+      terminalBackgroundPositionY: config.terminalBackgroundPositionY
     };
   }
 
-  function updateConfig(partial) {
+  function updateConfig(partial, options = {}) {
+    const previousConfig = options.throwOnSaveError ? { ...config } : null;
     if (partial && typeof partial === "object") {
       if (Object.hasOwn(partial, "defaultWindowsShell")) {
         config.defaultWindowsShell = normalizeWindowsShell(partial.defaultWindowsShell);
@@ -194,8 +234,25 @@ function createConfigStore({ configFile, dataStore }) {
       if (typeof partial.terminalBackgroundBlur === "number") {
         config.terminalBackgroundBlur = normalizeTerminalBackgroundBlur(partial.terminalBackgroundBlur);
       }
+      if (Array.isArray(partial.titleBarActionOrder)) {
+        config.titleBarActionOrder = normalizeTitleBarActionOrder(partial.titleBarActionOrder);
+      }
+      if (Array.isArray(partial.titleBarHiddenActions)) {
+        config.titleBarHiddenActions = normalizeTitleBarHiddenActions(partial.titleBarHiddenActions);
+      }
+      if (typeof partial.terminalBackgroundPositionX === "number") {
+        config.terminalBackgroundPositionX = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionX);
+      }
+      if (typeof partial.terminalBackgroundPositionY === "number") {
+        config.terminalBackgroundPositionY = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionY);
+      }
     }
-    saveConfig();
+    try {
+      saveConfig(options.throwOnSaveError);
+    } catch (error) {
+      config = previousConfig;
+      throw error;
+    }
   }
 
   return {
@@ -208,6 +265,9 @@ function createConfigStore({ configFile, dataStore }) {
 }
 
 module.exports = {
+  DEFAULT_TITLE_BAR_ACTION_ORDER,
+  normalizeTitleBarActionOrder,
+  normalizeTitleBarHiddenActions,
   DEFAULT_THEME_ID,
   VALID_THEME_IDS,
   DEFAULT_LOCALE,
@@ -215,10 +275,12 @@ module.exports = {
   DEFAULT_TERMINAL_BACKGROUND_IMAGE,
   DEFAULT_TERMINAL_BACKGROUND_OPACITY,
   DEFAULT_TERMINAL_BACKGROUND_BLUR,
+  DEFAULT_TERMINAL_BACKGROUND_POSITION,
   createConfigStore,
   normalizeThemeId,
   normalizeLocale,
   normalizeTerminalBackgroundImage,
   normalizeTerminalBackgroundOpacity,
-  normalizeTerminalBackgroundBlur
+  normalizeTerminalBackgroundBlur,
+  normalizeTerminalBackgroundPosition
 };

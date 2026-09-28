@@ -1,6 +1,6 @@
 import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { SetStateAction } from "react";
 import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
@@ -12,7 +12,8 @@ import { AgentSwitcher } from "./components/agents/AgentSwitcher";
 import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
-import { CodexAppServerSession, type CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
+import type { CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
+import { GraphicalSessionPanel } from "./components/agents/GraphicalSessionPanel";
 import type { CodexCapabilityReference } from "./vite-env";
 import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
@@ -22,7 +23,6 @@ import { IdeaRunPanel } from "./components/idea/IdeaRunPanel";
 import { HookInstallModal } from "./components/agents/HookInstallModal";
 import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
-import { SessionOverview } from "./components/sessions/SessionOverview";
 import { getAgentProviderLabel } from "./components/sessions/agentProviders";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { TerminalComposer } from "./components/terminal/TerminalComposer";
@@ -34,6 +34,8 @@ import { resolveCodexFileLink } from "./utils/codexFileLink";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
+import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "./components/app/titleBarActions";
+import type { TitleBarActionId } from "./components/app/titleBarActions";
 import { SkillsManager } from "./components/skills/SkillsManager";
 import { McpManager } from "./components/mcp/McpManager";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
@@ -57,6 +59,7 @@ import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend,
 
 type ProjectSearchMode = "files" | "text";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
+const emptyDraftReferences: CodexCapabilityReference[] = [];
 
 function isEditableShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -70,15 +73,15 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 }
 
 function hasBlockingOverlay() {
-  return Boolean(document.querySelector(
+  return Array.from(document.querySelectorAll<HTMLElement>(
     ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .git-stash-overlay, .project-search-overlay"
-  ));
+  )).some(overlay => !overlay.closest('[aria-hidden="true"]'));
 }
 
 function getBlockingOverlayDiagnostics() {
   const overlays = Array.from(document.querySelectorAll<HTMLElement>(
     ".modal-overlay, .remote-preview-overlay, .git-diff-overlay, .git-stash-overlay, .project-search-overlay"
-  ));
+  )).filter(overlay => !overlay.closest('[aria-hidden="true"]'));
   const activeElement = document.activeElement;
   const activeElementSummary = activeElement instanceof HTMLElement
     ? {
@@ -109,7 +112,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [hookInstallSession, setHookInstallSession] = useState<TerminalSession | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showTokenStats, setShowTokenStats] = useState(false);
-  const [showSessionOverview, setShowSessionOverview] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [showProjectAssistant, setShowProjectAssistant] = useState(false);
@@ -117,6 +119,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [debugMode, setDebugMode] = useState(false);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
   const [screenshotShortcut, setScreenshotShortcut] = useState(DEFAULT_SCREENSHOT_SHORTCUT);
+  const [titleBarActionOrder, setTitleBarActionOrder] = useState<TitleBarActionId[]>(DEFAULT_TITLE_BAR_ACTION_ORDER);
+  const [titleBarHiddenActions, setTitleBarHiddenActions] = useState<TitleBarActionId[]>([]);
   const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
   const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
@@ -126,6 +130,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [terminalBackgroundImage, setTerminalBackgroundImage] = useState("");
   const [terminalBackgroundOpacity, setTerminalBackgroundOpacity] = useState(40);
   const [terminalBackgroundBlur, setTerminalBackgroundBlur] = useState(0);
+  const [terminalBackgroundPositionX, setTerminalBackgroundPositionX] = useState(50);
+  const [terminalBackgroundPositionY, setTerminalBackgroundPositionY] = useState(50);
+  const savedTerminalBackgroundPosition = useRef({ x: 50, y: 50 });
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
@@ -149,7 +156,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const saveAllRemoteFilesRef = useRef<(() => Promise<boolean>) | null>(null);
   const saveMcpRef = useRef<(() => Promise<boolean>) | null>(null);
   const lastBlockingOverlaySignatureRef = useRef("");
-  const appServerSessionRef = useRef<CodexAppServerSessionHandle>(null);
+  const appServerSessionRefs = useRef(new Map<string, CodexAppServerSessionHandle>());
   const appServerSessionIdsRef = useRef(new Set<string>());
   const workspaceTabBySessionRef = useRef(new Map<string, WorkspaceTab>());
   const filePanelNavigationBySessionRef = useRef(new Map<string, RemoteFilePanelNavigationState>());
@@ -196,9 +203,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const terminalBackground = useMemo(() => {
     const imageUrl = getTerminalBackgroundUrl(terminalBackgroundImage);
     return imageUrl
-      ? { imageUrl, opacity: terminalBackgroundOpacity, blur: terminalBackgroundBlur }
+      ? { imageUrl, opacity: terminalBackgroundOpacity, blur: terminalBackgroundBlur, positionX: terminalBackgroundPositionX, positionY: terminalBackgroundPositionY }
       : undefined;
-  }, [terminalBackgroundImage, terminalBackgroundOpacity, terminalBackgroundBlur]);
+  }, [terminalBackgroundImage, terminalBackgroundOpacity, terminalBackgroundBlur, terminalBackgroundPositionX, terminalBackgroundPositionY]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
     isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
@@ -211,6 +218,26 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   });
   const canSearchProject = Boolean(terminalSessions.activeSession);
   const activeSessionId = terminalSessions.activeSession?.id;
+  const handleAppServerDraftChange = useCallback((sessionId: string, value: SetStateAction<string>) => {
+    setAppServerDrafts(current => {
+      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
+      const nextDraft = typeof value === "function" ? value(current[sessionId] ?? "") : value;
+      if (nextDraft === (current[sessionId] ?? "")) return current;
+      if (!nextDraft) {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      }
+      return { ...current, [sessionId]: nextDraft };
+    });
+  }, []);
+  const handleAppServerDraftReferencesChange = useCallback((sessionId: string, value: SetStateAction<CodexCapabilityReference[]>) => {
+    setAppServerDraftReferences(current => {
+      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
+      const next = typeof value === "function" ? value(current[sessionId] ?? []) : value;
+      return { ...current, [sessionId]: next };
+    });
+  }, []);
 
   const handleCaptureScreenshot = useCallback(async () => {
     if (!screenshotEnabled) return;
@@ -294,6 +321,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setDebugMode(config.debugMode);
         setScreenshotEnabled(config.screenshotEnabled);
         setScreenshotShortcut(config.screenshotShortcut);
+        setTitleBarActionOrder(config.titleBarActionOrder);
+        setTitleBarHiddenActions(config.titleBarHiddenActions);
         setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
         setAutoCollapseFileChains(config.autoCollapseFileChains);
         setThemeId(config.themeId);
@@ -303,6 +332,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setTerminalBackgroundImage(config.terminalBackgroundImage);
         setTerminalBackgroundOpacity(config.terminalBackgroundOpacity);
         setTerminalBackgroundBlur(config.terminalBackgroundBlur);
+        setTerminalBackgroundPositionX(config.terminalBackgroundPositionX);
+        setTerminalBackgroundPositionY(config.terminalBackgroundPositionY);
+        savedTerminalBackgroundPosition.current = { x: config.terminalBackgroundPositionX, y: config.terminalBackgroundPositionY };
       }
     });
     return () => {
@@ -424,7 +456,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         persist: false
       });
       setShowTokenStats(false);
-      setShowSessionOverview(false);
       setShowSkills(false);
       setShowMcp(false);
       setShowProjectAssistant(false);
@@ -511,9 +542,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     });
   }, [terminalSessions.activeSession]);
 
-  const handleAppServerLink = useCallback((href: string) => {
-    const session = terminalSessions.activeSession;
-    if (!session) return;
+  const handleAppServerLink = useCallback((session: TerminalSession, href: string) => {
     setAppServerLinkError(null);
     const target = resolveCodexFileLink(session.cwd, href);
     if (target.kind === "ignore") return;
@@ -528,7 +557,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool("files");
     fileOpenRequestIdRef.current += 1;
     setFileOpenRequest({ sessionId: session.id, path: target.path, line: target.line, requestId: fileOpenRequestIdRef.current });
-  }, [setRightTool, terminalSessions.activeSession]);
+  }, [setRightTool]);
 
   const handleFileOpenRequestHandled = useCallback((requestId: number) => {
     setFileOpenRequest((current) => current?.requestId === requestId ? null : current);
@@ -632,6 +661,30 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setTerminalBackgroundBlur(config.terminalBackgroundBlur);
   }, []);
 
+  const handleTitleBarActionsChange = useCallback(async (change: { titleBarActionOrder?: TitleBarActionId[]; titleBarHiddenActions?: TitleBarActionId[] }) => {
+    const config = await window.terminalApi.setConfig(change);
+    setTitleBarActionOrder(config.titleBarActionOrder);
+    setTitleBarHiddenActions(config.titleBarHiddenActions);
+  }, []);
+
+  const handleTerminalBackgroundPositionPreview = useCallback((x: number, y: number) => {
+    setTerminalBackgroundPositionX(x);
+    setTerminalBackgroundPositionY(y);
+  }, []);
+
+  const handleTerminalBackgroundPositionCommit = useCallback(async (x: number, y: number) => {
+    try {
+      const config = await window.terminalApi.setConfig({ terminalBackgroundPositionX: x, terminalBackgroundPositionY: y });
+      savedTerminalBackgroundPosition.current = { x: config.terminalBackgroundPositionX, y: config.terminalBackgroundPositionY };
+      setTerminalBackgroundPositionX(config.terminalBackgroundPositionX);
+      setTerminalBackgroundPositionY(config.terminalBackgroundPositionY);
+    } catch (error) {
+      setTerminalBackgroundPositionX(savedTerminalBackgroundPosition.current.x);
+      setTerminalBackgroundPositionY(savedTerminalBackgroundPosition.current.y);
+      throw error;
+    }
+  }, []);
+
   useEffect(() => {
     if (!terminalSessions.activeSession) {
       if (rightTool === "files" || rightTool === "git" || rightTool === "monitor") {
@@ -674,10 +727,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : showSessionOverview ? t("sessionOverview.title") : terminalSessions.activeSession?.title}
+          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
+          actionOrder={titleBarActionOrder}
+          hiddenActions={titleBarHiddenActions}
           onCaptureScreenshot={() => void handleCaptureScreenshot()}
           onOpenSettings={() => setShowSettingsModal(true)}
           onOpenPicker={terminalSessions.openPicker}
@@ -685,25 +740,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onQuickCreateAgent={handleQuickCreateAgent}
           onOpenTerminal={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
-            setShowProjectAssistant(false);
-            setWorkspaceTab("terminal");
-          }}
-          onOpenSessionOverview={() => {
-            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowTokenStats(false);
-            setShowSkills(false);
-            setShowMcp(false);
-            setShowSessionOverview(true);
             setShowProjectAssistant(false);
             setWorkspaceTab("terminal");
           }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowSessionOverview(false);
             setShowSkills(false);
             setShowMcp(false);
             setShowTokenStats(true);
@@ -711,14 +755,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           }}
           onOpenSkills={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowMcp(false);
             setShowSkills(true);
             setShowProjectAssistant(false);
           }}
           onOpenMcp={() => {
-            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
@@ -726,7 +768,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           }}
           onOpenProjectAssistant={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowSessionOverview(false);
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
@@ -768,18 +809,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className={`app-shell${showSessionOverview ? " overview-mode" : ""}${showSessionOverview && terminalSessions.sessions.length === 0 ? " overview-empty-mode" : ""}`} style={{ gridTemplateColumns: showSessionOverview ? undefined : appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant ? "none" : undefined, "--overview-tools-width": `${liveRightToolsWidth}px` } as CSSProperties}>
-          {showSessionOverview ? (
-            <SessionOverview
-              sessions={terminalSessions.sessions}
-              selectedSessionId={terminalSessions.activeId}
-              agentStatusesBySessionId={terminalSessions.agentStatusesBySessionId}
-              onSelectSession={(id) => {
-                handleSelectSession(id);
-                setWorkspaceTab("terminal");
-              }}
-            />
-          ) : <SessionSidebar
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant ? "none" : undefined }}>
+          <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
             showInstanceIds={debugMode}
@@ -791,9 +822,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onReconnectSession={terminalSessions.reconnectSession}
             onCloseSession={handleCloseSession}
             onReorder={terminalSessions.reorderRunningSessions}
-          />}
+          />
 
-          <div className={`splitter${showSessionOverview ? " overview-divider" : ""}`} onMouseDown={showSessionOverview ? undefined : handleSplitterMouseDown} />
+          <div className="splitter" onMouseDown={handleSplitterMouseDown} />
 
           <div className="workspace-area">
             <div className="workspace-tabs" role="tablist" aria-label={t("tabs.workspace")}>
@@ -873,6 +904,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     aria-hidden="true"
                     style={{
                       backgroundImage: `url("${terminalBackground.imageUrl}")`,
+                      backgroundPosition: `${terminalBackground.positionX}% ${terminalBackground.positionY}%`,
                       opacity: terminalBackground.opacity / 100,
                       filter: terminalBackground.blur > 0 ? `blur(${terminalBackground.blur}px)` : undefined,
                       inset: -terminalBackground.blur
@@ -889,37 +921,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
                 />
-                {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
-                  ref={appServerSessionRef}
-                  sessionId={terminalSessions.activeSession.id}
-                  session={terminalSessions.activeSession}
-                  sessionType={terminalSessions.activeSession.type}
-                  onLinkClick={handleAppServerLink}
-                  draft={appServerDrafts[terminalSessions.activeSession.id] ?? ""}
-                  draftReferences={appServerDraftReferences[terminalSessions.activeSession.id] ?? []}
-                  setDraftReferences={value => {
-                    const sessionId = terminalSessions.activeSession!.id;
-                    setAppServerDraftReferences(current => {
-                      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
-                      const next = typeof value === "function" ? value(current[sessionId] ?? []) : value;
-                      return { ...current, [sessionId]: next };
-                    });
-                  }}
-                  setDraft={value => {
-                    const sessionId = terminalSessions.activeSession!.id;
-                    setAppServerDrafts(current => {
-                      if (!appServerSessionIdsRef.current.has(sessionId)) return current;
-                      const nextDraft = typeof value === "function" ? value(current[sessionId] ?? "") : value;
-                      if (nextDraft === (current[sessionId] ?? "")) return current;
-                      if (!nextDraft) {
-                        const next = { ...current };
-                        delete next[sessionId];
-                        return next;
-                      }
-                      return { ...current, [sessionId]: nextDraft };
-                    });
-                  }}
-                />}
+                {terminalSessions.sessions.filter(session => session.runtimeMode === "app-server").map(session =>
+                  <GraphicalSessionPanel key={session.id} session={session}
+                    isActive={isAppServerSession && activeSessionId === session.id && workspaceTab === "terminal"}
+                    draft={appServerDrafts[session.id] ?? ""} draftReferences={appServerDraftReferences[session.id] ?? emptyDraftReferences}
+                    onDraftChange={handleAppServerDraftChange} onDraftReferencesChange={handleAppServerDraftReferencesChange}
+                    onLinkClick={handleAppServerLink} sessionRefs={appServerSessionRefs.current} />)}
                 {isAppServerSession && appServerLinkError && <div role="alert" className="codex-app-server-error">
                   <span>{appServerLinkError}</span>
                   <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setAppServerLinkError(null)}><X aria-hidden="true" /></button>
@@ -963,7 +970,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     onAddQuickCommand={terminalSessions.addQuickCommandToActiveSession}
                     onRemoveQuickCommand={terminalSessions.removeQuickCommandFromActiveSession}
                     onTogglePinned={terminalSessions.toggleQuickCommandPinnedForActiveSession}
-                    onExecuteCommand={command => appServerSessionRef.current?.applyQuickCommand(command) ?? false}
+                    onExecuteCommand={command => terminalSessions.activeId ? appServerSessionRefs.current.get(terminalSessions.activeId)?.applyQuickCommand(command) ?? false : false}
                     autoEnterDisabled={!appServerFooter.canSubmit}
                   />
                   <div className="terminal-status-cluster">
@@ -1107,7 +1114,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onAddToGraphicalInput={(sessionId, path) => {
                     if (terminalSessions.activeSession?.id !== sessionId) return;
                     setWorkspaceTab("terminal");
-                    appServerSessionRef.current?.appendFilePath(path);
+                    appServerSessionRefs.current.get(sessionId)?.appendFilePath(path);
                   }}
                   transfers={fileTransfers}
                   onShowTransfers={() => setWorkspaceTab("transfers")}
@@ -1200,6 +1207,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           debugMode={debugMode}
           screenshotEnabled={screenshotEnabled}
           screenshotShortcut={screenshotShortcut}
+          titleBarActionOrder={titleBarActionOrder}
+          titleBarHiddenActions={titleBarHiddenActions}
+          onTitleBarActionsChange={handleTitleBarActionsChange}
           themeId={themeId}
           locale={locale}
           themes={APP_THEMES}
@@ -1213,10 +1223,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           terminalBackgroundImage={terminalBackgroundImage}
           terminalBackgroundOpacity={terminalBackgroundOpacity}
           terminalBackgroundBlur={terminalBackgroundBlur}
+          terminalBackgroundPositionX={terminalBackgroundPositionX}
+          terminalBackgroundPositionY={terminalBackgroundPositionY}
           onChooseTerminalBackground={handleChooseTerminalBackground}
           onClearTerminalBackground={handleClearTerminalBackground}
           onTerminalBackgroundOpacityChange={handleTerminalBackgroundOpacityChange}
           onTerminalBackgroundBlurChange={handleTerminalBackgroundBlurChange}
+          onTerminalBackgroundPositionPreview={handleTerminalBackgroundPositionPreview}
+          onTerminalBackgroundPositionCommit={handleTerminalBackgroundPositionCommit}
           onCancel={() => setShowSettingsModal(false)}
         />
       )}

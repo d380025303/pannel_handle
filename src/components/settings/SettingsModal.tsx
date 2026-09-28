@@ -1,10 +1,10 @@
 import { Bell, Bot, Braces, Database, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { EnvironmentSettings, type EnvironmentSettingsHandle } from "../environment/EnvironmentSettings";
 import { LOCALE_OPTIONS, useI18n } from "../../i18n";
 import type { AppTheme } from "../../themes";
-import type { Locale, ThemeId, WindowsShell } from "../../vite-env";
+import type { Locale, ThemeId, TitleBarActionId, WindowsShell } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { OpenRouterSettings } from "./OpenRouterSettings";
@@ -13,6 +13,7 @@ import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
 import { getTerminalBackgroundUrl } from "../../utils/terminalBackground";
+import { TitleBarActionSettings } from "./TitleBarActionSettings";
 
 type SettingsModalProps = {
   defaultWindowsShell: WindowsShell;
@@ -22,6 +23,9 @@ type SettingsModalProps = {
   debugMode: boolean;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
+  titleBarActionOrder: TitleBarActionId[];
+  titleBarHiddenActions: TitleBarActionId[];
+  onTitleBarActionsChange: (change: { titleBarActionOrder?: TitleBarActionId[]; titleBarHiddenActions?: TitleBarActionId[] }) => Promise<void>;
   themeId: ThemeId;
   locale: Locale;
   themes: AppTheme[];
@@ -35,10 +39,14 @@ type SettingsModalProps = {
   terminalBackgroundImage: string;
   terminalBackgroundOpacity: number;
   terminalBackgroundBlur: number;
+  terminalBackgroundPositionX: number;
+  terminalBackgroundPositionY: number;
   onChooseTerminalBackground: () => Promise<void>;
   onClearTerminalBackground: () => Promise<void>;
   onTerminalBackgroundOpacityChange: (value: number) => void;
   onTerminalBackgroundBlurChange: (value: number) => void;
+  onTerminalBackgroundPositionPreview: (x: number, y: number) => void;
+  onTerminalBackgroundPositionCommit: (x: number, y: number) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -52,6 +60,9 @@ export function SettingsModal({
   debugMode,
   screenshotEnabled,
   screenshotShortcut,
+  titleBarActionOrder,
+  titleBarHiddenActions,
+  onTitleBarActionsChange,
   themeId,
   locale,
   themes,
@@ -65,10 +76,14 @@ export function SettingsModal({
   terminalBackgroundImage,
   terminalBackgroundOpacity,
   terminalBackgroundBlur,
+  terminalBackgroundPositionX,
+  terminalBackgroundPositionY,
   onChooseTerminalBackground,
   onClearTerminalBackground,
   onTerminalBackgroundOpacityChange,
   onTerminalBackgroundBlurChange,
+  onTerminalBackgroundPositionPreview,
+  onTerminalBackgroundPositionCommit,
   onCancel
 }: SettingsModalProps) {
   const { t } = useI18n();
@@ -89,6 +104,63 @@ export function SettingsModal({
   const [recordingScreenshotShortcut, setRecordingScreenshotShortcut] = useState(false);
   const [screenshotSettingsBusy, setScreenshotSettingsBusy] = useState(false);
   const [screenshotSettingsError, setScreenshotSettingsError] = useState<string | null>(null);
+  const [backgroundPositionError, setBackgroundPositionError] = useState<string | null>(null);
+  const [backgroundPositionSaving, setBackgroundPositionSaving] = useState(false);
+  const backgroundDrag = useRef<{ pointerId: number; startX: number; startY: number; positionX: number; positionY: number; nextX: number; nextY: number } | null>(null);
+
+  const handleBackgroundPointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
+    if (!terminalBackgroundImage || backgroundPositionSaving || event.button !== 0) return;
+    backgroundDrag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      positionX: terminalBackgroundPositionX,
+      positionY: terminalBackgroundPositionY,
+      nextX: terminalBackgroundPositionX,
+      nextY: terminalBackgroundPositionY
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setBackgroundPositionError(null);
+  };
+
+  const handleBackgroundPointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = backgroundDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    drag.nextX = Math.min(100, Math.max(0, Math.round(drag.positionX - (event.clientX - drag.startX) / bounds.width * 100)));
+    drag.nextY = Math.min(100, Math.max(0, Math.round(drag.positionY - (event.clientY - drag.startY) / bounds.height * 100)));
+    onTerminalBackgroundPositionPreview(drag.nextX, drag.nextY);
+  };
+
+  const handleBackgroundPointerUp = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = backgroundDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    backgroundDrag.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (drag.nextX === drag.positionX && drag.nextY === drag.positionY) return;
+    setBackgroundPositionSaving(true);
+    void onTerminalBackgroundPositionCommit(drag.nextX, drag.nextY)
+      .catch(error => setBackgroundPositionError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setBackgroundPositionSaving(false));
+  };
+
+  const handleBackgroundPointerCancel = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = backgroundDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    backgroundDrag.current = null;
+    onTerminalBackgroundPositionPreview(drag.positionX, drag.positionY);
+  };
+
+  const handleBackgroundPositionReset = () => {
+    if (backgroundPositionSaving) return;
+    setBackgroundPositionError(null);
+    onTerminalBackgroundPositionPreview(50, 50);
+    setBackgroundPositionSaving(true);
+    void onTerminalBackgroundPositionCommit(50, 50)
+      .catch(error => setBackgroundPositionError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setBackgroundPositionSaving(false));
+  };
 
   const themeOptions = useMemo(() => themes.map(theme => ({
     value: theme.id,
@@ -314,157 +386,173 @@ export function SettingsModal({
             </div>
 
             <section id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general" hidden={activeCategory !== "general"} className="settings-page">
-              <div className="settings-section general-settings">
-                <label className="settings-field">
-                  <span className="modal-label">{t("settings.defaultWindowsShell")}</span>
-                  <select className="modal-input" value={defaultWindowsShell} disabled={shellBusy} onChange={async event => {
-                    const value = event.target.value as WindowsShell;
-                    setShellBusy(true);
-                    setShellError(null);
-                    try { await onDefaultWindowsShellChange(value); }
-                    catch (err) { setShellError(err instanceof Error ? err.message : String(err)); }
-                    finally { setShellBusy(false); }
-                  }}>
-                    {WINDOWS_SHELL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <span className="settings-help">{t("settings.defaultWindowsShellHint")}</span>
-                </label>
-                {shellError && <p className="settings-result error" role="alert">{shellError}</p>}
-                <div className="settings-toggle-list">
-                  <label className="settings-toggle-row">
-                    <span><strong>{t("settings.autoRestore")}</strong></span>
-                    <span className="auto-restore-label">
-                      <input type="checkbox" className="auto-restore-checkbox" checked={autoRestore} onChange={onToggleAutoRestore} />
-                      <span className="auto-restore-track" />
-                    </span>
+              <div className="settings-general-column">
+                <div className="settings-section general-settings">
+                  <label className="settings-field">
+                    <span className="modal-label">{t("settings.defaultWindowsShell")}</span>
+                    <select className="modal-input" value={defaultWindowsShell} disabled={shellBusy} onChange={async event => {
+                      const value = event.target.value as WindowsShell;
+                      setShellBusy(true);
+                      setShellError(null);
+                      try { await onDefaultWindowsShellChange(value); }
+                      catch (err) { setShellError(err instanceof Error ? err.message : String(err)); }
+                      finally { setShellBusy(false); }
+                    }}>
+                      {WINDOWS_SHELL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <span className="settings-help">{t("settings.defaultWindowsShellHint")}</span>
                   </label>
-                  <label className="settings-toggle-row">
-                    <span><strong>{t("settings.autoWorkBuddyCheckin")}</strong></span>
-                    <span className="auto-restore-label">
-                      <input type="checkbox" className="auto-restore-checkbox" checked={autoWorkBuddyCheckin} onChange={onToggleAutoWorkBuddyCheckin} />
-                      <span className="auto-restore-track" />
-                    </span>
-                  </label>
-                  <label className="settings-toggle-row">
-                    <span><strong>{t("settings.debugMode")}</strong></span>
-                    <span className="auto-restore-label">
-                      <input type="checkbox" className="auto-restore-checkbox" checked={debugMode} onChange={onToggleDebugMode} />
-                      <span className="auto-restore-track" />
-                    </span>
-                  </label>
+                  {shellError && <p className="settings-result error" role="alert">{shellError}</p>}
+                  <div className="settings-toggle-list">
+                    <label className="settings-toggle-row">
+                      <span><strong>{t("settings.autoRestore")}</strong></span>
+                      <span className="auto-restore-label">
+                        <input type="checkbox" className="auto-restore-checkbox" checked={autoRestore} onChange={onToggleAutoRestore} />
+                        <span className="auto-restore-track" />
+                      </span>
+                    </label>
+                    <label className="settings-toggle-row">
+                      <span><strong>{t("settings.autoWorkBuddyCheckin")}</strong></span>
+                      <span className="auto-restore-label">
+                        <input type="checkbox" className="auto-restore-checkbox" checked={autoWorkBuddyCheckin} onChange={onToggleAutoWorkBuddyCheckin} />
+                        <span className="auto-restore-track" />
+                      </span>
+                    </label>
+                    <label className="settings-toggle-row">
+                      <span><strong>{t("settings.debugMode")}</strong></span>
+                      <span className="auto-restore-label">
+                        <input type="checkbox" className="auto-restore-checkbox" checked={debugMode} onChange={onToggleDebugMode} />
+                        <span className="auto-restore-track" />
+                      </span>
+                    </label>
+                  </div>
+                  <div className="settings-choice-grid">
+                    <div className="settings-field">
+                      <span className="modal-label">{t("settings.theme")}</span>
+                      <SearchableSelect className="settings-theme-select" value={themeId} options={themeOptions} ariaLabel={t("settings.theme")} onChange={nextThemeId => onThemeChange(nextThemeId as ThemeId)} />
+                    </div>
+                    <div className="settings-field">
+                      <span className="modal-label">{t("settings.language")}</span>
+                      <SearchableSelect className="settings-theme-select" value={locale} options={localeOptions} ariaLabel={t("settings.language")} onChange={nextLocale => onLocaleChange(nextLocale as Locale)} />
+                    </div>
+                  </div>
                 </div>
-                <div className="settings-choice-grid">
+                <div className="settings-section terminal-background-settings">
+                  <div className="settings-card-header">
+                    <div>
+                      <h4>{t("settings.terminalBackgroundTitle")}</h4>
+                      <p className="settings-help">{t("settings.terminalBackgroundDescription")}</p>
+                    </div>
+                  </div>
+                  <div className="settings-field terminal-background-image-row">
+                    {terminalBackgroundImage ? (
+                      <img
+                        className="terminal-background-preview"
+                        src={getTerminalBackgroundUrl(terminalBackgroundImage)}
+                        alt={t("settings.terminalBackgroundTitle")}
+                        draggable={false}
+                        style={{ objectPosition: `${terminalBackgroundPositionX}% ${terminalBackgroundPositionY}%` }}
+                        onPointerDown={handleBackgroundPointerDown}
+                        onPointerMove={handleBackgroundPointerMove}
+                        onPointerUp={handleBackgroundPointerUp}
+                        onPointerCancel={handleBackgroundPointerCancel}
+                      />
+                    ) : (
+                      <span className="terminal-background-none">{t("settings.terminalBackgroundNone")}</span>
+                    )}
+                    <div className="terminal-background-actions">
+                      <button type="button" className="secondary-button" onClick={() => void onChooseTerminalBackground()}>
+                        {t("settings.terminalBackgroundChoose")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={!terminalBackgroundImage}
+                        onClick={() => void onClearTerminalBackground()}
+                      >
+                        {t("settings.terminalBackgroundClear")}
+                      </button>
+                      <button type="button" className="secondary-button" disabled={!terminalBackgroundImage || backgroundPositionSaving} onClick={handleBackgroundPositionReset}>
+                        {t("settings.terminalBackgroundPositionReset")}
+                      </button>
+                    </div>
+                  </div>
+                  {terminalBackgroundImage && <p className="settings-help">{t("settings.terminalBackgroundPositionHint")}</p>}
+                  {backgroundPositionError && <p className="settings-result error" role="alert">{t("settings.terminalBackgroundPositionError")}: {backgroundPositionError}</p>}
                   <div className="settings-field">
-                    <span className="modal-label">{t("settings.theme")}</span>
-                    <SearchableSelect className="settings-theme-select" value={themeId} options={themeOptions} ariaLabel={t("settings.theme")} onChange={nextThemeId => onThemeChange(nextThemeId as ThemeId)} />
-                  </div>
-                  <div className="settings-field">
-                    <span className="modal-label">{t("settings.language")}</span>
-                    <SearchableSelect className="settings-theme-select" value={locale} options={localeOptions} ariaLabel={t("settings.language")} onChange={nextLocale => onLocaleChange(nextLocale as Locale)} />
-                  </div>
-                </div>
-              </div>
-              <div className="settings-section terminal-background-settings">
-                <div className="settings-card-header">
-                  <div>
-                    <h4>{t("settings.terminalBackgroundTitle")}</h4>
-                    <p className="settings-help">{t("settings.terminalBackgroundDescription")}</p>
-                  </div>
-                </div>
-                <div className="settings-field terminal-background-image-row">
-                  {terminalBackgroundImage ? (
-                    <img
-                      className="terminal-background-preview"
-                      src={getTerminalBackgroundUrl(terminalBackgroundImage)}
-                      alt={t("settings.terminalBackgroundTitle")}
-                    />
-                  ) : (
-                    <span className="terminal-background-none">{t("settings.terminalBackgroundNone")}</span>
-                  )}
-                  <div className="terminal-background-actions">
-                    <button type="button" className="secondary-button" onClick={() => void onChooseTerminalBackground()}>
-                      {t("settings.terminalBackgroundChoose")}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={!terminalBackgroundImage}
-                      onClick={() => void onClearTerminalBackground()}
-                    >
-                      {t("settings.terminalBackgroundClear")}
-                    </button>
-                  </div>
-                </div>
-                <div className="settings-field">
-                  <span className="modal-label">
-                    {t("settings.terminalBackgroundOpacity")} · {terminalBackgroundOpacity}%
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={terminalBackgroundOpacity}
-                    disabled={!terminalBackgroundImage}
-                    aria-label={t("settings.terminalBackgroundOpacity")}
-                    onChange={event => onTerminalBackgroundOpacityChange(Number(event.target.value))}
-                  />
-                </div>
-                <div className="settings-field">
-                  <span className="modal-label">
-                    {t("settings.terminalBackgroundBlur")} · {terminalBackgroundBlur}px
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={40}
-                    step={1}
-                    value={terminalBackgroundBlur}
-                    disabled={!terminalBackgroundImage}
-                    aria-label={t("settings.terminalBackgroundBlur")}
-                    onChange={event => onTerminalBackgroundBlurChange(Number(event.target.value))}
-                  />
-                </div>
-              </div>
-              <div className="settings-section screenshot-settings">
-                <div className="settings-card-header">
-                  <div>
-                    <h4>{t("settings.screenshotTitle")}</h4>
-                    <p className="settings-help">{t("settings.screenshotDescription")}</p>
-                  </div>
-                  <label className="auto-restore-label">
+                    <span className="modal-label">
+                      {t("settings.terminalBackgroundOpacity")} · {terminalBackgroundOpacity}%
+                    </span>
                     <input
-                      type="checkbox"
-                      className="auto-restore-checkbox"
-                      checked={screenshotEnabled}
-                      disabled={screenshotSettingsBusy}
-                      onChange={event => void handleScreenshotEnabledChange(event.target.checked)}
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={terminalBackgroundOpacity}
+                      disabled={!terminalBackgroundImage}
+                      aria-label={t("settings.terminalBackgroundOpacity")}
+                      onChange={event => onTerminalBackgroundOpacityChange(Number(event.target.value))}
                     />
-                    <span className="auto-restore-track" />
-                    <span className="auto-restore-text">{t("settings.screenshotEnabled")}</span>
-                  </label>
+                  </div>
+                  <div className="settings-field">
+                    <span className="modal-label">
+                      {t("settings.terminalBackgroundBlur")} · {terminalBackgroundBlur}px
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={terminalBackgroundBlur}
+                      disabled={!terminalBackgroundImage}
+                      aria-label={t("settings.terminalBackgroundBlur")}
+                      onChange={event => onTerminalBackgroundBlurChange(Number(event.target.value))}
+                    />
+                  </div>
                 </div>
-                <div className="settings-field">
-                  <span className="modal-label">{t("settings.screenshotShortcut")}</span>
-                  <button
-                    className={`shortcut-recorder${recordingScreenshotShortcut ? " recording" : ""}`}
-                    type="button"
-                    disabled={!screenshotEnabled || screenshotSettingsBusy}
-                    aria-label={t("settings.screenshotShortcut")}
-                    onClick={() => {
-                      setRecordingScreenshotShortcut(true);
-                      setScreenshotSettingsError(null);
-                    }}
-                    onBlur={() => setRecordingScreenshotShortcut(false)}
-                    onKeyDown={event => {
-                      if (recordingScreenshotShortcut) void handleScreenshotShortcutKeyDown(event);
-                    }}
-                  >
-                    {recordingScreenshotShortcut ? t("settings.screenshotShortcutRecording") : screenshotShortcut}
-                  </button>
-                  <span className="settings-help">{t("settings.screenshotShortcutHint")}</span>
+              </div>
+              <div className="settings-general-column">
+                <TitleBarActionSettings order={titleBarActionOrder} hidden={titleBarHiddenActions} screenshotEnabled={screenshotEnabled} onChange={onTitleBarActionsChange} />
+                <div className="settings-section screenshot-settings">
+                  <div className="settings-card-header">
+                    <div>
+                      <h4>{t("settings.screenshotTitle")}</h4>
+                      <p className="settings-help">{t("settings.screenshotDescription")}</p>
+                    </div>
+                    <label className="auto-restore-label">
+                      <input
+                        type="checkbox"
+                        className="auto-restore-checkbox"
+                        checked={screenshotEnabled}
+                        disabled={screenshotSettingsBusy}
+                        onChange={event => void handleScreenshotEnabledChange(event.target.checked)}
+                      />
+                      <span className="auto-restore-track" />
+                      <span className="auto-restore-text">{t("settings.screenshotEnabled")}</span>
+                    </label>
+                  </div>
+                  <div className="settings-field">
+                    <span className="modal-label">{t("settings.screenshotShortcut")}</span>
+                    <button
+                      className={`shortcut-recorder${recordingScreenshotShortcut ? " recording" : ""}`}
+                      type="button"
+                      disabled={!screenshotEnabled || screenshotSettingsBusy}
+                      aria-label={t("settings.screenshotShortcut")}
+                      onClick={() => {
+                        setRecordingScreenshotShortcut(true);
+                        setScreenshotSettingsError(null);
+                      }}
+                      onBlur={() => setRecordingScreenshotShortcut(false)}
+                      onKeyDown={event => {
+                        if (recordingScreenshotShortcut) void handleScreenshotShortcutKeyDown(event);
+                      }}
+                    >
+                      {recordingScreenshotShortcut ? t("settings.screenshotShortcutRecording") : screenshotShortcut}
+                    </button>
+                    <span className="settings-help">{t("settings.screenshotShortcutHint")}</span>
+                  </div>
+                  {screenshotSettingsError && <p className="settings-result error" role="alert">{screenshotSettingsError}</p>}
                 </div>
-                {screenshotSettingsError && <p className="settings-result error" role="alert">{screenshotSettingsError}</p>}
               </div>
             </section>
 

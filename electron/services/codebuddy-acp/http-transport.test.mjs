@@ -27,6 +27,7 @@ describe("CodeBuddy HTTP ACP transport", () => {
   it("connects, receives GET and POST SSE messages, answers JSON requests, and disconnects", async () => {
     const seen = [];
     const teamMessages = [];
+    const renamed = [];
     let subscription;
     const server = http.createServer(async (req, res) => {
       seen.push({ method: req.method, path: req.url, headers: req.headers });
@@ -45,6 +46,10 @@ describe("CodeBuddy HTTP ACP transport", () => {
           teamMessages.push(message);
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ success: true }));
+        } else if (req.url.startsWith("/api/v1/sessions/") && req.url.endsWith("/rename")) {
+          renamed.push({ path: req.url, body: message });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ data: { name: message.name } }));
         } else if (message.method === "initialize") {
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1 } }));
@@ -65,9 +70,11 @@ describe("CodeBuddy HTTP ACP transport", () => {
     await transport.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
     await transport.send({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: {} });
     await transport.sendTeamMessage({ teamName: "design", recipient: "architect", message: { from: "user", text: "继续", timestamp: "2026-09-24T00:00:00Z" } });
+    await transport.renameSession("old-thread", "New title");
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(messages.map(message => message.params?.sessionId || message.id)).toEqual(["push", 1, "one", 2]);
     expect(teamMessages).toMatchObject([{ teamName: "design", recipient: "architect", message: { from: "user", text: "继续" } }]);
+    expect(renamed).toEqual([{ path: "/api/v1/sessions/old-thread/rename", body: { name: "New title" } }]);
     expect(seen.slice(1).every(call => call.headers["acp-connection-id"] === "conn-1" && call.headers["acp-session-token"] === "token-1")).toBe(true);
     expect(seen.every(call => call.headers.authorization === "Bearer secret" && call.headers["x-codebuddy-request"] === "1")).toBe(true);
     await transport.close();

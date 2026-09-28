@@ -37,10 +37,11 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     readAccount: codexRoute("readAccount"), startLogin: codexRoute("startLogin"), cancelLogin: codexRoute("cancelLogin"),
     logout: codexRoute("logout"), refreshAccountUsage: codexRoute("refreshAccountUsage"),
     listHistory: route("listHistory"), readInitialUserInput: codexRoute("readInitialUserInput"), listCapabilities: codexRoute("listCapabilities"),
+    loginMcpServer: codexRoute("loginMcpServer"), reloadMcpServers: codexRoute("reloadMcpServers"),
     listPlugins: codexRoute("listPlugins"), installPlugin: codexRoute("installPlugin"), uninstallPlugin: codexRoute("uninstallPlugin"),
     addPluginMarketplace: codexRoute("addPluginMarketplace"), refreshPluginMarketplace: codexRoute("refreshPluginMarketplace"), removePluginMarketplace: codexRoute("removePluginMarketplace"),
     resume: route("resume"), newThread: route("newThread"),
-    renameThread: routeCodex("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
+    renameThread: route("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
     archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
     compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),
     setMode: route("setMode"), setModel: route("setModel"), setEffort: route("setEffort"), setFastMode: codexRoute("setFastMode"),
@@ -68,6 +69,10 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     cancelQuestion(id, requestId) {
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持取消提问。");
       return codeBuddy.cancelQuestion(id, requestId);
+    },
+    rewind(id, messageId, scope) {
+      if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持回退。");
+      return codeBuddy.rewind(id, messageId, scope);
     },
     resolveElicitation: codexRoute("resolveElicitation"),
     close(id) { codex.close(id); codeBuddy.close(id); openCode?.close(id); claude?.close(id); qoder?.close(id); gemini?.close(id); grok?.close(id); },

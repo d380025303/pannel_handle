@@ -101,6 +101,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   const sessions = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
   const projectCwd = entry => entry.runtime.workspaceCwd || entry.session.cwd;
+  const mcpErrorText = (entry, value) => startupStderrDetail(value,
+    { ...environmentService.resolve(entry.session), ...(entry.runtime.runtimeEnv || {}) });
   const removeImage = removePastedImage || ((entry, filePath) => isRemote(entry)
     ? sshFileSystem.remove(entry.session.id, filePath)
     : fs.promises.rm(entry.session.type === "wsl" ? toWslHostPath(entry.session.wslDistro, filePath) : filePath, { force: true }));
@@ -143,6 +145,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       threadStatus: entry.threadStatus, turnStatus: entry.turnStatus, effectiveModel: entry.effectiveModel,
       errorDetails: entry.errorDetails, diagnosticStoreError: entry.diagnosticStoreError,
       diagnostics: [...entry.diagnostics], turnDiffs: [...entry.turnDiffs.values()],
+      mcpRuntime: [...entry.mcpRuntime.values()], mcpLogins: [...entry.mcpLogins.entries()].map(([name, value]) => ({ name, ...value })),
+      mcpReload: entry.mcpReload,
       account: entry.accountController?.snapshot() || null,
       model: entry.model, tokenUsage: entry.tokenUsage, tokenUpdatedAt: entry.tokenUpdatedAt,
       turnOutputTokens: entry.turnOutputTokens, outputTokensPerSecond: entry.outputTokensPerSecond,
@@ -349,6 +353,36 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     const params = message.params || {};
     if (entry.accountController?.onNotification(message.method, params)) return;
+    if (message.method === "mcpServer/startupStatus/updated") {
+      if (params.threadId !== entry.threadId || !params.name || !params.status) return;
+      const previous = entry.mcpRuntime.get(params.name) || { name: params.name };
+      entry.mcpStatusRevision += 1;
+      entry.mcpRuntime.set(params.name, { ...previous, status: params.status,
+        error: params.status === "failed" ? mcpErrorText(entry, params.error) : null,
+        failureReason: params.status === "failed" ? params.failureReason || null : null });
+      if (params.status === "ready") entry.mcpLogins.delete(params.name);
+      else if (params.status === "failed" && entry.mcpLogins.get(params.name)?.status === "refreshing")
+        entry.mcpLogins.set(params.name, { status: "failed", error: mcpErrorText(entry, params.error || "MCP 服务启动失败。") });
+      if (entry.mcpReload.status === "queued") entry.mcpReload = { status: "idle", error: null };
+      publish(id);
+      return;
+    }
+    if (message.method === "mcpServer/oauthLogin/completed") {
+      if ((params.threadId != null && params.threadId !== entry.threadId) || !entry.mcpLogins.has(params.name)) return;
+      if (!params.success) {
+        entry.mcpLogins.set(params.name, { status: "failed", error: mcpErrorText(entry, params.error || "MCP 授权失败。") });
+        publish(id);
+      } else {
+        entry.mcpLogins.set(params.name, { status: "refreshing", error: null });
+        publish(id);
+        void reloadMcpServers(id).catch(error => {
+          if (sessions.get(id) !== entry) return;
+          entry.mcpLogins.set(params.name, { status: "failed", error: `授权已完成，但重载失败：${mcpErrorText(entry, error.message)}` });
+          publish(id);
+        });
+      }
+      return;
+    }
     if ((message.method === "thread/archived" || message.method === "thread/unarchived") && params.threadId) {
       for (const [sessionId, current] of sessions) if (current.threadId === params.threadId) {
         current.archived = message.method === "thread/archived";
@@ -525,6 +559,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       diagnostics: [], pendingDiagnostics: [], turnDiffs: new Map(), diagnosticStoreError: null,
       compacting: false, compactionStatus: null, goal: null, goalLoading: false, goalError: null, goalRevision: 0,
       pendingPlan: null, activeTurnMode: null, activeTurnStartIndex: 0,
+      mcpRuntime: new Map(), mcpLogins: new Map(), mcpReload: { status: "idle", error: null }, mcpReloadPromise: null, mcpStatusRevision: 0,
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
@@ -597,6 +632,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
     entry.threadId = result.thread.id;
     entry.threadStatus = result.thread.status || null;
+    entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
     loadDiagnostics(entry);
     entry.model = runtime.resumeThreadId && !runtime.preferTemplateModel
       ? (result.thread.model || entry.model)
@@ -909,6 +945,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         seen.add(cursor);
       } while (true);
     } catch (error) { result.errors.apps = error.message; }
+    const mcpRevision = entry.mcpStatusRevision;
     try {
       let cursor = null;
       const seen = new Set();
@@ -925,7 +962,55 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         seen.add(cursor);
       } while (true);
     } catch (error) { result.errors.mcp = error.message; }
+    let clearedStatus = false;
+    result.mcp = result.mcp.map(value => {
+      if (value.status === "connected" && entry.mcpStatusRevision === mcpRevision) {
+        if (entry.mcpRuntime.delete(value.name)) clearedStatus = true;
+        if (entry.mcpLogins.get(value.name)?.status === "refreshing" && entry.mcpLogins.delete(value.name)) clearedStatus = true;
+      }
+      return { ...value, ...(entry.mcpRuntime.get(value.name) || {}) };
+    });
+    if (clearedStatus) publish(id);
     return result;
+  }
+  async function loginMcpServer(id, name) {
+    const entry = pluginEntry(id);
+    const threadId = entry.threadId;
+    if (typeof name !== "string" || !name.trim()) throw new Error("请选择 MCP 服务。");
+    if (entry.mcpLogins.get(name)?.status === "pending") throw new Error("该 MCP 服务正在授权。");
+    entry.mcpLogins.set(name, { status: "pending", error: null });
+    publish(id);
+    try {
+      const result = await request(entry, "mcpServer/oauth/login", { name, threadId });
+      if (entry.threadId !== threadId || sessions.get(id) !== entry) throw new Error("MCP 会话已切换。");
+      const url = new URL(result?.authorizationUrl);
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error("授权链接协议无效。");
+      return { authorizationUrl: url.href };
+    } catch (error) {
+      const safeError = mcpErrorText(entry, error.message);
+      if (entry.threadId === threadId && sessions.get(id) === entry) {
+        entry.mcpLogins.set(name, { status: "failed", error: safeError });
+        publish(id);
+      }
+      throw new Error(safeError);
+    }
+  }
+  function reloadMcpServers(id) {
+    const entry = pluginEntry(id);
+    if (entry.mcpReloadPromise) return entry.mcpReloadPromise;
+    const threadId = entry.threadId;
+    entry.mcpReload = { status: "reloading", error: null };
+    const revision = entry.mcpStatusRevision;
+    publish(id);
+    const operation = request(entry, "config/mcpServer/reload", {}).then(() => {
+      if (sessions.get(id) === entry && entry.threadId === threadId) { entry.mcpReload = { status: entry.mcpStatusRevision === revision ? "queued" : "idle", error: null }; publish(id); }
+    }).catch(error => {
+      const safeError = mcpErrorText(entry, error.message);
+      if (sessions.get(id) === entry && entry.threadId === threadId) { entry.mcpReload = { status: "failed", error: safeError }; publish(id); }
+      throw new Error(safeError);
+    }).finally(() => { if (entry.mcpReloadPromise === operation) entry.mcpReloadPromise = null; });
+    entry.mcpReloadPromise = operation;
+    return operation;
   }
   function pluginEntry(id) {
     const entry = sessions.get(String(id || ""));
@@ -993,6 +1078,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.threadId = result.thread.id;
     entry.archived = false;
     entry.threadStatus = result.thread.status || null;
+    entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
     loadDiagnostics(entry);
     entry.goal = null; entry.goalLoading = false; entry.goalError = null; entry.goalRevision += 1;
     entry.compacting = false; entry.compactionStatus = null;
@@ -1037,6 +1123,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.threadId = result.thread.id;
     entry.archived = false;
     entry.threadStatus = result.thread.status || null;
+    entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
     loadDiagnostics(entry);
     entry.goal = null; entry.goalLoading = false; entry.goalError = null; entry.goalRevision += 1;
     entry.compacting = false; entry.compactionStatus = null;
@@ -1417,7 +1504,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

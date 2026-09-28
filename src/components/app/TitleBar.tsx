@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, LayoutGrid, Library, MessageSquareText, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, Library, MessageSquareText, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
+import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "./titleBarActions";
+import type { TitleBarActionId } from "./titleBarActions";
 
 type TitleBarProps = {
   activeTitle?: string;
@@ -13,16 +15,17 @@ type TitleBarProps = {
   onQuickCreateAgent?: (provider: AgentProvider) => Promise<void>;
   onOpenStats?: () => void;
   onOpenTerminal?: () => void;
-  onOpenSessionOverview?: () => void;
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
   onOpenProjectAssistant?: () => void;
   mobileAccessState: MobileAccessState | null;
   screenshotEnabled?: boolean;
   onCaptureScreenshot?: () => void;
+  actionOrder?: TitleBarActionId[];
+  hiddenActions?: TitleBarActionId[];
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSessionOverview, onOpenSkills, onOpenMcp, onOpenProjectAssistant }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenProjectAssistant, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -56,22 +59,45 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
     }
   };
 
+  const simpleActions = {
+    terminal: { label: t("app.openTerminal"), icon: Terminal, onClick: onOpenTerminal },
+    stats: { label: t("tokenStats.open"), icon: BarChart3, onClick: onOpenStats },
+    skills: { label: t("skills.open"), icon: BookOpen, onClick: onOpenSkills },
+    mcp: { label: t("mcp.open"), icon: Cable, onClick: onOpenMcp },
+    assistant: { label: t("projectAssistant.open"), icon: MessageSquareText, onClick: onOpenProjectAssistant },
+    screenshot: { label: t("screenshot.capture"), icon: ScanLine, onClick: onCaptureScreenshot },
+    library: { label: t("sidebar.openLibrary"), icon: Library, onClick: onOpenPicker },
+    create: { label: t("sidebar.newSession"), icon: Plus, onClick: onOpenCreate }
+  };
+
+  const renderAction = (id: TitleBarActionId) => {
+    if (hiddenActions.includes(id) || (id === "screenshot" && !screenshotEnabled)) return null;
+    if (id === "quickAgent") return (
+      <div className="titlebar-quick-agent" ref={quickAgentMenuRef} key={id}>
+        <button className="titlebar-action-btn" type="button" title={t("session.quickAgent")} aria-label={t("session.quickAgent")}
+          aria-haspopup="menu" aria-expanded={quickAgentMenuOpen} disabled={Boolean(creatingProvider)}
+          onClick={() => setQuickAgentMenuOpen((open) => !open)}><Bot aria-hidden="true" /></button>
+        {quickAgentMenuOpen && (
+          <div className="quick-agent-menu" role="menu" aria-label={t("session.quickAgentMenu")}>
+            {AGENT_PROVIDER_OPTIONS.map((provider) => (
+              <button key={provider.value} type="button" role="menuitem" onClick={() => void handleQuickCreate(provider.value)}>{provider.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+    const action = simpleActions[id];
+    const Icon = action.icon;
+    return <button key={id} className={id === "create" ? "titlebar-action-btn primary" : id === "library" ? "titlebar-action-btn" : "titlebar-settings-btn"}
+      type="button" title={action.label} aria-label={action.label} onClick={action.onClick}><Icon aria-hidden="true" /></button>;
+  };
+
   return (
     <header className="custom-titlebar" onDoubleClick={() => window.windowApi.toggleMaximize()}>
       <div className="titlebar-brand">
         <span className="titlebar-brand-label">Pannel Handle</span>
         <div className="titlebar-actions" onDoubleClick={(event) => event.stopPropagation()}>
-          <button className="titlebar-settings-btn" type="button" title={t("app.openTerminal")} aria-label={t("app.openTerminal")} onClick={() => onOpenTerminal?.()}><Terminal aria-hidden="true" /></button>
-          <button className="titlebar-settings-btn" type="button" title={t("sessionOverview.title")} aria-label={t("sessionOverview.openOverview")} onClick={() => onOpenSessionOverview?.()}><LayoutGrid aria-hidden="true" /></button>
-          <button className="titlebar-settings-btn" type="button" title={t("tokenStats.title")} aria-label={t("tokenStats.open")} onClick={() => onOpenStats?.()}><BarChart3 aria-hidden="true" /></button>
-          <button className="titlebar-settings-btn" type="button" title={t("skills.title")} aria-label={t("skills.open")} onClick={() => onOpenSkills?.()}><BookOpen aria-hidden="true" /></button>
-          <button className="titlebar-settings-btn" type="button" title={t("mcp.title")} aria-label={t("mcp.open")} onClick={() => onOpenMcp?.()}><Cable aria-hidden="true" /></button>
-          <button className="titlebar-settings-btn" type="button" title={t("projectAssistant.title")} aria-label={t("projectAssistant.open")} onClick={() => onOpenProjectAssistant?.()}><MessageSquareText aria-hidden="true" /></button>
-          {screenshotEnabled && (
-            <button className="titlebar-settings-btn" type="button" title={t("screenshot.capture")} aria-label={t("screenshot.capture")} onClick={onCaptureScreenshot}>
-              <ScanLine aria-hidden="true" />
-            </button>
-          )}
+          {actionOrder.slice(0, 7).map(renderAction)}
           <button
             className="titlebar-settings-btn"
             type="button"
@@ -81,52 +107,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
           >
             <Settings aria-hidden="true" />
           </button>
-          <button
-            className="titlebar-action-btn"
-            type="button"
-            title={t("sidebar.openLibrary")}
-            aria-label={t("sidebar.openLibrary")}
-            onClick={onOpenPicker}
-          >
-            <Library aria-hidden="true" />
-          </button>
-          <div className="titlebar-quick-agent" ref={quickAgentMenuRef}>
-            <button
-              className="titlebar-action-btn"
-              type="button"
-              title={t("session.quickAgent")}
-              aria-label={t("session.quickAgent")}
-              aria-haspopup="menu"
-              aria-expanded={quickAgentMenuOpen}
-              disabled={Boolean(creatingProvider)}
-              onClick={() => setQuickAgentMenuOpen((open) => !open)}
-            >
-              <Bot aria-hidden="true" />
-            </button>
-            {quickAgentMenuOpen && (
-              <div className="quick-agent-menu" role="menu" aria-label={t("session.quickAgentMenu")}>
-                {AGENT_PROVIDER_OPTIONS.map((provider) => (
-                  <button
-                    key={provider.value}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleQuickCreate(provider.value)}
-                  >
-                    {provider.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            className="titlebar-action-btn primary"
-            type="button"
-            title={t("sidebar.newSession")}
-            aria-label={t("sidebar.newSession")}
-            onClick={onOpenCreate}
-          >
-            <Plus aria-hidden="true" />
-          </button>
+          {actionOrder.slice(7).map(renderAction)}
         </div>
       </div>
       {mobileAccessState?.running && (

@@ -2,9 +2,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef, useState } from "react";
 import type { Ref } from "react";
-import type { CodexCapabilityReference } from "../../vite-env";
+import type { CodexCapabilityReference, TerminalSession } from "../../vite-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexAppServerSession as SessionView, type CodexAppServerSessionHandle } from "./CodexAppServerSession";
+import { GraphicalSessionPanel } from "./GraphicalSessionPanel";
 
 function CodexAppServerSession({ sessionId, ref }: { sessionId: string | null; ref?: Ref<CodexAppServerSessionHandle> }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -28,6 +29,7 @@ describe("CodexAppServerSession", () => {
   const openExternal = vi.fn().mockResolvedValue(undefined);
   const listHistory = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
   const renameThread = vi.fn().mockResolvedValue(undefined);
+  const rewind = vi.fn();
   const pinThread = vi.fn().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned }));
   const forkThread = vi.fn().mockResolvedValue({ threadId: "branch-1", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const archiveThread = vi.fn().mockResolvedValue(undefined);
@@ -68,7 +70,7 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "externalLinkApi", { configurable: true, value: { open: openExternal } });
     writeText.mockReset().mockResolvedValue(true);
     readInitialUserInput.mockReset().mockResolvedValue(null);
@@ -84,12 +86,58 @@ describe("CodexAppServerSession", () => {
     } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
-      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
+      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
       resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
     } });
+  });
+
+  it("keeps every graphical instance mounted and routes commands only to the visible one", async () => {
+    const listeners = new Set<Parameters<typeof window.codexAppServerApi.onChanged>[0]>();
+    window.codexAppServerApi.onChanged = listener => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    };
+    const sessions = ["run-1", "run-2"].map(id => ({ id, type: "windows", runtimeMode: "app-server", agentProvider: "codex" } as TerminalSession));
+    const sessionRefs = new Map<string, CodexAppServerSessionHandle>();
+    const onDraftChange = vi.fn();
+    const onDraftReferencesChange = vi.fn();
+    const onLinkClick = vi.fn();
+    const panels = (activeId: string) => sessions.map(session => <GraphicalSessionPanel key={session.id} session={session}
+      isActive={session.id === activeId} draft="" draftReferences={[]} onDraftChange={onDraftChange}
+      onDraftReferencesChange={onDraftReferencesChange} onLinkClick={onLinkClick} sessionRefs={sessionRefs} />);
+
+    const { container, rerender } = render(<>{panels("run-1")}</>);
+    await waitFor(() => expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2));
+    expect(container.querySelectorAll(".graphical-session-panel")).toHaveLength(2);
+    expect(sessionRefs.size).toBe(2);
+    onDraftChange.mockClear();
+    act(() => sessionRefs.get("run-2")?.appendFilePath("hidden.txt"));
+    expect(onDraftChange).not.toHaveBeenCalled();
+
+    rerender(<>{panels("run-2")}</>);
+    expect(container.querySelectorAll(".graphical-session-panel")[0].getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelectorAll(".graphical-session-panel")[1].getAttribute("aria-hidden")).toBe("false");
+    act(() => sessionRefs.get("run-1")?.appendFilePath("old.txt"));
+    expect(onDraftChange).not.toHaveBeenCalled();
+    act(() => sessionRefs.get("run-2")?.appendFilePath("active.txt"));
+    expect(onDraftChange).toHaveBeenCalledWith("run-2", expect.any(Function));
+    expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2);
+    act(() => listeners.forEach(listener => listener({ id: "run-1", snapshot: {
+      threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null,
+      pendingPlan: null, items: [{ id: "answer-1", type: "agentMessage", text: "后台新消息" }], approvals: []
+    } })));
+    expect(container.textContent).toContain("后台新消息");
+    rerender(<>{panels("run-1")}</>);
+    expect(container.querySelectorAll(".graphical-session-panel")[0].textContent).toContain("后台新消息");
+    expect(window.codexAppServerApi.snapshot).toHaveBeenCalledTimes(2);
+
+    rerender(<GraphicalSessionPanel session={sessions[1]} isActive draft="" draftReferences={[]}
+      onDraftChange={onDraftChange} onDraftReferencesChange={onDraftReferencesChange}
+      onLinkClick={onLinkClick} sessionRefs={sessionRefs} />);
+    expect(sessionRefs.has("run-1")).toBe(false);
   });
 
   it("shows Codex updates in the empty state instead of the actions menu", async () => {
@@ -136,6 +184,24 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codebuddy", mode: "default", busy: false,
       error: null, items: [{ id: "user-1", type: "userMessage", text: "继续" }], approvals: [] } }));
     expect(screen.queryByRole("group", { name: "CodeBuddy CLI 更新" })).toBeNull();
+  });
+
+  it("offers Windows CodeBuddy rewind only for messages with a stable ID", async () => {
+    const messageId = "0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+    const base = { threadId: "thread-1", provider: "codebuddy" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null,
+      capabilities: { history: true, plan: true, attachments: true, permissions: true, rewind: true },
+      items: [{ id: "user-1", type: "userMessage", text: "First task", rewindMessageId: messageId },
+        { id: "user-2", type: "userMessage", text: "No ID" }], approvals: [] };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce(base);
+    rewind.mockResolvedValueOnce({ snapshot: { ...base, items: [] }, filesChanged: [], historyRewound: true, fileRewindError: null });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "回退到此处" }));
+    expect(screen.getByRole("dialog", { name: "CodeBuddy 会话回退" })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("仅对话"));
+    fireEvent.click(screen.getByRole("button", { name: "确认回退" }));
+    await waitFor(() => expect(rewind).toHaveBeenCalledWith("run-1", messageId, "Conversation"));
+    expect(await screen.findByPlaceholderText("向 CodeBuddy 发送消息")).toHaveProperty("value", "First task");
   });
 
   it("shows a CodeBuddy error in its turn after the conversation continues", async () => {
@@ -1964,7 +2030,7 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("首条用户输入 已复制")).toBeTruthy();
   });
 
-  it.each(["codex", "codebuddy", "opencode"] as const)("only offers copying historical %s session IDs", async provider => {
+  it.each(["codex", "codebuddy", "opencode"] as const)("offers copying historical %s session IDs", async provider => {
     vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({
       threadId: `${provider}-current`, provider, mode: "default", executionPermission: "askApproval", busy: false,
       error: null, pendingPlan: null, items: [], approvals: []
@@ -1979,6 +2045,24 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("会话 ID 已复制")).toBeTruthy();
     if (provider !== "codex") expect(screen.queryByRole("button", { name: `复制首条用户输入：${provider}-old` })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "关闭历史会话" }));
+  });
+
+  it("renames CodeBuddy history without showing Codex-only actions", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({
+      threadId: "current", provider: "codebuddy", mode: "default", executionPermission: "askApproval",
+      busy: false, error: null, pendingPlan: null, items: [], approvals: []
+    });
+    listHistory.mockResolvedValue({ data: [{ id: "old", title: "旧会话", updatedAt: 123, source: "CodeBuddy", status: "saved" }], nextCursor: null });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    fireEvent.click(await screen.findByRole("button", { name: "重命名" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "重命名 旧会话" }), { target: { value: "新名称" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(renameThread).toHaveBeenCalledWith("run-1", "old", "新名称"));
+    expect(screen.queryByRole("button", { name: "置顶" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "分叉" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "归档" })).toBeNull();
   });
 
   it("reports clipboard rejection when copying the first historical input", async () => {

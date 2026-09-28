@@ -17,6 +17,7 @@ type McpManagerProps = {
   runtimeStatuses?: Array<{ name: string; status: string }>;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (handler: (() => Promise<boolean>) | null) => void;
+  onCommitted?: () => void;
 };
 
 const emptyDraft = (provider: McpProvider): McpServerDraft => ({
@@ -102,7 +103,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   );
 }
 
-export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [], onDirtyChange, onRegisterSave }: McpManagerProps) {
+export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [], onDirtyChange, onRegisterSave, onCommitted }: McpManagerProps) {
   const { t } = useI18n();
   const [provider, setProvider] = useState<McpProvider>("codex");
   const [scope, setScope] = useState<McpScope>("user");
@@ -191,6 +192,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
       const saved = result.document.servers.find((server) => server.name === result.serverName);
       selectServer(saved);
       setNotice(t("mcp.saved"));
+      onCommitted?.();
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -198,7 +200,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
     } finally {
       setSaving(false);
     }
-  }, [dirty, document, draft, originalName, requestTarget, selectServer, t]);
+  }, [dirty, document, draft, originalName, requestTarget, selectServer, t, onCommitted]);
 
   useEffect(() => {
     onRegisterSave(save);
@@ -237,6 +239,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
       setDocument(result.document);
       selectServer(result.document.servers[0]);
       setNotice(t("mcp.removed"));
+      onCommitted?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -330,7 +333,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
           {!draft ? <div className="mcp-editor-state">{loading ? t("common.loading") : t("mcp.selectHint")}</div> : (
             <div className="mcp-form">
               <div className="mcp-form-heading">
-                <div><h2>{originalName || t("mcp.newServer")}{dirty && <span> *</span>}</h2><p>{t("mcp.restartHint")}</p></div>
+                <div><h2>{originalName || t("mcp.newServer")}{dirty && <span> *</span>}</h2><p>{embeddedCodex ? "保存后会请求当前 Codex 会话重载 MCP。" : t("mcp.restartHint")}</p></div>
                 <label className="mcp-enabled-toggle"><input type="checkbox" checked={draft.enabled} disabled={saving} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span>{t("mcp.enabled")}</span></label>
               </div>
               <div className="mcp-form-grid">

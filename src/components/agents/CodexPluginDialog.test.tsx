@@ -1,11 +1,60 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CodexPluginDialog } from "./CodexPluginDialog";
 import { I18nProvider } from "../../i18n";
 import type { TerminalSession } from "../../vite-env";
 
 afterEach(cleanup);
+
+it("shows MCP startup failures and opens OAuth in the external browser", async () => {
+  let changed: ((payload: { id: string; snapshot: unknown }) => void) | undefined;
+  const loginMcpServer = vi.fn().mockResolvedValue({ authorizationUrl: "https://auth.example.com/connect" });
+  const open = vi.fn().mockResolvedValue(undefined);
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [{ name: "files", status: "connected",
+      authStatus: "supported", toolsError: null, tools: [] }], errors: {} }),
+    snapshot: vi.fn().mockResolvedValue({}), loginMcpServer, reloadMcpServers: vi.fn(),
+    onChanged: vi.fn(callback => { changed = callback; return () => { changed = undefined; }; }) },
+    externalLinkApi: { open }
+  });
+  render(<CodexPluginDialog sessionId="run-1" onClose={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("tab", { name: "MCP 1" }));
+  act(() => changed?.({ id: "run-1", snapshot: { mcpRuntime: [{ name: "files", status: "failed",
+    error: "token expired", failureReason: "reauthenticationRequired" }] } }));
+  expect(screen.getByText("token expired")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "重新连接" }));
+  await waitFor(() => expect(loginMcpServer).toHaveBeenCalledWith("run-1", "files"));
+  await waitFor(() => expect(open).toHaveBeenCalledWith("https://auth.example.com/connect"));
+});
+
+it("reloads after saving MCP config and keeps a failed reload retryable", async () => {
+  const reloadMcpServers = vi.fn().mockRejectedValueOnce(new Error("reload unavailable")).mockResolvedValue(undefined);
+  const savedServer = { id: "user:files", provider: "codex", scope: "user", name: "files", enabled: true,
+    transport: "stdio", command: "node", args: [], argsMasked: false, cwd: "", url: "", urlMasked: false,
+    bearerTokenEnvVar: "", env: [], headers: [] };
+  const save = vi.fn().mockResolvedValue({ status: "saved", serverName: "files", document: {
+    provider: "codex", scope: "user", path: "config.toml", version: "v2", servers: [savedServer] } });
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [], errors: {} }), reloadMcpServers },
+    mcpApi: { list: vi.fn().mockResolvedValue({ provider: "codex", scope: "user", path: "config.toml", version: "v1", servers: [] }), save }
+  });
+  const session = { id: "run-1", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\project" } as TerminalSession;
+  render(<I18nProvider locale="zh-CN"><CodexPluginDialog sessionId="run-1" session={session} onClose={vi.fn()} onChanged={vi.fn()} /></I18nProvider>);
+  fireEvent.click(await screen.findByRole("tab", { name: "MCP 0" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新增 MCP 服务" }));
+  fireEvent.change(screen.getByLabelText("服务名称"), { target: { value: "files" } });
+  fireEvent.change(screen.getByLabelText("启动命令"), { target: { value: "node" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(reloadMcpServers).toHaveBeenCalledWith("run-1"));
+  expect(await screen.findByText(/配置已保存，但当前会话重载失败：reload unavailable/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "重载 MCP" }));
+  await waitFor(() => expect(reloadMcpServers).toHaveBeenCalledTimes(2));
+});
 
 it("manages the selected Codex environment and explicit enable scope", async () => {
   const catalog = { environment: "WSL: Ubuntu", installed: [{ name: "review", marketplaceName: "team", enabled: true }],

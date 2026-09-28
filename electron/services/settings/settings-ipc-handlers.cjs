@@ -1,10 +1,11 @@
-const { VALID_LOCALES, VALID_THEME_IDS } = require("../../stores/config-store.cjs");
+const { VALID_LOCALES, VALID_THEME_IDS, normalizeTitleBarActionOrder, normalizeTitleBarHiddenActions } = require("../../stores/config-store.cjs");
 const { normalizeScreenshotShortcut } = require("../screenshot/screenshot-shortcut.cjs");
 const { copyBackgroundImage } = require("./terminal-background.cjs");
 const {
   normalizeTerminalBackgroundImage,
   normalizeTerminalBackgroundOpacity,
-  normalizeTerminalBackgroundBlur
+  normalizeTerminalBackgroundBlur,
+  normalizeTerminalBackgroundPosition
 } = require("../../stores/config-store.cjs");
 
 const SETTINGS_IPC_CHANNELS = [
@@ -127,8 +128,28 @@ function registerSettingsIpcHandlers({
     if (partial && typeof partial.terminalBackgroundBlur === "number") {
       updates.terminalBackgroundBlur = normalizeTerminalBackgroundBlur(partial.terminalBackgroundBlur);
     }
+    if (partial && Array.isArray(partial.titleBarActionOrder)) {
+      updates.titleBarActionOrder = normalizeTitleBarActionOrder(partial.titleBarActionOrder);
+    }
+    if (partial && Array.isArray(partial.titleBarHiddenActions)) {
+      updates.titleBarHiddenActions = normalizeTitleBarHiddenActions(partial.titleBarHiddenActions);
+    }
+    if (partial && typeof partial.terminalBackgroundPositionX === "number") {
+      updates.terminalBackgroundPositionX = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionX);
+    }
+    if (partial && typeof partial.terminalBackgroundPositionY === "number") {
+      updates.terminalBackgroundPositionY = normalizeTerminalBackgroundPosition(partial.terminalBackgroundPositionY);
+    }
     if (Object.keys(updates).length > 0) {
-      configStore.updateConfig(updates);
+      const changesPosition = Object.hasOwn(updates, "terminalBackgroundPositionX")
+        || Object.hasOwn(updates, "terminalBackgroundPositionY");
+      const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
+        || Object.hasOwn(updates, "titleBarHiddenActions");
+      if (changesPosition || changesTitleBar) {
+        configStore.updateConfig(updates, { throwOnSaveError: true });
+      } else {
+        configStore.updateConfig(updates);
+      }
     }
     const config = configStore.getConfig();
     if (Object.prototype.hasOwnProperty.call(updates, "autoWorkBuddyCheckin")) {

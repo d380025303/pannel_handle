@@ -22,6 +22,24 @@ afterEach(() => {
 });
 
 describe("config-store", () => {
+  it("normalizes, persists, and reloads title bar icon preferences", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    store.updateConfig({ titleBarActionOrder: ["create", "create", "overview", "unknown", "terminal"], titleBarHiddenActions: ["stats", "stats", "overview", "unknown"] });
+    expect(store.getConfig().titleBarActionOrder.slice(0, 3)).toEqual(["create", "terminal", "stats"]);
+    expect(store.getConfig().titleBarHiddenActions).toEqual(["stats"]);
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().titleBarActionOrder).toEqual(store.getConfig().titleBarActionOrder);
+    expect(reloaded.getConfig().titleBarHiddenActions).toEqual(["stats"]);
+  });
+
+  it("rolls back title bar preferences when saving fails", () => {
+    const store = createConfigStore({ configFile: createTempConfigPath(), dataStore: { write: () => { throw new Error("disk unavailable"); } } });
+    const before = store.getConfig();
+    expect(() => store.updateConfig({ titleBarHiddenActions: ["terminal"] }, { throwOnSaveError: true })).toThrow("disk unavailable");
+    expect(store.getConfig()).toEqual(before);
+  });
   it("reads the old Codex App Server switch only for template migration", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({ codexAppServerEnabled: false }));
@@ -45,6 +63,8 @@ describe("config-store", () => {
       debugMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"],
+      titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "dark-slate",
       locale: "zh-CN",
@@ -52,7 +72,9 @@ describe("config-store", () => {
       rightToolsWidth: 380,
       terminalBackgroundImage: "",
       terminalBackgroundOpacity: 40,
-      terminalBackgroundBlur: 0
+      terminalBackgroundBlur: 0,
+      terminalBackgroundPositionX: 50,
+      terminalBackgroundPositionY: 50
     });
   });
 
@@ -68,14 +90,18 @@ describe("config-store", () => {
     expect(store.getConfig()).toMatchObject({
       terminalBackgroundImage: "123-bg.png",
       terminalBackgroundOpacity: 65,
-      terminalBackgroundBlur: 12
+      terminalBackgroundBlur: 12,
+      terminalBackgroundPositionX: 50,
+      terminalBackgroundPositionY: 50
     });
 
-    store.updateConfig({ terminalBackgroundImage: "", terminalBackgroundOpacity: 0, terminalBackgroundBlur: 40 });
+    store.updateConfig({ terminalBackgroundImage: "", terminalBackgroundOpacity: 0, terminalBackgroundBlur: 40, terminalBackgroundPositionX: 20, terminalBackgroundPositionY: 80 });
     const saved = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(saved.terminalBackgroundImage).toBe("");
     expect(saved.terminalBackgroundOpacity).toBe(0);
     expect(saved.terminalBackgroundBlur).toBe(40);
+    expect(saved.terminalBackgroundPositionX).toBe(20);
+    expect(saved.terminalBackgroundPositionY).toBe(80);
   });
 
   it("normalizes invalid terminal background values on load and update", () => {
@@ -83,20 +109,34 @@ describe("config-store", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       terminalBackgroundImage: "../evil.png",
       terminalBackgroundOpacity: 250,
-      terminalBackgroundBlur: -5
+      terminalBackgroundBlur: -5,
+      terminalBackgroundPositionX: -12,
+      terminalBackgroundPositionY: 123
     }), "utf-8");
     const store = createConfigStore({ configFile });
     store.loadConfig();
     expect(store.getConfig()).toMatchObject({
       terminalBackgroundImage: "",
       terminalBackgroundOpacity: 100,
-      terminalBackgroundBlur: 0
+      terminalBackgroundBlur: 0,
+      terminalBackgroundPositionX: 0,
+      terminalBackgroundPositionY: 100
     });
 
     store.updateConfig({ terminalBackgroundImage: "a/b.png" });
     expect(store.getConfig().terminalBackgroundImage).toBe("");
     store.updateConfig({ terminalBackgroundImage: "ok.webp" });
     expect(store.getConfig().terminalBackgroundImage).toBe("ok.webp");
+  });
+
+  it("rolls back background position when saving fails", () => {
+    const store = createConfigStore({
+      configFile: createTempConfigPath(),
+      dataStore: { write: () => { throw new Error("disk unavailable"); } }
+    });
+    expect(() => store.updateConfig({ terminalBackgroundPositionX: 20 }, { throwOnSaveError: true }))
+      .toThrow("disk unavailable");
+    expect(store.getConfig().terminalBackgroundPositionX).toBe(50);
   });
 
   it("loads, normalizes, and persists screenshot preferences", () => {
@@ -242,6 +282,8 @@ describe("config-store", () => {
       debugMode: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"],
+      titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "light",
       locale: "zh-CN",
@@ -249,7 +291,9 @@ describe("config-store", () => {
       rightToolsWidth: 380,
       terminalBackgroundImage: "",
       terminalBackgroundOpacity: 40,
-      terminalBackgroundBlur: 0
+      terminalBackgroundBlur: 0,
+      terminalBackgroundPositionX: 50,
+      terminalBackgroundPositionY: 50
     });
   });
 });
