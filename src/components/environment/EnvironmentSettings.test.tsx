@@ -23,7 +23,8 @@ describe("environment configuration UI", () => {
   it("disables deletion of referenced groups and copies them as new drafts", async () => {
     window.environmentApi = { list: vi.fn(async () => [{ id: "dev", name: "开发", entries: [], references: ["终端一"] }]), save: vi.fn(), delete: vi.fn(), preview: vi.fn() };
     render(<EnvironmentSettings />);
-    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
+    await screen.findByRole("option", { name: "开发" });
+    fireEvent.change(screen.getByRole("combobox", { name: "配置组" }), { target: { value: "dev" } });
     expect((screen.getByText("删除配置组") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("终端一")).toBeTruthy();
     fireEvent.click(screen.getByText("复制为新组"));
@@ -33,7 +34,8 @@ describe("environment configuration UI", () => {
     const remove = vi.fn(async () => []);
     window.environmentApi = { list: vi.fn(async () => [{ id: "dev", name: "开发", entries: [], references: [] }]), save: vi.fn(), delete: remove, preview: vi.fn() };
     render(<EnvironmentSettings />);
-    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
+    await screen.findByRole("option", { name: "开发" });
+    fireEvent.change(screen.getByRole("combobox", { name: "配置组" }), { target: { value: "dev" } });
     fireEvent.click(screen.getByText("删除配置组"));
     expect(remove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("确认删除"));

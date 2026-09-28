@@ -334,6 +334,8 @@ function createTerminalManager({
       runtimeMode: session.runtimeMode,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      modelSource: session.modelSource,
+      modelId: session.modelId,
       codexBackend: session.codexBackend,
       codexModel: session.codexModel,
       codexExperimentalAcknowledged: session.codexExperimentalAcknowledged,
@@ -695,10 +697,12 @@ function createTerminalManager({
     }
 
     env = mergeEnvironment([env], session.type !== "wsl");
+    if (session.agentProvider === "codebuddy" && session.modelSource && session.modelSource !== "native") delete env.CODEBUDDY_AUTH_TOKEN;
 
     if (session.type === "wsl") {
-      env.WSLENV = appendWslEnv(String(env.WSLENV || "").split(":").filter(entry => !Object.hasOwn(configuredEnv, entry.split("/")[0])).join(":"), [
-        ...Object.keys(configuredEnv),
+      const externalCodeBuddy = session.agentProvider === "codebuddy" && session.modelSource && session.modelSource !== "native";
+      env.WSLENV = appendWslEnv(String(env.WSLENV || "").split(":").filter(entry => !Object.hasOwn(configuredEnv, entry.split("/")[0]) && !(externalCodeBuddy && entry.split("/")[0] === "CODEBUDDY_AUTH_TOKEN")).join(":"), [
+        ...Object.keys(configuredEnv).filter(name => !(externalCodeBuddy && name === "CODEBUDDY_AUTH_TOKEN")),
         "PANNEL_HANDLE_SESSION_ID",
         "PANNEL_HANDLE_HOOK_URL",
         ...(Array.isArray(options.runtimeWslEnvKeys) ? options.runtimeWslEnvKeys : []),
@@ -811,6 +815,8 @@ function createTerminalManager({
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
       localAgentCwd: options.localAgentCwd,
+      modelSource: options.modelSource,
+      modelId: options.modelId,
       codexBackend: options.codexBackend,
       codexModel: options.codexModel,
       codexExperimentalAcknowledged: options.codexExperimentalAcknowledged,
@@ -873,7 +879,7 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
     const session = sessions.get(id);
     if (!session) {
       environmentService?.resolve({ ...sessionStore.getTemplate(id),
@@ -882,7 +888,7 @@ function createTerminalManager({
         ...(environmentProfileId !== undefined ? { environmentProfileId } : {}),
         ...(environmentOverrides !== undefined ? { environmentOverrides } : {})
       });
-      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
+      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -940,6 +946,15 @@ function createTerminalManager({
       session.localAgentCwd = localAgentCwd || undefined;
       libraryUpdates.localAgentCwd = localAgentCwd || null;
     }
+    if (typeof modelSource !== "undefined" || typeof modelId !== "undefined" || typeof agentProvider !== "undefined") {
+      const { normalizeModelSelection } = require("../services/model-sources/model-selection.cjs");
+      const selection = normalizeModelSelection({ ...session, modelSource: modelSource === undefined ? session.modelSource : modelSource,
+        modelId: modelId === undefined ? session.modelId : modelId });
+      session.modelSource = selection.modelSource;
+      session.modelId = selection.modelId;
+      libraryUpdates.modelSource = selection.modelSource || null;
+      libraryUpdates.modelId = selection.modelId || null;
+    }
     if (typeof codexBackend !== "undefined") {
       session.codexBackend = codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy" ? codexBackend : session.agentProvider === "codex" ? "openai" : undefined;
       libraryUpdates.codexBackend = session.codexBackend || null;
@@ -958,6 +973,12 @@ function createTerminalManager({
         ? true
         : undefined;
       libraryUpdates.codexExperimentalAcknowledged = session.codexExperimentalAcknowledged || null;
+    }
+    if (session.agentProvider === "codex" && (typeof codexBackend !== "undefined" || typeof codexModel !== "undefined")) {
+      session.modelSource = session.codexBackend === "openai" ? "native" : session.codexBackend;
+      session.modelId = session.codexModel;
+      libraryUpdates.modelSource = session.modelSource;
+      libraryUpdates.modelId = session.modelId || null;
     }
     if (typeof cwd === "string" && cwd.trim()) {
       session.cwd = cwd.trim();

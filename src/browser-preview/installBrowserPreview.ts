@@ -248,6 +248,7 @@ export function installBrowserPreview() {
       clearApiKey: async () => ({ ...state.config, hasApiKey: false }),
       test: async () => ({ ok: true }),
       verifyModels: async ({ modelIds }) => modelIds.map((id) => ({ modelId: id, status: "passed", checkedAt: Date.now() })),
+      verifyAgentModels: async ({ modelIds }) => modelIds.map((id) => ({ modelId: id, status: "passed", checkedAt: Date.now() })),
       setFavorites: async (input) => Object.assign(state.config, input)
     };
   };
@@ -275,6 +276,8 @@ export function installBrowserPreview() {
       agentLocation: updates.agentLocation || undefined,
       codexBackend: updates.codexBackend || undefined,
       codexModel: updates.codexModel || undefined,
+      modelSource: updates.modelSource || undefined,
+      modelId: updates.modelId || undefined,
       localAgentCwd: updates.localAgentCwd || undefined,
       codexExperimentalAcknowledged: updates.codexExperimentalAcknowledged ?? undefined
     }),
@@ -284,6 +287,10 @@ export function installBrowserPreview() {
     },
     switchCodexBackend: async (id, backend) => {
       updateSession(id, { codexBackend: backend });
+      return copy(sessions.find((session) => session.id === id)!);
+    },
+    switchModelSource: async (id, source) => {
+      updateSession(id, { modelSource: source });
       return copy(sessions.find((session) => session.id === id)!);
     },
     closeSession: async (id) => { sessions = sessions.filter((session) => session.id !== id); emitSessions(); return copy(sessions); },

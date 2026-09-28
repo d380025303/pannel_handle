@@ -480,6 +480,23 @@ describe("session-store", () => {
     expect(JSON.parse(readFileSync(sessionsFile, "utf-8"))[0].agentProvider).toBeUndefined();
   });
 
+  it("persists OpenCode and CodeBuddy model sources while excluding SSH", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([
+      { id: "1", type: "windows", cwd: "C:\\work", agentProvider: "opencode", modelSource: "openrouter", modelId: "vendor/coder" },
+      { id: "2", type: "wsl", cwd: "/work", wslDistro: "Ubuntu", agentProvider: "codebuddy", modelSource: "minimax", modelId: "MiniMax-M2" },
+      { id: "3", type: "ssh", cwd: "/work", agentProvider: "opencode", modelSource: "openrouter", modelId: "ignored", sshConfig: { host: "example.com" } }
+    ]));
+    const store = createStore(sessionsFile);
+    const sessions = store.loadLibrary();
+    expect(sessions[0]).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
+    expect(sessions[1]).toMatchObject({ modelSource: "minimax", modelId: "MiniMax-M2" });
+    expect(sessions[2].modelSource).toBeUndefined();
+    store.updateLibrary("1", { modelSource: "native", modelId: null });
+    expect(store.getTemplate("1")).toMatchObject({ modelSource: "native" });
+    expect(store.getTemplate("1").modelId).toBeUndefined();
+  });
+
   it("persists OpenAI App Server reasoning effort with its template", () => {
     const sessionsFile = createTempSessionsFile();
     const store = createStore(sessionsFile);

@@ -3,12 +3,13 @@ import { Box, Server, Terminal } from "lucide-react";
 import { SessionEnvironmentFields } from "../environment/SessionEnvironmentFields";
 import { TagInput } from "../shared/TagInput";
 import { useI18n } from "../../i18n";
-import type { EnvironmentSelection, AgentLocation, AgentProvider, CodexBackend, RemotePlatform, SshConfig, WindowsShell } from "../../vite-env";
+import type { EnvironmentSelection, AgentLocation, AgentProvider, AgentModelSource, CodexBackend, RemotePlatform, SshConfig, WindowsShell } from "../../vite-env";
 import { windowsShellLabel, windowsCommandExample } from "../../utils/windowsShell";
 import { AgentLocationSelect } from "./AgentLocationSelect";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentSessionModeCheckbox } from "./AgentSessionModeCheckbox";
 import { CodexBackendFields } from "./CodexBackendFields";
+import { AgentModelSourceFields } from "./AgentModelSourceFields";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { supportsLocalBridge } from "./agentProviders";
 import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
@@ -25,6 +26,8 @@ export type CreateSessionRequest = EnvironmentSelection & {
   codexBackend?: CodexBackend;
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
+  modelSource?: AgentModelSource;
+  modelId?: string;
   sshConfig?: SshConfig;
   tags?: string[];
 };
@@ -51,6 +54,9 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
   const [codexModel, setCodexModel] = useState<string>();
   const [codexReady, setCodexReady] = useState(true);
   const [codexExperimentalAcknowledged, setCodexExperimentalAcknowledged] = useState(false);
+  const [modelSource, setModelSource] = useState<AgentModelSource>("native");
+  const [modelId, setModelId] = useState<string>();
+  const [agentModelReady, setAgentModelReady] = useState(true);
   const [selectedShellId, setSelectedShellId] = useState("default");
   const [sshHost, setSshHost] = useState("");
   const [sshUsername, setSshUsername] = useState("");
@@ -70,8 +76,8 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
     if (isSsh && (agentProvider === "copilot" || agentProvider === "gemini" || agentProvider === "grok")) setAgentProvider(undefined);
   }, [agentProvider, isSsh]);
   const canCreate = useMemo(
-    () => (!isSsh || sshHost.trim().length > 0) && (!agentProvider || cwd.trim().length > 0) && (agentProvider !== "codex" || isSsh || codexReady),
-    [agentProvider, codexReady, cwd, isSsh, sshHost]
+    () => (!isSsh || sshHost.trim().length > 0) && (!agentProvider || cwd.trim().length > 0) && (isSsh || (agentProvider !== "codex" || codexReady) && agentModelReady),
+    [agentProvider, agentModelReady, codexReady, cwd, isSsh, sshHost]
   );
 
   const handleCreate = async () => {
@@ -90,6 +96,8 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
         agentLocation: isSsh && agentProvider ? (supportsLocalBridge(agentProvider) ? agentLocation : "remote") : undefined,
         localAgentCwd: isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd.trim() || undefined : undefined,
         codexBackend: !isSsh && agentProvider === "codex" ? codexBackend : undefined,
+        modelSource: !isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") ? modelSource : undefined,
+        modelId: !isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") && modelSource !== "native" ? modelId : undefined,
         graphicalSessionEnabled,
         codexModel: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) ? codexModel : undefined,
         codexExperimentalAcknowledged: !isSsh && agentProvider === "codex" && ["openrouter", "nararouter", "minimax", "codebuddy"].includes(codexBackend) && codexModel ? codexExperimentalAcknowledged : undefined,
@@ -132,6 +140,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
     <SessionFormSection title={t("session.agentCli")}>
       <AgentProviderSelect hideLabel value={agentProvider} exclude={isSsh ? ["copilot", "gemini", "grok"] : []} onChange={(provider) => { setAgentProvider(provider); if (provider && !supportsLocalBridge(provider)) setAgentLocation("remote"); if (supportsLocalBridge(provider) && isSsh) setAgentLocation("local"); }} />
       {agentProvider === "codex" && !isSsh && <CodexBackendFields backend={codexBackend} model={codexModel} experimentalAcknowledged={codexExperimentalAcknowledged} onBackendChange={(backend) => { setCodexBackend(backend); setCodexModel(undefined); setCodexReady(backend === "openai"); setCodexExperimentalAcknowledged(false); }} onModelChange={(model) => { setCodexModel(model); setCodexExperimentalAcknowledged(false); }} onExperimentalAcknowledgedChange={setCodexExperimentalAcknowledged} onReadyChange={setCodexReady} />}
+      {(agentProvider === "opencode" || agentProvider === "codebuddy") && !isSsh && <AgentModelSourceFields agent={agentProvider} source={modelSource as Exclude<AgentModelSource, "codebuddy">} modelId={modelId} onSourceChange={source => { setModelSource(source); setModelId(undefined); setAgentModelReady(source === "native"); }} onModelChange={setModelId} onReadyChange={setAgentModelReady} />}
       {(agentProvider === "codex" || agentProvider === "codebuddy" || agentProvider === "opencode" || agentProvider === "claude" || agentProvider === "qoder" || agentProvider === "gemini" || agentProvider === "grok") && <AgentSessionModeCheckbox provider={agentProvider} checked={graphicalSessionEnabled} onChange={setGraphicalSessionEnabled} />}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}

@@ -87,7 +87,7 @@ describe("OpenRouterSettings", () => {
     expect(screen.queryByText("GLM Free")).toBeNull();
 
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
-    expect(screen.getByText("没有匹配的兼容模型。")).toBeTruthy();
+    expect(screen.getByText("没有匹配的模型。")).toBeTruthy();
   });
 
   it("retries a failed model verification and refreshes its status", async () => {
@@ -96,7 +96,7 @@ describe("OpenRouterSettings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "检测" }));
 
     await vi.waitFor(() => expect(window.openRouterApi.verifyModels).toHaveBeenCalledWith({ modelIds: ["vendor/model"], force: true }));
-    expect(await screen.findByText("已验证")).toBeTruthy();
+    expect(await screen.findByText(/Codex：已验证/)).toBeTruthy();
   });
 
   it("shows a partial model's failed stage and keeps it eligible for favorites", async () => {
@@ -130,7 +130,7 @@ describe("OpenRouterSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
 
     expect(await screen.findByText(/基础 Responses · 当前模型未通过 Codex 所需的 Responses 请求，请更换模型。 服务端详情：The model rejected this request./)).toBeTruthy();
-    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "检测" }));
     expect(await screen.findByText(/vendor\/model：检测失败：基础 Responses · 当前模型未通过 Codex 所需的 Responses 请求/)).toBeTruthy();
@@ -162,6 +162,6 @@ describe("OpenRouterSettings", () => {
     expect(screen.queryByText("Free Models Router")).toBeNull();
 
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
-    expect(screen.getByText("没有匹配的兼容模型。")).toBeTruthy();
+    expect(screen.getByText("没有匹配的模型。")).toBeTruthy();
   });
 });

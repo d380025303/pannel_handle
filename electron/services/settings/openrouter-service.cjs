@@ -275,10 +275,47 @@ function createOpenRouterService({
 
   function listModels() {
     const verifications = store.getModelVerifications();
+    const openCodeVerifications = store.getAgentModelVerifications?.("opencode") || {};
+    const codeBuddyVerifications = store.getAgentModelVerifications?.("codebuddy") || {};
     return store.getCachedModels().map(model => ({
       ...model,
-      ...(verifications[model.id] ? { verification: verifications[model.id] } : {})
+      ...(verifications[model.id] ? { verification: verifications[model.id] } : {}),
+      agentVerifications: { ...(openCodeVerifications[model.id] ? { opencode: openCodeVerifications[model.id] } : {}),
+        ...(codeBuddyVerifications[model.id] ? { codebuddy: codeBuddyVerifications[model.id] } : {}) }
     }));
+  }
+
+  function getAgentLaunchConfig(agent, requestedModel) {
+    if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
+    const config = store.getPublicConfig();
+    const model = String(requestedModel || config.defaultModelId || "").trim();
+    if (!config.favoriteModelIds.includes(model)) throw new Error(`${providerName} 模型未收藏：${model}`);
+    const verification = store.getAgentModelVerifications?.(agent)?.[model];
+    if (verification?.status !== "passed") throw new Error(`${providerName} 模型尚未通过 ${agent === "opencode" ? "OpenCode" : "CodeBuddy"} 验证：${model}`);
+    const apiKey = store.getApiKey();
+    if (!apiKey) throw new Error(`请先配置 ${providerName} API Key。`);
+    return { providerId, providerName, model, baseUrl, apiKey, apiKeyEnv };
+  }
+
+  async function verifyAgentModels(input = {}) {
+    const agent = input.agent;
+    if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent model target.");
+    const ids = [...new Set((Array.isArray(input.modelIds) ? input.modelIds : []).map(value => String(value || "").trim()).filter(Boolean))];
+    const { runAgentModelProbe } = require("../model-sources/agent-model-probe.cjs");
+    const results = [];
+    for (const modelId of ids) {
+      if (!store.getCachedModels().some(model => model.id === modelId)) throw new Error(`${providerName} 模型不存在：${modelId}`);
+      const previous = store.getAgentModelVerifications?.(agent)?.[modelId];
+      if (!input.force && previous?.status === "passed" && Date.now() - previous.checkedAt < MODEL_VERIFICATION_TTL_MS) {
+        results.push({ modelId, ...previous });
+        continue;
+      }
+      const apiKey = store.getApiKey();
+      if (!apiKey) throw new Error(`请先配置 ${providerName} API Key。`);
+      const result = await runAgentModelProbe({ agent, providerId, modelId, baseUrl, apiKey, apiKeyEnv });
+      results.push({ modelId, ...store.setAgentModelVerification(agent, modelId, result) });
+    }
+    return results;
   }
 
   async function requestJson(url, options = {}) {
@@ -560,7 +597,8 @@ function createOpenRouterService({
   function writeCatalog() {
     const config = store.getPublicConfig();
     const byId = new Map(store.getCachedModels().map(model => [model.id, model]));
-    const models = config.favoriteModelIds.map(id => byId.get(id)).filter(Boolean);
+    const models = config.favoriteModelIds.map(id => byId.get(id)).filter(model => model?.compatible &&
+      ["passed", "partial"].includes(store.getModelVerifications()[model.id]?.status));
     if (!models.length) throw new Error(`请先收藏至少一个兼容的 ${providerName} 模型。`);
     fs.mkdirSync(path.dirname(catalogFile), { recursive: true });
     const tmpPath = `${catalogFile}.tmp`;
@@ -570,14 +608,8 @@ function createOpenRouterService({
   }
 
   async function setFavorites(input = {}) {
-    const ids = Array.isArray(input.favoriteModelIds) ? input.favoriteModelIds : [];
-    const verifications = await verifyModels({ modelIds: ids });
-    const failures = verifications.filter(item => item.status === "failed" || item.status === "unavailable");
-    if (failures.length) {
-      throw new Error(failures.map(item => `${item.modelId}：${item.error || "验证失败"}`).join("\n"));
-    }
     const config = store.setFavorites(input.favoriteModelIds, input.defaultModelId);
-    if (config.favoriteModelIds.length) writeCatalog();
+    if (config.favoriteModelIds.some(id => ["passed", "partial"].includes(store.getModelVerifications()[id]?.status))) writeCatalog();
     return config;
   }
 
@@ -643,6 +675,8 @@ function createOpenRouterService({
     clearApiKey,
     testConnection,
     verifyModels,
+    verifyAgentModels,
+    getAgentLaunchConfig,
     setFavorites,
     writeCatalog,
     getLaunchConfig

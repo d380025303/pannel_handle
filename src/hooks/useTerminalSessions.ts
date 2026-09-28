@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EnvironmentSelection, AgentLocation, AgentProvider, AgentStatusPayload, AppConfig, WindowsShell, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
+import type { EnvironmentSelection, AgentLocation, AgentProvider, AgentModelSource, AgentStatusPayload, AppConfig, WindowsShell, CodexBackend, LaunchTemplate, LaunchTemplateResult, LaunchTemplateSaveInput, QuickCommand, SshConfig, TerminalSession } from "../vite-env";
 import { updateAgentStatuses } from "../utils/agentStatus";
 import { generateId } from "../utils/id";
 import { supportsLocalBridge } from "../components/sessions/agentProviders";
@@ -13,6 +13,8 @@ type CreateSessionOptions = EnvironmentSelection & {
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
   codexBackend?: CodexBackend;
+  modelSource?: AgentModelSource;
+  modelId?: string;
   codexModel?: string;
   codexExperimentalAcknowledged?: boolean;
   graphicalSessionEnabled?: boolean;
@@ -131,7 +133,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -146,6 +148,7 @@ export function useTerminalSessions() {
       ...(isSsh && agentProvider ? { agentLocation: agentLocation || "remote" } : {}),
       ...(isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && localAgentCwd ? { localAgentCwd } : {}),
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
+      ...(!isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") ? { modelSource: modelSource || "native", modelId } : {}),
       graphicalSessionEnabled: graphicalSessionEnabled !== false,
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel ? { codexModel } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
@@ -180,7 +183,7 @@ export function useTerminalSessions() {
     }));
   }, [activeAgentWarning]);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string) => {
     await window.terminalApi.updateSession(id, {
       ...environment,
       title,
@@ -190,6 +193,9 @@ export function useTerminalSessions() {
       agentLocation: agentProvider ? agentLocation ?? null : null,
       localAgentCwd: supportsLocalBridge(agentProvider) && agentLocation === "local" ? localAgentCwd ?? null : null,
       codexBackend: agentProvider === "codex" ? codexBackend ?? "openai" : null,
+      ...(agentProvider === "opencode" || agentProvider === "codebuddy"
+        ? typeof modelSource !== "undefined" ? { modelSource, modelId: modelId ?? null } : {}
+        : { modelSource: null, modelId: null }),
       ...(typeof graphicalSessionEnabled === "boolean" ? { graphicalSessionEnabled } : {}),
       codexModel: agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") ? codexModel ?? null : null,
       ...(typeof codexExperimentalAcknowledged !== "undefined"
@@ -367,6 +373,10 @@ export function useTerminalSessions() {
     await window.terminalApi.setConfig({ autoRestore: next });
     setAutoRestore(next);
   }, []);
+  const switchModelSource = useCallback(async (id: string, source: AgentModelSource) => {
+    const replacement = await window.terminalApi.switchModelSource(id, source);
+    setActiveId(replacement.id);
+  }, []);
 
 
   return {
@@ -393,6 +403,7 @@ export function useTerminalSessions() {
     updateSession,
     switchAgent,
     switchCodexBackend,
+    switchModelSource,
     openPicker,
     exportLibrary,
     importLibrary,

@@ -402,41 +402,66 @@
 
 .terminal-background-settings {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .terminal-background-image-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.terminal-background-preview-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(320px, 100%);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-app);
 }
 
 .terminal-background-preview {
-  width: 240px;
-  height: 135px;
+  position: absolute;
+  display: block;
   object-fit: cover;
   cursor: move;
   touch-action: none;
   user-select: none;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
 }
 
 .terminal-background-none {
   color: var(--color-text-muted, var(--color-text));
   font-size: 12px;
-  opacity: 0.7;
+  text-align: center;
 }
 
 .terminal-background-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .terminal-background-settings input[type="range"] {
   width: min(320px, 100%);
+  margin: 4px 0 2px;
+  accent-color: var(--color-accent);
+}
+
+.terminal-background-control-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: min(320px, 100%);
+  gap: 12px;
+}
+
+.terminal-background-control-label output {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 1050px) {
@@ -1215,6 +1240,223 @@
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
+
+.postgres-backup-settings {
+  min-width: 0;
+  gap: 14px;
+  padding: 20px;
+}
+
+.postgres-backup-intro {
+  padding: 15px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-bg-app));
+}
+
+.postgres-backup-intro h4,
+.postgres-backup-browse-header h4 {
+  font-size: 14px;
+}
+
+.postgres-backup-intro .settings-help,
+.postgres-backup-browse-header .settings-help {
+  margin: 0;
+}
+
+.postgres-backup-device-id {
+  margin: -8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.postgres-backup-fields > .settings-field {
+  min-width: 0;
+}
+
+.postgres-backup-toggle {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+}
+
+.postgres-backup-toggle + .postgres-backup-toggle {
+  border-top: 1px solid var(--color-border);
+}
+
+.postgres-backup-toggle input {
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+}
+
+.postgres-backup-actions {
+  padding-top: 4px;
+}
+
+.postgres-backup-actions .modal-button.primary {
+  border-color: var(--color-accent);
+  color: var(--color-text-strong);
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-bg-control));
+}
+
+.postgres-backup-actions .modal-button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 32%, var(--color-bg-control));
+}
+
+.postgres-backup-settings .modal-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.postgres-backup-settings > .settings-result {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.postgres-backup-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-panel));
+}
+
+.postgres-backup-status-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.postgres-backup-status strong {
+  color: var(--color-text-strong);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.postgres-backup-running {
+  margin-left: auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: var(--color-bg-app);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.postgres-backup-pending {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-warning-text) 40%, var(--color-border));
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  overflow-wrap: anywhere;
+}
+
+.postgres-backup-pending summary {
+  cursor: pointer;
+}
+
+.postgres-backup-pending ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.postgres-backup-divider {
+  width: 100%;
+  height: 1px;
+  margin: 4px 0;
+  border: 0;
+  background: var(--color-border);
+}
+
+.postgres-backup-refresh {
+  justify-self: start;
+}
+
+.postgres-backup-list {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+}
+
+.postgres-backup-list > .settings-toggle-row + .settings-toggle-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.postgres-backup-snapshot {
+  cursor: default;
+}
+
+.postgres-backup-snapshot > span,
+.postgres-backup-conversation > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.postgres-backup-snapshot .modal-button {
+  flex-shrink: 0;
+}
+
+.postgres-backup-conversations {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.postgres-backup-conversations > h4,
+.postgres-backup-messages h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.postgres-backup-conversations > .modal-button {
+  justify-self: start;
+}
+
+.postgres-backup-conversation {
+  width: 100%;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.postgres-backup-conversation:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.postgres-backup-messages {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+}
+
+.postgres-backup-messages p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.postgres-backup-delete {
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+}
+
 .agent-provider-field {
   margin: 0;
   padding: 0;
@@ -1365,56 +1607,45 @@
   cursor: pointer;
 }
 
-.environment-settings { margin: 12px 0; min-width: 0; }
-.environment-settings summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
-.environment-settings p { font-size: 12px; opacity: .8; overflow-wrap: anywhere; }
-.environment-settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
-.environment-settings-workspace { display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); min-height: 480px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-bg-app); }
-.environment-profile-panel { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-bg-panel) 55%, var(--color-bg-app)); }
-.environment-profile-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 12px; border-bottom: 1px solid var(--color-border); }
-.environment-profile-panel-header > div { display: grid; gap: 2px; min-width: 0; }
-.environment-profile-panel-header strong { font-size: 13px; }
-.environment-profile-panel-header span { color: var(--color-text-muted); font-size: 11px; }
-.environment-profile-panel-header .icon-button { width: 30px; height: 30px; }
-.environment-profile-list { display: grid; align-content: start; gap: 4px; min-height: 0; padding: 8px; overflow-y: auto; }
-.environment-profile-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 10px; border: 1px solid transparent; border-radius: var(--radius-md); color: var(--color-text); background: transparent; cursor: pointer; text-align: left; }
-.environment-profile-item:hover { background: var(--color-bg-hover); }
-.environment-profile-item.active { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: var(--color-bg-selection); }
-.environment-profile-item > span { display: grid; gap: 3px; min-width: 0; }
-.environment-profile-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.environment-profile-item small { color: var(--color-text-muted); font-size: 10px; }
-.environment-profile-item.new strong { color: var(--color-accent); }
-.environment-reference-badge { flex-shrink: 0; padding: 2px 5px; border-radius: 8px; color: var(--color-info-text) !important; background: var(--color-info-bg); }
-.environment-profile-editor { position: relative; min-width: 0; padding: 18px; }
-.environment-profile-editor fieldset { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.environment-editor-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.environment-editor-title h4 { margin: 0; font-size: 16px; }
-.environment-editor-title p { margin: 5px 0 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.5; }
+.environment-settings-workspace { min-width: 0; border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-bg-app); }
+.environment-profile-toolbar { display: flex; align-items: end; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-bg-panel) 55%, var(--color-bg-app)); }
+.environment-profile-picker { display: grid; flex: 1; max-width: 420px; min-width: 0; gap: 7px; }
+.environment-profile-picker .modal-label { display: flex; align-items: baseline; gap: 8px; }
+.environment-profile-picker small { color: var(--color-text-muted); font-size: 11px; font-weight: 400; }
+.environment-profile-picker .modal-input { width: 100%; }
+.environment-new-profile { flex-shrink: 0; }
+.environment-profile-editor { min-width: 0; padding: 20px; }
+.environment-profile-editor fieldset { display: grid; gap: 20px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.environment-editor-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.environment-editor-intro p { margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.5; }
 .environment-dirty-badge { flex-shrink: 0; padding: 3px 7px; border-radius: 10px; color: var(--color-warning-text); background: var(--color-warning-bg); font-size: 10px; }
 .environment-name-field { max-width: 520px; }
-.environment-editor { display: grid; gap: 10px; min-width: 0; }
+.environment-editor { display: grid; gap: 12px; min-width: 0; }
 .environment-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .environment-editor-heading > div { display: grid; gap: 2px; }
 .environment-editor-heading strong { font-size: 13px; }
-.environment-editor-heading span { color: var(--color-text-muted); font-size: 10px; }
+.environment-editor-heading span { color: var(--color-text-muted); font-size: 11px; }
 .environment-table { min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
-.environment-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.5fr) 32px; gap: 8px; align-items: center; padding: 6px 8px; }
+.environment-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 32px; gap: 10px; align-items: center; padding: 8px 12px; }
 .environment-row + .environment-row { border-top: 1px solid var(--color-border); }
-.environment-row-header { padding-block: 7px; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-bg-control) 55%, transparent); font-size: 10px; font-weight: 600; }
-.environment-row .modal-input { min-width: 0; padding: 7px 9px; border-color: transparent; background: transparent; }
-.environment-row .modal-input:hover, .environment-row .modal-input:focus { border-color: var(--color-border-strong); background: var(--color-bg-panel); }
+.environment-mobile-label { display: none; }
+.environment-row-header { padding-block: 9px; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-bg-control) 55%, transparent); font-size: 11px; font-weight: 600; }
+.environment-row .modal-input { min-width: 0; width: 100%; padding: 8px 10px; border-color: var(--color-border); background: var(--color-bg-panel); }
+.environment-row .modal-input:hover, .environment-row .modal-input:focus { border-color: var(--color-border-strong); }
 .environment-value-input { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
 .environment-remove-button { width: 30px; height: 30px; border-color: transparent; background: transparent; }
 .environment-empty { display: flex; min-height: 116px; align-items: center; justify-content: center; flex-direction: column; gap: 10px; padding: 20px; color: var(--color-text-muted); font-size: 12px; text-align: center; }
-.environment-paste { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-bg-panel) 40%, transparent); }
-.environment-paste summary { padding: 10px 12px; cursor: pointer; color: var(--color-text-secondary); font-size: 12px; font-weight: 600; }
+.environment-paste { border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.environment-paste summary { padding: 10px 12px; cursor: pointer; color: var(--color-text-secondary); font-size: 12px; font-weight: 500; }
+.environment-paste[open] { background: color-mix(in srgb, var(--color-bg-panel) 40%, transparent); }
 .environment-paste-body { display: grid; gap: 8px; padding: 0 12px 12px; }
 .environment-paste-body p { margin: 0; color: var(--color-text-muted); font-size: 11px; }
 .environment-paste-actions { display: flex; justify-content: flex-end; }
-.environment-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
-.environment-references { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-info-text) 32%, var(--color-border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-info-bg) 58%, transparent); font-size: 11px; }
+.environment-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 16px; border-top: 1px solid var(--color-border); }
+.environment-actions-secondary { display: flex; flex-wrap: wrap; gap: 8px; }
+.environment-references { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-info-text) 32%, var(--color-border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-info-bg) 30%, transparent); font-size: 11px; }
 .environment-references small { color: var(--color-text-muted); }
-.environment-result { position: sticky; bottom: 0; margin-top: 12px; }
+.environment-result { margin-top: 12px; }
 .environment-preview { width: 100%; table-layout: fixed; font-size: 12px; border-collapse: collapse; }
 .environment-preview th, .environment-preview td { text-align: left; padding: 6px; overflow-wrap: anywhere; }
 
@@ -1434,13 +1665,29 @@
   .settings-navigation button { display: flex; width: auto; min-width: max-content; min-height: 36px; padding: 7px 10px; }
   .settings-content { padding: 16px 12px; }
   .settings-choice-grid { grid-template-columns: minmax(0, 1fr); }
-  .environment-settings-workspace { grid-template-columns: minmax(0, 1fr); }
-  .environment-profile-panel { max-height: 190px; border-right: 0; border-bottom: 1px solid var(--color-border); }
-  .environment-profile-list { grid-auto-flow: column; grid-auto-columns: minmax(150px, 200px); overflow-x: auto; }
-  .environment-profile-editor { padding: 14px 10px; }
-  .environment-row { grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.35fr) 30px; gap: 4px; padding-inline: 5px; }
+  .postgres-backup-settings { padding: 14px; }
+  .postgres-backup-snapshot { align-items: stretch; flex-direction: column; gap: 8px; }
+  .postgres-backup-snapshot .modal-button { align-self: flex-start; }
+  .postgres-backup-status { align-items: flex-start; flex-direction: column; }
+  .postgres-backup-running { margin-left: 0; }
+  .environment-profile-toolbar { padding: 14px; }
+  .environment-profile-editor { padding: 16px 14px; }
+  .environment-row { gap: 6px; padding-inline: 8px; }
   .settings-confirm-actions { flex-direction: column; }
   .settings-confirm-actions .modal-button { width: 100%; }
+}
+
+@media (max-width: 520px) {
+  .environment-profile-toolbar { align-items: stretch; flex-direction: column; }
+  .environment-profile-picker { max-width: none; }
+  .environment-new-profile { align-self: flex-start; }
+  .environment-row-header { display: none; }
+  .environment-row:not(.environment-row-header) { grid-template-columns: minmax(0, 1fr) 30px; }
+  .environment-mobile-label { display: block; grid-column: 1; color: var(--color-text-muted); font-size: 11px; }
+  .environment-row .modal-input { grid-column: 1; }
+  .environment-remove-button { grid-column: 2; grid-row: 1 / 5; align-self: start; }
+  .environment-actions { align-items: stretch; flex-direction: column-reverse; }
+  .environment-actions > .modal-button { align-self: stretch; justify-content: center; }
 }
 
 .codebuddy-quota-settings {

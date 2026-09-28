@@ -29,6 +29,7 @@ afterEach(() => {
   localStorage.clear();
   FakeWebSocket.instances = [];
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -161,6 +162,56 @@ it("keeps a connection with timely application pongs", () => {
   ready(socket);
   for (let index = 0; index < 6; index++) {
     act(() => vi.advanceTimersByTime(10_000));
+    act(() => socket.receive("pong", { at: Date.now() }));
+  }
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  expect(hook.result.current.status).toBe("connected");
+});
+
+it("waits for a fresh pong after returning from a hidden page", () => {
+  vi.useFakeTimers();
+  let hidden = false;
+  vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+
+  hidden = true;
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  act(() => vi.advanceTimersByTime(60_000));
+  expect(FakeWebSocket.instances).toHaveLength(1);
+
+  hidden = false;
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  expect(hook.result.current.status).toBe("connected");
+  expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: "ping" });
+
+  act(() => vi.advanceTimersByTime(40_000));
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  act(() => vi.advanceTimersByTime(10_000));
+  expect(FakeWebSocket.instances).toHaveLength(2);
+});
+
+it("keeps the resumed connection when fresh pongs arrive", () => {
+  vi.useFakeTimers();
+  let hidden = false;
+  vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+
+  hidden = true;
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  act(() => vi.advanceTimersByTime(60_000));
+  hidden = false;
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  for (let index = 0; index < 3; index++) {
+    act(() => vi.advanceTimersByTime(30_000));
     act(() => socket.receive("pong", { at: Date.now() }));
   }
   expect(FakeWebSocket.instances).toHaveLength(1);

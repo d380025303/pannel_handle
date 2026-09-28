@@ -1,5 +1,5 @@
 import { Bell, Bot, Braces, Database, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { EnvironmentSettings, type EnvironmentSettingsHandle } from "../environment/EnvironmentSettings";
 import { LOCALE_OPTIONS, useI18n } from "../../i18n";
@@ -41,6 +41,7 @@ type SettingsModalProps = {
   terminalBackgroundBlur: number;
   terminalBackgroundPositionX: number;
   terminalBackgroundPositionY: number;
+  terminalBackgroundAreaSize?: { width: number; height: number } | null;
   onChooseTerminalBackground: () => Promise<void>;
   onClearTerminalBackground: () => Promise<void>;
   onTerminalBackgroundOpacityChange: (value: number) => void;
@@ -78,6 +79,7 @@ export function SettingsModal({
   terminalBackgroundBlur,
   terminalBackgroundPositionX,
   terminalBackgroundPositionY,
+  terminalBackgroundAreaSize,
   onChooseTerminalBackground,
   onClearTerminalBackground,
   onTerminalBackgroundOpacityChange,
@@ -106,7 +108,27 @@ export function SettingsModal({
   const [screenshotSettingsError, setScreenshotSettingsError] = useState<string | null>(null);
   const [backgroundPositionError, setBackgroundPositionError] = useState<string | null>(null);
   const [backgroundPositionSaving, setBackgroundPositionSaving] = useState(false);
+  const backgroundPreviewFrameRef = useRef<HTMLDivElement>(null);
+  const [backgroundPreviewWidth, setBackgroundPreviewWidth] = useState(320);
   const backgroundDrag = useRef<{ pointerId: number; startX: number; startY: number; positionX: number; positionY: number; nextX: number; nextY: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const frame = backgroundPreviewFrameRef.current;
+    if (!frame) return;
+    const updateWidth = () => {
+      const width = frame.clientWidth;
+      if (width > 0) setBackgroundPreviewWidth(width);
+    };
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [activeCategory]);
+
+  const backgroundPreviewBlur = terminalBackgroundAreaSize?.width
+    ? terminalBackgroundBlur * backgroundPreviewWidth / terminalBackgroundAreaSize.width
+    : terminalBackgroundBlur;
 
   const handleBackgroundPointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
     if (!terminalBackgroundImage || backgroundPositionSaving || event.button !== 0) return;
@@ -126,10 +148,23 @@ export function SettingsModal({
   const handleBackgroundPointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
     const drag = backgroundDrag.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    drag.nextX = Math.min(100, Math.max(0, Math.round(drag.positionX - (event.clientX - drag.startX) / bounds.width * 100)));
-    drag.nextY = Math.min(100, Math.max(0, Math.round(drag.positionY - (event.clientY - drag.startY) / bounds.height * 100)));
+    const frame = backgroundPreviewFrameRef.current;
+    const bounds = frame?.getBoundingClientRect();
+    const image = event.currentTarget;
+    const frameWidth = frame?.clientWidth || bounds?.width || 0;
+    const frameHeight = frame?.clientHeight || bounds?.height || 0;
+    if (!frameWidth || !frameHeight || !image.naturalWidth || !image.naturalHeight) return;
+    const layerWidth = frameWidth + 2 * backgroundPreviewBlur;
+    const layerHeight = frameHeight + 2 * backgroundPreviewBlur;
+    const coverScale = Math.max(layerWidth / image.naturalWidth, layerHeight / image.naturalHeight);
+    const horizontalTravel = Math.max(0, image.naturalWidth * coverScale - layerWidth);
+    const verticalTravel = Math.max(0, image.naturalHeight * coverScale - layerHeight);
+    drag.nextX = horizontalTravel > 0
+      ? Math.min(100, Math.max(0, Math.round(drag.positionX - (event.clientX - drag.startX) / horizontalTravel * 100)))
+      : drag.positionX;
+    drag.nextY = verticalTravel > 0
+      ? Math.min(100, Math.max(0, Math.round(drag.positionY - (event.clientY - drag.startY) / verticalTravel * 100)))
+      : drag.positionY;
     onTerminalBackgroundPositionPreview(drag.nextX, drag.nextY);
   };
 
@@ -445,21 +480,30 @@ export function SettingsModal({
                     </div>
                   </div>
                   <div className="settings-field terminal-background-image-row">
-                    {terminalBackgroundImage ? (
-                      <img
-                        className="terminal-background-preview"
-                        src={getTerminalBackgroundUrl(terminalBackgroundImage)}
-                        alt={t("settings.terminalBackgroundTitle")}
-                        draggable={false}
-                        style={{ objectPosition: `${terminalBackgroundPositionX}% ${terminalBackgroundPositionY}%` }}
-                        onPointerDown={handleBackgroundPointerDown}
-                        onPointerMove={handleBackgroundPointerMove}
-                        onPointerUp={handleBackgroundPointerUp}
-                        onPointerCancel={handleBackgroundPointerCancel}
-                      />
-                    ) : (
-                      <span className="terminal-background-none">{t("settings.terminalBackgroundNone")}</span>
-                    )}
+                    <div className="terminal-background-preview-frame" ref={backgroundPreviewFrameRef} style={{ aspectRatio: terminalBackgroundAreaSize ? `${terminalBackgroundAreaSize.width} / ${terminalBackgroundAreaSize.height}` : undefined }}>
+                      {terminalBackgroundImage ? (
+                        <img
+                          className="terminal-background-preview"
+                          src={getTerminalBackgroundUrl(terminalBackgroundImage)}
+                          alt={t("settings.terminalBackgroundTitle")}
+                          draggable={false}
+                          style={{
+                            objectPosition: `${terminalBackgroundPositionX}% ${terminalBackgroundPositionY}%`,
+                            opacity: terminalBackgroundOpacity / 100,
+                            filter: backgroundPreviewBlur > 0 ? `blur(${backgroundPreviewBlur}px)` : undefined,
+                            inset: -backgroundPreviewBlur,
+                            width: `calc(100% + ${2 * backgroundPreviewBlur}px)`,
+                            height: `calc(100% + ${2 * backgroundPreviewBlur}px)`
+                          }}
+                          onPointerDown={handleBackgroundPointerDown}
+                          onPointerMove={handleBackgroundPointerMove}
+                          onPointerUp={handleBackgroundPointerUp}
+                          onPointerCancel={handleBackgroundPointerCancel}
+                        />
+                      ) : (
+                        <span className="terminal-background-none">{t("settings.terminalBackgroundNone")}</span>
+                      )}
+                    </div>
                     <div className="terminal-background-actions">
                       <button type="button" className="secondary-button" onClick={() => void onChooseTerminalBackground()}>
                         {t("settings.terminalBackgroundChoose")}
@@ -480,8 +524,9 @@ export function SettingsModal({
                   {terminalBackgroundImage && <p className="settings-help">{t("settings.terminalBackgroundPositionHint")}</p>}
                   {backgroundPositionError && <p className="settings-result error" role="alert">{t("settings.terminalBackgroundPositionError")}: {backgroundPositionError}</p>}
                   <div className="settings-field">
-                    <span className="modal-label">
-                      {t("settings.terminalBackgroundOpacity")} · {terminalBackgroundOpacity}%
+                    <span className="modal-label terminal-background-control-label">
+                      <span>{t("settings.terminalBackgroundOpacity")}</span>
+                      <output>{terminalBackgroundOpacity}%</output>
                     </span>
                     <input
                       type="range"
@@ -495,8 +540,9 @@ export function SettingsModal({
                     />
                   </div>
                   <div className="settings-field">
-                    <span className="modal-label">
-                      {t("settings.terminalBackgroundBlur")} · {terminalBackgroundBlur}px
+                    <span className="modal-label terminal-background-control-label">
+                      <span>{t("settings.terminalBackgroundBlur")}</span>
+                      <output>{terminalBackgroundBlur}px</output>
                     </span>
                     <input
                       type="range"

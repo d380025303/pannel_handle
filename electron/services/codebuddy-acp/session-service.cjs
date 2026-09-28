@@ -67,16 +67,21 @@ function buildInvocation(session, runtime, environment, provider = "codebuddy") 
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const cwd = runtime.workspaceCwd || session.cwd;
   if (provider === "codebuddy") environment = { ...environment, CODEBUDDY_GATEWAY_AUTH: "password" };
+  if (provider === "codebuddy" && session.modelSource && session.modelSource !== "native") delete environment.CODEBUDDY_AUTH_TOKEN;
   if (session.type === "wsl") {
     const script = `${before ? `{ ${before}; } 1>&2 && ` : ""}exec ${commandName} ${args}`;
-    const inherited = String(process.env.WSLENV || "").split(":").filter(Boolean);
+    const inherited = String(process.env.WSLENV || "").split(":").filter(Boolean)
+      .filter(value => !(provider === "codebuddy" && session.modelSource && session.modelSource !== "native" && value.split("/")[0] === "CODEBUDDY_AUTH_TOKEN"));
     const names = new Set(inherited.map(value => value.split("/")[0]));
     for (const name of Object.keys(environment)) if (!names.has(name)) inherited.push(`${name}/u`);
+    const env = { ...process.env, ...environment, WSLENV: inherited.join(":") };
+    if (provider === "codebuddy" && session.modelSource && session.modelSource !== "native") delete env.CODEBUDDY_AUTH_TOKEN;
     return { executable: "wsl.exe", args: ["-d", session.wslDistro, "--cd", session.cwd, "--", "bash", "-lic", script],
-      cwd: process.cwd(), env: { ...process.env, ...environment, WSLENV: inherited.join(":") } };
+      cwd: process.cwd(), env };
   }
   const command = `${commandName}${args ? ` ${args}` : ""}`;
   const env = mergeEnvironment([process.env, environment], true);
+  if (provider === "codebuddy" && session.modelSource && session.modelSource !== "native") delete env.CODEBUDDY_AUTH_TOKEN;
   if (/(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell)) {
     const script = `${before ? `& { ${before} } 1>&2; if (-not $?) { exit 1 }; ` : ""}& ${command}`;
     return { executable: shell, args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], cwd, env };
@@ -135,6 +140,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (provider !== "codebuddy") return;
     const saved = savedOptions(entry);
     for (const [key, optionId] of [["model", "model"], ["contextWindow", "context_window"], ["multitask", "multitask"]]) {
+      if (optionId === "model" && entry.session.modelSource && entry.session.modelSource !== "native") continue;
       const option = entry.configOptions.find(item => item.id === optionId);
       const value = saved[key];
       if (!option || value === undefined || option.currentValue === value

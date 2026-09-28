@@ -51,7 +51,10 @@ it("subscribes to the selected graphical session and sends text with its thread 
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
   expect(screen.getByText("完成")).toBeTruthy();
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
-  fireEvent.click(screen.getByText("发送"));
+  const submit = screen.getByRole("button", { name: "发送" });
+  expect(submit.querySelector("svg[aria-hidden='true']")).toBeTruthy();
+  expect(submit.textContent).toBe("");
+  fireEvent.click(submit);
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
 });
 
@@ -396,7 +399,7 @@ it("uploads a phone file and sends an attachment-only message", async () => {
   emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: prepare!.requestId, fileId: "file-1", url: "/api/v1/upload/file-1?ticket=abc" });
   await waitFor(() => expect(screen.getByText(/note.txt · 已上传/)).toBeTruthy());
   expect(fetch).toHaveBeenCalledWith("/api/v1/upload/file-1?ticket=abc", expect.objectContaining({ method: "POST", body: file }));
-  fireEvent.click(screen.getByText("发送"));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", text: "", fileIds: ["file-1"] }));
 });
 
@@ -438,7 +441,7 @@ it("lets a failed phone upload retry", async () => {
   emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: requests()[0].requestId, fileId: "file-1", url: "/api/v1/upload/file-1?ticket=abc" });
   await waitFor(() => expect(screen.getByText(/note.txt · 上传失败/)).toBeTruthy());
   expect(screen.getByRole("alert").textContent).toContain("网络中断");
-  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  fireEvent.click(screen.getByRole("button", { name: /重试上传/ }));
   expect(requests()).toHaveLength(2);
   emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: requests()[1].requestId, fileId: "file-2", url: "/api/v1/upload/file-2?ticket=def" });
   await waitFor(() => expect(screen.getByText(/note.txt · 已上传/)).toBeTruthy());
@@ -496,8 +499,9 @@ it("opens history and starts a new conversation from the single menu", () => {
   expect(more.getAttribute("aria-expanded")).toBe("true");
   const menu = screen.getByRole("dialog", { name: "更多操作" });
   expect(within(menu).getByRole("group", { name: "会话模式" })).toBeTruthy();
+  expect(within(menu).getByRole("button", { name: /历史记录/ }).querySelector("svg[aria-hidden='true']")).toBeTruthy();
   expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
-    .toEqual(["×", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话"]);
+    .toEqual(["", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话"]);
   expect(within(menu).getByLabelText("添加文件").closest("label")?.textContent).toBe("添加文件0/10");
   fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
   expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();

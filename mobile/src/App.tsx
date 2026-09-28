@@ -8,6 +8,7 @@ import { useRemoteConnection } from "./useRemoteConnection";
 
 const ACTIVE_SESSION_STORAGE_KEY = "pannel-handle-mobile-active-session";
 type TextDraft = { text: string; version: number };
+type SessionDialog = { type: "rename" | "close"; session: RuntimeSession };
 
 function readActiveSessionId() {
   try { return localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY); }
@@ -46,6 +47,12 @@ export default function App() {
   const [pasteOpenBySession, setPasteOpenBySession] = useState<Record<string, boolean>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, string>>({});
   const [recoveryNotice, setRecoveryNotice] = useState("");
+  const [sessionDialog, setSessionDialog] = useState<SessionDialog | null>(null);
+  const [dialogClosing, setDialogClosing] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogInputRef = useRef<HTMLInputElement>(null);
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const pendingSubmissions = useRef(new Map<string, { sessionId: string; version: number }>());
   const activeSession = useMemo(
     () => remote.sessions.find((session) => session.id === activeId) ?? null,
@@ -140,6 +147,37 @@ export default function App() {
     setRecoveryNotice("连接中断，发送结果未确认；请核对会话内容后再重试。草稿已保留。");
   }, [remote.status]);
 
+  const dismissSessionDialog = useCallback(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) setSessionDialog(null);
+    else setDialogClosing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionDialog) return;
+    if (sessionDialog.type === "rename") dialogInputRef.current?.focus();
+    else dialogRef.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); dismissSessionDialog(); return; }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const elements = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
+      const first = elements[0], last = elements.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); dialogTriggerRef.current?.focus(); };
+  }, [sessionDialog, dismissSessionDialog]);
+
+  useEffect(() => {
+    if (!dialogClosing) return;
+    const timeout = window.setTimeout(() => setSessionDialog(null), 240);
+    return () => window.clearTimeout(timeout);
+  }, [dialogClosing]);
+
   const trackGraphicalSubmit = (sessionId: string, requestId: string) => {
     pendingSubmissions.current.set(requestId, { sessionId, version: graphicalDrafts[sessionId]?.version ?? 0 });
     setPendingBySession(current => ({ ...current, [sessionId]: requestId }));
@@ -159,15 +197,24 @@ export default function App() {
     setDrawerTab("running");
   };
 
-  const renameSession = (session: RuntimeSession) => {
-    const title = window.prompt("新的会话名称", session.title)?.trim();
-    if (!title || title === session.title) return;
-    remote.send({ v: PROTOCOL_VERSION, type: "session.rename", sessionId: session.id, title, requestId: createRequestId() });
+  const openSessionDialog = (type: SessionDialog["type"], session: RuntimeSession, trigger: HTMLElement) => {
+    dialogTriggerRef.current = trigger;
+    setRenameTitle(session.title);
+    setDialogClosing(false);
+    setSessionDialog({ type, session });
   };
 
-  const closeSession = (session: RuntimeSession) => {
-    if (!window.confirm(`关闭“${session.title}”会终止正在运行的会话，是否继续？`)) return;
-    remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: createRequestId() });
+  const confirmSessionDialog = () => {
+    if (!sessionDialog) return;
+    const { session, type } = sessionDialog;
+    if (type === "rename") {
+      const title = renameTitle.trim();
+      if (!title || title === session.title) return;
+      remote.send({ v: PROTOCOL_VERSION, type: "session.rename", sessionId: session.id, title, requestId: createRequestId() });
+    } else {
+      remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: createRequestId() });
+    }
+    dismissSessionDialog();
   };
 
   if (remote.status !== "connected" && !remote.device) {
@@ -207,12 +254,22 @@ export default function App() {
           {remote.sessions.length ? <div className="mobile-home-list">{remote.sessions.map(session => {
             const overview = remote.overviews[session.id];
             return <article className={session.id === activeId ? "mobile-home-card selected" : "mobile-home-card"} key={session.id}>
+              <div className="mobile-home-card-top">
+                <span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span>
+                <span className="mobile-home-status" data-status={overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span>
+                <div className="mobile-home-card-actions">
+                  <button type="button" aria-label={`改名${session.title}`} title="改名" onClick={event => openSessionDialog("rename", session, event.currentTarget)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" /></svg>
+                  </button>
+                  <button type="button" className="danger" aria-label={`关闭${session.title}`} title="关闭" onClick={event => openSessionDialog("close", session, event.currentTarget)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
               <button type="button" className="mobile-home-card-main" onClick={() => { setActiveId(session.id); setView("detail"); }} aria-label={`打开${session.title}详情`}>
-                <div className="mobile-home-card-top"><span className="mobile-home-kind">{modeLabel(session)} · {kindLabel(session.type)}</span><span className="mobile-home-status" data-status={overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span></div>
                 <strong>{session.title}</strong>
                 <p>{overview?.summary ?? "正在获取最近内容…"}</p>
               </button>
-              <div className="mobile-home-card-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button type="button" className="danger" onClick={() => closeSession(session)}>关闭</button></div>
             </article>;
           })}</div> : <div className="mobile-home-empty"><h2>没有运行中的会话</h2><p>从电脑已保存的模板启动一个会话。</p><button className="primary large" type="button" onClick={() => { setDrawerTab("templates"); setDrawerOpen(true); }}>选择模板</button></div>}
         </section>
@@ -261,7 +318,7 @@ export default function App() {
                   <button className="session-main" type="button" onClick={() => { setActiveId(session.id); setView("detail"); setFilesOpen(false); setDrawerOpen(false); }}>
                     <strong>{session.title}</strong><span>{kindLabel(session.type)} · {modeLabel(session)}{session.cwd ? ` · ${session.cwd}` : ""}</span>
                   </button>
-                  <div className="session-actions"><button type="button" onClick={() => renameSession(session)}>改名</button><button className="danger" type="button" onClick={() => closeSession(session)}>关闭</button></div>
+                  <div className="session-actions"><button type="button" onClick={event => openSessionDialog("rename", session, event.currentTarget)}>改名</button><button className="danger" type="button" onClick={event => openSessionDialog("close", session, event.currentTarget)}>关闭</button></div>
                 </article>
               )) : filteredTemplates.map((template) => (
                 <article className="session-card" key={template.id}>
@@ -277,6 +334,24 @@ export default function App() {
           </aside>
         </div>
       )}
+      {sessionDialog && <div className="session-dialog-backdrop" data-closing={dialogClosing}
+        onClick={dismissSessionDialog}>
+        <div ref={dialogRef} className="session-dialog" role="dialog" aria-modal="true"
+          aria-label={sessionDialog.type === "rename" ? "改名会话" : "关闭会话"} tabIndex={-1}
+          onClick={event => event.stopPropagation()}>
+          <h2>{sessionDialog.type === "rename" ? "改名会话" : "关闭会话"}</h2>
+          {sessionDialog.type === "rename" ? <form onSubmit={event => { event.preventDefault(); confirmSessionDialog(); }}>
+            <label htmlFor="session-rename-title">新的会话名称</label>
+            <input ref={dialogInputRef} id="session-rename-title" value={renameTitle} onChange={event => setRenameTitle(event.target.value)} />
+            <div className="session-dialog-actions"><button type="button" onClick={dismissSessionDialog}>取消</button>
+              <button className="primary" type="submit" disabled={!renameTitle.trim() || renameTitle.trim() === sessionDialog.session.title}>保存</button></div>
+          </form> : <>
+            <p>关闭“{sessionDialog.session.title}”会终止正在运行的会话，是否继续？</p>
+            <div className="session-dialog-actions"><button type="button" onClick={dismissSessionDialog}>取消</button>
+              <button className="danger" type="button" onClick={confirmSessionDialog}>确认关闭</button></div>
+          </>}
+        </div>
+      </div>}
       {remote.status !== "connected" && <div className="connection-overlay" role="status">
         <div><strong>正在恢复连接</strong><p>{remote.statusMessage}</p>
           <button className="primary large" type="button" onClick={remote.retry}>立即重试</button></div>

@@ -202,9 +202,18 @@ export function useRemoteConnection() {
     stoppedRef.current = false;
     indexedDB.deleteDatabase("pannel-handle-mobile");
     connect();
+    let wasHidden = document.hidden;
     const checkConnection = () => {
       const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current || document.hidden) return;
+      if (document.hidden) {
+        wasHidden = true;
+        return;
+      }
+      if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current) return;
+      if (wasHidden) {
+        lastPongAtRef.current = Date.now();
+        wasHidden = false;
+      }
       if (Date.now() - lastPongAtRef.current >= PONG_TIMEOUT_MS) {
         connect();
         return;

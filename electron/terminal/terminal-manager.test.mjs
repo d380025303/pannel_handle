@@ -90,6 +90,8 @@ function createManager(overrides = {}) {
       initialCommand: template.initialCommand,
       agentProvider: template.agentProvider,
       agentLocation: template.agentLocation,
+      modelSource: template.modelSource,
+      modelId: template.modelId,
       codexBackend: template.codexBackend,
       codexModel: template.codexModel,
       codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
@@ -579,11 +581,11 @@ describe("terminal-manager", () => {
 
     manager.updateSession(session.id, { agentProvider: "codex" });
     expect(manager.getSession(session.id).agentProvider).toBe("codex");
-    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: "codex" });
+    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", expect.objectContaining({ agentProvider: "codex", modelSource: "native" }));
 
     manager.updateSession(session.id, { agentProvider: null });
     expect(manager.getSession(session.id).agentProvider).toBeUndefined();
-    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", { agentProvider: null });
+    expect(sessionStore.updateLibrary).toHaveBeenLastCalledWith("1", expect.objectContaining({ agentProvider: null, modelSource: null }));
   });
 
   it("launches a runtime replacement with the original template link without changing the saved Agent", () => {
@@ -691,6 +693,13 @@ describe("terminal-manager", () => {
       message: "Exit code 7"
     }));
     expect(broadcast).toHaveBeenLastCalledWith("sessions:changed", []);
+  });
+
+  it("keeps OpenCode model selection when unrelated session details change", () => {
+    const { manager } = createManager();
+    const session = manager.createSession({ title: "OpenCode", agentProvider: "opencode", modelSource: "openrouter", modelId: "vendor/coder" });
+    manager.updateSession(session.id, { title: "Renamed", quickCommands: [{ id: "one", command: "pwd", mode: "auto-enter" }] });
+    expect(manager.getSession(session.id)).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
   });
 
   it("keeps one graphical mode when the template changes Agent providers", () => {

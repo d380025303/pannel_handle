@@ -50,6 +50,8 @@ export type TerminalSession = EnvironmentSelection & {
   localAgentCwd?: string;
   codexBackend?: CodexBackend;
   codexModel?: string;
+  modelSource?: AgentModelSource;
+  modelId?: string;
   codexExperimentalAcknowledged?: boolean;
   graphicalSessionEnabled?: boolean;
   codeBuddyGraphicalOptions?: { mode?: string; model?: string; contextWindow?: string; multitask?: boolean };
@@ -494,6 +496,7 @@ export type ProjectSearchOptions = {
 
 export type AgentProvider = "claude" | "codex" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok";
 export type CodexBackend = "openai" | "openrouter" | "nararouter" | "minimax" | "codebuddy";
+export type AgentModelSource = "native" | "openrouter" | "nararouter" | "minimax" | "codebuddy";
 
 export type CodeBuddyCodexVerification = {
   status: "passed" | "failed" | "unavailable";
@@ -535,6 +538,7 @@ export type OpenRouterModel = {
   freeTierEligible?: boolean;
   compatible: boolean;
   verification?: OpenRouterModelVerification;
+  agentVerifications?: Partial<Record<"opencode" | "codebuddy", { status: "passed" | "failed" | "unavailable"; checkedAt: number; error?: string }>>;
 };
 
 export type OpenRouterModelVerification = {
@@ -579,6 +583,7 @@ export type OpenRouterApi = {
   clearApiKey: () => Promise<OpenRouterConfig>;
   test: () => Promise<{ ok: true }>;
   verifyModels: (input: { modelIds: string[]; force?: boolean }) => Promise<Array<OpenRouterModelVerification & { modelId: string }>>;
+  verifyAgentModels: (input: { agent: "opencode" | "codebuddy"; modelIds: string[]; force?: boolean }) => Promise<Array<{ modelId: string; status: "passed" | "failed" | "unavailable"; checkedAt: number; error?: string }>>;
   setFavorites: (input: { favoriteModelIds: string[]; defaultModelId?: string }) => Promise<OpenRouterConfig>;
 };
 
@@ -1176,10 +1181,11 @@ export type ProjectAssistantApi = {
 
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; modelSource?: AgentModelSource; modelId?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; modelSource?: AgentModelSource | null; modelId?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchCodexBackend: (id: string, backend: CodexBackend) => Promise<TerminalSession>;
+  switchModelSource: (id: string, source: AgentModelSource) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
   reconnectSession: (id: string) => Promise<TerminalSession>;
   getHistory: (id: string) => Promise<string>;

@@ -39,6 +39,7 @@ function createRouterService(name) {
     clearApiKey: vi.fn(() => `${name}-cleared`),
     testConnection: vi.fn(() => `${name}-tested`),
     verifyModels: vi.fn(value => value),
+    verifyAgentModels: vi.fn(value => value),
     setFavorites: vi.fn(value => value)
   };
 }
@@ -180,6 +181,8 @@ describe("settings IPC handlers", () => {
     expect(harness.ipcMain.handlers.get("openrouter:save-api-key")({}, "secret")).toBe("secret");
     expect(harness.openRouterService.saveApiKey).toHaveBeenCalledWith("secret");
     expect(harness.ipcMain.handlers.get("nararouter:list-models")()).toBe("nararouter-models");
+    expect(harness.ipcMain.handlers.get("openrouter:verify-agent-models")({}, { agent: "opencode", modelIds: ["vendor/model"] }))
+      .toEqual({ agent: "opencode", modelIds: ["vendor/model"] });
     expect(harness.ipcMain.handlers.get("minimax:test")()).toBe("minimax-tested");
     expect(harness.ipcMain.handlers.get("codebuddy-codex:verify-model")({}, { modelId: "glm" })).toEqual({ modelId: "glm" });
     expect(harness.ipcMain.handlers.get("dingtalk:set-config")({}, { enabled: true })).toEqual({ enabled: true });

@@ -126,39 +126,24 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
 
   return (
     <div className="environment-settings-workspace">
-      <aside className="environment-profile-panel" aria-label={t("settings.environmentProfiles")}>
-        <div className="environment-profile-panel-header">
-          <div>
-            <strong>{t("settings.environmentProfiles")}</strong>
-            <span>{t("settings.environmentProfileCount", { count: profiles.length })}</span>
-          </div>
-          <button className="icon-button primary" type="button" title={t("settings.environmentNewProfile")} aria-label={t("settings.environmentNewProfile")} disabled={busy} onClick={() => leaveThen(() => applyDraft(EMPTY_DRAFT))}>
-            <FilePlus2 aria-hidden="true" />
-          </button>
-        </div>
-        <div className="environment-profile-list">
-          <button type="button" className={`environment-profile-item new${draft.id === "" ? " active" : ""}`} aria-current={draft.id === "" ? "page" : undefined} onClick={() => selectProfile("")}>
-            <span><strong>{t("settings.environmentNewProfile")}</strong><small>{t("settings.environmentNewProfileHint")}</small></span>
-          </button>
-          {profiles.map(profile => {
-            const referenceCount = new Set(profile.references || []).size;
-            return (
-              <button type="button" key={profile.id} className={`environment-profile-item${draft.id === profile.id ? " active" : ""}`} aria-current={draft.id === profile.id ? "page" : undefined} onClick={() => selectProfile(profile.id)}>
-                <span><strong>{profile.name}</strong><small>{t("settings.environmentVariableCount", { count: profile.entries.length })}</small></span>
-                {referenceCount > 0 && <small className="environment-reference-badge">{t("settings.environmentReferenceCount", { count: referenceCount })}</small>}
-              </button>
-            );
-          })}
-        </div>
-      </aside>
+      <div className="environment-profile-toolbar">
+        <label className="environment-profile-picker">
+          <span className="modal-label">{t("settings.environmentProfiles")} <small>{t("settings.environmentProfileCount", { count: profiles.length })}</small></span>
+          <select className="modal-input" aria-label={t("settings.environmentProfiles")} value={draft.id} disabled={busy} onChange={event => selectProfile(event.target.value)}>
+            <option value="">{t("settings.environmentNewProfile")}</option>
+            {profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select>
+        </label>
+        <button className="modal-button environment-new-profile" type="button" disabled={busy} onClick={() => leaveThen(() => applyDraft(EMPTY_DRAFT))}>
+          <FilePlus2 aria-hidden="true" />
+          {t("settings.environmentNewProfile")}
+        </button>
+      </div>
 
       <section className="environment-profile-editor" aria-label={draft.id ? draft.name : t("settings.environmentNewProfile")}>
         <fieldset disabled={busy}>
-          <div className="environment-editor-title">
-            <div>
-              <h4>{draft.id ? draft.name : t("settings.environmentNewProfile")}</h4>
-              <p>{t("settings.environmentDescription")}</p>
-            </div>
+          <div className="environment-editor-intro">
+            <p>{t("settings.environmentDescription")}</p>
             {dirty && <span className="environment-dirty-badge">{t("settings.environmentUnsaved")}</span>}
           </div>
 
@@ -178,19 +163,21 @@ export const EnvironmentSettings = forwardRef<EnvironmentSettingsHandle, Environ
           )}
 
           <div className="environment-actions">
+            <div className="environment-actions-secondary">
+              <button type="button" className="modal-button" disabled={!draft.id} onClick={copyProfile}>
+                <Copy aria-hidden="true" />
+                {t("settings.environmentCopy")}
+              </button>
+              <button type="button" className={`modal-button danger${confirmDelete ? " confirm" : ""}`} disabled={!draft.id || references.length > 0} onClick={() => confirmDelete ? void deleteProfile() : setConfirmDelete(true)}>
+                <Trash2 aria-hidden="true" />
+                {confirmDelete ? t("settings.environmentConfirmDelete") : t("settings.environmentDelete")}
+              </button>
+              {confirmDelete && <button type="button" className="modal-button compact" onClick={() => setConfirmDelete(false)}>{t("common.cancel")}</button>}
+            </div>
             <button type="button" className="modal-button primary" disabled={!draft.name.trim()} onClick={() => void saveDraft()}>
               <Save aria-hidden="true" />
               {t("settings.environmentSave")}
             </button>
-            <button type="button" className="modal-button" disabled={!draft.id} onClick={copyProfile}>
-              <Copy aria-hidden="true" />
-              {t("settings.environmentCopy")}
-            </button>
-            <button type="button" className={`modal-button danger${confirmDelete ? " confirm" : ""}`} disabled={!draft.id || references.length > 0} onClick={() => confirmDelete ? void deleteProfile() : setConfirmDelete(true)}>
-              <Trash2 aria-hidden="true" />
-              {confirmDelete ? t("settings.environmentConfirmDelete") : t("settings.environmentDelete")}
-            </button>
-            {confirmDelete && <button type="button" className="modal-button compact" onClick={() => setConfirmDelete(false)}>{t("common.cancel")}</button>}
           </div>
         </fieldset>
         {message && <div className={`settings-result environment-result ${message.kind}`} role="status">{message.text}</div>}

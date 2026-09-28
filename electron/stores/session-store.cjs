@@ -125,12 +125,9 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const localAgentCwd = template.type === "ssh" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider) && agentLocation === "local" && typeof template.localAgentCwd === "string"
       ? template.localAgentCwd.trim() || undefined
       : undefined;
-    const codexBackend = agentProvider === "codex" && template.type !== "ssh" && (template.codexBackend === "openrouter" || template.codexBackend === "nararouter" || template.codexBackend === "minimax" || template.codexBackend === "codebuddy")
-      ? template.codexBackend
-      : agentProvider === "codex" ? "openai" : undefined;
-    const codexModel = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && typeof template.codexModel === "string"
-      ? template.codexModel.trim() || undefined
-      : undefined;
+    const { normalizeModelSelection } = require("../services/model-sources/model-selection.cjs");
+    const selection = normalizeModelSelection({ ...template, agentProvider });
+    const { modelSource, modelId, codexBackend, codexModel } = selection;
     const codexExperimentalAcknowledged = (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax" || codexBackend === "codebuddy") && Boolean(codexModel) && template.codexExperimentalAcknowledged === true
       ? true
       : undefined;
@@ -175,6 +172,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       agentProvider,
       agentLocation,
       localAgentCwd,
+      modelSource,
+      modelId,
       codexBackend,
       codexModel,
       codexExperimentalAcknowledged,

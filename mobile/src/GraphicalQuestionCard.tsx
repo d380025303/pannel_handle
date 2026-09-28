@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentProvider, GraphicalQuestion } from "./types";
+import { GraphicalIcon } from "./GraphicalIcon";
 
 export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }: {
   question: GraphicalQuestion;
@@ -47,8 +48,8 @@ export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }
           if (provider !== "codex" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />}
     </div>)}
     {error && <p role="alert">{error}</p>}
-    <button type="button" className="primary" disabled={question.submitting} onClick={submit}>提交回答</button>
-    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}>取消提问</button>}
+    <button type="button" className="primary" disabled={question.submitting} onClick={submit}><GraphicalIcon name="check" />提交回答</button>
+    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}><GraphicalIcon name="close" />取消提问</button>}
   </article>;
 }
 

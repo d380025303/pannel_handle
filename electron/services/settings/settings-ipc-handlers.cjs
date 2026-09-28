@@ -23,6 +23,7 @@ const SETTINGS_IPC_CHANNELS = [
   "openrouter:clear-api-key",
   "openrouter:test",
   "openrouter:verify-models",
+  "openrouter:verify-agent-models",
   "openrouter:set-favorites",
   "nararouter:get-config",
   "nararouter:list-models",
@@ -31,6 +32,7 @@ const SETTINGS_IPC_CHANNELS = [
   "nararouter:clear-api-key",
   "nararouter:test",
   "nararouter:verify-models",
+  "nararouter:verify-agent-models",
   "nararouter:set-favorites",
   "minimax:get-config",
   "minimax:list-models",
@@ -39,6 +41,7 @@ const SETTINGS_IPC_CHANNELS = [
   "minimax:clear-api-key",
   "minimax:test",
   "minimax:verify-models",
+  "minimax:verify-agent-models",
   "minimax:set-favorites",
   "codebuddy-codex:get-config",
   "codebuddy-codex:get-status",
@@ -62,6 +65,7 @@ function registerRouterIpcHandlers(ipcMain, prefix, service) {
   ipcMain.handle(`${prefix}:clear-api-key`, () => service.clearApiKey());
   ipcMain.handle(`${prefix}:test`, () => service.testConnection());
   ipcMain.handle(`${prefix}:verify-models`, (_event, input) => service.verifyModels(input));
+  ipcMain.handle(`${prefix}:verify-agent-models`, (_event, input) => service.verifyAgentModels(input));
   ipcMain.handle(`${prefix}:set-favorites`, (_event, input) => service.setFavorites(input));
 }
 

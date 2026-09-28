@@ -87,6 +87,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     defaultModelId: "",
     cachedModels: [],
     modelVerifications: {},
+    agentModelVerifications: { opencode: {}, codebuddy: {} },
     fetchedAt: 0
   };
 
@@ -112,6 +113,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
       defaultModelId: config.defaultModelId,
       cachedModels: config.cachedModels.map(model => ({ ...model, pricing: { ...model.pricing }, supportedParameters: [...model.supportedParameters], inputModalities: [...model.inputModalities] })),
       modelVerifications: Object.fromEntries(Object.entries(config.modelVerifications).map(([id, verification]) => [id, { ...verification, ...(verification.stages ? { stages: verification.stages.map(stage => ({ ...stage })) } : {}) }])),
+      agentModelVerifications: config.agentModelVerifications,
       ...(verificationProfile ? { verificationProfile } : {}),
       fetchedAt: config.fetchedAt
     };
@@ -141,6 +143,8 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
         defaultModelId,
         cachedModels,
         modelVerifications,
+        agentModelVerifications: Object.fromEntries(["opencode", "codebuddy"].map(agent => [agent,
+          Object.fromEntries(Object.entries(parsed?.agentModelVerifications?.[agent] || {}).filter(([id]) => availableIds.has(id)))])),
         fetchedAt: Number.isFinite(parsed?.fetchedAt) ? parsed.fetchedAt : 0
       };
     } catch (error) {
@@ -166,6 +170,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     if (!value) throw new Error(`${providerName} API Key 不能为空。`);
     config.encryptedApiKey = encrypt(value);
     config.modelVerifications = {};
+    config.agentModelVerifications = { opencode: {}, codebuddy: {} };
     save();
     return getPublicConfig();
   }
@@ -173,6 +178,7 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
   function clearApiKey() {
     config.encryptedApiKey = "";
     config.modelVerifications = {};
+    config.agentModelVerifications = { opencode: {}, codebuddy: {} };
     save();
     return getPublicConfig();
   }
@@ -183,6 +189,19 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
 
   function getModelVerifications() {
     return Object.fromEntries(Object.entries(config.modelVerifications).map(([id, verification]) => [id, { ...verification, ...(verification.stages ? { stages: verification.stages.map(stage => ({ ...stage })) } : {}) }]));
+  }
+
+  function getAgentModelVerifications(agent) {
+    return { ...(config.agentModelVerifications[agent] || {}) };
+  }
+
+  function setAgentModelVerification(agent, modelId, verification) {
+    if (agent !== "opencode" && agent !== "codebuddy") throw new Error("Unsupported Agent verification target.");
+    if (!config.cachedModels.some(model => model.id === modelId)) throw new Error(`${providerName} 模型不存在：${modelId}`);
+    const result = { status: verification.status, checkedAt: Date.now(), ...(verification.error ? { error: String(verification.error).slice(0, 1000) } : {}) };
+    config.agentModelVerifications[agent][modelId] = result;
+    save();
+    return { ...result };
   }
 
   function setModelVerification(modelId, verification) {
@@ -200,7 +219,8 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     const byId = new Map(normalized.map(model => [model.id, model]));
     config.cachedModels = [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
     config.modelVerifications = Object.fromEntries(Object.entries(config.modelVerifications).filter(([id]) => byId.has(id)));
-    config.favoriteModelIds = config.favoriteModelIds.filter(id => byId.has(id) && byId.get(id).compatible);
+    for (const agent of ["opencode", "codebuddy"]) config.agentModelVerifications[agent] = Object.fromEntries(Object.entries(config.agentModelVerifications[agent]).filter(([id]) => byId.has(id)));
+    config.favoriteModelIds = config.favoriteModelIds.filter(id => byId.has(id));
     if (!config.favoriteModelIds.includes(config.defaultModelId)) {
       config.defaultModelId = config.favoriteModelIds[0] || "";
     }
@@ -215,7 +235,6 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     for (const id of ids) {
       const model = byId.get(id);
       if (!model) throw new Error(`${providerName} 模型不存在或目录尚未刷新：${id}`);
-      if (!model.compatible) throw new Error(`模型 ${id} 缺少 Codex 所需的 tools/tool_choice 能力。`);
     }
     const nextDefault = String(defaultModelId || "").trim();
     if (nextDefault && !ids.includes(nextDefault)) throw new Error("默认模型必须位于收藏列表中。");
@@ -233,6 +252,8 @@ function createOpenRouterConfigStore({ configFile, safeStorage, dataStore, logge
     clearApiKey,
     getCachedModels,
     getModelVerifications,
+    getAgentModelVerifications,
+    setAgentModelVerification,
     setModelVerification,
     setCachedModels,
     setFavorites

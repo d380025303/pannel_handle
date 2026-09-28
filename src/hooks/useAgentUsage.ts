@@ -23,7 +23,7 @@ export function useAgentUsage(session?: TerminalSession, agentStatus?: AgentStat
   const isSupported = (provider === "codex" && session?.codexBackend !== "openrouter" && session?.codexBackend !== "nararouter")
     || provider === "minimax"
     || provider === "copilot" || provider === "grok"
-    || (provider === "codebuddy" && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
+    || (provider === "codebuddy" && (session?.agentProvider !== "codebuddy" || !session.modelSource || session.modelSource === "native") && (session?.type === "windows" || (isCodeBuddyCodexBackend && session?.type === "wsl")))
     || (provider === "qoder" && (session?.type === "windows" || session?.type === "wsl"))
     || (provider === "gemini" && (session?.type === "windows" || session?.type === "wsl"));
   const [state, setState] = useState<AgentUsageViewState>({ status: "hidden" });

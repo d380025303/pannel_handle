@@ -2,6 +2,8 @@ const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const os = require("node:os");
 const { buildCodexBackendCommand } = require("../services/codex-model-bridge/index.cjs");
 const { codeBuddyInheritanceArgs } = require("../services/codebuddy-acp/codex-inheritance.cjs");
+const { buildAgentModelEnvironment } = require("../services/model-sources/agent-model-runtime.cjs");
+const { EXTERNAL_SOURCES } = require("../services/model-sources/model-selection.cjs");
 
 const AGENT_COMMANDS = Object.freeze({
   claude: "claude",
@@ -538,13 +540,20 @@ function createAgentSessionLauncher({
     const miniMax = await miniMaxService?.getLaunchConfig(session);
     const codeBuddyCodex = await codexModelBridgeModule?.getCodeBuddyLaunchConfig?.(session);
     const backend = openRouter || naraRouter || miniMax || codeBuddyCodex;
+    const source = session.agentProvider !== "codex" && EXTERNAL_SOURCES.has(session.modelSource)
+      ? session.modelSource === "openrouter" ? openRouterService : session.modelSource === "nararouter" ? naraRouterService : miniMaxService
+      : null;
+    if (session.agentProvider !== "codex" && EXTERNAL_SOURCES.has(session.modelSource) && typeof source?.getAgentLaunchConfig !== "function")
+      throw new Error(`${session.modelSource} 模型来源服务不可用。`);
+    const agentModel = source?.getAgentLaunchConfig(session.agentProvider, session.modelId);
+    const agentModelEnv = agentModel ? buildAgentModelEnvironment(session.agentProvider, agentModel) : {};
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration || codeBuddyCodex?.bridgeRegistration;
     return {
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax, codeBuddyCodex })),
       codexCommand: backend ? buildCodexBackendCommand(session, runtimeConfigForBackend(backend, codeBuddyCodex)) : "codex",
-      runtimeEnv: backend ? { [backend.apiKeyEnv]: backend.apiKey } : undefined,
-      runtimeWslEnvKeys: backend ? [backend.apiKeyEnv] : undefined,
+      runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...agentModelEnv },
+      runtimeWslEnvKeys: [...(backend ? [backend.apiKeyEnv] : []), ...Object.keys(agentModelEnv)],
       codexBridgeRegistration: bridgeRegistration
     };
   }
@@ -816,6 +825,8 @@ function createAgentSessionLauncher({
       agentProvider: provider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      modelSource: provider === session.agentProvider ? session.modelSource : "native",
+      modelId: provider === session.agentProvider ? session.modelId : undefined,
       codexBackend: provider === "codex" ? session.codexBackend : undefined,
       codexModel: provider === "codex" ? session.codexModel : undefined,
       codexExperimentalAcknowledged: provider === "codex" ? session.codexExperimentalAcknowledged : undefined,
@@ -836,6 +847,8 @@ function createAgentSessionLauncher({
       return {
         ...createReplacementTemplate(session, "codex"),
         codexBackend: "openai",
+        modelSource: "native",
+        modelId: undefined,
         codexModel: undefined,
         codexExperimentalAcknowledged: undefined
       };
@@ -857,6 +870,8 @@ function createAgentSessionLauncher({
       ...createReplacementTemplate(session, "codex"),
       codexBackend: backend,
       codexModel: model,
+      modelSource: backend,
+      modelId: model,
       codexExperimentalAcknowledged: undefined
     };
   }
@@ -945,7 +960,36 @@ function createAgentSessionLauncher({
     }
   }
 
-  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent, switchCodexBackend };
+  async function switchModelSource(sessionId, source) {
+    const currentSession = terminalManager.getSession(sessionId);
+    if (currentSession?.agentProvider === "codex") return switchCodexBackend(sessionId, source === "native" ? "openai" : source);
+    if (switchingSessions.has(sessionId)) return switchingSessions.get(sessionId);
+    const operation = (async () => {
+      const session = terminalManager.getSession(sessionId);
+      if (!session || !["codex", "opencode", "codebuddy"].includes(session.agentProvider)) throw new Error("该会话不支持模型来源切换。");
+      if (session.type === "ssh") throw new Error("模型来源切换仅支持 Windows 和 WSL 会话。");
+      if (source !== "native" && !EXTERNAL_SOURCES.has(source) && !(session.agentProvider === "codex" && source === "codebuddy")) throw new Error("不支持的模型来源。");
+      if ((session.modelSource || "native") === source) return terminalManager.listSessions().find(item => item.id === sessionId);
+      let modelId;
+      if (source !== "native") {
+        const service = source === "openrouter" ? openRouterService : source === "nararouter" ? naraRouterService : miniMaxService;
+        if (typeof service?.getConfig !== "function") throw new Error(`${source} 模型来源服务不可用。`);
+        modelId = String((await service.getConfig()).defaultModelId || "").trim();
+        if (!modelId) throw new Error(`请先配置 ${source} 默认模型。`);
+      }
+      const target = { ...createReplacementTemplate(session, session.agentProvider), modelSource: source, modelId };
+      const runtime = await prepareLocal(target);
+      terminalManager.closeSession(sessionId);
+      return launchPreparedLocal(options => terminalManager.launchSession(target, {
+        useProvidedTemplate: true, templateId: session.templateId, ...options
+      }), target, runtime);
+    })();
+    switchingSessions.set(sessionId, operation);
+    try { return await operation; }
+    finally { switchingSessions.delete(sessionId); }
+  }
+
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, switchAgent, switchCodexBackend, switchModelSource };
 }
 
 module.exports = {

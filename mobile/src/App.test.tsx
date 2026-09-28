@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from "./App";
 import { useRemoteConnection } from "./useRemoteConnection";
@@ -20,6 +20,7 @@ const developmentTemplate: SavedTemplate = {
   id: "development", title: "开发环境", type: "wsl", runtimeMode: "terminal",
   wslDistro: "Ubuntu-24.04", runningCount: 1
 };
+const finishDialogExit = () => waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 let remote: ReturnType<typeof useRemoteConnection>;
 
 beforeEach(() => {
@@ -122,6 +123,84 @@ it("shows live overviews on the home cards and returns from details", () => {
   expect(screen.getByText("终端：第一个会话")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "返回首页" }));
   expect(screen.getByText("构建已完成")).toBeTruthy();
+});
+
+it("keeps rename and close icon actions in the home card header without opening details", async () => {
+  render(<App />);
+  const rename = screen.getByRole("button", { name: "改名第一个会话" });
+  const close = screen.getByRole("button", { name: "关闭第一个会话" });
+  const top = rename.closest(".mobile-home-card-top")!;
+  expect(within(top as HTMLElement).getByRole("button", { name: "关闭第一个会话" })).toBe(close);
+  expect(top.querySelector(".mobile-home-status")).toBeTruthy();
+  expect(rename.querySelector("svg")).toBeTruthy();
+  expect(close.querySelector("svg")).toBeTruthy();
+
+  fireEvent.click(rename);
+  const renameDialog = screen.getByRole("dialog", { name: "改名会话" });
+  const titleInput = within(renameDialog).getByRole("textbox", { name: "新的会话名称" });
+  expect(titleInput).toHaveProperty("value", "第一个会话");
+  expect(document.activeElement).toBe(titleInput);
+  fireEvent.change(titleInput, { target: { value: "  新名字  " } });
+  fireEvent.click(within(renameDialog).getByRole("button", { name: "保存" }));
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.rename", sessionId: "first", title: "新名字" }));
+  expect(renameDialog.parentElement?.getAttribute("data-closing")).toBe("true");
+  await finishDialogExit();
+  expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
+
+  fireEvent.click(close);
+  expect(screen.getByRole("dialog", { name: "关闭会话" })).toBeTruthy();
+  expect(remote.send).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  await finishDialogExit();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(close);
+  fireEvent.click(close);
+  fireEvent.click(screen.getByRole("button", { name: "确认关闭" }));
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.close", sessionId: "first" }));
+  expect(screen.getByRole("heading", { name: "运行中的会话" })).toBeTruthy();
+});
+
+it("handles rename and close from the session drawer without browser dialogs", async () => {
+  const prompt = vi.spyOn(window, "prompt");
+  const confirm = vi.spyOn(window, "confirm");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "改名" })[0]);
+  const dialog = screen.getByRole("dialog", { name: "改名会话" });
+  const input = within(dialog).getByRole("textbox", { name: "新的会话名称" });
+  fireEvent.change(input, { target: { value: "  " } });
+  expect(within(dialog).getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.change(input, { target: { value: " 第一个会话 " } });
+  expect(within(dialog).getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(true);
+  expect(remote.send).not.toHaveBeenCalled();
+  fireEvent.keyDown(document, { key: "Escape" });
+  await finishDialogExit();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("heading", { name: "会话" })).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0]);
+  expect(screen.getByText("关闭“第一个会话”会终止正在运行的会话，是否继续？")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "确认关闭" }));
+  expect(remote.send).toHaveBeenCalledWith(expect.objectContaining({ type: "session.close", sessionId: "first" }));
+  expect(prompt).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+it("dismisses a session dialog from its backdrop without sending a command", async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "关闭第一个会话" }));
+  fireEvent.click(screen.getByRole("dialog", { name: "关闭会话" }).parentElement!);
+  await finishDialogExit();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(remote.send).not.toHaveBeenCalled();
+});
+
+it("closes immediately when reduced motion is requested", () => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "关闭第一个会话" }));
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  vi.unstubAllGlobals();
 });
 
 it("returns home when the open session ends", () => {

@@ -90,6 +90,8 @@ function createMocks(overrides = {}) {
       agentProvider: template.agentProvider,
       agentLocation: template.agentLocation,
       localAgentCwd: template.localAgentCwd,
+      modelSource: template.modelSource,
+      modelId: template.modelId,
       codexBackend: template.codexBackend,
       codexModel: template.codexModel,
       codexExperimentalAcknowledged: template.codexExperimentalAcknowledged,
@@ -806,6 +808,42 @@ describe("agent-session-launcher", () => {
         `cd '/srv/app' && echo ready && PANNEL_HANDLE_HOOK_URL='http://127.0.0.1:${port}/claude-hook' PANNEL_HANDLE_SESSION_ID='${id}' codex;`
       ));
     }
+  });
+
+  it("launches OpenCode with a verified external model without placing the key in the command", async () => {
+    const launch = { providerId: "openrouter", providerName: "OpenRouter", model: "vendor/coder", baseUrl: "https://openrouter.ai/api/v1", apiKey: "private-key", apiKeyEnv: "OPENROUTER_API_KEY" };
+    const openRouterService = { getLaunchConfig: vi.fn(() => null), getAgentLaunchConfig: vi.fn(() => launch) };
+    const mocks = createMocks({ openRouterService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", modelSource: "openrouter", modelId: "vendor/coder", graphicalSessionEnabled: false });
+    const options = mocks.terminalManager.createSession.mock.calls[0][0];
+    expect(options.runtimeEnv.OPENROUTER_API_KEY).toBe("private-key");
+    expect(JSON.parse(options.runtimeEnv.OPENCODE_CONFIG_CONTENT).model).toBe("openrouter/vendor/coder");
+    expect(options.runtimeInitialCommand).not.toContain("private-key");
+  });
+
+  it("passes a verified MiniMax model to CodeBuddy ACP through its process environment", async () => {
+    const launch = { providerId: "minimax", providerName: "MiniMax", model: "MiniMax-M2", baseUrl: "https://api.minimaxi.com/v1", apiKey: "private-key", apiKeyEnv: "MINIMAX_API_KEY" };
+    const miniMaxService = { getLaunchConfig: vi.fn(() => null), getAgentLaunchConfig: vi.fn(() => launch) };
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ miniMaxService, codexAppServerSessionService });
+    await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", modelSource: "minimax", modelId: "MiniMax-M2", graphicalSessionEnabled: true });
+    const runtime = codexAppServerSessionService.start.mock.calls[0][1];
+    expect(runtime.runtimeEnv).toMatchObject({ CODEBUDDY_API_KEY: "private-key", CODEBUDDY_BASE_URL: launch.baseUrl, CODEBUDDY_MODEL: launch.model });
+    expect(mocks.terminalManager.createSession.mock.calls[0][0].runtimeInitialCommand).not.toContain("private-key");
+  });
+
+  it("validates an OpenCode source before replacing the running session", async () => {
+    const openRouterService = { getLaunchConfig: vi.fn(() => null), getConfig: vi.fn(async () => ({ defaultModelId: "vendor/coder" })),
+      getAgentLaunchConfig: vi.fn(() => { throw new Error("尚未通过 OpenCode 验证"); }) };
+    const mocks = createMocks({ openRouterService });
+    const initial = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: false });
+    await expect(mocks.launcher.switchModelSource(initial.id, "openrouter")).rejects.toThrow("尚未通过 OpenCode 验证");
+    expect(mocks.terminalManager.getSession(initial.id)).toBeDefined();
+    expect(mocks.terminalManager.closeSession).not.toHaveBeenCalled();
+    openRouterService.getAgentLaunchConfig.mockReturnValue({ providerId: "openrouter", providerName: "OpenRouter", model: "vendor/coder", baseUrl: "https://openrouter.ai/api/v1", apiKey: "secret", apiKeyEnv: "OPENROUTER_API_KEY" });
+    const replacement = await mocks.launcher.switchModelSource(initial.id, "openrouter");
+    expect(replacement).toMatchObject({ modelSource: "openrouter", modelId: "vendor/coder" });
+    expect(mocks.terminalManager.getSession(initial.id)).toBeUndefined();
   });
 
   it("starts Gemini graphically on Windows and WSL while preserving terminal mode", async () => {

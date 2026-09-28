@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRequestId } from "./protocol";
+import { GraphicalIcon } from "./GraphicalIcon";
 import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type GraphicalUsage, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
@@ -93,7 +94,7 @@ export function GraphicalUsage({ sessionId, sessionType, snapshot, send, onGraph
     : primary ? `${primary.name} 剩余 ${amount(primary.remainingPercent)}%` : loading ? "额度加载中…" : "额度暂不可用";
   return <div className="graphical-usage">
     <button type="button" className="graphical-usage-trigger" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-      <span>额度 · {label}{error && usage ? " · 更新失败" : loading && usage ? " · 刷新中" : ""}</span><span aria-hidden="true">{open ? "⌃" : "⌄"}</span>
+      <span>额度 · {label}{error && usage ? " · 更新失败" : loading && usage ? " · 刷新中" : ""}</span><span className="graphical-usage-chevron"><GraphicalIcon name="chevron" /></span>
     </button>
     {open && <section className="graphical-usage-details" aria-label="额度详情">
       {usage?.summary?.kind === "credits" && <p>总额 {amount(usage.summary.total)} · 已用 {amount(usage.summary.used)} · 剩余 {amount(usage.summary.remaining)} {usage.summary.unit}</p>}
@@ -109,8 +110,8 @@ export function GraphicalUsage({ sessionId, sessionType, snapshot, send, onGraph
       {usage && <small>更新于 {time(usage.fetchedAt)}</small>}
       {error && <p className="graphical-usage-error" role="alert">{error}</p>}
       {!usage && loading && <p role="status">正在读取额度…</p>}
-      <button type="button" className="graphical-usage-refresh" disabled={loading} onClick={() => loadRef.current(true)}>
-        {loading ? "刷新中…" : "刷新额度"}
+      <button type="button" className="graphical-usage-refresh graphical-icon-button" aria-label={loading ? "刷新中" : "刷新额度"} title="刷新额度" disabled={loading} onClick={() => loadRef.current(true)}>
+        <GraphicalIcon name="refresh" />
       </button>
     </section>}
   </div>;

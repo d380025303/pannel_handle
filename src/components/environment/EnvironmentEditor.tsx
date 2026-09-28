@@ -47,6 +47,7 @@ export function EnvironmentEditor({ value, onChange }: { value: EnvironmentEntry
         </div>
         {value.map((entry, index) => (
           <div className="environment-row" role="row" key={index}>
+            <span className="environment-mobile-label">{t("settings.environmentVariableName")}</span>
             <input
               className="modal-input"
               aria-label={`${t("settings.environmentVariableName")} ${index + 1}`}
@@ -54,6 +55,7 @@ export function EnvironmentEditor({ value, onChange }: { value: EnvironmentEntry
               value={entry.name}
               onChange={event => onChange(value.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))}
             />
+            <span className="environment-mobile-label">{t("settings.environmentVariableValue")}</span>
             <input
               className="modal-input environment-value-input"
               aria-label={`${t("settings.environmentVariableValue")} ${index + 1}`}

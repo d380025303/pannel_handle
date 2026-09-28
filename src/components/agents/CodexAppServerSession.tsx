@@ -846,7 +846,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
 
   const agentName = snapshot.provider === "codebuddy" ? "CodeBuddy" : snapshot.provider === "opencode" ? "OpenCode" : snapshot.provider === "claude" ? "Claude" : snapshot.provider === "qoder" ? "Qoder" : snapshot.provider === "gemini" ? "Gemini" : snapshot.provider === "grok" ? "Grok" : "Codex";
   const canSendWhileBusy = agentName === "Codex" && !snapshot.compacting;
-  const acpModel = snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
+  const acpModel = (snapshot.provider === "opencode" || snapshot.provider === "codebuddy") && session?.modelSource && session.modelSource !== "native" ? undefined
+    : snapshot.provider === "opencode" || snapshot.provider === "codebuddy" || snapshot.provider === "claude" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
     ? snapshot.acpOptions?.find(option => option.id === "model" && option.type === "select" && option.options?.length) : undefined;
   const modelDetails = (modelId: string) => {
     if (snapshot.provider !== "codebuddy") return "";

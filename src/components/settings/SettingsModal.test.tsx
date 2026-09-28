@@ -128,6 +128,7 @@ describe("SettingsModal navigation", () => {
     renderSettingsModal({
       terminalBackgroundImage: "123-bg.png",
       terminalBackgroundOpacity: 65,
+      terminalBackgroundBlur: 12,
       onChooseTerminalBackground,
       onClearTerminalBackground,
       onTerminalBackgroundOpacityChange
@@ -136,6 +137,8 @@ describe("SettingsModal navigation", () => {
     expect(screen.getByText("终端背景")).toBeTruthy();
     const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;
     expect(preview.src).toContain("terminal-bg://background/123-bg.png");
+    expect(preview.style.opacity).toBe("0.65");
+    expect(preview.style.filter).toBe("blur(12px)");
 
     fireEvent.click(screen.getByRole("button", { name: "选择图片" }));
     await waitFor(() => expect(onChooseTerminalBackground).toHaveBeenCalledTimes(1));
@@ -155,6 +158,15 @@ describe("SettingsModal navigation", () => {
     expect((screen.getByRole("button", { name: "恢复居中" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("uses the terminal area's aspect ratio and scales blur in the preview", () => {
+    renderSettingsModal({ terminalBackgroundImage: "123-bg.png", terminalBackgroundBlur: 12, terminalBackgroundAreaSize: { width: 800, height: 600 } });
+    const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;
+    const frame = preview.parentElement as HTMLDivElement;
+    expect(frame.style.aspectRatio).toBe("800 / 600");
+    expect(preview.style.filter).toBe("blur(4.8px)");
+    expect(preview.style.inset).toBe("-4.8px");
+  });
+
   it("previews a dragged background position and saves it on release", async () => {
     const onTerminalBackgroundPositionPreview = vi.fn();
     const onTerminalBackgroundPositionCommit = vi.fn().mockResolvedValue(undefined);
@@ -163,14 +175,26 @@ describe("SettingsModal navigation", () => {
       onTerminalBackgroundPositionPreview,
       onTerminalBackgroundPositionCommit
     });
-    const preview = screen.getByRole("img", { name: "终端背景" });
-    vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({ width: 240, height: 135 } as DOMRect);
+    const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;
+    Object.defineProperties(preview, { naturalWidth: { value: 800 }, naturalHeight: { value: 400 } });
+    vi.spyOn(preview.parentElement!, "getBoundingClientRect").mockReturnValue({ width: 240, height: 135 } as DOMRect);
     fireEvent.pointerDown(preview, { pointerId: 1, button: 0, clientX: 120, clientY: 60 });
-    fireEvent.pointerMove(preview, { pointerId: 1, clientX: 144, clientY: 33 });
-    expect(onTerminalBackgroundPositionPreview).toHaveBeenCalledWith(40, 70);
+    fireEvent.pointerMove(preview, { pointerId: 1, clientX: 123, clientY: 33 });
+    expect(onTerminalBackgroundPositionPreview).toHaveBeenCalledWith(40, 50);
     expect(onTerminalBackgroundPositionCommit).not.toHaveBeenCalled();
     fireEvent.pointerUp(preview, { pointerId: 1 });
-    await waitFor(() => expect(onTerminalBackgroundPositionCommit).toHaveBeenCalledWith(40, 70));
+    await waitFor(() => expect(onTerminalBackgroundPositionCommit).toHaveBeenCalledWith(40, 50));
+  });
+
+  it("moves only along the cropped axis for a square background", () => {
+    const onTerminalBackgroundPositionPreview = vi.fn();
+    renderSettingsModal({ terminalBackgroundImage: "123-bg.png", onTerminalBackgroundPositionPreview });
+    const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;
+    Object.defineProperties(preview, { naturalWidth: { value: 400 }, naturalHeight: { value: 400 } });
+    vi.spyOn(preview.parentElement!, "getBoundingClientRect").mockReturnValue({ width: 240, height: 135 } as DOMRect);
+    fireEvent.pointerDown(preview, { pointerId: 1, button: 0, clientX: 120, clientY: 60 });
+    fireEvent.pointerMove(preview, { pointerId: 1, clientX: 144, clientY: 39 });
+    expect(onTerminalBackgroundPositionPreview).toHaveBeenCalledWith(50, 70);
   });
 
   it("shows a retryable error when centering cannot be saved", async () => {
@@ -222,9 +246,10 @@ describe("SettingsModal navigation", () => {
     };
     renderSettingsModal();
     fireEvent.click(screen.getByRole("tab", { name: "环境变量" }));
-    fireEvent.click(await screen.findByRole("button", { name: /^开发/ }));
+    await screen.findByRole("option", { name: "开发" });
+    fireEvent.change(screen.getByRole("combobox", { name: "配置组" }), { target: { value: "dev" } });
     fireEvent.change(screen.getByLabelText("配置组名称"), { target: { value: "开发修改" } });
-    fireEvent.click(screen.getByRole("button", { name: /^生产/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "配置组" }), { target: { value: "prod" } });
     expect(await screen.findByRole("alertdialog", { name: "保存环境变量更改？" })).toBeTruthy();
     fireEvent.click(screen.getByText("放弃更改"));
     expect((screen.getByLabelText("配置组名称") as HTMLInputElement).value).toBe("生产");

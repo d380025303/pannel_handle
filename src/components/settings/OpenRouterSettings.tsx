@@ -48,8 +48,7 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
 
   const compatibleModels = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return models.filter(model => model.compatible
-      && (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle))
+    return models.filter(model => (!needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle))
       && (!freeOnly || isFreeRouterModel(model, isNaraRouter)));
   }, [freeOnly, isNaraRouter, models, query]);
 
@@ -118,6 +117,19 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
     }
   };
 
+  const verifyAgentModel = async (modelId: string, agent: "opencode" | "codebuddy") => {
+    setVerifyingModelId(`${agent}:${modelId}`);
+    setResult(null);
+    try {
+      const [verification] = await routerApi.verifyAgentModels({ agent, modelIds: [modelId], force: true });
+      await load();
+      if (verification.status !== "passed") throw new Error(`${agent} · ${modelId}：${verification.error || "验证失败"}`);
+      setResult({ kind: "success", message: `${agent} · ${modelId} 验证通过` });
+    } catch (error) {
+      setResult({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally { setVerifyingModelId(""); }
+  };
+
   return (
     <section className="settings-section openrouter-settings">
       <div className="collapsible-header" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(value => !value)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(value => !value); } }}>
@@ -148,10 +160,11 @@ export function OpenRouterSettings({ provider = "openrouter" }: RouterSettingsPr
         </label>}
         <div className="openrouter-model-list">
           {compatibleModels.map(model => <div key={model.id} className="openrouter-model-row">
-            <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} disabled={!config.favoriteModelIds.includes(model.id) && model.verification?.status !== "passed" && model.verification?.status !== "partial"} onChange={() => toggleFavorite(model.id)} />
-            <span><strong>{model.name}</strong><small>{model.id}</small><small className="openrouter-model-price">{formatOpenRouterPricing(model.pricing, locale, { input: t("settings.openRouterPriceInput"), output: t("settings.openRouterPriceOutput"), unavailable: t("settings.openRouterPriceUnavailable") })}</small><small className={`openrouter-verification ${model.verification?.status || "pending"}`}>{verificationText(model)}</small></span>
+            <input type="checkbox" checked={config.favoriteModelIds.includes(model.id)} onChange={() => toggleFavorite(model.id)} />
+            <span><strong>{model.name}</strong><small>{model.id}</small><small className="openrouter-model-price">{formatOpenRouterPricing(model.pricing, locale, { input: t("settings.openRouterPriceInput"), output: t("settings.openRouterPriceOutput"), unavailable: t("settings.openRouterPriceUnavailable") })}</small><small className={`openrouter-verification ${model.verification?.status || "pending"}`}>Codex：{verificationText(model)}</small>{(["opencode", "codebuddy"] as const).map(agent => <small key={agent} className={`openrouter-verification ${model.agentVerifications?.[agent]?.status || "pending"}`}>{agent === "opencode" ? "OpenCode" : "CodeBuddy"}：{model.agentVerifications?.[agent]?.status === "passed" ? "已通过" : model.agentVerifications?.[agent]?.error || "待验证"}</small>)}</span>
             <span className="openrouter-model-actions">
               <button className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId)} onClick={() => void verifyModel(model.id)}>{verifyingModelId === model.id ? t("settings.openRouterVerifying") : t("settings.openRouterVerifyRetry")}</button>
+              {(["opencode", "codebuddy"] as const).map(agent => <button key={agent} className="modal-button compact" type="button" disabled={busy || Boolean(verifyingModelId) || !config.hasApiKey} onClick={() => void verifyAgentModel(model.id, agent)}>{verifyingModelId === `${agent}:${model.id}` ? "验证中" : `验证 ${agent === "opencode" ? "OpenCode" : "CodeBuddy"}`}</button>)}
               {config.favoriteModelIds.includes(model.id) && <input type="radio" name={`${provider}-default`} checked={config.defaultModelId === model.id} aria-label={t("settings.openRouterDefaultModel")} onChange={() => setConfig(current => ({ ...current, defaultModelId: model.id }))} />}
             </span>
           </div>)}

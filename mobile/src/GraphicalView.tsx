@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
 import { GraphicalUsage } from "./GraphicalUsage";
+import { GraphicalIcon } from "./GraphicalIcon";
 import { GraphicalQuestionCard } from "./GraphicalQuestionCard";
 import { canSwitchMode, effortLabel, groupTimeline, modelLabel, modelOptions, permissionLabel, providerLabel, ToolItem, toolStatus } from "./GraphicalPresentation";
 import { QuickCommandPicker } from "./QuickCommandPicker";
@@ -358,7 +359,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
       </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}
       <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
-        aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}>···</button>
+        aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}><GraphicalIcon name="more" /></button>
     </header>
     <GraphicalUsage sessionId={session.id} sessionType={session.type} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
@@ -373,7 +374,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
           return <section className="graphical-tool-group" data-status={status} key={groupId}>
             <button type="button" className="graphical-tool-group-toggle" aria-expanded={expanded}
               onClick={() => setExpandedGroupId(current => current === groupId ? null : groupId)}>
-              <span className="graphical-tool-group-chevron" aria-hidden="true">›</span>
+              <span className="graphical-tool-group-chevron"><GraphicalIcon name="chevron" /></span>
               <strong>工具调用 · {entry.items.length} 项</strong><span>{status}</span>
             </button>
             {expanded && <div className="graphical-tool-list">{entry.items.map(item => <ToolItem item={item} codeBuddy={snapshot.provider === "codebuddy"} key={item.id} />)}</div>}
@@ -395,8 +396,8 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         {event.additionalDetails != null && <pre>{typeof event.additionalDetails === "string" ? event.additionalDetails : JSON.stringify(event.additionalDetails, null, 2)}</pre>}
       </details>)}
       {snapshot.pendingPlan && <article className="graphical-card"><strong>确认执行计划</strong><div className="graphical-actions">
-        <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}>{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
-        <button type="button" className="primary" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: true })}>执行计划</button>
+        <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}><GraphicalIcon name="back" />{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
+        <button type="button" className="primary" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: true })}><GraphicalIcon name="check" />执行计划</button>
       </div></article>}
       {snapshot.approvals.map(approval => <article className="graphical-card" key={approval.requestId}>
         <strong>{approval.params.networkApprovalContext ? "网络访问确认" : approval.method.includes("fileChange") ? "文件修改确认" : "操作确认"}</strong>
@@ -406,8 +407,8 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         {approval.params.changes != null && <pre>{JSON.stringify(approval.params.changes, null, 2)}</pre>}
         {approval.params.choices?.length ? <div className="graphical-actions">{approval.params.choices.map(choice =>
           <button type="button" key={choice.id} onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: choice.id })}>{choice.label}</button>)}</div>
-          : <div className="graphical-actions"><button type="button" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: false })}>拒绝</button>
-            <button type="button" className="primary" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: true })}>批准一次</button></div>}
+          : <div className="graphical-actions"><button type="button" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: false })}><GraphicalIcon name="close" />拒绝</button>
+            <button type="button" className="primary" onClick={() => action({ type: "graphical.approval", approvalId: approval.requestId, decision: true })}><GraphicalIcon name="check" />批准一次</button></div>}
       </article>)}
       {snapshot.questions.map(question => <GraphicalQuestionCard key={question.requestId} question={question} provider={snapshot.provider}
         onAnswer={(questionId, answers) => action({ type: "graphical.answer", questionId, answers })}
@@ -419,15 +420,15 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
     <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>
         <span>{item.file.name} · {item.status === "uploading" ? "上传中" : item.status === "failed" ? "上传失败" : "已上传"}</span>
-        {item.status === "failed" && <button type="button" onClick={() => { setAttachments(current => current.map(value => value.key === item.key ? { ...value, status: "uploading" } : value)); void uploadFile(item.file, item.key); }}>重试</button>}
-        <button type="button" disabled={isSending} onClick={() => removeAttachment(item.key)}>移除</button>
+        {item.status === "failed" && <button type="button" className="graphical-icon-button" aria-label={`重试上传 ${item.file.name}`} title="重试上传" onClick={() => { setAttachments(current => current.map(value => value.key === item.key ? { ...value, status: "uploading" } : value)); void uploadFile(item.file, item.key); }}><GraphicalIcon name="retry" /></button>}
+        <button type="button" className="graphical-icon-button" aria-label={`移除附件 ${item.file.name}`} title="移除附件" disabled={isSending} onClick={() => removeAttachment(item.key)}><GraphicalIcon name="remove" /></button>
       </div>)}</div>}
       <div className={`graphical-input-border${snapshot.busy ? " is-running" : ""}`} data-mode={effectivePlan ? "plan" : "default"}>
         <div className="graphical-input-row">
           <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder={snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
             disabled={!snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")} />
-          {snapshot.busy && <button type="button" onClick={() => action({ type: "graphical.interrupt" })}>停止</button>}
-          <button type="submit" className="primary" disabled={isSending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}>发送</button>
+          {snapshot.busy && <button type="button" className="graphical-icon-button" aria-label="停止" title="停止" onClick={() => action({ type: "graphical.interrupt" })}><GraphicalIcon name="stop" /></button>}
+          <button type="submit" className="primary graphical-icon-button" aria-label="发送" title="发送" disabled={isSending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !snapshot.threadId || snapshot.archived || (snapshot.busy && snapshot.provider !== "codex")}><GraphicalIcon name="send" /></button>
         </div>
       </div>
     </form>
@@ -440,7 +441,7 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         <header><strong>{activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
           : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型"
             : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话"}</strong>
-          <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}>×</button></header>
+          <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}><GraphicalIcon name="close" /></button></header>
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
         {activeSheet === "menu" && <div className="graphical-sheet-list">
           {(snapshot.provider === "codex" || snapshot.provider === "codebuddy" || snapshot.provider === "claude") && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
@@ -448,23 +449,23 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
             <div className="graphical-mode-switch">
               <button type="button" aria-pressed={effectivePlan}
                 disabled={snapshot.busy || snapshot.archived || changingMode || !!snapshot.pendingPlan || !canSwitchMode(snapshot, "plan")}
-                onClick={() => changeMode("plan")}>Plan</button>
+                onClick={() => changeMode("plan")}><GraphicalIcon name="mode" />Plan</button>
               <button type="button" aria-pressed={snapshot.provider === "codebuddy" ? snapshot.executionPermission === "fullAccess" : snapshot.mode === "default"}
                 disabled={snapshot.busy || snapshot.archived || changingMode || !!snapshot.pendingPlan || !canSwitchMode(snapshot, "default")}
-                onClick={() => changeMode("default")}>{snapshot.provider === "codebuddy" ? "Full Access" : "Exec"}</button>
+                onClick={() => changeMode("default")}><GraphicalIcon name="mode" />{snapshot.provider === "codebuddy" ? "Full Access" : "Exec"}</button>
             </div>
           </div>}
           {snapshot.provider === "codex"
             ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode || snapshot.capabilities?.permissions === false}
-              onClick={() => { setError(""); setActiveSheet("permission"); }}><span>执行权限</span><small>{permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
+              onClick={() => { setError(""); setActiveSheet("permission"); }}><span><GraphicalIcon name="shield" />执行权限</span><small>{permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
             : snapshot.nativeModes?.length ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
-              onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span>切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
-          <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span>切换模型</span><small>{modelLabel(snapshot)}</small></button>
-          <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span>切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
-          <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span>历史记录</span><small>查看并恢复对话</small></button>
-          <button type="button" disabled={snapshot.busy} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span>新对话</span></button>
+              onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span><GraphicalIcon name="mode" />切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
+          <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
+          <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span><GraphicalIcon name="agent" />切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
+          <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span><GraphicalIcon name="history" />历史记录</span><small>查看并恢复对话</small></button>
+          <button type="button" disabled={snapshot.busy} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span><GraphicalIcon name="new" />新对话</span></button>
           <label className={`graphical-file-picker${addFileDisabled ? " is-disabled" : ""}`}>
-            <span>添加文件</span><small>{attachments.length}/10</small>
+            <span><GraphicalIcon name="file" />添加文件</span><small>{attachments.length}/10</small>
             <input aria-label="添加文件" type="file" multiple disabled={addFileDisabled}
               onChange={event => {
                 if (event.currentTarget.files?.length) {
@@ -483,8 +484,8 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         </div>}
         {activeSheet === "agent-confirm" && selectedProvider && <div className="graphical-sheet-confirm">
           <p>切换到 {providerLabel(selectedProvider)} 会关闭当前运行会话并启动新会话，是否继续？</p>
-          <div><button type="button" onClick={() => setActiveSheet("agent")}>返回</button>
-            <button type="button" className="primary" disabled={agentDisabled} onClick={() => switchAgent(selectedProvider)}>确认切换</button></div>
+          <div><button type="button" onClick={() => setActiveSheet("agent")}><GraphicalIcon name="back" />返回</button>
+            <button type="button" className="primary" disabled={agentDisabled} onClick={() => switchAgent(selectedProvider)}><GraphicalIcon name="check" />确认切换</button></div>
         </div>}
         {activeSheet === "model" && <div className="graphical-sheet-list">
           {modelOptions(snapshot).map(option => <button type="button" key={option.value} disabled={modelDisabled || option.value === currentModel}

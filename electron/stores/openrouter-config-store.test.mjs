@@ -22,6 +22,19 @@ function createStore() {
 afterEach(() => { while (dirs.length) rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe("openrouter-config-store", () => {
+  it("keeps shared favorites when Codex is incompatible and tracks each Agent independently", () => {
+    const { store, configFile } = createStore();
+    store.setCachedModels([{ id: "vendor/model", name: "Model", supported_parameters: [] }]);
+    expect(store.setFavorites(["vendor/model"], "vendor/model").favoriteModelIds).toEqual(["vendor/model"]);
+    store.setAgentModelVerification("opencode", "vendor/model", { status: "passed" });
+    store.setAgentModelVerification("codebuddy", "vendor/model", { status: "failed", error: "unsupported" });
+    expect(store.getAgentModelVerifications("opencode")["vendor/model"].status).toBe("passed");
+    const reloaded = createOpenRouterConfigStore({ configFile, safeStorage: { isEncryptionAvailable: () => true } });
+    reloaded.load();
+    expect(reloaded.getAgentModelVerifications("codebuddy")["vendor/model"].error).toBe("unsupported");
+    store.setApiKey("new-key");
+    expect(store.getAgentModelVerifications("opencode")).toEqual({});
+  });
   it("filters OpenRouter-only modalities before caching models", () => {
     expect(normalizeModel({
       id: "vendor/multimodal",
@@ -62,14 +75,14 @@ describe("openrouter-config-store", () => {
     expect(readFileSync(configFile, "utf-8")).not.toContain("sk-secret");
   });
 
-  it("only allows compatible cached models to be favorited", () => {
+  it("allows cached models to be favorited independently of Codex compatibility", () => {
     const { store } = createStore();
     store.setCachedModels([
       { id: "good", supported_parameters: ["tools", "tool_choice"] },
       { id: "bad", supported_parameters: ["tools"] }
     ], 123);
     expect(store.setFavorites(["good"], "good")).toMatchObject({ favoriteModelIds: ["good"], defaultModelId: "good" });
-    expect(() => store.setFavorites(["bad"], "bad")).toThrow("tools/tool_choice");
+    expect(store.setFavorites(["bad"], "bad").favoriteModelIds).toEqual(["bad"]);
   });
 
   it("lets NaraRouter models without capability metadata proceed to live verification", () => {

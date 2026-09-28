@@ -43,6 +43,15 @@ function fixture(overrides = {}) {
 }
 
 describe("openrouter-service", () => {
+  it("requires the target Agent's own verification before releasing its launch key", () => {
+    const verification = { opencode: {}, codebuddy: {} };
+    const { service, store, model } = fixture({ store: { getAgentModelVerifications: vi.fn(agent => verification[agent]) } });
+    expect(() => service.getAgentLaunchConfig("opencode", model.id)).toThrow("尚未通过 OpenCode 验证");
+    verification.opencode[model.id] = { status: "passed", checkedAt: Date.now() };
+    expect(service.getAgentLaunchConfig("opencode", model.id)).toMatchObject({ apiKey: "sk-secret", model: model.id });
+    expect(() => service.getAgentLaunchConfig("codebuddy", model.id)).toThrow("尚未通过 CodeBuddy 验证");
+    expect(store.getApiKey).toHaveBeenCalledTimes(1);
+  });
   it("generates a Codex catalog from favorite models", () => {
     const catalog = buildCodexModelCatalog([{ id: "vendor/model", name: "Model", contextLength: 64000, inputModalities: ["video", "image", "text", "file"], supportedParameters: [] }]);
     expect(catalog.models[0]).toMatchObject({ slug: "vendor/model", context_window: 64000, input_modalities: ["text", "image"], shell_type: "shell_command" });
@@ -378,11 +387,11 @@ describe("openrouter-service", () => {
     await expect(service.getLaunchConfig({ type: "windows", agentProvider: "codex", codexBackend: "openrouter", codexModel: "openai/gpt-test", codexExperimentalAcknowledged: true })).resolves.toMatchObject({ model: "openai/gpt-test" });
   });
 
-  it("keeps favorites unchanged when any verification fails", async () => {
+  it("allows shared favorites independently of Codex verification", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: "provider unavailable" } }), { status: 500 }));
     const { service, store } = fixture({ fetchImpl, verifications: {} });
-    await expect(service.setFavorites({ favoriteModelIds: ["openai/gpt-test"], defaultModelId: "openai/gpt-test" })).rejects.toThrow("provider unavailable");
-    expect(store.setFavorites).not.toHaveBeenCalled();
+    await expect(service.setFavorites({ favoriteModelIds: ["openai/gpt-test"], defaultModelId: "openai/gpt-test" })).resolves.toMatchObject({ defaultModelId: "openai/gpt-test" });
+    expect(store.setFavorites).toHaveBeenCalled();
   });
 
   it("blocks launch when the selected model fails verification", async () => {

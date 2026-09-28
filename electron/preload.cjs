@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld("terminalApi", {
   updateSession: (id, updates) => ipcRenderer.invoke("sessions:update", { id, ...updates }),
   switchAgent: (id, provider) => ipcRenderer.invoke("sessions:switch-agent", { id, provider }),
   switchCodexBackend: (id, backend) => ipcRenderer.invoke("sessions:switch-codex-backend", { id, backend }),
+  switchModelSource: (id, source) => ipcRenderer.invoke("sessions:switch-model-source", { id, source }),
   closeSession: (id) => ipcRenderer.invoke("sessions:close", id),
   reconnectSession: (id) => ipcRenderer.invoke("sessions:reconnect", id),
   getHistory: (id) => ipcRenderer.invoke("terminal:history", id),
@@ -196,6 +197,7 @@ contextBridge.exposeInMainWorld("openRouterApi", {
   clearApiKey: () => ipcRenderer.invoke("openrouter:clear-api-key"),
   test: () => ipcRenderer.invoke("openrouter:test"),
   verifyModels: (input) => ipcRenderer.invoke("openrouter:verify-models", input),
+  verifyAgentModels: (input) => ipcRenderer.invoke("openrouter:verify-agent-models", input),
   setFavorites: (input) => ipcRenderer.invoke("openrouter:set-favorites", input)
 });
 
@@ -207,6 +209,7 @@ contextBridge.exposeInMainWorld("naraRouterApi", {
   clearApiKey: () => ipcRenderer.invoke("nararouter:clear-api-key"),
   test: () => ipcRenderer.invoke("nararouter:test"),
   verifyModels: (input) => ipcRenderer.invoke("nararouter:verify-models", input),
+  verifyAgentModels: (input) => ipcRenderer.invoke("nararouter:verify-agent-models", input),
   setFavorites: (input) => ipcRenderer.invoke("nararouter:set-favorites", input)
 });
 
@@ -218,6 +221,7 @@ contextBridge.exposeInMainWorld("miniMaxApi", {
   clearApiKey: () => ipcRenderer.invoke("minimax:clear-api-key"),
   test: () => ipcRenderer.invoke("minimax:test"),
   verifyModels: (input) => ipcRenderer.invoke("minimax:verify-models", input),
+  verifyAgentModels: (input) => ipcRenderer.invoke("minimax:verify-agent-models", input),
   setFavorites: (input) => ipcRenderer.invoke("minimax:set-favorites", input)
 });
 

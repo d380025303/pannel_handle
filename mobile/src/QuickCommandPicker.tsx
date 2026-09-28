@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { QuickCommand } from "./types";
+import { GraphicalIcon } from "./GraphicalIcon";
 
 type Props = {
   commands: QuickCommand[];
@@ -18,11 +19,11 @@ export function QuickCommandPicker({ commands, onSelect, disabled = () => false 
   return <div className="mobile-quick-commands">
     <div className="mobile-quick-direct">
       {direct.map(command => <button key={command.id} type="button" title={command.command} disabled={disabled(command)} onClick={() => run(command)}>{command.command}</button>)}
-      <button type="button" className="mobile-quick-more" onClick={() => setOpen(true)}>快捷输入 ({commands.length})</button>
+      <button type="button" className="mobile-quick-more" onClick={() => setOpen(true)}><GraphicalIcon name="command" />快捷输入 ({commands.length})</button>
     </div>
     {open && <div className="sheet-backdrop" onClick={() => setOpen(false)}>
       <div className="mobile-quick-sheet" role="dialog" aria-modal="true" aria-label="快捷输入" onClick={event => event.stopPropagation()}>
-        <header><strong>快捷输入</strong><button type="button" aria-label="关闭快捷输入" onClick={() => setOpen(false)}>×</button></header>
+        <header><strong>快捷输入</strong><button type="button" className="graphical-icon-button" aria-label="关闭快捷输入" onClick={() => setOpen(false)}><GraphicalIcon name="close" /></button></header>
         <div className="mobile-quick-list">{commands.map(command => <button key={command.id} type="button" disabled={disabled(command)} onClick={() => run(command)}>
           <span>{command.command}</span><small>{command.pinned ? "置顶 · " : ""}{labels[command.mode || "write"]}</small>
         </button>)}</div>

@@ -1,5 +1,5 @@
 import type { EnvironmentSelection } from "./vite-env";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SetStateAction } from "react";
 import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -9,7 +9,7 @@ import { AgentUsageStatus } from "./components/agents/AgentUsageStatus";
 import { AgentTokenLiveStatus } from "./components/agents/AgentTokenLiveStatus";
 import { CodeBuddyContextUsage } from "./components/agents/CodeBuddyContextUsage";
 import { AgentSwitcher } from "./components/agents/AgentSwitcher";
-import { CodexBackendSwitcher } from "./components/agents/CodexBackendSwitcher";
+import { AgentModelSourceSwitcher } from "./components/agents/AgentModelSourceSwitcher";
 import { AgentTokenStatsDashboard } from "./components/agents/AgentTokenStatsDashboard";
 import { AgentConversationPanel } from "./components/agents/AgentConversationPanel";
 import type { CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
@@ -55,7 +55,7 @@ import { APP_THEMES, DEFAULT_THEME_ID, getAppTheme } from "./themes";
 import { DEFAULT_SCREENSHOT_SHORTCUT, matchesScreenshotShortcut } from "./utils/screenshotShortcut";
 import { getTerminalBackgroundUrl } from "./utils/terminalBackground";
 import type { CreateSessionRequest } from "./components/sessions/CreateSessionModal";
-import type { AgentHookDebugPayload, AgentLocation, AgentProvider, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
+import type { AgentHookDebugPayload, AgentLocation, AgentProvider, AgentModelSource, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
 type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
@@ -132,6 +132,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [terminalBackgroundBlur, setTerminalBackgroundBlur] = useState(0);
   const [terminalBackgroundPositionX, setTerminalBackgroundPositionX] = useState(50);
   const [terminalBackgroundPositionY, setTerminalBackgroundPositionY] = useState(50);
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
+  const [terminalBackgroundAreaSize, setTerminalBackgroundAreaSize] = useState<{ width: number; height: number } | null>(null);
   const savedTerminalBackgroundPosition = useRef({ x: 50, y: 50 });
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
@@ -206,6 +208,21 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       ? { imageUrl, opacity: terminalBackgroundOpacity, blur: terminalBackgroundBlur, positionX: terminalBackgroundPositionX, positionY: terminalBackgroundPositionY }
       : undefined;
   }, [terminalBackgroundImage, terminalBackgroundOpacity, terminalBackgroundBlur, terminalBackgroundPositionX, terminalBackgroundPositionY]);
+  useLayoutEffect(() => {
+    if (!showSettingsModal || !terminalAreaRef.current) return;
+    const area = terminalAreaRef.current;
+    const updateSize = () => {
+      const { width, height } = area.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        setTerminalBackgroundAreaSize(current => current?.width === width && current.height === height ? current : { width, height });
+      }
+    };
+    updateSize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, [showSettingsModal]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
     isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
@@ -523,8 +540,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setRightTool(tool);
   }, [agentConversation, remoteFilesDirty, t]);
 
-  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean) => {
-    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment, graphicalSessionEnabled);
+  const handleSaveEdit = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string) => {
+    await terminalSessions.updateSession(id, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, codexBackend, codexModel, quickCommands, sshConfig, tags, codexExperimentalAcknowledged, environment, graphicalSessionEnabled, modelSource, modelId);
     setEditDialogSession(null);
   }, [terminalSessions]);
 
@@ -895,6 +912,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             </div>
             <div className="workspace-content">
               <div
+                ref={terminalAreaRef}
                 className={`terminal-area${terminalBackground ? " has-bg" : ""}`}
                 style={{ display: workspaceTab === "terminal" ? undefined : "none" }}
               >
@@ -947,7 +965,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     />
                     <div className="terminal-status-cluster">
                       <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
-                      <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
+                      <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                       <AgentTokenLiveStatus state={agentTokenLive} />
                       <AgentUsageStatus
                         state={agentUsage.state}
@@ -975,7 +993,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   />
                   <div className="terminal-status-cluster">
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
-                    <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
+                    <AgentModelSourceSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchModelSource} onSwitchCodex={terminalSessions.switchCodexBackend} />
                     <AgentTokenLiveStatus
                       state={terminalSessions.activeSession?.agentProvider === "codebuddy" ? agentTokenLive : appServerFooter.tokenState}
                       source={terminalSessions.activeSession?.agentProvider === "codebuddy" ? "transcript" : "app-server"}
@@ -1225,6 +1243,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           terminalBackgroundBlur={terminalBackgroundBlur}
           terminalBackgroundPositionX={terminalBackgroundPositionX}
           terminalBackgroundPositionY={terminalBackgroundPositionY}
+          terminalBackgroundAreaSize={terminalBackgroundAreaSize}
           onChooseTerminalBackground={handleChooseTerminalBackground}
           onClearTerminalBackground={handleClearTerminalBackground}
           onTerminalBackgroundOpacityChange={handleTerminalBackgroundOpacityChange}
