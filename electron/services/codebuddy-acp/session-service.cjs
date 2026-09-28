@@ -112,7 +112,7 @@ async function createRemoteChild(transportService, session, environment, provide
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager, historyService,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
   httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
-  onTokenUsageCheckpoint = () => {} }) {
+  onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {} }) {
   const sessions = new Map();
   const publishTimers = new Map();
   const policy = createAcpProviderPolicy(provider);
@@ -216,6 +216,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     } catch (error) {
       console.error("Failed to record CodeBuddy ACP token statistics:", error);
     }
+  }
+  function reportTokenLive(entry, phase, options = {}) {
+    if (provider !== "codebuddy" || !entry.threadId) return;
+    try {
+      void Promise.resolve(onTokenLiveEvent({ phase, threadId: entry.threadId, session: entry.session,
+        ...options })).catch(error => console.error("Failed to update CodeBuddy ACP live tokens:", error));
+    } catch (error) { console.error("Failed to update CodeBuddy ACP live tokens:", error); }
   }
   function resetUsageBaselines() {
     if (provider !== "codebuddy") return;
@@ -375,6 +382,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         entry.items.push({ id: `background-turn:${unsolicited.requestId}`, type: "backgroundTurn", turnId: unsolicited.requestId });
         entry.busy = true;
         status(id, entry, "running", "后台任务汇总");
+        if (!entry.foregroundBusy && entry.unsolicitedTurns.size === 1) reportTokenLive(entry, "turnStart");
       }
     }
     const requestId = update._meta?.["codebuddy.ai/requestId"];
@@ -407,6 +415,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       for (const item of entry.items) if (item.turnId === requestId) delete item.streaming;
       entry.busy = entry.foregroundBusy || entry.unsolicitedTurns.size > 0;
       status(id, entry, "completed");
+      if (!entry.busy) reportTokenLive(entry, "turnEnd");
       void recordTokenUsage(entry);
     } else if (kind === "current_mode_update") {
       entry.nativeMode = update.currentModeId;
@@ -642,6 +651,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       await restoreOptions(entryFor(session.id));
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
+      reportTokenLive(entry, "sessionStart", { resumed: Boolean(runtime.resumeThreadId) });
     } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" || provider === "grok" ? withStderr(error) : error; close(session.id); throw failure; }
   }
   function close(id) {
@@ -944,6 +954,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       ...(orderedContent ? { parts: orderedContent.map(part => part.type === "text" ? part : {
         type: "image", path: attachments[files.indexOf(part.path)].path, name: attachments[files.indexOf(part.path)].name }) } : {}) });
     publish(id); status(id, entry, "running", text);
+    reportTokenLive(entry, "turnStart");
     try {
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
         ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
@@ -957,11 +968,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         appendTurnError(entry, entry.turnId, detail);
       }
       status(id, entry, result?.stopReason === "end_turn" ? "completed" : "failed"); publish(id);
+      if (!entry.busy) reportTokenLive(entry, "turnEnd");
       if (entry.executePlanInFullAccess) void promoteApprovedPlan(id, entry);
       void recordTokenUsage(entry);
     } catch (error) { entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       entry.error = appendTurnError(entry, entry.turnId, error.message) ? null : error.message;
-      status(id, entry, "failed", error.message); publish(id); void recordTokenUsage(entry); throw error; }
+      status(id, entry, "failed", error.message); publish(id); if (!entry.busy) reportTokenLive(entry, "turnEnd"); void recordTokenUsage(entry); throw error; }
   }
   function interrupt(id) { const entry = entryFor(id); send(entry, { method: "session/cancel", params: { sessionId: entry.threadId } }); }
   function resolveApproval(id, requestId, approved) {

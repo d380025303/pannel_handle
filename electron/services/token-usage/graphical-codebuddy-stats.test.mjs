@@ -29,6 +29,59 @@ const line = (id, total) => JSON.stringify({ type: "message", providerData: { me
   usage: { inputTokens: total, outputTokens: 0, totalTokens: total } } }) + "\n";
 
 describe("graphical CodeBuddy statistics", () => {
+  it("streams graphical transcript tokens during a turn and baselines a resumed thread", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "graphical-codebuddy-live-"));
+    const projects = path.join(root, ".codebuddy", "projects", "workspace");
+    mkdirSync(projects, { recursive: true });
+    const ipcMain = createIpcMain();
+    const module = createModule(root, ipcMain, { pollIntervalMs: 20 });
+    const session = { id: "panel-live", title: "Live", cwd: "C:\\project", type: "windows" };
+    const fresh = path.join(projects, "fresh.jsonl");
+    const history = path.join(projects, "history.jsonl");
+    const live = () => ipcMain.handlers.get("agent-token-live:get")({}, { sessionId: session.id });
+    try {
+      writeFileSync(fresh, line("a", 10));
+      await module.handleGraphicalCodeBuddyLive({ phase: "sessionStart", threadId: "fresh", session });
+      await module.handleGraphicalCodeBuddyLive({ phase: "turnStart", threadId: "fresh", session });
+      appendFileSync(fresh, line("b", 25));
+      await vi.waitFor(() => expect(live()).toMatchObject({ state: "generating",
+        tokens: { totalTokens: 35 } }));
+      await module.handleGraphicalCodeBuddyLive({ phase: "turnEnd", threadId: "fresh", session });
+      expect(live()).toMatchObject({ state: "completed", tokens: { totalTokens: 35 } });
+
+      writeFileSync(history, line("old", 500));
+      await module.handleGraphicalCodeBuddyLive({ phase: "sessionStart", threadId: "history", session, resumed: true });
+      await module.handleGraphicalCodeBuddyLive({ phase: "turnStart", threadId: "history", session });
+      appendFileSync(history, line("new", 30));
+      await vi.waitFor(() => expect(live()).toMatchObject({ state: "generating",
+        tokens: { totalTokens: 30 } }));
+      ipcMain.handlers.get("agent-token-stats:clear")();
+      await vi.waitFor(() => expect(live()).toMatchObject({ tokens: { totalTokens: 0 } }));
+      appendFileSync(history, line("after-clear", 5));
+      await vi.waitFor(() => expect(live()).toMatchObject({ tokens: { totalTokens: 5 } }));
+    } finally { module.shutdown(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("starts live tracking when the transcript appears after the prompt", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "graphical-codebuddy-late-"));
+    const projects = path.join(root, ".codebuddy", "projects", "workspace");
+    mkdirSync(projects, { recursive: true });
+    const ipcMain = createIpcMain();
+    const module = createModule(root, ipcMain, { pollIntervalMs: 20 });
+    const session = { id: "panel-late", title: "Late", cwd: "C:\\project", type: "windows" };
+    const live = () => ipcMain.handlers.get("agent-token-live:get")({}, { sessionId: session.id });
+    try {
+      await module.handleGraphicalCodeBuddyLive({ phase: "sessionStart", threadId: "late", session });
+      await module.handleGraphicalCodeBuddyLive({ phase: "turnStart", threadId: "late", session });
+      expect(live()).toBeNull();
+      writeFileSync(path.join(projects, "late.jsonl"), line("a", 12));
+      await vi.waitFor(() => expect(live()).toMatchObject({ state: "generating",
+        tokens: { totalTokens: 12 } }));
+      await module.handleGraphicalCodeBuddyLive({ phase: "turnEnd", threadId: "late", session });
+      expect(live()?.state).toBe("completed");
+    } finally { module.shutdown(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("counts turns and subagents once, baselines restored threads, and respects clear", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "graphical-codebuddy-"));
     const projects = path.join(root, ".codebuddy", "projects", "workspace");

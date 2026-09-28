@@ -174,7 +174,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   );
   const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
-  const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession?.runtimeMode === "app-server" ? undefined : terminalSessions.activeSession);
+  const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession?.runtimeMode === "app-server"
+    && terminalSessions.activeSession.agentProvider !== "codebuddy" ? undefined : terminalSessions.activeSession);
   const remoteSystemMetrics = useRemoteSystemMetrics(
     terminalSessions.activeSession,
     terminalSessions.sessions.map((session) => session.id)
@@ -911,7 +912,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   <div className="terminal-status-cluster">
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                     <CodexBackendSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchCodexBackend} />
-                    <AgentTokenLiveStatus state={appServerFooter.tokenState} source="app-server" />
+                    <AgentTokenLiveStatus
+                      state={terminalSessions.activeSession?.agentProvider === "codebuddy" ? agentTokenLive : appServerFooter.tokenState}
+                      source={terminalSessions.activeSession?.agentProvider === "codebuddy" ? "transcript" : "app-server"}
+                    />
                     {appServerFooter.contextUsage !== undefined && <CodeBuddyContextUsage usage={appServerFooter.contextUsage} />}
                     <AgentUsageStatus
                       state={agentUsage.state}

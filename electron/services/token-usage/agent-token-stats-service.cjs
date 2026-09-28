@@ -101,6 +101,7 @@ function createAgentTokenStatsService({
   const conversations = new Map();
   const sessionLifetimes = new Map();
   const graphicalCodeBuddy = new Map();
+  const graphicalCodeBuddyLive = new Map();
   const codeBuddyWrites = new Map();
   let graphicalEpoch = 0;
 
@@ -164,11 +165,13 @@ function createAgentTokenStatsService({
           state.initialized = true;
           if (baseline || resumed) return;
         }
-        statsStore.update({ provider: "codebuddy", agentSessionId: threadId,
+        const record = statsStore.update({ provider: "codebuddy", agentSessionId: threadId,
           panelSessionId: session.id, templateId: session.templateId, title: session.title,
           cwd: cwd || session.cwd, location: session.type,
           models: result.models.length ? result.models : [model].filter(Boolean),
           tokens: result.tokens, capabilities: result.capabilities });
+        if (record && !graphicalCodeBuddyLive.get(session.id)?.tracker)
+          liveModule.setCompletedSnapshot(session.id, record);
       } catch (error) {
         console.error("Failed to collect graphical CodeBuddy token statistics:", error);
       }
@@ -181,6 +184,81 @@ function createAgentTokenStatsService({
     graphicalEpoch++;
     graphicalCodeBuddy.clear();
     codeBuddyWrites.clear();
+    for (const state of graphicalCodeBuddyLive.values()) {
+      state.generation++;
+      liveModule.endSession(state.session.id);
+      state.resumed = true;
+      state.tracker = null;
+      state.trackingTurn = false;
+      if (state.timer) clearIntervalFn(state.timer);
+      state.timer = setIntervalFn(() => { void findGraphicalCodeBuddyLive(state); }, pollIntervalMs);
+      state.timer.unref?.();
+      void Promise.resolve(state.pending).finally(() => { void findGraphicalCodeBuddyLive(state); });
+    }
+  }
+
+  async function findGraphicalCodeBuddyLive(state) {
+    if (state.pending) return state.pending;
+    const generation = state.generation;
+    const request = (async () => {
+      if (graphicalCodeBuddyLive.get(state.session.id) !== state || state.tracker) return;
+      let transcriptPath;
+      try { transcriptPath = await findCodeBuddyTranscript(state.session, state.threadId); }
+      catch { return; }
+      if (graphicalCodeBuddyLive.get(state.session.id) !== state || state.generation !== generation) return;
+      const input = { session_id: state.threadId, transcript_path: transcriptPath,
+        source: state.resumed ? "resume" : "startup" };
+      const result = liveModule.handleEvent({ provider: "codebuddy", eventName: "SessionStart",
+        input, session: state.session });
+      state.tracker = result?.tracker || null;
+      if (!state.tracker) return;
+      state.transcriptPath = transcriptPath;
+      if (state.timer) { clearIntervalFn(state.timer); state.timer = null; }
+      if (state.resumed && state.tracker.pollPromise) await state.tracker.pollPromise;
+      if (graphicalCodeBuddyLive.get(state.session.id) !== state || state.generation !== generation) return;
+      if (state.turnActive) {
+        liveModule.handleEvent({ provider: "codebuddy", eventName: "UserPromptSubmit",
+          input, session: state.session });
+        state.trackingTurn = true;
+      }
+    })();
+    state.pending = request;
+    try { await request; } finally { if (state.pending === request) state.pending = null; }
+  }
+
+  async function handleGraphicalCodeBuddyLive({ phase, threadId, session, resumed = false }) {
+    if (!threadId || !session || !CODEBUDDY_SESSION_ID.test(threadId)) return;
+    let state = graphicalCodeBuddyLive.get(session.id);
+    if (!state || state.threadId !== threadId) {
+      if (state?.timer) clearIntervalFn(state.timer);
+      if (state) liveModule.endSession(session.id);
+      state = { threadId, session, resumed, turnActive: false, trackingTurn: false,
+        tracker: null, timer: null, pending: null, generation: 0 };
+      graphicalCodeBuddyLive.set(session.id, state);
+    }
+    if (phase === "sessionStart") state.resumed = resumed;
+    if (phase === "turnStart") state.turnActive = true;
+    const alreadyTracking = Boolean(state.tracker);
+    await findGraphicalCodeBuddyLive(state);
+    if (phase === "turnStart" && alreadyTracking && state.tracker && !state.trackingTurn) {
+      liveModule.handleEvent({ provider: "codebuddy", eventName: "UserPromptSubmit",
+        input: { session_id: threadId, transcript_path: state.transcriptPath }, session });
+      state.trackingTurn = true;
+    }
+    if (phase === "turnStart" && !state.tracker && !state.timer) {
+      state.timer = setIntervalFn(() => { void findGraphicalCodeBuddyLive(state); }, pollIntervalMs);
+      state.timer.unref?.();
+    }
+    if (phase === "turnEnd") {
+      state.turnActive = false;
+      if (state.timer) { clearIntervalFn(state.timer); state.timer = null; }
+      if (state.tracker && state.trackingTurn) {
+        state.trackingTurn = false;
+        const result = liveModule.handleEvent({ provider: "codebuddy", eventName: "Stop",
+          input: { session_id: threadId, transcript_path: state.transcriptPath }, session });
+        await result?.completion;
+      }
+    }
   }
 
   function conversationSupported(provider, session) {
@@ -414,6 +492,9 @@ function createAgentTokenStatsService({
     },
     markEnded(panelSessionId) {
       sessionLifetimes.delete(panelSessionId);
+      const liveState = graphicalCodeBuddyLive.get(panelSessionId);
+      if (liveState?.timer) clearIntervalFn(liveState.timer);
+      graphicalCodeBuddyLive.delete(panelSessionId);
       liveModule.endSession(panelSessionId);
       conversations.delete(panelSessionId);
       statsStore.markEnded(panelSessionId);
@@ -425,11 +506,14 @@ function createAgentTokenStatsService({
       conversationSink?.clearSession?.(panelSessionId);
     },
     recordGraphicalCodeBuddy,
+    handleGraphicalCodeBuddyLive,
     resetGraphicalCodeBuddyBaselines,
     shutdown() {
       sessionLifetimes.clear();
       graphicalEpoch++;
       graphicalCodeBuddy.clear();
+      for (const state of graphicalCodeBuddyLive.values()) if (state.timer) clearIntervalFn(state.timer);
+      graphicalCodeBuddyLive.clear();
       codeBuddyWrites.clear();
       liveModule.shutdown();
       conversations.clear();

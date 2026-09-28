@@ -311,7 +311,8 @@ if (!gotSingleInstanceLock) {
       environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
       codexInheritanceManager, historyService: agentConversationHistoryService,
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
-      onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage)
+      onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage),
+      onTokenLiveEvent: event => tokenUsageModule?.handleGraphicalCodeBuddyLive(event)
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem

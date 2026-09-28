@@ -15,7 +15,7 @@ function fakeChild(onMessage) {
   return child;
 }
 
-function serviceWithChild(child, onTokenUsageCheckpoint) {
+function serviceWithChild(child, onTokenUsageCheckpoint, onTokenLiveEvent = () => {}) {
   return createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
     terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
     resolveHttpEndpoint: async () => ({ endpoint: new URL("http://127.0.0.1:12345"), password: "test" }),
@@ -24,13 +24,14 @@ function serviceWithChild(child, onTokenUsageCheckpoint) {
       readline.createInterface({ input: child.stdout }).on("line", line => events.emit("message", JSON.parse(line)));
       return { on: (name, listener) => events.on(name, listener), connect: async () => {},
         send: async message => { child.stdin.write(`${JSON.stringify(message)}\n`); }, close: () => {} };
-    }, onTokenUsageCheckpoint });
+    }, onTokenUsageCheckpoint, onTokenLiveEvent });
 }
 
 describe("CodeBuddy graphical token checkpoints", () => {
   it("records completed turns and baselines resumed sessions without using context occupancy", async () => {
     let emitUpdate;
     const checkpoint = vi.fn(async () => {});
+    const liveEvent = vi.fn();
     const child = fakeChild((message, emit) => {
       emitUpdate = emit;
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
@@ -42,9 +43,10 @@ describe("CodeBuddy graphical token checkpoints", () => {
         result: { stopReason: "end_turn" } });
     });
     const session = { id: "panel", type: "windows", cwd: "C:\\work" };
-    const service = serviceWithChild(child, checkpoint);
+    const service = serviceWithChild(child, checkpoint, liveEvent);
     await service.start(session);
     await service.submit("panel", "hello");
+    expect(liveEvent.mock.calls.map(([event]) => event.phase)).toEqual(["sessionStart", "turnStart", "turnEnd"]);
     expect(checkpoint).toHaveBeenCalledWith(expect.objectContaining({ threadId: "fresh", session }));
     emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "fresh",
       update: { sessionUpdate: "usage_update", used: 100, size: 200000 } } });
