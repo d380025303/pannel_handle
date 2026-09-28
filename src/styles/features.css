@@ -8297,7 +8297,6 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-permission-status[data-permission="fullAccess"] { color: var(--color-danger-text); }
 .codex-app-server-shortcuts { min-width: 0; color: var(--color-text-subtle); overflow: hidden; text-overflow: ellipsis; }
 .codex-app-server-input-primary { display: flex; align-items: center; gap: 4px; margin-left: auto; }
-.codex-app-server-copy-notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); font-size: 11px; }
 .codex-app-server-icon-button, .codex-app-server-send { display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border-radius: 7px; }
 .codex-app-server-icon-button { border: 0; color: var(--color-text-secondary); background: transparent; }
 .codex-app-server-icon-button:hover:not(:disabled), .codex-app-server-icon-button[aria-expanded="true"] { color: var(--color-text-strong); background: var(--color-bg-control-hover); }

@@ -1948,18 +1948,15 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("首条用户输入 已复制")).toBeTruthy();
   });
 
-  it.each(["codex", "codebuddy", "opencode"] as const)("copies the current and historical %s session IDs", async provider => {
+  it.each(["codex", "codebuddy", "opencode"] as const)("only offers copying historical %s session IDs", async provider => {
     vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({
       threadId: `${provider}-current`, provider, mode: "default", executionPermission: "askApproval", busy: false,
       error: null, pendingPlan: null, items: [], approvals: []
     });
     listHistory.mockResolvedValueOnce({ data: [{ id: `${provider}-old`, title: "旧会话", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: null });
     render(<CodexAppServerSession sessionId="run-1" />);
-    const copyCurrent = await screen.findByRole("button", { name: "复制会话 ID" });
-    await waitFor(() => expect(copyCurrent).toHaveProperty("disabled", false));
-    fireEvent.click(copyCurrent);
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(`${provider}-current`));
-    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("button", { name: "复制会话 ID" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
     fireEvent.click(await screen.findByRole("button", { name: `复制会话 ID：${provider}-old` }));
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(`${provider}-old`));

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, Copy, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
+import { ArrowUp, BookOpen, Cable, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
 import type { CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
@@ -113,7 +113,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const timelineRef = useRef<CodexAppServerSnapshot | null>(null);
   const [error, setError] = useState("");
-  const [copyNotice, setCopyNotice] = useState<{ scope: "main" | "history"; text: string } | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [historyCopyingThreadId, setHistoryCopyingThreadId] = useState<string | null>(null);
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -184,12 +184,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const resolvingPlanRef = useRef(false);
   currentSessionRef.current = sessionId;
 
-  async function copyText(value: string, label: string, scope: "main" | "history" = "main") {
+  async function copyText(value: string, label: string) {
     try {
       const copied = await window.clipboardApi.writeText(value);
-      if (currentSessionRef.current === sessionId) setCopyNotice({ scope, text: copied ? `${label} 已复制` : `${label} 复制失败` });
+      if (currentSessionRef.current === sessionId) setCopyNotice(copied ? `${label} 已复制` : `${label} 复制失败`);
     } catch {
-      if (currentSessionRef.current === sessionId) setCopyNotice({ scope, text: `${label} 复制失败` });
+      if (currentSessionRef.current === sessionId) setCopyNotice(`${label} 复制失败`);
     }
   }
 
@@ -200,10 +200,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       const input = await window.codexAppServerApi.readInitialUserInput(sessionId, threadId);
       if (currentSessionRef.current !== sessionId) return;
       const value = input && userMessageCopyText(input);
-      if (value) await copyText(value, "首条用户输入", "history");
-      else setCopyNotice({ scope: "history", text: "未找到首条用户输入" });
+      if (value) await copyText(value, "首条用户输入");
+      else setCopyNotice("未找到首条用户输入");
     } catch (cause) {
-      if (currentSessionRef.current === sessionId) setCopyNotice({ scope: "history", text: `读取首条用户输入失败：${message(cause)}` });
+      if (currentSessionRef.current === sessionId) setCopyNotice(`读取首条用户输入失败：${message(cause)}`);
     } finally {
       if (currentSessionRef.current === sessionId) setHistoryCopyingThreadId(null);
     }
@@ -1229,10 +1229,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {acpModel && <span className="codex-app-server-permission-status">{acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue || "默认模型"}{typeof acpModel.currentValue === "string" && modelDetails(acpModel.currentValue) ? ` · ${modelDetails(acpModel.currentValue)}` : ""}{acpEffort?.currentValue ? ` · ${acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue}` : ""}{acpContextWindow?.currentValue ? ` · ${acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}` : ""}</span>}
           {!acpModel && acpContextWindow?.currentValue && <span className="codex-app-server-permission-status">上下文窗口：{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</span>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : ""}</span>
-          {copyNotice?.scope === "main" && <span className="codex-app-server-copy-notice" role="status">{copyNotice.text}</span>}
           <div className="codex-app-server-input-primary">
-            <button type="button" className="codex-app-server-icon-button" title="复制会话 ID" aria-label="复制会话 ID" disabled={!snapshot.threadId}
-              onClick={() => { if (snapshot.threadId) void copyText(snapshot.threadId, "会话 ID"); }}><Copy aria-hidden="true" /></button>
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || sending || pastingImage} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
             {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || sending || pastingImage || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
@@ -1314,7 +1311,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <button type="button" role="tab" aria-selected={historyArchived} onClick={() => setHistoryArchived(true)}>已归档</button>
         </div>}
         <div className="codex-app-server-history-search"><input autoFocus type="search" aria-label="搜索历史会话" placeholder="搜索标题或会话 ID" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} /></div>
-        {copyNotice?.scope === "history" && <p className="codex-app-server-history-copy-notice" role="status">{copyNotice.text}</p>}
+        {copyNotice && <p className="codex-app-server-history-copy-notice" role="status">{copyNotice}</p>}
         <div className="codex-app-server-history" aria-label="历史会话列表">
           {visibleHistory.map(thread => <div className="codex-app-server-history-row" key={thread.id}>
             {renamingThreadId === thread.id ? <form className="codex-app-server-history-rename" onSubmit={event => { event.preventDefault(); if (renameDraft.trim()) void mutateHistory(thread.id, "rename", renameDraft); }}>
@@ -1325,7 +1322,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <strong>{thread.isPinned ? "📌 " : ""}{thread.title}</strong><small>会话 ID：{thread.id}</small><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
             </button>}
             <div className="codex-app-server-history-actions">
-              <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID", "history")}>复制 ID</button>
+              <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID")}>复制 ID</button>
               {isCodex && <button type="button" disabled={Boolean(historyCopyingThreadId)} aria-label={`复制首条用户输入：${thread.id}`}
                 onClick={() => void copyInitialUserInput(thread.id)}>{historyCopyingThreadId === thread.id ? "读取中…" : "复制首条输入"}</button>}
               {isCodex && <>
