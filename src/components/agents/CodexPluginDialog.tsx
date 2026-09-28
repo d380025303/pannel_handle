@@ -14,7 +14,8 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   const [catalog, setCatalog] = useState<CodexPluginCatalog | null>(null);
   const [tab, setTab] = useState<"plugins" | "mcp">("plugins");
   const [showAvailable, setShowAvailable] = useState(false);
-  const [mcpStatuses, setMcpStatuses] = useState<Array<{ name: string; status: string }> | null>(null);
+  const [mcpState, setMcpState] = useState<{ sessionId: string; statuses: Array<{ name: string; status: string }> | null; error: string }>({ sessionId, statuses: null, error: "" });
+  const [mcpRefresh, setMcpRefresh] = useState(0);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [scope, setScope] = useState<CodexPluginScope>("project");
   const [overrides, setOverrides] = useState<Record<string, { enabled?: boolean }>>({});
@@ -41,11 +42,16 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   }, [sessionId, scope]);
   useEffect(() => {
     let active = true;
+    setMcpState({ sessionId, statuses: null, error: "" });
     void window.codexAppServerApi.listCapabilities(sessionId)
-      .then(result => { if (active) setMcpStatuses(result.mcp.map(item => ({ name: item.name, status: item.status }))); })
-      .catch(() => { if (active) setMcpStatuses(null); });
+      .then(result => { if (active) setMcpState(result.errors?.mcp
+        ? { sessionId, statuses: null, error: result.errors.mcp }
+        : { sessionId, statuses: result.mcp.map(item => ({ name: item.name, status: item.status })), error: "" }); })
+      .catch(cause => { if (active) setMcpState({ sessionId, statuses: null, error: errorText(cause) }); });
     return () => { active = false; };
-  }, [sessionId]);
+  }, [sessionId, mcpRefresh]);
+  const mcpStatuses = mcpState.sessionId === sessionId ? mcpState.statuses : null;
+  const mcpError = mcpState.sessionId === sessionId ? mcpState.error : "";
   const installed = useMemo(() => (catalog?.installed || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
   const available = useMemo(() => (catalog?.available || []).filter(item => `${nameOf(item)} ${marketplaceOf(item)} ${descriptionOf(item)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [catalog, query]);
   async function act(action: () => Promise<CodexPluginCatalog | { overrides: Record<string, { enabled?: boolean }> }>, changed = true) {
@@ -119,8 +125,19 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
             <button type="submit" disabled={busy || !source.trim()}>添加来源</button>
           </form>
         </section></>}
-      </div></> : <div className="codex-plugin-mcp">{session ? <McpManager session={session} embeddedCodex runtimeStatuses={mcpStatuses || []}
-        onDirtyChange={setMcpDirty} onRegisterSave={() => undefined} /> : <p>当前会话信息不可用。</p>}</div>}
+      </div></> : <div className="codex-plugin-mcp">
+        <section className="codex-plugin-mcp-runtime" aria-label="当前会话 MCP">
+          <div className="codex-plugin-mcp-runtime-heading"><div><h3>当前会话 MCP</h3><p>当前图形会话已发现的服务；配置修改需开启新会话后加载。</p></div>
+            <button type="button" aria-label="刷新当前会话 MCP" onClick={() => setMcpRefresh(value => value + 1)}><RefreshCw aria-hidden="true" />刷新</button></div>
+          {mcpError ? <p role="alert">读取当前会话 MCP 失败：{mcpError}</p>
+            : mcpStatuses === null ? <p>正在读取当前会话 MCP…</p>
+              : mcpStatuses.length ? <ul>{mcpStatuses.map(item => <li key={item.name}><strong>{item.name}</strong><span>{item.status}</span></li>)}</ul>
+                : <p>当前会话没有 MCP 服务。</p>}
+        </section>
+        <div className="codex-plugin-mcp-config"><h3>配置文件</h3><p>按用户级或项目级查看和编辑配置。此处仅显示所选作用域中的服务。</p></div>
+        {session ? <McpManager key={sessionId} session={session} embeddedCodex runtimeStatuses={mcpStatuses || []}
+          onDirtyChange={setMcpDirty} onRegisterSave={() => undefined} /> : <p>当前会话信息不可用。</p>}
+      </div>}
     </section>
   </div>;
 }

@@ -47,6 +47,60 @@ it("opens MCP management for the current graphical session", async () => {
   expect(screen.getByRole("tab", { name: "项目级" })).toBeTruthy();
 });
 
+it("shows every session MCP while keeping configuration scoped", async () => {
+  const configured = { id: "user:local", provider: "codex", scope: "user", name: "local", enabled: true,
+    transport: "stdio", command: "node", args: [], argsMasked: false, cwd: "", url: "", urlMasked: false,
+    bearerTokenEnvVar: "", env: [], headers: [] };
+  const mcpList = vi.fn().mockImplementation(async ({ scope }) => ({ provider: "codex", scope, path: `${scope}/config.toml`,
+    version: "v1", servers: scope === "user" ? [configured] : [] }));
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [
+      { name: "local", status: "connected" }, { name: "plugin-a", status: "connected" }, { name: "plugin-b", status: "notStarted" }
+    ], errors: {} }) },
+    mcpApi: { list: mcpList }
+  });
+  const session = { id: "windows-1", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\repo" } as TerminalSession;
+  render(<I18nProvider locale="zh-CN"><CodexPluginDialog sessionId={session.id} session={session} onClose={vi.fn()} onChanged={vi.fn()} /></I18nProvider>);
+  fireEvent.click(await screen.findByRole("tab", { name: "MCP 3" }));
+  const runtime = screen.getByRole("region", { name: "当前会话 MCP" });
+  expect(runtime.textContent).toContain("local");
+  expect(runtime.textContent).toContain("plugin-a");
+  expect(runtime.textContent).toContain("plugin-b");
+  expect(await screen.findByRole("heading", { name: "local" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "plugin-a" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "项目级" }));
+  await waitFor(() => expect(mcpList).toHaveBeenCalledWith({ provider: "codex", scope: "project", sessionId: "windows-1" }));
+  expect(screen.getByRole("tab", { name: "MCP 3" })).toBeTruthy();
+  expect(runtime.textContent).toContain("plugin-b");
+});
+
+it("shows MCP read errors, retries, and clears the prior session count", async () => {
+  const listCapabilities = vi.fn()
+    .mockRejectedValueOnce(new Error("暂时无法读取"))
+    .mockResolvedValueOnce({ mcp: [{ name: "first", status: "connected" }], errors: {} })
+    .mockResolvedValueOnce({ mcp: [{ name: "second", status: "connected" }], errors: {} });
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities },
+    mcpApi: { list: vi.fn().mockResolvedValue({ provider: "codex", scope: "user", path: "config.toml", version: "v1", servers: [] }) }
+  });
+  const first = { id: "first", type: "windows", runtimeMode: "app-server", agentProvider: "codex", cwd: "C:\\repo" } as TerminalSession;
+  const view = render(<I18nProvider locale="zh-CN"><CodexPluginDialog sessionId="first" session={first} onClose={vi.fn()} onChanged={vi.fn()} /></I18nProvider>);
+  fireEvent.click(await screen.findByRole("tab", { name: "MCP …" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("暂时无法读取");
+  fireEvent.click(screen.getByRole("button", { name: "刷新当前会话 MCP" }));
+  expect(await screen.findByRole("tab", { name: "MCP 1" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "当前会话 MCP" }).textContent).toContain("first");
+  const second = { ...first, id: "second" } as TerminalSession;
+  view.rerender(<I18nProvider locale="zh-CN"><CodexPluginDialog sessionId="second" session={second} onClose={vi.fn()} onChanged={vi.fn()} /></I18nProvider>);
+  expect(screen.queryByRole("region", { name: "当前会话 MCP" })?.textContent).not.toContain("first");
+  await waitFor(() => expect(listCapabilities).toHaveBeenLastCalledWith("second"));
+  expect(await screen.findByText("second")).toBeTruthy();
+});
+
 it("shows account plugin names and effective enabled states from the catalog", async () => {
   const installed = [
     { name: "figma", displayName: "Figma", marketplaceName: "openai-curated-remote", enabled: true },

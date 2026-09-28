@@ -8277,6 +8277,18 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-plugin-toggle[aria-checked="true"] span { transform: translateX(15px); }
 .codex-plugin-mcp { min-height: 0; overflow: auto; padding: 12px 18px 18px; }
 .codex-plugin-mcp .mcp-page { min-height: 0; }
+.codex-plugin-mcp-runtime { padding: 12px 16px; border: 1px solid var(--color-border); border-radius: 8px; }
+.codex-plugin-mcp-runtime-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.codex-plugin-mcp-runtime h3, .codex-plugin-mcp-config h3 { margin: 0 0 4px; font-size: 14px; }
+.codex-plugin-mcp-runtime p, .codex-plugin-mcp-config p { margin: 0; color: var(--color-text-muted); font-size: 12px; }
+.codex-plugin-mcp-runtime-heading button { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.codex-plugin-mcp-runtime-heading svg { width: 14px; height: 14px; }
+.codex-plugin-mcp-runtime > p, .codex-plugin-mcp-runtime ul { margin-top: 10px; }
+.codex-plugin-mcp-runtime p[role="alert"] { color: var(--color-danger-text); }
+.codex-plugin-mcp-runtime ul { padding: 0; list-style: none; }
+.codex-plugin-mcp-runtime li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--color-border); font-size: 12px; }
+.codex-plugin-mcp-runtime li span { color: var(--color-text-muted); }
+.codex-plugin-mcp-config { padding: 18px 2px 8px; }
 .codex-plugin-content section > form { display: flex; gap: 10px; margin-top: 10px; }
 @media (max-width: 620px) { .codex-plugin-row, .codex-plugin-marketplace { align-items: stretch; flex-direction: column; } .codex-plugin-row-actions { justify-content: flex-start; } }
 .codex-app-server-permission-status, .codex-app-server-shortcuts { font-size: 11px; white-space: nowrap; }
