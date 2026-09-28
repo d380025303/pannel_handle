@@ -29,6 +29,21 @@ describe("ssh-agent-transport", () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a remote loopback port for the local OpenCode question server", async () => {
+    const client = new EventEmitter();
+    client.forwardIn = vi.fn((_host, _port, done) => done(null, 54210));
+    client.unforwardIn = vi.fn((_host, _port, done) => done());
+    client.end = vi.fn();
+    const runtime = { connectClient: vi.fn(async () => client) };
+    const forwarder = await createSshAgentTransport({ sshSessionRuntime: runtime })
+      .createReverseHttpForwarder("ssh-1", 54211);
+    expect(forwarder.url).toBe("http://127.0.0.1:54210");
+    expect(client.forwardIn).toHaveBeenCalledWith("127.0.0.1", 0, expect.any(Function));
+    forwarder.close();
+    expect(client.unforwardIn).toHaveBeenCalledWith("127.0.0.1", 54210, expect.any(Function));
+    expect(client.end).toHaveBeenCalledOnce();
+  });
+
   it("owns the bidirectional stdio channel lifecycle", async () => {
     const stream = createStream();
     const client = { exec: vi.fn((_command, done) => done(null, stream)), end: vi.fn() };

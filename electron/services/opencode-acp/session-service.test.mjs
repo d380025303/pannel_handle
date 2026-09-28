@@ -72,6 +72,8 @@ describe("OpenCode ACP sessions", () => {
   });
   it("launches the official ACP command on Windows and WSL", () => {
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1)).toContain("opencode acp");
+    expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" },
+      { openCodeQuestions: true }, {}).args.at(-1)).not.toContain("--port");
     const wsl = buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, {}, {});
     expect(wsl.executable).toBe("wsl.exe");
     expect(wsl.args.at(-1)).toContain("exec opencode acp");
@@ -96,40 +98,35 @@ describe("OpenCode ACP sessions", () => {
     expect(transport.close).toHaveBeenCalledOnce();
   });
 
-  it("shows native OpenCode forms and sends selected values back to the Form API", async () => {
-    let onEvent;
-    let forms = [];
-    const formTransport = {
-      list: vi.fn(async () => forms), reply: vi.fn(async () => {}), cancel: vi.fn(async () => {}),
-      subscribe: vi.fn(callback => { onEvent = callback; }), close: vi.fn()
-    };
+  it("registers a question MCP server and returns user answers to its pending tool", async () => {
+    let onQuestion;
+    const questionBridge = { url: "http://127.0.0.1:1234/mcp", token: "secret",
+      answer: vi.fn(), cancel: vi.fn(), close: vi.fn() };
     const child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
-      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/new") {
+        expect(message.params.mcpServers).toEqual([{ name: "pannel_handle_question", type: "http",
+          url: questionBridge.url, headers: [{ name: "Authorization", value: "Bearer secret" }] }]);
+        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
+      }
     });
+    const spawnProcess = vi.fn(() => child);
     const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
-      openCodeFormTransportFactory: () => formTransport });
-    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeForms: true });
-    forms = [{ id: "form-1", sessionID: "thread", title: "选择方案", fields: [
-      { key: "plan", type: "multiselect", title: "方案", maxItems: 1, custom: true,
-        options: [{ label: "方案甲", value: "plan-a" }, { label: "方案乙", value: "plan-b" }] }
-    ] }];
-    onEvent({ type: "form.created", data: forms[0] });
-    await vi.waitFor(() => expect(service.snapshot("one").questions).toHaveLength(1));
-    expect(service.snapshot("one").questions[0].params.questions[0].options[0].label).toBe("方案甲");
-    await service.answerQuestion("one", "form-1", { plan: { answers: ["方案甲"] } });
-    expect(formTransport.reply).toHaveBeenCalledWith("thread", "form-1", { plan: ["plan-a"] });
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess,
+      openCodeQuestionBridgeFactory: async ({ onQuestion: callback }) => { onQuestion = callback; return questionBridge; } });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeQuestions: true });
+    expect(spawnProcess.mock.calls[0][2].env.OPENCODE_ENABLE_QUESTION_TOOL).toBe("0");
+    onQuestion({ requestId: "question-1", questions: [{ id: "plan", header: "方案", question: "选择方案",
+      options: [{ label: "方案甲" }], isOther: true }] });
+    expect(service.snapshot("one").questions).toHaveLength(1);
+    await service.answerQuestion("one", "question-1", { plan: { answers: ["方案甲"] } });
+    expect(questionBridge.answer).toHaveBeenCalledWith("question-1", { plan: ["方案甲"] });
     expect(service.snapshot("one").questions).toHaveLength(0);
-    forms = [{ id: "form-2", sessionID: "thread", fields: [
-      { key: "reason", type: "string", title: "原因" }
-    ] }];
-    onEvent({ type: "form.created", data: forms[0] });
-    await vi.waitFor(() => expect(service.snapshot("one").questions[0]?.requestId).toBe("form-2"));
-    await service.cancelQuestion("one", "form-2");
-    expect(formTransport.cancel).toHaveBeenCalledWith("thread", "form-2");
+    onQuestion({ requestId: "question-2", questions: [{ id: "reason", question: "原因", isOther: true }] });
+    await service.cancelQuestion("one", "question-2");
+    expect(questionBridge.cancel).toHaveBeenCalledWith("question-2");
     service.shutdown();
-    expect(formTransport.close).toHaveBeenCalledOnce();
+    expect(questionBridge.close).toHaveBeenCalledOnce();
   });
 
   it("uses advertised model and effort options and handles a streamed turn", async () => {

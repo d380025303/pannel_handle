@@ -25,6 +25,7 @@ describe("CodexAppServerSession", () => {
   const submit = vi.fn().mockResolvedValue(undefined);
   const resolveApproval = vi.fn().mockResolvedValue(undefined);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
+  const cancelQuestion = vi.fn().mockResolvedValue(undefined);
   const resolveElicitation = vi.fn().mockResolvedValue(undefined);
   const openExternal = vi.fn().mockResolvedValue(undefined);
   const listHistory = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
@@ -70,7 +71,7 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     Object.defineProperty(window, "externalLinkApi", { configurable: true, value: { open: openExternal } });
     writeText.mockReset().mockResolvedValue(true);
     readInitialUserInput.mockReset().mockResolvedValue(null);
@@ -90,7 +91,7 @@ describe("CodexAppServerSession", () => {
     } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
-      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
+      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
       resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
@@ -1365,6 +1366,21 @@ describe("CodexAppServerSession", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "自定义回答" }), { target: { value: "采用 B" } });
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
     await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", 92, { q_0: { answers: ["采用 B"] } }));
+  });
+
+  it("answers and cancels OpenCode questions through the graphical card", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "opencode", mode: "default",
+      busy: true, error: null, items: [], approvals: [], questions: [{ requestId: "question-1", submitting: false,
+        params: { threadId: "thread-1", turnId: "turn-1", questions: [{ id: "plan", header: "方案",
+          question: "选择方案", isOther: true, options: [{ label: "甲", description: "" }] }] } }] } }));
+    expect(screen.getByRole("article", { name: "OpenCode 提问" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "补充说明或自定义回答" }), { target: { value: "乙" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", "question-1", { plan: { answers: ["乙"] } }));
+    fireEvent.click(screen.getByRole("button", { name: "取消提问" }));
+    await waitFor(() => expect(cancelQuestion).toHaveBeenCalledWith("run-1", "question-1"));
   });
 
   it("switches to the first unanswered question before submission", async () => {

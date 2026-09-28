@@ -1,5 +1,6 @@
 const { EventEmitter } = require("node:events");
 const http = require("node:http");
+const net = require("node:net");
 
 function createSshAgentTransport({ sshSessionRuntime }) {
   if (!sshSessionRuntime) throw new Error("SSH runtime is unavailable.");
@@ -78,6 +79,30 @@ function createSshAgentTransport({ sshSessionRuntime }) {
       agent,
       close() { agent.destroy(); client.end(); }
     };
+  }
+
+  async function createReverseHttpForwarder(sessionId, localPort) {
+    const client = await sshSessionRuntime.connectClient(sessionId, { actionName: "OpenCode question connection" });
+    let closed = false;
+    client.on("tcp connection", (_details, accept) => {
+      const remote = accept();
+      const local = net.connect(localPort, "127.0.0.1");
+      remote.on("error", () => local.destroy());
+      local.on("error", () => remote.destroy());
+      remote.pipe(local).pipe(remote);
+    });
+    try {
+      const remotePort = await new Promise((resolve, reject) =>
+        client.forwardIn("127.0.0.1", 0, (error, port) => error ? reject(error) : resolve(port)));
+      return { url: `http://127.0.0.1:${remotePort}`, close() {
+        if (closed) return;
+        closed = true;
+        client.unforwardIn("127.0.0.1", remotePort, () => client.end());
+      } };
+    } catch (error) {
+      client.end();
+      throw error;
+    }
   }
 
   function createReusableCommandClient(sessionId, options = {}) {
@@ -167,7 +192,7 @@ function createSshAgentTransport({ sshSessionRuntime }) {
     };
   }
 
-  return { exec, createStdioTransport, createHttpForwarder, createReusableCommandClient };
+  return { exec, createStdioTransport, createHttpForwarder, createReverseHttpForwarder, createReusableCommandClient };
 }
 
 module.exports = { createSshAgentTransport };

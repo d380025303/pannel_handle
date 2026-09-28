@@ -547,7 +547,7 @@ function createAgentSessionLauncher({
     const verifiedOpenCodeEnv = session.agentProvider === "opencode" && useAppServer(session) ? openCodeVerifiedEnv() : {};
     const bridgeRegistration = naraRouter?.bridgeRegistration || miniMax?.bridgeRegistration;
     return {
-      ...(session.agentProvider === "opencode" && useAppServer(session) ? { openCodeForms: true } : {}),
+      ...(session.agentProvider === "opencode" && useAppServer(session) ? { openCodeQuestions: true } : {}),
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax })),
       codexCommand: backend ? buildCodexBackendCommand(session, backend) : "codex",
@@ -650,7 +650,7 @@ function createAgentSessionLauncher({
       const acpArgs = session.agentProvider === "codebuddy"
         ? buildLocalCodeBuddyAcpArgs(binding, codeBuddyInstructions) : undefined;
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), {
-        ...(session.agentProvider === "opencode" ? { openCodeForms: true } : {}),
+        ...(session.agentProvider === "opencode" ? { openCodeQuestions: true } : {}),
         localBridge: true,
         workspaceCwd: binding.workspacePath,
         shell: getLocalBridgeShell(),
@@ -708,7 +708,7 @@ function createAgentSessionLauncher({
           catch (error) { if (session.templateId) terminalManager.deleteSavedSession(session.templateId); throw error; }
         }
         return launchPreparedLocal(options => terminalManager.createSession({ ...request, ...options }), request,
-          request.agentProvider === "opencode" ? { openCodeForms: true } : {}, true);
+          request.agentProvider === "opencode" ? { openCodeQuestions: true } : {}, true);
       }
       const localBridge = request.agentLocation === "local";
       const session = terminalManager.createSession({
@@ -742,7 +742,7 @@ function createAgentSessionLauncher({
             session = await finishLocalSshAppServer(pending);
           } else {
             session = await launchPreparedLocal(options => terminalManager.launchSession(launchTemplate, { ...launchOptions, ...options }), launchTemplate,
-              launchTemplate.agentProvider === "opencode" ? { openCodeForms: true } : {});
+              launchTemplate.agentProvider === "opencode" ? { openCodeQuestions: true } : {});
           }
         } else {
           const localBridge = launchTemplate.agentLocation === "local";
@@ -881,7 +881,7 @@ function createAgentSessionLauncher({
       const target = createReplacementTemplate(session, provider);
       validateAgentSession(target);
       const runtime = target.type === "ssh"
-        ? { runtimeInitialCommand: "", ...(useAppServer(target) && target.agentProvider === "opencode" ? { openCodeForms: true } : {}) }
+        ? { runtimeInitialCommand: "", ...(useAppServer(target) && target.agentProvider === "opencode" ? { openCodeQuestions: true } : {}) }
         : await prepareLocal(target);
       if (target.type === "ssh" && target.agentProvider === "opencode" && target.agentLocation !== "local") {
         await assertSshCommand(sessionId, target);
