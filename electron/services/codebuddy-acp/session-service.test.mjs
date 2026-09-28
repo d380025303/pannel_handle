@@ -33,6 +33,45 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("clears only the new conversation's completed status after a successful switch", async () => {
+    const statuses = [];
+    let childCount = 0;
+    const spawnProcess = () => {
+      const id = ++childCount === 1 ? "one" : "two";
+      let threadCount = 0;
+      return fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+        else if (message.method === "session/new") {
+          threadCount += 1;
+          emit({ id: message.id, ...(id === "one" && threadCount === 3
+            ? { error: { code: -1, message: "Could not create thread" } }
+            : { result: { sessionId: `${id}-thread-${threadCount}` } }) });
+        } else if (message.method === "session/prompt") emit({ id: message.id, result: { stopReason: "end_turn" } });
+      });
+    };
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: value => statuses.push(value) }, broadcast: vi.fn(), spawnProcess });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.start({ id: "two", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "First task");
+    await service.submit("two", "Other task");
+    expect(statuses.filter(value => value.id === "one").at(-1).status).toBe("completed");
+    const otherStatus = statuses.filter(value => value.id === "two").at(-1);
+
+    const next = await service.newThread("one");
+    expect(next).toMatchObject({ threadId: "one-thread-2", items: [] });
+    expect(statuses.at(-1)).toMatchObject({ id: "one", provider: "codebuddy", status: "cleared",
+      activitySummary: undefined });
+    expect(statuses.filter(value => value.id === "two").at(-1)).toBe(otherStatus);
+
+    await service.submit("one", "Second task");
+    await expect(service.newThread("one")).rejects.toThrow("Could not create thread");
+    expect(service.snapshot("one").threadId).toBe("one-thread-2");
+    expect(statuses.filter(value => value.id === "one").at(-1).status).toBe("completed");
+    expect(statuses.filter(value => value.id === "one" && value.status === "cleared")).toHaveLength(1);
+    service.shutdown();
+  });
+
   it("reviews the ExitPlanMode payload and answers its ACP request before switching to Full Access", async () => {
     const messages = [];
     let emitMessage;

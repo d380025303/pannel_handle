@@ -778,6 +778,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     catch (error) { close(id); throw error; }
     publish(id);
     await restoreOptions(entryFor(id));
+    status(id, entry, "cleared");
     return snapshot(id);
   }
   async function setMode(id, mode) {
