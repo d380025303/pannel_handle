@@ -71,11 +71,112 @@ describe("Codex version updates", () => {
     expect(executeCommand).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes an SSH installation that reached the latest version before confirmation", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let version = "0.156.0";
+    const { service, executeCommand } = harness(session, () => linuxProbe(version));
+    expect(await service.check("ssh-1")).toMatchObject({ status: "available", currentVersion: "0.156.0" });
+    version = "0.157.0";
+    expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0" });
+    expect(await service.check("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0" });
+    expect(executeCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires another confirmation when the SSH version changes but remains outdated", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let version = "0.156.0";
+    const { service, executeCommand } = harness(session, () => linuxProbe(version));
+    executeCommand.mockImplementation(async (_target, script) => {
+      if (script.includes("npm install -g")) { version = "0.157.0"; return "updated"; }
+      return linuxProbe(version);
+    });
+    await service.check("ssh-1");
+    version = "0.156.1";
+    expect(await service.update("ssh-1")).toMatchObject({ status: "available", currentVersion: "0.156.1" });
+    expect(executeCommand.mock.calls.some(([, script]) => script.includes("npm install -g"))).toBe(false);
+    expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0", restartRequired: true });
+  });
+
+  it("requires another confirmation when the SSH command path changes", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let commandPath = "/usr/local/bin/codex";
+    let version = "0.156.0";
+    const { service, executeCommand } = harness(session, () => linuxProbe(version).replace("/usr/local/bin/codex", commandPath));
+    executeCommand.mockImplementation(async (_target, script) => {
+      if (script.includes("npm install -g")) { version = "0.157.0"; return "updated"; }
+      return linuxProbe(version).replace("/usr/local/bin/codex", commandPath);
+    });
+    await service.check("ssh-1");
+    commandPath = "/opt/node/bin/codex";
+    expect(await service.update("ssh-1")).toMatchObject({ status: "available", commandPath });
+    expect(executeCommand.mock.calls.some(([, script]) => script.includes("npm install -g"))).toBe(false);
+    expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0", restartRequired: true });
+  });
+
+  it("shows manual guidance when the SSH installation source changes", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let output = linuxProbe("0.156.0");
+    const { service, executeCommand } = harness(session, () => output);
+    await service.check("ssh-1");
+    output = linuxProbe("0.156.0", "standalone").replace(/\n1$/, "\n0");
+    expect(await service.update("ssh-1")).toMatchObject({ status: "available", method: "unknown",
+      guidance: "请使用该环境原有的安装方式手动更新 Codex。" });
+    await expect(service.update("ssh-1")).rejects.toThrow("请先检测");
+    expect(executeCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let an older SSH check overwrite the result of an update", async () => {
+    const session = { id: "ssh-1", type: "ssh", agentLocation: "remote", runtimeMode: "app-server", agentProvider: "codex" };
+    let version = "0.156.0";
+    let finishCheck;
+    let probes = 0;
+    const { service, executeCommand } = harness(session, () => linuxProbe(version));
+    executeCommand.mockImplementation(async (_target, script) => {
+      if (script.includes("npm install -g")) { version = "0.157.0"; return "updated"; }
+      probes += 1;
+      if (probes === 2) return new Promise(resolve => { finishCheck = () => resolve(linuxProbe("0.156.0")); });
+      return linuxProbe(version);
+    });
+    await service.check("ssh-1");
+    const olderCheck = service.check("ssh-1", true);
+    await vi.waitFor(() => expect(finishCheck).toBeTypeOf("function"));
+    expect(await service.update("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0" });
+    finishCheck();
+    expect(await olderCheck).toMatchObject({ status: "current", currentVersion: "0.157.0" });
+    expect(await service.check("ssh-1")).toMatchObject({ status: "current", currentVersion: "0.157.0" });
+  });
+
   it("treats a local SSH bridge as a Windows installation and rejects other agents", async () => {
     const session = { id: "bridge", type: "ssh", agentLocation: "local", runtimeMode: "app-server", agentProvider: "codex" };
     const { service } = harness(session, () => windowsProbe("0.156.0"));
     expect(await service.check("bridge")).toMatchObject({ environment: "windows", method: "npm" });
     session.agentProvider = "codebuddy";
     await expect(service.check("bridge")).rejects.toThrow("仅 Codex");
+  });
+
+  it("exposes installation output across sessions in the same environment", async () => {
+    const session = { id: "one", type: "windows", runtimeMode: "app-server", agentProvider: "codex" };
+    let version = "0.156.0";
+    let finishInstall;
+    const { service, executeCommand } = harness(session, () => windowsProbe(version));
+    executeCommand.mockImplementation(async (_target, script, _timeout, onOutput) => {
+      if (!script.includes("npm.cmd install -g")) return windowsProbe(version);
+      onOutput("Token: secr");
+      onOutput("et-value\nadded 1 package");
+      return new Promise(resolve => { finishInstall = () => { version = "0.157.0"; resolve("updated"); }; });
+    });
+    await service.check("one");
+    const pending = service.update("one");
+    await vi.waitFor(() => expect(finishInstall).toBeTypeOf("function"));
+    session.id = "two";
+    const during = await service.check("two");
+    expect(during).toMatchObject({ status: "updating", progress: { stage: "installing" } });
+    expect(during.progress.output).toContain("added 1 package");
+    expect(during.progress.output).not.toContain("secret-value");
+    await expect(service.update("two")).rejects.toThrow("正在更新");
+    finishInstall();
+    await pending;
+    expect(await service.check("two")).toMatchObject({ status: "current", restartRequired: true,
+      progress: { stage: "complete" } });
   });
 });

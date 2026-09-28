@@ -8324,6 +8324,8 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-empty .codex-version-confirm p { flex-basis: 100%; margin: 0; font-size: 11px; }
 .codex-version-actions button, .codex-version-confirm button { border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 4px 8px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
 .codex-version-actions button:disabled, .codex-version-confirm button:disabled { opacity: .5; cursor: default; }
+.codex-version-progress { display: flex; flex-direction: column; gap: 6px; color: var(--color-text-secondary); font-size: 11px; }
+.codex-version-progress pre { box-sizing: border-box; width: 100%; max-height: 140px; margin: 0; padding: 8px; overflow: auto; border-radius: 6px; background: var(--color-bg-control); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .codex-app-server-mode-options, .codex-app-server-permission-options { display: grid; gap: 6px; }
 .codex-app-server-mode-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .codex-app-server-permission-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }

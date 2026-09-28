@@ -11,6 +11,7 @@ const { waitForEndpoint, createCodeBuddyHttpTransport, sanitizeDiagnostic } = re
 const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
 const { codeBuddyInheritanceArgs } = require("./codex-inheritance.cjs");
 const { createAcpProviderPolicy } = require("./provider-policy.cjs");
+const { normalizeCwd } = require("../conversation-history/history-values.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PUBLISH_COALESCE_MS = 50;
@@ -104,7 +105,7 @@ async function createRemoteChild(transportService, session, environment, provide
   return child;
 }
 
-function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager,
+function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, codexInheritanceManager, historyService,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
   httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
   onTokenUsageCheckpoint = () => {} }) {
@@ -655,6 +656,24 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   async function listHistory(id, cursor = null) {
     const entry = entryFor(id);
     if (!entry.capabilities.history) throw new Error(`当前 ${agentName} CLI 不支持历史会话恢复。`);
+    if (provider === "codebuddy") {
+      if (!historyService?.listHistoryForSession) throw new Error("CodeBuddy 历史记录服务不可用。");
+      const historySession = { ...entry.session, cwd: workspace(entry),
+        type: entry.runtime.localBridge ? "windows" : entry.session.type };
+      const result = await historyService.listHistoryForSession(historySession,
+        { providers: ["codebuddy"], scope: "cwd", cursor });
+      const failure = result.errors?.find(error => error.provider === "codebuddy");
+      if (failure) throw new Error(failure.message || "CodeBuddy 历史记录读取失败。");
+      const expectedCwd = normalizeCwd(historySession.cwd, historySession.type === "windows");
+      const matching = (result.items || []).filter(value => value.provider === "codebuddy"
+        && typeof value.ref === "string" && value.ref.startsWith("codebuddy:")
+        && normalizeCwd(value.cwd, historySession.type === "windows") === expectedCwd);
+      const data = matching.map(value => ({ id: value.ref.slice("codebuddy:".length),
+        title: value.title || "未命名会话", updatedAt: (value.updatedAt || 0) / 1000,
+        source: agentName, status: "saved" }));
+      for (const value of data) entry.listedThreadIds.add(value.id);
+      return { data, nextCursor: result.nextCursor || null };
+    }
     const result = await request(entry, "session/list", { cwd: workspace(entry), ...(cursor ? { cursor } : {}) });
     const matching = (result.sessions || []).filter(value => value.cwd === workspace(entry));
     for (const value of matching) entry.listedThreadIds.add(value.sessionId);

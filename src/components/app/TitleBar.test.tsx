@@ -25,6 +25,7 @@ function createMobileAccessState(activeConnections: MobileAccessState["activeCon
     address: "192.168.1.10",
     canonicalUrl: "http://pannel-handle.local:6174",
     fallbackUrl: "http://192.168.1.10:6174",
+    localUrl: "http://127.0.0.1:6174",
     lastError: "",
     activeConnections
   };

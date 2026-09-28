@@ -1,6 +1,7 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { parseVersion, isNewer } = require("../codex-app-server/version-service.cjs");
+const { createUpdateProgress } = require("../cli-version-progress.cjs");
 
 const PACKAGE = "@tencent-ai/codebuddy-code";
 const REGISTRY_URL = "https://registry.npmjs.org/@tencent-ai%2fcodebuddy-code/latest";
@@ -37,7 +38,7 @@ function installation(probe, platform) {
   return resolved.startsWith(`${packageDir}/`) ? "npm" : "unknown";
 }
 
-function runProcess(executable, args, { timeoutMs, spawnProcess }) {
+function runProcess(executable, args, { timeoutMs, spawnProcess, onOutput }) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(executable, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
@@ -50,8 +51,8 @@ function runProcess(executable, args, { timeoutMs, spawnProcess }) {
       clearTimeout(timer);
       if (error) reject(error); else resolve(value);
     }
-    child.stdout.on("data", chunk => { stdout = (stdout + chunk).slice(0, 16000); });
-    child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(0, 4000); });
+    child.stdout.on("data", chunk => { stdout = (stdout + chunk).slice(0, 16000); onOutput?.(chunk); });
+    child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(0, 4000); onOutput?.(chunk); });
     child.on("error", finish);
     child.on("close", code => finish(code === 0 ? null : new Error(stderr.trim() || `CodeBuddy 命令退出：${code}`), stdout.trim()));
   });
@@ -60,6 +61,8 @@ function runProcess(executable, args, { timeoutMs, spawnProcess }) {
 function createCodeBuddyVersionService({ terminalManager, sshAgentTransport, spawnProcess = spawn, fetchLatest = globalThis.fetch, executeCommand = null }) {
   const cache = new Map();
   const updating = new Set();
+  const progress = new Map();
+  const revisions = new Map();
   function target(id) {
     const session = terminalManager.getSession(String(id || ""));
     if (!session || session.runtimeMode !== "app-server" || session.agentProvider !== "codebuddy")
@@ -68,12 +71,12 @@ function createCodeBuddyVersionService({ terminalManager, sshAgentTransport, spa
     if (session.type === "wsl") return { key: `wsl:${session.wslDistro}`, platform: "linux", session };
     return { key: "windows", platform: "windows", session };
   }
-  async function run(value, script, timeoutMs) {
-    if (executeCommand) return executeCommand(value, script, timeoutMs);
+  async function run(value, script, timeoutMs, onOutput) {
+    if (executeCommand) return executeCommand(value, script, timeoutMs, onOutput);
     if (value.session.type === "ssh" && value.session.agentLocation !== "local")
-      return sshAgentTransport.exec(value.session.id, `bash -lic ${quoteBash(script)}`, { actionName: "CodeBuddy version update", timeoutMs });
-    if (value.platform === "linux") return runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", script], { timeoutMs, spawnProcess });
-    return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs, spawnProcess });
+      return sshAgentTransport.exec(value.session.id, `bash -lic ${quoteBash(script)}`, { actionName: "CodeBuddy version update", timeoutMs, onStdout: onOutput, onStderr: onOutput });
+    if (value.platform === "linux") return runProcess("wsl.exe", ["-d", value.session.wslDistro, "--", "bash", "-lic", script], { timeoutMs, spawnProcess, onOutput });
+    return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs, spawnProcess, onOutput });
   }
   async function probe(value) {
     const output = await run(value, value.platform === "windows" ? powerShellProbe : bashProbe, CHECK_TIMEOUT_MS);
@@ -92,17 +95,22 @@ function createCodeBuddyVersionService({ terminalManager, sshAgentTransport, spa
   }
   async function check(id, force = false) {
     const value = target(id);
-    if (updating.has(value.key)) return { ...cache.get(value.key)?.state, status: "updating", environment: value.key };
+    if (updating.has(value.key)) return { ...cache.get(value.key)?.state, status: "updating", environment: value.key, progress: progress.get(value.key)?.snapshot() };
     const existing = cache.get(value.key);
     if (!force && existing && Date.now() - existing.at < CACHE_MS) return existing.state;
+    const revision = revisions.get(value.key) || 0;
     try {
       const [installed, newest] = await Promise.all([probe(value), latestVersion()]);
+      if (revision !== (revisions.get(value.key) || 0))
+        return { ...(cache.get(value.key)?.state || {}), ...(updating.has(value.key) ? { status: "updating", progress: progress.get(value.key)?.snapshot() } : {}) };
       const state = { status: isNewer(parseVersion(installed.currentVersion), parseVersion(newest)) ? "available" : "current",
         ...installed, latestVersion: newest, environment: value.key,
         guidance: installed.method === "unknown" ? "请使用该环境原有的安装方式手动更新 CodeBuddy。" : null };
       cache.set(value.key, { at: Date.now(), state });
       return state;
     } catch (error) {
+      if (revision !== (revisions.get(value.key) || 0))
+        return { ...(cache.get(value.key)?.state || {}), ...(updating.has(value.key) ? { status: "updating", progress: progress.get(value.key)?.snapshot() } : {}) };
       const state = { status: "error", environment: value.key, error: error instanceof Error ? error.message : String(error) };
       cache.set(value.key, { at: Date.now(), state });
       return state;
@@ -114,19 +122,30 @@ function createCodeBuddyVersionService({ terminalManager, sshAgentTransport, spa
     const cached = cache.get(value.key);
     if (cached?.state.status !== "available" || cached.state.method !== "npm") throw new Error("请先检测可更新的 CodeBuddy npm 安装。");
     updating.add(value.key);
+    const updateProgress = createUpdateProgress();
+    progress.set(value.key, updateProgress);
+    revisions.set(value.key, (revisions.get(value.key) || 0) + 1);
     try {
       const before = await probe(value);
       if (before.commandPath !== cached.state.commandPath || before.currentVersion !== cached.state.currentVersion || before.method !== cached.state.method)
         throw new Error("CodeBuddy 安装已变化，请重新检查更新。");
-      await run(value, value.platform === "windows" ? `npm.cmd install -g ${PACKAGE}@latest` : `npm install -g ${PACKAGE}@latest`, UPDATE_TIMEOUT_MS);
+      updateProgress.setStage("installing");
+      await run(value, value.platform === "windows" ? `npm.cmd install -g ${PACKAGE}@latest` : `npm install -g ${PACKAGE}@latest`, UPDATE_TIMEOUT_MS, updateProgress.append);
+      updateProgress.setStage("verifying");
       const after = await probe(value);
       if (after.commandPath !== before.commandPath || after.method !== "npm" || !isNewer(parseVersion(before.currentVersion), parseVersion(after.currentVersion)))
         throw new Error("安装命令已完成，但当前 CodeBuddy 命令未切换到新版本。");
       const state = { status: isNewer(parseVersion(after.currentVersion), parseVersion(cached.state.latestVersion)) ? "available" : "current",
         ...after, latestVersion: cached.state.latestVersion, environment: value.key, restartRequired: true };
-      cache.set(value.key, { at: Date.now(), state });
-      return state;
-    } finally { updating.delete(value.key); }
+      updateProgress.setStage("complete");
+      const completed = { ...state, progress: updateProgress.snapshot() };
+      cache.set(value.key, { at: Date.now(), state: completed });
+      return completed;
+    } catch (error) {
+      updateProgress.setStage("failed");
+      cache.set(value.key, { at: Date.now(), state: { ...cached.state, status: "error", error: error instanceof Error ? error.message : String(error), progress: updateProgress.snapshot() } });
+      throw error;
+    } finally { updating.delete(value.key); progress.delete(value.key); }
   }
   return { check, update };
 }

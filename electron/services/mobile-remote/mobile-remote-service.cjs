@@ -30,6 +30,7 @@ function createMobileRemoteService({
   createDiscovery = () => new Bonjour()
 }) {
   let server = null;
+  let localServer = null;
   let webSocketServer = null;
   let bonjour = null;
   let bonjourService = null;
@@ -76,7 +77,7 @@ function createMobileRemoteService({
     const config = accessStore.getConfig();
     const interfaces = listPrivateInterfaces(networkInterfaces());
     const hostname = getMobileHostname();
-    const running = Boolean(server?.listening);
+    const running = Boolean(server?.listening && localServer?.listening);
     return {
       config,
       interfaces,
@@ -85,6 +86,7 @@ function createMobileRemoteService({
       address: currentAddress,
       canonicalUrl: running ? `http://${hostname}:${config.port}` : "",
       fallbackUrl: running ? `http://${currentAddress}:${config.port}` : "",
+      localUrl: running ? `http://127.0.0.1:${config.port}` : "",
       lastError,
       activeConnections: auth.getClients().map(client => ({
         id: client.id, name: client.name, remoteAddress: client.remoteAddress
@@ -96,8 +98,36 @@ function createMobileRemoteService({
     desktopBroadcast("mobile-access:state-changed", currentState());
   }
 
+  function attachUpgradeHandler(httpServer) {
+    httpServer.on("upgrade", (request, socket, head) => {
+      if (request.url !== "/api/v1/ws" || !verifyRequestHost(request)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      webSocketServer.handleUpgrade(request, socket, head, (ws) => socketHandlers.handleWebSocket(ws, request));
+    });
+  }
+
+  function listen(httpServer, port, address) {
+    return new Promise((resolve, reject) => {
+      const onError = (error) => { httpServer.off("listening", onListening); reject(error); };
+      const onListening = () => { httpServer.off("error", onError); resolve(); };
+      httpServer.once("error", onError);
+      httpServer.once("listening", onListening);
+      httpServer.listen(port, address);
+    });
+  }
+
+  function closeHttpServer(httpServer) {
+    return new Promise((resolve) => {
+      if (!httpServer?.listening) return resolve();
+      httpServer.close(() => resolve());
+    });
+  }
+
   async function start() {
-    if (server?.listening) return currentState();
+    if (server?.listening && localServer?.listening) return currentState();
     const config = accessStore.getConfig();
     if (!config.enabled) return currentState();
     const selected = listPrivateInterfaces(networkInterfaces()).find((item) => item.name === config.interfaceName);
@@ -109,28 +139,23 @@ function createMobileRemoteService({
     currentAddress = selected.address;
     lastError = "";
     server = createHttpServer(handleHttp);
+    localServer = createHttpServer(handleHttp);
     webSocketServer = createWebSocketServer({ noServer: true, maxPayload: MAX_INPUT_BYTES });
-    server.on("upgrade", (request, socket, head) => {
-      if (request.url !== "/api/v1/ws" || !verifyRequestHost(request)) {
-        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      webSocketServer.handleUpgrade(request, socket, head, (ws) => socketHandlers.handleWebSocket(ws, request));
-    });
-    await new Promise((resolve, reject) => {
-      const onError = (error) => { server.off("listening", onListening); reject(error); };
-      const onListening = () => { server.off("error", onError); resolve(); };
-      server.once("error", onError);
-      server.once("listening", onListening);
-      server.listen(config.port, currentAddress);
-    }).catch((error) => {
+    attachUpgradeHandler(server);
+    attachUpgradeHandler(localServer);
+    try {
+      await listen(server, config.port, currentAddress);
+      await listen(localServer, config.port, "127.0.0.1");
+    } catch (error) {
       lastError = error.code === "EADDRINUSE" ? `端口 ${config.port} 已被占用。` : (error.message || String(error));
+      await Promise.all([closeHttpServer(server), closeHttpServer(localServer)]);
+      webSocketServer.close();
       server = null;
+      localServer = null;
       webSocketServer = null;
       broadcastState();
       throw new Error(lastError);
-    });
+    }
     bonjour = createDiscovery();
     bonjourService = bonjour.publish({
       name: `Pannel Handle ${os.hostname()}`,
@@ -162,11 +187,12 @@ function createMobileRemoteService({
     uploads.stop();
     files.stop();
     for (const socket of webSocketServer?.clients || []) socket.terminate();
-    await new Promise((resolve) => server?.close(() => resolve()) || resolve());
+    await Promise.all([closeHttpServer(server), closeHttpServer(localServer)]);
     webSocketServer?.close();
     bonjourService?.stop?.();
     bonjour?.destroy?.();
     server = null;
+    localServer = null;
     webSocketServer = null;
     bonjourService = null;
     bonjour = null;

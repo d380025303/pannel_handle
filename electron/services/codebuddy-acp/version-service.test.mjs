@@ -87,4 +87,24 @@ describe("CodeBuddy version updates", () => {
     await expect(service.update("one")).rejects.toThrow("未切换到新版本");
     expect(executeCommand.mock.calls.some(([, script]) => script.includes("npm.cmd install -g"))).toBe(true);
   });
+
+  it("retains installation progress and failure after leaving the session", async () => {
+    const session = { id: "one", type: "windows", runtimeMode: "app-server", agentProvider: "codebuddy" };
+    let failInstall;
+    const { service, executeCommand } = harness(session, () => windowsProbe("2.55.0"));
+    executeCommand.mockImplementation(async (_target, script, _timeout, onOutput) => {
+      if (!script.includes("npm.cmd install -g")) return windowsProbe("2.55.0");
+      onOutput("npm error details");
+      return new Promise((_resolve, reject) => { failInstall = () => reject(new Error("安装失败")); });
+    });
+    await service.check("one");
+    const pending = service.update("one");
+    await vi.waitFor(() => expect(failInstall).toBeTypeOf("function"));
+    session.id = "two";
+    expect(await service.check("two")).toMatchObject({ status: "updating", progress: { stage: "installing", output: "npm error details" } });
+    failInstall();
+    await expect(pending).rejects.toThrow("安装失败");
+    expect(await service.check("two")).toMatchObject({ status: "error", error: "安装失败",
+      progress: { stage: "failed", output: "npm error details" } });
+  });
 });

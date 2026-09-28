@@ -184,6 +184,7 @@ export function installBrowserPreview() {
     address: "192.168.1.20",
     canonicalUrl: "http://preview-pc:43110",
     fallbackUrl: "http://192.168.1.20:43110",
+    localUrl: "http://127.0.0.1:43110",
     lastError: "",
     activeConnections: [{ id: "phone-1", name: "预览手机", remoteAddress: "192.168.1.88" }]
   };

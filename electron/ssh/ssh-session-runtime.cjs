@@ -150,10 +150,14 @@ function createSshSessionRuntime({
           return;
         }
         stream.on("data", (data) => {
-          stdout += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          const chunk = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          stdout += chunk;
+          options.onStdout?.(chunk);
         });
         stream.stderr?.on("data", (data) => {
-          stderr += Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          const chunk = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+          stderr += chunk;
+          options.onStderr?.(chunk);
         });
         if (options.stdin !== undefined) {
           stream.on("error", finish);

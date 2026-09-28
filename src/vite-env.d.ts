@@ -134,6 +134,7 @@ export type MobileAccessState = {
   address: string;
   canonicalUrl: string;
   fallbackUrl: string;
+  localUrl: string;
   lastError: string;
   activeConnections: MobileAccessConnection[];
 };
@@ -1029,7 +1030,8 @@ export type CodexAppServerSnapshot = {
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
 export type CodexVersionState = { status: "current" | "available" | "updating" | "error";
   currentVersion?: string; latestVersion?: string; commandPath?: string; method?: "npm" | "standalone" | "unknown";
-  environment: string; guidance?: string | null; error?: string; restartRequired?: boolean };
+  environment: string; guidance?: string | null; error?: string; restartRequired?: boolean;
+  progress?: { stage: "checking" | "installing" | "verifying" | "complete" | "failed"; output: string } };
 export type CodexVersionApi = {
   check: (id: string, force?: boolean) => Promise<CodexVersionState>;
   update: (id: string) => Promise<CodexVersionState>;

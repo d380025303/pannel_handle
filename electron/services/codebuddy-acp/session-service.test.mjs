@@ -865,13 +865,15 @@ describe("CodeBuddy ACP sessions", () => {
   });
 
   it("loads only listed history for this workspace and restores replayed messages", async () => {
+    const historyService = { listHistoryForSession: vi.fn().mockResolvedValue({ items: [
+      { ref: "codebuddy:old", provider: "codebuddy", cwd: "C:\\work", title: "Previous", updatedAt: Date.parse("2026-09-24T00:00:00Z") },
+      { ref: "codebuddy:other", provider: "codebuddy", cwd: "C:\\other", title: "Other" } ], nextCursor: null, errors: [] }) };
+    const methods = [];
     const child = fakeChild((message, emit) => {
+      methods.push(message.method);
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: {
         agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "new" } });
-      else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [
-        { sessionId: "old", cwd: "C:\\work", title: "Previous", updatedAt: "2026-09-24T00:00:00Z" },
-        { sessionId: "other", cwd: "C:\\other", title: "Other" } ] } });
       else if (message.method === "session/load") {
         emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "old", update: {
           sessionUpdate: "available_commands_update", availableCommands: [{ name: "summarize", description: "Summarize history" }]
@@ -884,10 +886,14 @@ describe("CodeBuddy ACP sessions", () => {
       } else if (message.method === "session/set_mode") emit({ jsonrpc: "2.0", id: message.id, result: {} });
     });
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child, historyService });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
     const history = await service.listHistory("one");
     expect(history.data.map(value => value.id)).toEqual(["old"]);
+    expect(history.data[0].updatedAt).toBe(Date.parse("2026-09-24T00:00:00Z") / 1000);
+    expect(historyService.listHistoryForSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: "C:\\work", type: "windows" }),
+      { providers: ["codebuddy"], scope: "cwd", cursor: null });
+    expect(methods).not.toContain("session/list");
     await expect(service.resume("one", "other")).rejects.toThrow("当前项目");
     const restored = await service.resume("one", "old");
     expect(restored.threadId).toBe("old");
@@ -896,14 +902,55 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 
+  it("passes history cursors through and reports read failures instead of showing an empty list", async () => {
+    const historyService = { listHistoryForSession: vi.fn()
+      .mockResolvedValueOnce({ items: [{ ref: "codebuddy:first", provider: "codebuddy", cwd: "C:\\work", title: "First", updatedAt: 1700000000000 }], nextCursor: "1", errors: [] })
+      .mockResolvedValueOnce({ items: [], nextCursor: null, errors: [] })
+      .mockResolvedValueOnce({ items: [], nextCursor: null, errors: [{ provider: "codebuddy", message: "读取失败" }] }) };
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "current" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child, historyService });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    expect(await service.listHistory("one")).toMatchObject({ data: [{ id: "first" }], nextCursor: "1" });
+    expect(await service.listHistory("one", "1")).toEqual({ data: [], nextCursor: null });
+    expect(historyService.listHistoryForSession).toHaveBeenNthCalledWith(2, expect.any(Object),
+      { providers: ["codebuddy"], scope: "cwd", cursor: "1" });
+    await expect(service.listHistory("one")).rejects.toThrow("读取失败");
+    service.shutdown();
+  });
+
+  it("uses the ACP workspace for WSL and the Windows workspace for a local SSH bridge", async () => {
+    for (const [session, runtime, expected] of [
+      [{ id: "wsl", type: "wsl", cwd: "/home/user/project", wslDistro: "Ubuntu" }, {}, { type: "wsl", cwd: "/home/user/project" }],
+      [{ id: "bridge", type: "ssh", cwd: "/srv/project" }, { localBridge: true, workspaceCwd: "C:\\bridge" }, { type: "windows", cwd: "C:\\bridge" }]
+    ]) {
+      const historyService = { listHistoryForSession: vi.fn().mockResolvedValue({ items: [], nextCursor: null, errors: [] }) };
+      const child = fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+        else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "current" } });
+      });
+      const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+        terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child, historyService });
+      await service.start(session, runtime);
+      expect(await service.listHistory(session.id)).toEqual({ data: [], nextCursor: null });
+      expect(historyService.listHistoryForSession).toHaveBeenCalledWith(expect.objectContaining(expected),
+        { providers: ["codebuddy"], scope: "cwd", cursor: null });
+      service.shutdown();
+    }
+  });
+
   it("keeps manual and automatic team members in separate timelines and restores the latest team state", async () => {
+    const historyService = { listHistoryForSession: vi.fn().mockResolvedValue({ items: [
+      { ref: "codebuddy:saved", provider: "codebuddy", cwd: "C:\\work", title: "Saved" } ], nextCursor: null, errors: [] }) };
     let emitUpdate;
     const child = fakeChild((message, emit) => {
       emitUpdate = emit;
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id,
         result: { agentCapabilities: { loadSession: true } } });
       else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "current" } });
-      else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: { sessions: [{ sessionId: "saved", cwd: "C:\\work" }] } });
       else if (message.method === "session/load") {
         emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "saved", update: {
           sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "成员历史" },
@@ -916,7 +963,7 @@ describe("CodeBuddy ACP sessions", () => {
       }
     });
     const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child, historyService });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
     const push = (sessionId, update) => emitUpdate({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
     push("current", { sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/teamUpdate": {

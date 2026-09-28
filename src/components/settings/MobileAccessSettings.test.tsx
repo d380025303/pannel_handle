@@ -14,6 +14,7 @@ const mobileAccessState: MobileAccessState = {
   address: "192.168.1.10",
   canonicalUrl: "http://pannel-handle.local:6174",
   fallbackUrl: "http://192.168.1.10:6174",
+  localUrl: "http://127.0.0.1:6174",
   lastError: "",
   activeConnections: []
 };
@@ -54,5 +55,10 @@ describe("MobileAccessSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "修改密码" }));
     await waitFor(() => expect(window.mobileAccessApi.setPassword).toHaveBeenCalledWith("strong-password"));
     await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
+  });
+
+  it("shows the local address alongside the LAN addresses", async () => {
+    render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
+    expect(await screen.findByText("http://127.0.0.1:6174")).toBeTruthy();
   });
 });

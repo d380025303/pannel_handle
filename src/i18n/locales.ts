@@ -44,6 +44,12 @@ export type TranslationKey =
   | "codexVersion.cancel"
   | "codexVersion.confirmUpdate"
   | "codexVersion.updating"
+  | "codexVersion.progress.checking"
+  | "codexVersion.progress.installing"
+  | "codexVersion.progress.verifying"
+  | "codexVersion.progress.complete"
+  | "codexVersion.progress.failed"
+  | "codexVersion.progress.output"
   | "codeBuddyVersion.title"
   | "codeBuddyVersion.update"
   | "codeBuddyVersion.confirmTitle"
@@ -1041,6 +1047,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.cancel": "取消",
     "codexVersion.confirmUpdate": "确认更新",
     "codexVersion.updating": "正在更新 Codex…",
+    "codexVersion.progress.checking": "进度：检测当前安装",
+    "codexVersion.progress.installing": "进度：正在安装",
+    "codexVersion.progress.verifying": "进度：验证更新结果",
+    "codexVersion.progress.complete": "更新完成",
+    "codexVersion.progress.failed": "更新失败",
+    "codexVersion.progress.output": "安装输出",
     "codeBuddyVersion.title": "CodeBuddy CLI 更新",
     "codeBuddyVersion.update": "更新 CodeBuddy",
     "codeBuddyVersion.confirmTitle": "确认更新 CodeBuddy",
@@ -1122,7 +1134,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobilePasswordSet": "密码已设置。修改后，所有在线连接须重新验证。",
     "settings.mobilePasswordNeeded": "请先设置密码，再启用移动访问。",
     "settings.mobilePasswordSaved": "密码已保存，在线连接已断开。",
-    "settings.mobileOpenHint": "在手机浏览器打开以上地址，输入移动访问密码。",
+    "settings.mobileOpenHint": "手机可打开前两个局域网地址；在本机打开 127.0.0.1 地址。连接时输入移动访问密码。",
     "settings.mobileActiveDevice": "在线连接",
     "settings.mobileDisconnect": "断开",
     "settings.mobileNoActiveDevice": "当前没有手机在线。",
@@ -2030,6 +2042,12 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.cancel": "Cancel",
     "codexVersion.confirmUpdate": "Confirm update",
     "codexVersion.updating": "Updating Codex…",
+    "codexVersion.progress.checking": "Progress: checking installation",
+    "codexVersion.progress.installing": "Progress: installing",
+    "codexVersion.progress.verifying": "Progress: verifying update",
+    "codexVersion.progress.complete": "Update complete",
+    "codexVersion.progress.failed": "Update failed",
+    "codexVersion.progress.output": "Installation output",
     "codeBuddyVersion.title": "CodeBuddy CLI updates",
     "codeBuddyVersion.update": "Update CodeBuddy",
     "codeBuddyVersion.confirmTitle": "Confirm CodeBuddy update",
@@ -2111,7 +2129,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobilePasswordSet": "Password is set. Changing it disconnects all mobile connections.",
     "settings.mobilePasswordNeeded": "Set a password before enabling mobile access.",
     "settings.mobilePasswordSaved": "Password saved. Active connections were disconnected.",
-    "settings.mobileOpenHint": "Open either address in your phone browser and enter the mobile password.",
+    "settings.mobileOpenHint": "Open either of the first two LAN addresses on your phone, or the 127.0.0.1 address on this computer. Enter the mobile password to connect.",
     "settings.mobileActiveDevice": "Active connections",
     "settings.mobileDisconnect": "Disconnect",
     "settings.mobileNoActiveDevice": "No mobile device is online.",

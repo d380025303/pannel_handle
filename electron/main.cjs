@@ -299,9 +299,14 @@ if (!gotSingleInstanceLock) {
       sshFileSystem,
       onTokenUsage: usage => tokenUsageModule?.recordAppServerUsage(usage)
     });
+    agentConversationHistoryService = createAgentConversationHistoryService({
+      terminalManager,
+      sshAgentTransport,
+      homeDir: app.getPath("home")
+    });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
       environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
-      codexInheritanceManager,
+      codexInheritanceManager, historyService: agentConversationHistoryService,
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage)
     });
@@ -317,11 +322,6 @@ if (!gotSingleInstanceLock) {
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,
       environmentService, sshAgentTransport });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
-    agentConversationHistoryService = createAgentConversationHistoryService({
-      terminalManager,
-      sshAgentTransport,
-      homeDir: app.getPath("home")
-    });
     workBuddyCheckinService = createWorkBuddyCheckinService();
     workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
       checkinService: workBuddyCheckinService,

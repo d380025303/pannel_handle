@@ -6,7 +6,7 @@ const { PROTOCOL_VERSION } = require("./mobile-protocol.cjs");
 function createMobileHttpHandler({ accessStore, getAddress, getStaticRoot, uploads, files }) {
   function verifyRequestHost(request) {
     const config = accessStore.getConfig();
-    const allowed = new Set([`${getAddress()}:${config.port}`, `${getMobileHostname()}:${config.port}`]);
+    const allowed = new Set([`${getAddress()}:${config.port}`, `${getMobileHostname()}:${config.port}`, `127.0.0.1:${config.port}`]);
     const host = String(request.headers.host || "").toLowerCase();
     if (!allowed.has(host)) return false;
     const origin = request.headers.origin;

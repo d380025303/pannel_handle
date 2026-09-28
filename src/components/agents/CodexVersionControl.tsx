@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { CodexVersionState } from "../../vite-env";
 
 export function CodexVersionControl({ sessionId, provider = "codex" }: { sessionId: string; provider?: "codex" | "codebuddy" }) {
   const { t } = useI18n();
   const api = provider === "codebuddy" ? window.codeBuddyVersionApi : window.codexVersionApi;
+  const target = `${provider}:${sessionId}`;
+  const currentTarget = useRef(target);
+  currentTarget.current = target;
   const label = (key: "title" | "update" | "confirmTitle" | "confirm" | "updating") =>
     t(provider === "codebuddy" ? `codeBuddyVersion.${key}` : `codexVersion.${key}`);
   const [state, setState] = useState<CodexVersionState | null>(null);
   const [checking, setChecking] = useState(true);
-  const [updating, setUpdating] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -23,21 +25,42 @@ export function CodexVersionControl({ sessionId, provider = "codex" }: { session
       .finally(() => { if (active) setChecking(false); });
     return () => { active = false; };
   }, [sessionId, provider]);
+  useEffect(() => {
+    if (state?.status !== "updating") return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const value = await api.check(sessionId);
+        if (active) setState(value);
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        if (active) timer = setTimeout(() => void refresh(), 1000);
+      }
+    }
+    timer = setTimeout(() => void refresh(), 1000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [sessionId, provider, state?.status]);
   async function check() {
+    const requestedTarget = target;
     setChecking(true);
     setError("");
-    try { setState(await api.check(sessionId, true)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setChecking(false); }
+    try { const value = await api.check(sessionId, true); if (currentTarget.current === requestedTarget) setState(value); }
+    catch (cause) { if (currentTarget.current === requestedTarget) setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { if (currentTarget.current === requestedTarget) setChecking(false); }
   }
   async function update() {
+    const requestedTarget = target;
     setConfirming(false);
-    setUpdating(true);
+    setState(current => current ? { ...current, status: "updating", progress: { stage: "checking", output: "" } } : current);
     setError("");
-    try { setState(await api.update(sessionId)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setUpdating(false); }
+    try { const value = await api.update(sessionId); if (currentTarget.current === requestedTarget) setState(value); }
+    catch (cause) {
+      if (currentTarget.current === requestedTarget) setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
+  const updating = state?.status === "updating";
   const available = state?.status === "available";
   return <div className="codex-version-control" role="group" aria-label={label("title")}>
     <strong className="codex-version-title">{label("title")}</strong>
@@ -49,7 +72,7 @@ export function CodexVersionControl({ sessionId, provider = "codex" }: { session
       {state?.restartRequired && <span>{t("codexVersion.restart")}</span>}
       {state?.guidance && available && <span>{t("codexVersion.manual")}</span>}
       {state?.error && <span role="alert">{state.error}</span>}
-      {error && <span role="alert">{error}</span>}
+      {error && error !== state?.error && <span role="alert">{error}</span>}
     </div>
     <div className="codex-version-actions">
       <button type="button" disabled={checking || updating} onClick={() => void check()}>{t("codexVersion.check")}</button>
@@ -62,5 +85,9 @@ export function CodexVersionControl({ sessionId, provider = "codex" }: { session
       <button type="button" disabled={updating} onClick={() => void update()}>{t("codexVersion.confirmUpdate")}</button>
     </div>}
     {updating && <span role="status">{label("updating")}</span>}
+    {state?.progress && <div className="codex-version-progress">
+      <span>{t(`codexVersion.progress.${state.progress.stage}`)}</span>
+      {state.progress.output && <pre aria-label={t("codexVersion.progress.output")}>{state.progress.output}</pre>}
+    </div>}
   </div>;
 }

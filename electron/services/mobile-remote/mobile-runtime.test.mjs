@@ -254,17 +254,22 @@ describe("mobile component collaboration", () => {
 it("assembles mobile resources, forwards terminal events and stops repeatedly without leaking timers", async () => {
   vi.useFakeTimers();
   const f = fixture();
-  const server = Object.assign(new EventEmitter(), {
-    listening: false,
-    listen: vi.fn(() => { server.listening = true; server.emit("listening"); }),
-    close: vi.fn(callback => { server.listening = false; callback(); return server; })
-  });
+  const createServer = () => {
+    const instance = Object.assign(new EventEmitter(), {
+      listening: false,
+      listen: vi.fn(() => { instance.listening = true; instance.emit("listening"); }),
+      close: vi.fn(callback => { instance.listening = false; callback(); return instance; })
+    });
+    return instance;
+  };
+  const server = createServer();
+  const localServer = createServer();
   const client = socket();
   const wss = { clients: new Set([client]), close: vi.fn(), handleUpgrade: vi.fn((_request, _socket, _head, callback) => callback(client)) };
   const advertisement = { stop: vi.fn() };
   const discovery = { publish: vi.fn(() => advertisement), destroy: vi.fn() };
   const broadcast = vi.fn();
-  const createHttpServer = vi.fn(() => server);
+  const createHttpServer = vi.fn().mockReturnValueOnce(server).mockReturnValueOnce(localServer);
   const service = createMobileRemoteService({
     terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
     agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
@@ -275,8 +280,13 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   });
   await service.start();
   await service.start();
-  expect(createHttpServer).toHaveBeenCalledTimes(1);
+  expect(createHttpServer).toHaveBeenCalledTimes(2);
+  expect(server.listen).toHaveBeenCalledWith(43123, "192.168.1.1");
+  expect(localServer.listen).toHaveBeenCalledWith(43123, "127.0.0.1");
+  expect(service.getState().localUrl).toBe("http://127.0.0.1:43123");
   server.emit("upgrade", { url: "/api/v1/ws", headers: { host: "192.168.1.1:43123" }, socket: { remoteAddress: "192.168.1.2" } }, {}, Buffer.alloc(0));
+  localServer.emit("upgrade", { url: "/api/v1/ws", headers: { host: "127.0.0.1:43123", origin: "http://127.0.0.1:43123" }, socket: { remoteAddress: "127.0.0.1" } }, {}, Buffer.alloc(0));
+  expect(wss.handleUpgrade).toHaveBeenCalledTimes(2);
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "password.login", password: "correct-password", deviceName: "Phone" }));
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "output" });
@@ -298,9 +308,39 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   await service.stop();
   await service.stop();
   expect(server.close).toHaveBeenCalledTimes(1);
+  expect(localServer.close).toHaveBeenCalledTimes(1);
   expect(wss.close).toHaveBeenCalledTimes(1);
   expect(advertisement.stop).toHaveBeenCalledTimes(1);
   expect(discovery.destroy).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
   expect(service.getState()).toMatchObject({ running: false, activeConnections: [] });
+  expect(service.getState().localUrl).toBe("");
+});
+
+it("closes the LAN listener if the local port cannot be bound", async () => {
+  const f = fixture();
+  const server = Object.assign(new EventEmitter(), {
+    listening: false,
+    listen: vi.fn(() => { server.listening = true; server.emit("listening"); }),
+    close: vi.fn(callback => { server.listening = false; callback(); })
+  });
+  const localServer = Object.assign(new EventEmitter(), {
+    listening: false,
+    listen: vi.fn(() => { const error = new Error("in use"); error.code = "EADDRINUSE"; localServer.emit("error", error); }),
+    close: vi.fn()
+  });
+  const wss = { clients: new Set(), close: vi.fn() };
+  const service = createMobileRemoteService({
+    terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
+    agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
+    getStaticRoot: () => ".", desktopBroadcast: vi.fn(), notifyConnection: f.notifyConnection,
+    networkInterfaces: () => ({ LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] }),
+    createHttpServer: vi.fn().mockReturnValueOnce(server).mockReturnValueOnce(localServer),
+    createWebSocketServer: () => wss, createDiscovery: vi.fn()
+  });
+  await expect(service.start()).rejects.toThrow("端口 43123 已被占用");
+  expect(server.close).toHaveBeenCalledTimes(1);
+  expect(localServer.close).not.toHaveBeenCalled();
+  expect(wss.close).toHaveBeenCalledTimes(1);
+  expect(service.getState()).toMatchObject({ running: false, localUrl: "" });
 });
