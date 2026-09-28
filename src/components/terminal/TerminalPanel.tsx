@@ -4,12 +4,6 @@ import { Activity, ChevronDown, ChevronUp } from "lucide-react";
 import type { RemoteAgentAuditEvent, TerminalSession } from "../../vite-env";
 import { useI18n } from "../../i18n";
 
-type TerminalBackgroundConfig = {
-  imageUrl: string;
-  opacity: number;
-  blur: number;
-};
-
 type TerminalPanelProps = {
   sessions: TerminalSession[];
   activeId?: string;
@@ -19,7 +13,6 @@ type TerminalPanelProps = {
   onWheel: (event: WheelEvent<HTMLDivElement>) => void;
   sizeOwner: string;
   onClaimSize: () => void;
-  terminalBackground?: TerminalBackgroundConfig;
 };
 
 export function TerminalPanel({
@@ -30,8 +23,7 @@ export function TerminalPanel({
   onContextMenu,
   onWheel,
   sizeOwner,
-  onClaimSize,
-  terminalBackground
+  onClaimSize
 }: TerminalPanelProps) {
   const { t } = useI18n();
   const activeSession = sessions.find((session) => session.id === activeId);
@@ -80,23 +72,7 @@ export function TerminalPanel({
           {sizeOwner === "desktop" ? "PC 尺寸" : "适配本机"}
         </button>
       )}
-      <div
-        className={`terminal-hosts-container${terminalBackground ? " has-bg" : ""}`}
-        onContextMenu={onContextMenu}
-        onWheel={onWheel}
-      >
-        {terminalBackground && (
-          <div
-            className="terminal-bg-layer"
-            aria-hidden="true"
-            style={{
-              backgroundImage: `url("${terminalBackground.imageUrl}")`,
-              opacity: terminalBackground.opacity / 100,
-              filter: terminalBackground.blur > 0 ? `blur(${terminalBackground.blur}px)` : undefined,
-              inset: -terminalBackground.blur
-            }}
-          />
-        )}
+      <div className="terminal-hosts-container" onContextMenu={onContextMenu} onWheel={onWheel}>
         {sessions.filter((session) => session.runtimeMode !== "app-server").map((session) => (
           <div
             key={session.id}

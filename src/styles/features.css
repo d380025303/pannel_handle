@@ -462,6 +462,16 @@
   z-index: 0;
 }
 
+.terminal-area.has-bg > :not(.terminal-bg-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+.terminal-area.has-bg .terminal-panel,
+.terminal-area.has-bg .codex-app-server-session {
+  background: transparent;
+}
+
 .terminal-host .xterm {
   width: 100%;
   height: 100%;
@@ -472,7 +482,7 @@
   scrollbar-width: none;
 }
 
-.terminal-hosts-container.has-bg .terminal-host .xterm .xterm-viewport {
+.terminal-area.has-bg .terminal-host .xterm .xterm-viewport {
   background-color: transparent;
 }
 

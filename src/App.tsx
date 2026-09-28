@@ -190,7 +190,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
   const terminalTheme = useMemo(() => (
     terminalBackgroundImage
-      ? { ...activeTheme.terminal, background: "transparent" }
+      ? { ...activeTheme.terminal, background: "#00000000" }
       : activeTheme.terminal
   ), [activeTheme, terminalBackgroundImage]);
   const terminalBackground = useMemo(() => {
@@ -863,7 +863,22 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
               )}
             </div>
             <div className="workspace-content">
-              <div className="terminal-area" style={{ display: workspaceTab === "terminal" ? undefined : "none" }}>
+              <div
+                className={`terminal-area${terminalBackground ? " has-bg" : ""}`}
+                style={{ display: workspaceTab === "terminal" ? undefined : "none" }}
+              >
+                {terminalBackground && (
+                  <div
+                    className="terminal-bg-layer"
+                    aria-hidden="true"
+                    style={{
+                      backgroundImage: `url("${terminalBackground.imageUrl}")`,
+                      opacity: terminalBackground.opacity / 100,
+                      filter: terminalBackground.blur > 0 ? `blur(${terminalBackground.blur}px)` : undefined,
+                      inset: -terminalBackground.blur
+                    }}
+                  />
+                )}
                 <TerminalPanel
                   sessions={terminalSessions.sessions}
                   activeId={activeTerminalId}
@@ -873,7 +888,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onWheel={terminalInstances.handleTerminalWheel}
                   sizeOwner={terminalInstances.activeSizeOwner}
                   onClaimSize={terminalInstances.claimActiveSize}
-                  terminalBackground={terminalBackground}
                 />
                 {isAppServerSession && terminalSessions.activeSession && <CodexAppServerSession
                   ref={appServerSessionRef}
