@@ -19,15 +19,19 @@ function fixture(viewSession = session) {
     { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
   const listeners = new Set<(message: GraphicalMessage) => void>();
   const subscribe = (callback: (message: GraphicalMessage) => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
+  let changeEpoch: (value: number) => void = () => {};
   function TestView() {
     const [draft, setDraft] = useState("");
-    return <GraphicalView session={viewSession} send={send}
+    const [epoch, setEpoch] = useState(1);
+    changeEpoch = setEpoch;
+    return <GraphicalView session={viewSession} connectionEpoch={epoch} send={send}
       onGraphicalMessage={subscribe}
       draft={draft} setDraft={setDraft} submissionPending={false} onSubmitRequest={() => {}} />;
   }
   render(<TestView />);
   const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
-  return { send, emit };
+  const reconnect = () => act(() => changeEpoch(2));
+  return { send, emit, reconnect };
 }
 
 function openSheet(name: string) {
@@ -36,7 +40,7 @@ function openSheet(name: string) {
   return screen.getByRole("dialog", { name });
 }
 
-function modeButton(name: "Plan" | "Exec") {
+function modeButton(name: "Plan" | "Exec" | "Full Access") {
   if (!screen.queryByRole("dialog", { name: "更多操作" })) fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
   return within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name });
 }
@@ -49,6 +53,41 @@ it("subscribes to the selected graphical session and sends text with its thread 
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
   fireEvent.click(screen.getByText("发送"));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
+});
+
+it("resubscribes after reconnect without losing the draft", () => {
+  const { send, emit, reconnect } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "未发送的草稿" } });
+  reconnect();
+  expect(send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(2);
+  expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("未发送的草稿");
+});
+
+it("offers CodeBuddy Plan and Full Access and lets a pending plan return for revision", () => {
+  const { send, emit } = fixture({ ...session, agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", mode: "default", executionPermission: "askApproval", nativeMode: "default",
+    nativeModes: [{ id: "default", name: "Standard" }, { id: "plan", name: "Plan" },
+      { id: "bypassPermissions", name: "Full Access" }]
+  } });
+  fireEvent.click(modeButton("Plan"));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "plan" }));
+  const planRequest = send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")!;
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: planRequest.requestId });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan", executionPermission: "askApproval",
+    nativeModes: [{ id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }]
+  } });
+  fireEvent.click(modeButton("Full Access"));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.mode", mode: "default" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", mode: "plan", nativeMode: "plan", busy: true,
+    nativeModes: [{ id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }],
+    pendingPlan: { itemId: "plan-1" }, items: [{ id: "plan-1", type: "plan", text: "# 实施计划" }]
+  } });
+  fireEvent.click(screen.getByRole("button", { name: "继续修改" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.plan", itemId: "plan-1", execute: false }));
 });
 
 it("uses saved graphical quick commands and preserves one-time commands on failure", () => {

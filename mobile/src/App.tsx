@@ -21,7 +21,7 @@ function kindLabel(type: RuntimeSession["type"]) {
 }
 function modeLabel(session: { runtimeMode: string; agentProvider?: string }) {
   if (session.runtimeMode !== "app-server") return "终端";
-  return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : "Codex"} 图形`;
+  return `${session.agentProvider === "codebuddy" ? "CodeBuddy" : session.agentProvider === "opencode" ? "OpenCode" : session.agentProvider === "claude" ? "Claude" : "Codex"} 图形`;
 }
 
 function matchesTemplateSearch(template: SavedTemplate, searchQuery: string) {
@@ -44,6 +44,7 @@ export default function App() {
   const [pasteDrafts, setPasteDrafts] = useState<Record<string, string>>({});
   const [pasteOpenBySession, setPasteOpenBySession] = useState<Record<string, boolean>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, string>>({});
+  const [recoveryNotice, setRecoveryNotice] = useState("");
   const pendingSubmissions = useRef(new Map<string, { sessionId: string; version: number }>());
   const activeSession = useMemo(
     () => remote.sessions.find((session) => session.id === activeId) ?? null,
@@ -125,6 +126,13 @@ export default function App() {
     }
   }, [remote.sessions, remote.status]);
 
+  useEffect(() => {
+    if (remote.status === "connected" || pendingSubmissions.current.size === 0) return;
+    pendingSubmissions.current.clear();
+    setPendingBySession({});
+    setRecoveryNotice("连接中断，发送结果未确认；请核对会话内容后再重试。草稿已保留。");
+  }, [remote.status]);
+
   const trackGraphicalSubmit = (sessionId: string, requestId: string) => {
     pendingSubmissions.current.set(requestId, { sessionId, version: graphicalDrafts[sessionId]?.version ?? 0 });
     setPendingBySession(current => ({ ...current, [sessionId]: requestId }));
@@ -155,7 +163,7 @@ export default function App() {
     remote.send({ v: PROTOCOL_VERSION, type: "session.close", sessionId: session.id, requestId: createRequestId() });
   };
 
-  if (remote.status !== "connected") {
+  if (remote.status !== "connected" && !remote.device) {
     return (
       <main className="connection-page">
         <div className="brand-mark">PH</div>
@@ -183,9 +191,10 @@ export default function App() {
       </header>
       {remote.commandError && <div className="command-error" role="alert">{remote.commandError}</div>}
       {remote.storageWarning && <div className="command-error" role="alert">{remote.storageWarning}</div>}
+      {recoveryNotice && <div className="command-error" role="alert">{recoveryNotice}<button type="button" onClick={() => setRecoveryNotice("")}>关闭</button></div>}
 
-      {filesOpen ? <ComputerFiles send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} /> : activeSession?.runtimeMode === "app-server" ? (
-        <GraphicalView key={activeSession.id} session={activeSession} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
+      {filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} /> : activeSession?.runtimeMode === "app-server" ? (
+        <GraphicalView key={activeSession.id} session={activeSession} connectionEpoch={remote.connectionEpoch} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
           draft={graphicalDrafts[activeSession.id]?.text ?? ""}
           setDraft={update => updateGraphicalDraft(activeSession.id, update)}
           submissionPending={Boolean(pendingBySession[activeSession.id])}
@@ -195,6 +204,7 @@ export default function App() {
           key={activeSession.id}
           session={activeSession}
           deviceId={remote.device?.deviceId}
+          connectionEpoch={remote.connectionEpoch}
           send={remote.send}
           onTerminalMessage={remote.onTerminalMessage}
           pasteText={pasteDrafts[activeSession.id] ?? ""}
@@ -244,6 +254,10 @@ export default function App() {
           </aside>
         </div>
       )}
+      {remote.status !== "connected" && <div className="connection-overlay" role="status">
+        <div><strong>正在恢复连接</strong><p>{remote.statusMessage}</p>
+          <button className="primary large" type="button" onClick={remote.retry}>立即重试</button></div>
+      </div>}
     </main>
   );
 }

@@ -1,14 +1,14 @@
 function createAcpProviderPolicy(provider) {
   const codeBuddy = provider === "codebuddy";
-  const agentName = codeBuddy ? "CodeBuddy" : "OpenCode";
+  const agentName = codeBuddy ? "CodeBuddy" : provider === "claude" ? "Claude" : "OpenCode";
 
   function updateCapabilities(entry) {
     entry.capabilities.plan = entry.modes.some(mode => /plan/i.test(mode.id));
     entry.capabilities.multitask = codeBuddy && entry.multitaskSupport === true;
-    entry.capabilities.supportedPermissions = codeBuddy ? [
+    entry.capabilities.supportedPermissions = provider === "claude" ? [] : codeBuddy ? [
       ...(entry.modes.some(mode => mode.id === "plan") ? ["readOnly"] : []),
       ...(entry.modes.some(mode => mode.id === "default") ? ["askApproval"] : []),
-      ...(entry.modes.some(mode => mode.id === "bypassPermissions") ? ["fullAccess"] : [])
+      ...(entry.modes.some(mode => mode.id === "bypassPermissions" || mode.id === "fullAccess") ? ["fullAccess"] : [])
     ] : [];
   }
 

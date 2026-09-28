@@ -73,7 +73,7 @@ function createMobileAuth({ accessStore, now, sendError, sendReady, releaseDevic
 
   function handleSocketClosed(socket) {
     const client = [...clients.values()].find((item) => item.socket === socket);
-    if (client) releaseClient(client, "socket-closed");
+    if (client) releaseClient(client, socket.mobileCloseReason || "socket-closed");
   }
 
   return { getClients: () => [...clients.values()], handlePasswordLogin,

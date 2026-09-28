@@ -19,7 +19,7 @@ export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }
         setError(`请回答「${entry.header || entry.question}」。`);
         return;
       }
-      answers[entry.id] = { answers: provider === "codebuddy"
+      answers[entry.id] = { answers: provider === "codebuddy" || provider === "claude"
         ? [...(entry.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
         : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
@@ -37,18 +37,18 @@ export function GraphicalQuestionCard({ question, provider, onAnswer, onCancel }
         {option.label}{option.description ? ` · ${option.description}` : ""}
       </label>) : entry.options?.length ? <select aria-label={entry.question} value={choices[entry.id]?.[0] || ""} onChange={event => {
         setChoices(current => ({ ...current, [entry.id]: event.target.value ? [event.target.value] : [] }));
-        if (provider === "codebuddy") setNotes(current => ({ ...current, [entry.id]: "" }));
+        if (provider !== "codex") setNotes(current => ({ ...current, [entry.id]: "" }));
       }}>
         <option value="">请选择</option>
         {entry.options.map(option => <option key={option.label} value={option.label}>{option.label}{option.description ? ` · ${option.description}` : ""}</option>)}
       </select> : null}
-      <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
+      {(provider !== "claude" || entry.isOther) && <input type={entry.isSecret ? "password" : "text"} aria-label={`${entry.question}的自定义回答`} value={notes[entry.id] || ""} placeholder={entry.options?.length ? "补充说明或自定义回答" : "回答"}
         onChange={event => { setNotes(current => ({ ...current, [entry.id]: event.target.value }));
-          if (provider === "codebuddy" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />
+          if (provider !== "codex" && !entry.multiSelect) setChoices(current => ({ ...current, [entry.id]: [] })); }} />}
     </div>)}
     {error && <p role="alert">{error}</p>}
     <button type="button" className="primary" disabled={question.submitting} onClick={submit}>提交回答</button>
-    {provider === "codebuddy" && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}>取消提问</button>}
+    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={question.submitting} onClick={() => onCancel(question.requestId)}>取消提问</button>}
   </article>;
 }
 

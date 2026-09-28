@@ -4,7 +4,8 @@ import { PROTOCOL_VERSION, type ClientMessage, type ComputerFileEntry, type Serv
 
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
-export function ComputerFiles({ send, onFileMessage, onClose }: {
+export function ComputerFiles({ connectionEpoch, send, onFileMessage, onClose }: {
+  connectionEpoch: number;
   send: (message: ClientMessage) => boolean;
   onFileMessage: (listener: (message: FileMessage) => void) => () => void;
   onClose: () => void;
@@ -47,10 +48,12 @@ export function ComputerFiles({ send, onFileMessage, onClose }: {
   }, [onFileMessage]);
 
   useEffect(() => {
+    if (!connectionEpoch) return;
     const requestId = createRequestId();
     pending.current.clear();
     pending.current.set(requestId, { kind: "list" });
     setBusy(true);
+    setDownloading(null);
     setError("");
     setNotice("");
     setEntries([]);
@@ -59,7 +62,7 @@ export function ComputerFiles({ send, onFileMessage, onClose }: {
       setBusy(false);
       setError("连接已断开，请重新连接后再试。");
     }
-  }, [path, refreshKey, send]);
+  }, [connectionEpoch, path, refreshKey, send]);
 
   const download = (entry: ComputerFileEntry) => {
     const requestId = createRequestId();

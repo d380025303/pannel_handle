@@ -14,7 +14,7 @@ afterEach(() => { cleanup(); listeners.clear(); send.mockClear(); vi.restoreAllM
 
 it("browses drives and folders, then starts a single browser download", () => {
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
-  render(<ComputerFiles send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
+  render(<ComputerFiles connectionEpoch={1} send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
   const rootRequest = requests()[0];
   expect(rootRequest).toMatchObject({ type: "files.list", path: null });
   emit({ v: PROTOCOL_VERSION, type: "files.list.result", requestId: rootRequest.requestId, path: null,
@@ -34,9 +34,18 @@ it("browses drives and folders, then starts a single browser download", () => {
 });
 
 it("shows a retryable directory error", () => {
-  render(<ComputerFiles send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
+  render(<ComputerFiles connectionEpoch={1} send={send} onFileMessage={onFileMessage} onClose={() => undefined} />);
   emit({ v: PROTOCOL_VERSION, type: "error", code: "FILE_COMMAND_FAILED", message: "没有权限", requestId: requests()[0].requestId });
   expect(screen.getByRole("alert").textContent).toBe("没有权限");
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
   expect(requests()).toHaveLength(2);
+});
+
+it("refreshes the current folder after reconnect", () => {
+  const props = { send, onFileMessage, onClose: () => undefined };
+  const page = render(<ComputerFiles {...props} connectionEpoch={1} />);
+  expect(requests()).toHaveLength(1);
+  page.rerender(<ComputerFiles {...props} connectionEpoch={2} />);
+  expect(requests()).toHaveLength(2);
+  expect(requests()[1]).toMatchObject({ type: "files.list", path: null });
 });

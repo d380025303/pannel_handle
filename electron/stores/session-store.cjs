@@ -3,7 +3,7 @@ const { readJson, writeJson } = require("./business-store-io.cjs");
 const os = require("node:os");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
-const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
+const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode", "claude"]);
 const CODEX_EXECUTION_PERMISSIONS = new Set(["readOnly", "askApproval", "fullAccess"]);
 const { sanitizeSshConfig } = require("../ssh/ssh-config-utils.cjs");
 
@@ -119,7 +119,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       : { key: "name", direction: "asc" };
     const agentProvider = AGENT_PROVIDERS.has(template.agentProvider) ? template.agentProvider : undefined;
     const agentLocation = template.type === "ssh" && agentProvider
-      ? (template.agentLocation === "local" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider) ? "local" : "remote")
+      ? (template.agentLocation === "local" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider)
+        && (agentProvider !== "claude" || template.graphicalSessionEnabled === true) ? "local" : "remote")
       : undefined;
     const localAgentCwd = template.type === "ssh" && LOCAL_BRIDGE_PROVIDERS.has(agentProvider) && agentLocation === "local" && typeof template.localAgentCwd === "string"
       ? template.localAgentCwd.trim() || undefined
@@ -138,6 +139,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       : agentProvider === "codex" ? template.codexAppServerEnabled !== false
       : agentProvider === "codebuddy" ? template.codeBuddyAcpEnabled === true
       : agentProvider === "opencode" ? template.openCodeAcpEnabled === true
+      : agentProvider === "claude" ? false
       : true;
     const codexAppServerModel = codexBackend === "openai" && typeof template.codexAppServerModel === "string"
       ? template.codexAppServerModel.trim() || undefined : undefined;

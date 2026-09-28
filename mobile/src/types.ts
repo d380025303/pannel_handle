@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = 7 as const;
 export type RuntimeMode = "terminal" | "app-server";
-export type AgentProvider = "codex" | "codebuddy" | "opencode";
+export type AgentProvider = "codex" | "codebuddy" | "opencode" | "claude";
 
 export type TerminalKind = "windows" | "wsl" | "ssh";
 export type QuickCommand = { id: string; command: string; mode?: "write" | "auto-enter" | "one-time"; pinned?: boolean };

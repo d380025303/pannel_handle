@@ -7,6 +7,8 @@ function availableModelIds(snapshot) {
 function nativeModeFor(snapshot, mode) {
   const modes = snapshot.nativeModes || [];
   if (mode === "plan") return modes.find(value => /plan/i.test(value.id));
+  if (snapshot.provider === "codebuddy")
+    return modes.find(value => value.id === "bypassPermissions" || value.id === "fullAccess");
   const choices = ["default", "normal", "code", "ask", "build", "acceptEdits"];
   return choices.map(id => modes.find(value => value.id.toLowerCase() === id.toLowerCase())).find(Boolean);
 }

@@ -1,13 +1,15 @@
 import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
 
 export function providerLabel(provider?: string) {
-  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : "Codex";
+  return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : "Codex";
 }
 
 const execModeIds = ["default", "normal", "code", "ask", "build", "acceptEdits"];
 export function canSwitchMode(snapshot: GraphicalSnapshot, mode: "default" | "plan") {
   if (snapshot.provider === "codex") return mode === "default" || snapshot.capabilities?.plan !== false;
   const modes = snapshot.nativeModes || [];
+  if (snapshot.provider === "codebuddy" && mode === "default")
+    return modes.some(value => value.id === "bypassPermissions" || value.id === "fullAccess");
   return mode === "plan" ? modes.some(value => /plan/i.test(value.id))
     : modes.some(value => execModeIds.some(id => id.toLowerCase() === value.id.toLowerCase()));
 }

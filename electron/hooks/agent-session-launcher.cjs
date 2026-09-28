@@ -16,7 +16,8 @@ const AGENT_COMMANDS = Object.freeze({
 const MIN_GEMINI_VERSION = "0.26.0";
 const MIN_GROK_VERSION = "0.2.106";
 const MIN_CODEBUDDY_BRIDGE_VERSION = "2.54.0";
-const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode"]);
+const MIN_OPENCODE_VERSION = "2.0.0";
+const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode", "claude"]);
 const OPENCODE_REMOTE_AGENT = "pannel-handle-remote";
 const OPENCODE_CONFIG_ENV = "OPENCODE_CONFIG_CONTENT";
 const CODEBUDDY_REMOTE_INSTRUCTIONS_ENV = "PANNEL_HANDLE_REMOTE_AGENT_INSTRUCTIONS";
@@ -37,6 +38,9 @@ function getAgentCommand(provider) {
 }
 
 function getAgentInstallHint(provider) {
+  if (provider === "opencode") {
+    return " 请安装 OpenCode V2（Windows 使用官方独立版，WSL/SSH 可运行 npm install -g @opencode/cli），并确认当前环境中的 opencode 命令指向 V2。";
+  }
   if (provider === "copilot") {
     return " 请先安装 GitHub Copilot CLI：Windows 可运行 winget install GitHub.Copilot，WSL 可运行 npm install -g @github/copilot。";
   }
@@ -67,6 +71,16 @@ function compareVersions(left, right) {
     if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) - (b[index] || 0);
   }
   return 0;
+}
+
+function assertOpenCodeVersion(result) {
+  if (result.error || result.status !== 0) throw new Error(`无法读取 OpenCode CLI 版本。${getAgentInstallHint("opencode")}`);
+  const match = String(result.stdout || result.stderr || "").match(/\b(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\b/);
+  if (!match) throw new Error(`无法识别 OpenCode CLI 版本。${getAgentInstallHint("opencode")}`);
+  if (compareVersions(match[1], MIN_OPENCODE_VERSION) < 0) {
+    throw new Error(`OpenCode V1 不再支持（当前 ${match[1]}）。${getAgentInstallHint("opencode")}`);
+  }
+  return match[1];
 }
 
 function readGeminiVersion(session, spawnSync) {
@@ -111,6 +125,7 @@ function buildAgentStartCommand(session, runtime = {}) {
   const command = getAgentCommand(session.agentProvider);
   const preCommand = String(session.initialCommand || "").trim();
   let agentCommand = command;
+  if (session.agentProvider === "opencode") agentCommand = `${command} --standalone`;
   if (session.agentProvider === "codebuddy") {
     const shell = session.type === "windows" ? isPowerShell(session.shell) ? "powershell" : "cmd" : "bash";
     const inheritedArgs = codeBuddyInheritanceArgs(runtime.inheritance, shell);
@@ -129,7 +144,7 @@ function buildAgentStartCommand(session, runtime = {}) {
     if (!runtime.hookUrl || !runtime.sessionId) {
       throw new Error("OpenCode SSH notification environment is unavailable.");
     }
-    agentCommand = `PANNEL_HANDLE_HOOK_URL=${shellQuote(runtime.hookUrl)} PANNEL_HANDLE_SESSION_ID=${shellQuote(runtime.sessionId)} ${command}`;
+    agentCommand = `PANNEL_HANDLE_HOOK_URL=${shellQuote(runtime.hookUrl)} PANNEL_HANDLE_SESSION_ID=${shellQuote(runtime.sessionId)} ${agentCommand}`;
   }
 
   if (session.type === "ssh" && session.agentProvider === "codex" && runtime.hookUrl && runtime.sessionId) {
@@ -216,27 +231,26 @@ function buildLocalOpenCodeConfig(binding) {
   const agent = {
     mode: "primary",
     description: "Operate the scoped SSH workspace through Pannel Handle.",
-    permission: {
-      edit: "deny",
-      bash: "deny",
-      task: "deny",
-      "pannel_handle_remote_*": "allow"
-    }
+    permissions: [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "pannel_handle_remote_*", resource: "*", effect: "allow" }
+    ]
   };
-  if (binding.developerInstructions) agent.prompt = binding.developerInstructions;
+  if (binding.developerInstructions) agent.system = binding.developerInstructions;
   return JSON.stringify({
+    default_agent: OPENCODE_REMOTE_AGENT,
     mcp: {
-      pannel_handle_remote: {
+      servers: { pannel_handle_remote: {
         type: "remote",
         url: binding.url,
-        enabled: true,
+        codemode: false,
         oauth: false,
         headers: {
           Authorization: `Bearer {env:${binding.tokenEnv}}`
         }
-      }
+      } }
     },
-    agent: {
+    agents: {
       [OPENCODE_REMOTE_AGENT]: agent
     }
   });
@@ -245,10 +259,8 @@ function buildLocalOpenCodeConfig(binding) {
 function buildLocalOpenCodeStartCommand(binding) {
   const powerShellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
   return [
-    "opencode",
-    powerShellQuote(binding.workspacePath),
-    "--agent",
-    OPENCODE_REMOTE_AGENT
+    "opencode --standalone",
+    powerShellQuote(binding.workspacePath)
   ].join(" ");
 }
 
@@ -314,7 +326,7 @@ function createAgentSessionLauncher({
 }) {
   const switchingSessions = new Map();
   const useAppServer = session => Boolean(codexAppServerSessionService)
-    && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode")
+    && (session.agentProvider === "codex" || session.agentProvider === "codebuddy" || session.agentProvider === "opencode" || session.agentProvider === "claude")
     && session.graphicalSessionEnabled !== false;
   function resolveDefaultWorkingDirectory(session) {
     if (session.type !== "windows" || String(session.cwd || "").trim()) return session;
@@ -343,11 +355,14 @@ function createAgentSessionLauncher({
       throw new Error("选择 Agent CLI 时必须填写明确的项目工作目录。");
     }
     const localSshBridge = session.type === "ssh" && session.agentLocation === "local";
+    if (localSshBridge && session.agentProvider === "claude" && !useAppServer(session)) {
+      throw new Error("Local SSH bridge 中 Claude 仅支持图形会话。请开启图形会话模式，或改用 SSH 远端运行。");
+    }
     if ((session.type === "wsl" || (session.type === "ssh" && !localSshBridge)) && !cwd.startsWith("/")) {
       throw new Error("WSL/SSH Agent 项目目录必须是绝对 Linux 路径。");
     }
     if (session.type === "ssh" && session.agentLocation === "local" && !LOCAL_BRIDGE_PROVIDERS.has(session.agentProvider)) {
-      throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy 和 OpenCode。");
+      throw new Error("SSH 本地桥接仅支持 Codex、CodeBuddy、OpenCode 和 Claude。");
     }
     if (session.type === "ssh" && session.agentProvider === "codex" && (session.codexBackend === "openrouter" || session.codexBackend === "nararouter" || session.codexBackend === "minimax" || session.codexBackend === "codebuddy")) {
       const backendName = session.codexBackend === "codebuddy" ? "CodeBuddy" : session.codexBackend === "nararouter" ? "NaraRouter" : session.codexBackend === "minimax" ? "MiniMax" : "OpenRouter";
@@ -357,6 +372,18 @@ function createAgentSessionLauncher({
 
   function assertLocalCommand(session) {
     const command = getAgentCommand(session.agentProvider);
+    if (session.agentProvider === "claude" && useAppServer(session)) {
+      const adapter = "claude-agent-acp";
+      const options = { encoding: "utf-8", windowsHide: true, timeout: 30000 };
+      const result = session.type === "wsl"
+        ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
+          "for name in claude-agent-acp claude; do resolved=$(command -v \"$name\") || exit 127; case \"$resolved\" in /mnt/*) exit 126;; esac; target=$(readlink -f \"$resolved\") || exit 127; case \"$target\" in /mnt/*) exit 126;; esac; done"], options)
+        : spawnSync("where.exe", [adapter], options);
+      const claudeResult = session.type === "wsl" ? { status: 0 } : spawnSync("where.exe", [command], options);
+      if (result.error || result.status !== 0 || claudeResult.error || claudeResult.status !== 0)
+        throw new Error(`未找到当前环境的 Claude ACP 适配器或 Claude CLI。请在${session.type === "wsl" ? ` WSL ${session.wslDistro}` : " Windows"} 环境安装 @agentclientprotocol/claude-agent-acp，并配置可用的 Claude 凭据。`);
+      return;
+    }
     if (session.type === "wsl" && useAppServer(session)) {
       const agentCommand = session.agentProvider === "codebuddy" ? "codebuddy" : session.agentProvider === "opencode" ? "opencode" : "codex";
       const result = spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic",
@@ -367,6 +394,8 @@ function createAgentSessionLauncher({
       if (result.status === 126) throw new Error(`WSL ${session.wslDistro} 中的 ${agentCommand} 指向 Windows 安装；请在该发行版中安装 Linux ${session.agentProvider === "codex" ? "Codex" : session.agentProvider === "opencode" ? "OpenCode" : "CodeBuddy"} CLI。`);
       if (result.status === 127) throw new Error(`未在 WSL ${session.wslDistro} 的 Bash 登录环境中找到 ${agentCommand} 命令。${getAgentInstallHint(session.agentProvider)}`);
       if (result.status !== 0) throw new Error(`检测 WSL ${session.wslDistro} 中的 Codex 命令失败（退出代码 ${result.status ?? "未知"}）：${String(result.stderr || "").trim().slice(-1000)}`);
+      if (session.agentProvider === "opencode") assertOpenCodeVersion(spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic", "opencode --version"],
+        { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 }));
       return;
     }
     const result = session.type === "wsl"
@@ -377,6 +406,13 @@ function createAgentSessionLauncher({
     }
     if (session.agentProvider === "gemini") readGeminiVersion(session, spawnSync);
     if (session.agentProvider === "grok") readGrokVersion(session, spawnSync);
+    if (session.agentProvider === "opencode") {
+      const options = { encoding: "utf-8", windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 };
+      const result = session.type === "wsl"
+        ? spawnSync("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic", "opencode --version"], options)
+        : spawnSync("cmd.exe", ["/d", "/s", "/c", "opencode --version"], options);
+      assertOpenCodeVersion(result);
+    }
     if (session.agentProvider === "codebuddy" && session.agentLocation === "local") readCodeBuddyVersion(spawnSync);
     if (session.type === "windows" && session.agentProvider === "copilot") {
       const powerShell = spawnSync("where.exe", ["pwsh"], { encoding: "utf-8", windowsHide: true });
@@ -394,6 +430,12 @@ function createAgentSessionLauncher({
       });
     } catch {
       throw new Error(`未在远程 SSH 环境中找到命令：${command}。${getAgentInstallHint(session.agentProvider)}`);
+    }
+    if (session.agentProvider === "opencode") {
+      const output = await sshSessionRuntime.exec(sessionId, `bash -lic ${shellQuote("opencode --version")}`, {
+        actionName: "检测远程 OpenCode V2"
+      });
+      assertOpenCodeVersion({ status: 0, stdout: output });
     }
   }
 
@@ -480,7 +522,7 @@ function createAgentSessionLauncher({
   async function prepareLocal(session) {
     validateAgentSession(session);
     assertLocalCommand(session);
-    await ensureLocalHook(session);
+    if (!(session.agentProvider === "claude" && useAppServer(session))) await ensureLocalHook(session);
     const openRouter = await openRouterService?.getLaunchConfig(session);
     const naraRouter = await naraRouterService?.getLaunchConfig(session);
     const miniMax = await miniMaxService?.getLaunchConfig(session);
@@ -600,7 +642,7 @@ function createAgentSessionLauncher({
       binding = await remoteAgentBridgeService.createBinding(session.id);
       const preCommand = String(session.initialCommand || "").trim();
       if (preCommand) await remoteAgentBridgeService.runConfiguredCommand(session.id, preCommand);
-      await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
+      if (session.agentProvider !== "claude") await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions : undefined;
       const inheritance = session.agentProvider === "codebuddy" && codexInheritanceManager
@@ -612,6 +654,9 @@ function createAgentSessionLauncher({
         localBridge: true,
         workspaceCwd: binding.workspacePath,
         shell: getLocalBridgeShell(),
+        ...(session.agentProvider === "claude" ? { remoteBridge: {
+          url: binding.url, token: binding.token, instructions: binding.runtimeInstructions
+        } } : {}),
         codexCommand: session.agentProvider === "codex" ? buildLocalCodexAppServerCommand(binding) : undefined,
         acpArgs,
         inheritance: inheritance ? { ...inheritance, mcpFile: undefined } : undefined,
@@ -818,7 +863,7 @@ function createAgentSessionLauncher({
       }
       if (session.type === "ssh" && session.agentLocation === "local") {
         if (!LOCAL_BRIDGE_PROVIDERS.has(provider)) {
-          throw new Error("Local SSH bridge sessions can only switch between Codex, CodeBuddy, and OpenCode.");
+          throw new Error("Local SSH bridge sessions can only switch between Codex, CodeBuddy, OpenCode, and Claude.");
         }
         const target = createReplacementTemplate(session, provider);
         validateAgentSession(target);
@@ -837,6 +882,9 @@ function createAgentSessionLauncher({
       const target = createReplacementTemplate(session, provider);
       validateAgentSession(target);
       const runtime = target.type === "ssh" ? { runtimeInitialCommand: "" } : await prepareLocal(target);
+      if (target.type === "ssh" && target.agentProvider === "opencode" && target.agentLocation !== "local") {
+        await assertSshCommand(sessionId, target);
+      }
 
       terminalManager.closeSession(sessionId);
       const replacement = await launchPreparedLocal(options => terminalManager.launchSession(target, {

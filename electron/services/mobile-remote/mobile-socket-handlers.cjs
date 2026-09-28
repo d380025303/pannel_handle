@@ -168,15 +168,16 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
 
   function handleWebSocket(socket, request) {
     socket.authenticated = false;
-    socket.isAlive = true;
+    socket.lastAliveAt = now();
     socket.remoteAddress = request.socket.remoteAddress || "unknown";
     socket.subscriptions = new Set();
     socket.graphicalSessionId = null;
-    socket.on("pong", () => { socket.isAlive = true; });
-    socket.on("message", (raw) => handleSocketMessage(socket, raw));
-    socket.on("close", () => {
+    socket.on("pong", () => { socket.lastAliveAt = now(); });
+    socket.on("message", (raw) => { socket.lastAliveAt = now(); handleSocketMessage(socket, raw); });
+    socket.on("close", (code) => {
       uploads?.releaseSocket(socket);
       files?.releaseSocket(socket);
+      if (!socket.mobileCloseReason) socket.mobileCloseReason = Number.isInteger(code) ? `socket-close-${code}` : "socket-closed";
       auth.handleSocketClosed(socket);
     });
   }

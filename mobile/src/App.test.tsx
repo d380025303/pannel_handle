@@ -25,7 +25,7 @@ let remote: ReturnType<typeof useRemoteConnection>;
 beforeEach(() => {
   remote = {
     status: "connected", statusMessage: "已连接", sessions: [first, second], templates: [],
-    device: null, lastLaunchedId: null, commandError: "", storageWarning: "",
+    device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),
     onTerminalMessage: vi.fn(() => () => true), onGraphicalMessage: vi.fn(() => () => true), onFileMessage: vi.fn(() => () => true)
   };
@@ -52,6 +52,20 @@ it("restores the selected session after a page refresh", () => {
   remote = { ...remote, status: "connected", sessions: [first, second] };
   refreshed.rerender(<App />);
   expect(screen.getByText("终端：第二个会话")).toBeTruthy();
+});
+
+it("keeps the current session visible while reconnecting", () => {
+  remote = { ...remote, device: { deviceId: "phone-1", deviceName: "Phone" } };
+  const page = render(<App />);
+  expect(screen.getByText("终端：第一个会话")).toBeTruthy();
+  remote = { ...remote, status: "disconnected", statusMessage: "连接已断开，正在重试…" };
+  page.rerender(<App />);
+  expect(screen.getByText("终端：第一个会话")).toBeTruthy();
+  expect(screen.getByText("正在恢复连接")).toBeTruthy();
+  remote = { ...remote, status: "connected", connectionEpoch: 2 };
+  page.rerender(<App />);
+  expect(screen.getByText("终端：第一个会话")).toBeTruthy();
+  expect(screen.queryByText("正在恢复连接")).toBeNull();
 });
 
 it("falls back when the saved session is no longer running", () => {

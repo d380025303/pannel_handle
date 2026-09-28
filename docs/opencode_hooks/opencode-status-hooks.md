@@ -1,6 +1,6 @@
 # OpenCode 状态 Hook
 
-本工具通过 [OpenCode 官方插件机制](https://opencode.ai/docs/plugins/) 接收结构化事件，用于显示会话状态和发送 Windows 系统通知。插件仅观察并上报事件，不会批准或拒绝权限请求。
+本工具仅支持 OpenCode V2，通过 [V2 官方插件机制](https://opencode.ai/v2/docs/build/plugins/) 接收结构化事件，用于显示会话状态和发送 Windows 系统通知。插件仅观察并上报事件，不会批准或拒绝权限请求。
 
 ## 工作方式
 
@@ -8,7 +8,7 @@
 2. 本工具创建终端时注入：
    - `PANNEL_HANDLE_HOOK_URL`：本地 Hook 上报地址。
    - `PANNEL_HANDLE_SESSION_ID`：本工具内部会话 ID。
-3. 项目插件 `.opencode/plugins/pannel-handle-notification.js` 监听 OpenCode 事件，并 POST 到 `/opencode-hook`。
+3. 项目插件 `.opencode/plugins/pannel-handle-notification.js` 使用 V2 `setup(ctx)` 订阅事件，并 POST 到 `/opencode-hook`。
 4. Electron 将事件映射为运行中、等待确认、已完成、失败或已结束，并通过现有状态徽标和系统通知展示。
 
 ## 安装
@@ -25,14 +25,16 @@
 
 Windows 和 WSL 项目使用同一个 JavaScript 插件。WSL 会话依赖本工具通过 `WSLENV` 传递 Hook 地址和会话 ID。
 
+托管终端以 `opencode --standalone` 启动，使当前会话的环境变量传给它的私有服务。图形会话使用 `opencode acp`，其 ACP 协议版本仍为 1。Windows 需安装官方 V2 独立版；WSL 与 SSH 可使用 `npm install -g @opencode/cli`。V1 CLI 无法启动托管会话；普通终端中自行运行的命令不受限制。
+
 ## 状态映射
 
 | OpenCode 事件 | 本工具状态 |
 | --- | --- |
-| `session.status` 且状态为 `busy`、工具执行事件 | 运行中 |
-| `permission.asked`、`permission.updated` | 等待确认 |
-| `session.idle` | 已完成 |
-| `session.error` | 失败 |
+| `session.execution.started`、工具执行事件 | 运行中 |
+| `permission.asked` | 等待确认 |
+| `session.execution.succeeded` | 已完成 |
+| `session.execution.failed` | 失败 |
 | `session.deleted` | 已结束 |
 
 其他事件仍会在启用 Debug 模式时显示，但不会改变会话状态。

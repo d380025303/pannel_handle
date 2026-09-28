@@ -24,7 +24,7 @@ it("keeps paste text and the dialog open when sending fails, then clears it afte
   function TestView() {
     const [pasteText, setPasteText] = useState("");
     const [pasteOpen, setPasteOpen] = useState(false);
-    return <TerminalView session={session} send={send} onTerminalMessage={onTerminalMessage}
+    return <TerminalView session={session} connectionEpoch={1} send={send} onTerminalMessage={onTerminalMessage}
       pasteText={pasteText} setPasteText={setPasteText} pasteOpen={pasteOpen} setPasteOpen={setPasteOpen} />;
   }
   render(<TestView />);
@@ -38,4 +38,13 @@ it("keeps paste text and the dialog open when sending fails, then clears it afte
   expect(screen.queryByRole("textbox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "粘贴" }));
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+});
+
+it("resubscribes to the current terminal after reconnect", () => {
+  const send = vi.fn((_message: ClientMessage) => true);
+  const onTerminalMessage = () => () => {};
+  const props = { session, send, onTerminalMessage, pasteText: "", setPasteText: vi.fn(), pasteOpen: false, setPasteOpen: vi.fn() };
+  const page = render(<TerminalView {...props} connectionEpoch={1} />);
+  page.rerender(<TerminalView {...props} connectionEpoch={2} />);
+  expect(send.mock.calls.filter(([message]) => message.type === "terminal.subscribe")).toHaveLength(2);
 });

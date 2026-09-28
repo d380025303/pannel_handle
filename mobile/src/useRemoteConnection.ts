@@ -9,6 +9,8 @@ type GraphicalMessage = Extract<ServerMessage,
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
 const PASSWORD_STORAGE_KEY = "pannel-handle-mobile-password";
+const PING_INTERVAL_MS = 10_000;
+const PONG_TIMEOUT_MS = 45_000;
 
 function readSavedPassword() {
   try { return localStorage.getItem(PASSWORD_STORAGE_KEY) || ""; }
@@ -32,7 +34,10 @@ export function useRemoteConnection() {
   const [lastLaunchedId, setLastLaunchedId] = useState<string | null>(null);
   const [commandError, setCommandError] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
+  const lastPongAtRef = useRef(0);
+  const authenticatedRef = useRef(false);
   const stoppedRef = useRef(false);
   const retryRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
@@ -54,6 +59,10 @@ export function useRemoteConnection() {
       window.clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
+    const previous = socketRef.current;
+    socketRef.current = null;
+    authenticatedRef.current = false;
+    previous?.close();
     setStatus("connecting");
     setStatusMessage("正在连接电脑…");
     if (!passwordRef.current) {
@@ -65,19 +74,26 @@ export function useRemoteConnection() {
     const socket = new WebSocket(getWebSocketUrl());
     socketRef.current = socket;
     let authenticationFailed = false;
+    const openingTimer = window.setTimeout(() => {
+      if (socketRef.current === socket && !authenticatedRef.current) socket.close();
+    }, 15_000);
     socket.addEventListener("open", () => {
       if (socketRef.current !== socket) return;
-      retryRef.current = 0;
       const deviceName = defaultDeviceName();
       try { localStorage.setItem("pannel-handle-device-name", deviceName); }
       catch { /* Device name is optional. */ }
       socket.send(serializeClientMessage({ v: PROTOCOL_VERSION, type: "password.login", password: passwordRef.current, deviceName }));
     });
     socket.addEventListener("message", (event) => {
+      if (socketRef.current !== socket) return;
       try {
         const message = parseServerMessage(String(event.data));
         switch (message.type) {
           case "ready":
+            window.clearTimeout(openingTimer);
+            authenticatedRef.current = true;
+            lastPongAtRef.current = Date.now();
+            retryRef.current = 0;
             try {
               localStorage.setItem(PASSWORD_STORAGE_KEY, passwordRef.current);
               setStorageWarning("");
@@ -92,6 +108,7 @@ export function useRemoteConnection() {
             setTemplates(message.payload.templates);
             setStatus("connected");
             setStatusMessage("已连接");
+            setConnectionEpoch(current => current + 1);
             break;
           case "sessions.changed":
             setSessions(message.sessions);
@@ -149,6 +166,7 @@ export function useRemoteConnection() {
             }
             break;
           case "pong":
+            lastPongAtRef.current = Date.now();
             break;
         }
       } catch (error) {
@@ -157,8 +175,10 @@ export function useRemoteConnection() {
       }
     });
     socket.addEventListener("close", () => {
+      window.clearTimeout(openingTimer);
       if (socketRef.current !== socket) return;
       socketRef.current = null;
+      authenticatedRef.current = false;
       if (stoppedRef.current) return;
       if (authenticationFailed) return;
       setStatus("disconnected");
@@ -167,6 +187,7 @@ export function useRemoteConnection() {
       retryTimerRef.current = window.setTimeout(() => connect(), delay);
     });
     socket.addEventListener("error", () => {
+      if (socketRef.current !== socket) return;
       setStatusMessage("无法连接电脑，请确认桌面应用和局域网服务正在运行");
     });
   }, []);
@@ -175,14 +196,30 @@ export function useRemoteConnection() {
     stoppedRef.current = false;
     indexedDB.deleteDatabase("pannel-handle-mobile");
     connect();
-    const pingTimer = window.setInterval(() => {
+    const checkConnection = () => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current || document.hidden) return;
+      if (Date.now() - lastPongAtRef.current >= PONG_TIMEOUT_MS) {
+        connect();
+        return;
+      }
       send({ v: PROTOCOL_VERSION, type: "ping", at: Date.now() });
-    }, 10_000);
+    };
+    const pingTimer = window.setInterval(checkConnection, PING_INTERVAL_MS);
+    const onResume = () => { if (!document.hidden) checkConnection(); };
+    document.addEventListener("visibilitychange", onResume);
+    window.addEventListener("pageshow", onResume);
+    window.addEventListener("online", onResume);
     return () => {
       stoppedRef.current = true;
       window.clearInterval(pingTimer);
+      document.removeEventListener("visibilitychange", onResume);
+      window.removeEventListener("pageshow", onResume);
+      window.removeEventListener("online", onResume);
       if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
-      socketRef.current?.close();
+      const socket = socketRef.current;
+      socketRef.current = null;
+      socket?.close();
     };
   }, [connect, send]);
 
@@ -201,12 +238,10 @@ export function useRemoteConnection() {
   }, []);
 
   const retry = useCallback(() => {
-    socketRef.current?.close();
     connect();
   }, [connect]);
 
   const login = useCallback((password: string) => {
-    socketRef.current?.close();
     passwordRef.current = password;
     connect();
   }, [connect]);
@@ -220,6 +255,7 @@ export function useRemoteConnection() {
     lastLaunchedId,
     commandError,
     storageWarning,
+    connectionEpoch,
     send,
     retry,
     login,

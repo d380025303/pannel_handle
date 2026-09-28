@@ -144,6 +144,11 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
       return false;
     }
 
+    if (eventName === "session.status" && (input.status?.type || input.status) === "busy") {
+      openCodeResponseStates.delete(session.id);
+      return false;
+    }
+
     if (eventName === "message.updated" && input.info?.role === "user") {
       openCodeResponseStates.delete(session.id);
       return false;

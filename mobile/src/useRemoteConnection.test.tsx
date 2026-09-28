@@ -117,6 +117,53 @@ it("keeps the password after an unplanned network drop", () => {
   expect(FakeWebSocket.instances).toHaveLength(2);
 });
 
+it("replaces a silent foreground connection and ignores events from the old socket", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const first = FakeWebSocket.instances[0];
+  act(() => first.open());
+  ready(first);
+  expect(hook.result.current.connectionEpoch).toBe(1);
+  act(() => vi.advanceTimersByTime(40_000));
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  act(() => vi.advanceTimersByTime(10_000));
+  expect(FakeWebSocket.instances).toHaveLength(2);
+  expect(hook.result.current.status).toBe("connecting");
+  act(() => first.receive("error", { code: "PASSWORD_CHANGED", message: "旧连接" }));
+  expect(localStorage.getItem(passwordKey)).toBe("correct-password");
+  const second = FakeWebSocket.instances[1];
+  act(() => second.open());
+  ready(second);
+  expect(hook.result.current.status).toBe("connected");
+  expect(hook.result.current.connectionEpoch).toBe(2);
+});
+
+it("keeps a connection with timely application pongs", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  ready(socket);
+  for (let index = 0; index < 6; index++) {
+    act(() => vi.advanceTimersByTime(10_000));
+    act(() => socket.receive("pong", { at: Date.now() }));
+  }
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  expect(hook.result.current.status).toBe("connected");
+});
+
+it("retries a connection that never finishes authentication", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  setup();
+  act(() => FakeWebSocket.instances[0].open());
+  act(() => vi.advanceTimersByTime(15_000));
+  act(() => vi.advanceTimersByTime(500));
+  expect(FakeWebSocket.instances).toHaveLength(2);
+});
+
 it("keeps the connection usable when browser storage rejects writes", () => {
   const original = Storage.prototype.setItem;
   const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {

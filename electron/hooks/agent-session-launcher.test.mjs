@@ -66,13 +66,14 @@ function createMocks(overrides = {}) {
     inspect: vi.fn((_target, [provider]) => Promise.resolve(installed(provider))),
     install: vi.fn((_target, [provider]) => Promise.resolve(installed(provider)))
   };
-  const sshSessionRuntime = { exec: vi.fn(() => Promise.resolve("/usr/bin/agent")) };
+  const sshSessionRuntime = { exec: vi.fn((_id, command) => Promise.resolve(command.includes("opencode --version") ? "2.0.0" : "/usr/bin/agent")) };
   const sshHookTunnelService = { ensureTunnel: vi.fn(() => Promise.resolve({ hookUrl: "http://127.0.0.1:9000/opencode-hook" })) };
   const spawnSync = vi.fn((command, args) => {
     const invocation = `${command} ${(args || []).join(" ")}`;
     if (invocation.includes("codebuddy --version")) return { status: 0, stdout: "2.137.1" };
     if (invocation.includes("gemini --version")) return { status: 0, stdout: "0.56.0" };
     if (invocation.includes("grok --version")) return { status: 0, stdout: "grok 0.2.106" };
+    if (invocation.includes("opencode --version")) return { status: 0, stdout: "2.0.0" };
     return { status: 0, stdout: "found" };
   });
   const getDefaultShell = vi.fn(() => "C:\\Windows\\System32\\cmd.exe");
@@ -116,6 +117,46 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
+  it("routes Claude graphical sessions through ACP on Windows, WSL, and SSH", async () => {
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ codexAppServerSessionService });
+    for (const options of [
+      { type: "windows", cwd: "C:\\work" },
+      { type: "wsl", cwd: "/work", wslDistro: "Ubuntu" },
+      { type: "ssh", cwd: "/srv/app", agentLocation: "remote", sshConfig: { host: "example.com" } }
+    ]) {
+      const result = await mocks.launcher.createSession({ ...options, agentProvider: "claude", graphicalSessionEnabled: true });
+      expect(result.runtimeMode).toBe("app-server");
+    }
+    expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
+    expect(mocks.hookConfigManager.inspect).not.toHaveBeenCalled();
+  });
+
+  it("uses the restricted bridge for local Claude SSH graphical sessions", async () => {
+    const remoteAgentBridgeService = { createBinding: vi.fn(async () => ({ workspacePath: "C:\\bridge", url: "http://127.0.0.1:5678/mcp",
+      token: "secret", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN", runtimeInstructions: "Use remote tools" })),
+      runConfiguredCommand: vi.fn(), closeBinding: vi.fn() };
+    const codexAppServerSessionService = { start: vi.fn(async () => {}) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService });
+    const result = await mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "claude",
+      graphicalSessionEnabled: true, agentLocation: "local", sshConfig: { host: "example.com" } });
+    expect(result.runtimeMode).toBe("app-server");
+    expect(codexAppServerSessionService.start.mock.calls[0][1].remoteBridge).toMatchObject({ url: "http://127.0.0.1:5678/mcp", instructions: "Use remote tools" });
+    await expect(mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "claude",
+      graphicalSessionEnabled: false, agentLocation: "local", sshConfig: { host: "example.com" } })).rejects.toThrow("仅支持图形会话");
+  });
+
+  it("rejects OpenCode V1 before launching a managed session", async () => {
+    const mocks = createMocks();
+    mocks.spawnSync.mockImplementation((command, args) => {
+      const invocation = `${command} ${(args || []).join(" ")}`;
+      return { status: 0, stdout: invocation.includes("opencode --version") ? "1.18.29" : "found" };
+    });
+    await expect(mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode" }))
+      .rejects.toThrow("OpenCode V1 不再支持");
+    expect(mocks.terminalManager.createSession).not.toHaveBeenCalled();
+  });
+
   it("routes explicitly enabled OpenCode Windows, WSL, and SSH remote sessions to ACP", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ codexAppServerSessionService });
@@ -414,7 +455,7 @@ describe("agent-session-launcher", () => {
     expect(buildAgentStartCommand({ type: "wsl", agentProvider: "codex", initialCommand: "pnpm install" }))
       .toBe("pnpm install && codex");
     expect(buildAgentStartCommand({ type: "ssh", agentProvider: "opencode" }, { hookUrl: "http://local/hook", sessionId: "run-2" }))
-      .toContain("PANNEL_HANDLE_SESSION_ID='run-2' opencode");
+      .toContain("PANNEL_HANDLE_SESSION_ID='run-2' opencode --standalone");
   });
 
   it("starts the Agent directly when there is no pre-command", () => {
@@ -451,21 +492,25 @@ describe("agent-session-launcher", () => {
 
     const configText = buildLocalOpenCodeConfig(binding);
     const config = JSON.parse(configText);
+    expect(config.default_agent).toBe("pannel-handle-remote");
 
-    expect(config.mcp.pannel_handle_remote).toEqual(expect.objectContaining({
+    expect(config.mcp.servers.pannel_handle_remote).toEqual(expect.objectContaining({
       type: "remote",
       url: binding.url,
-      enabled: true,
+      codemode: false,
       oauth: false,
       headers: { Authorization: "Bearer {env:PANNEL_HANDLE_REMOTE_AGENT_TOKEN}" }
     }));
-    expect(config.agent["pannel-handle-remote"]).toEqual(expect.objectContaining({
+    expect(config.agents["pannel-handle-remote"]).toEqual(expect.objectContaining({
       mode: "primary",
-      prompt: binding.developerInstructions,
-      permission: expect.objectContaining({ edit: "deny", bash: "deny", task: "deny", "pannel_handle_remote_*": "allow" })
+      system: binding.developerInstructions,
+      permissions: [
+        { action: "*", resource: "*", effect: "deny" },
+        { action: "pannel_handle_remote_*", resource: "*", effect: "allow" }
+      ]
     }));
     expect(configText).not.toContain(binding.token);
-    expect(buildLocalOpenCodeStartCommand(binding)).toBe("opencode 'C:\\runtime\\run-1' --agent pannel-handle-remote");
+    expect(buildLocalOpenCodeStartCommand(binding)).toBe("opencode --standalone 'C:\\runtime\\run-1'");
   });
 
   it("builds a strict CodeBuddy bridge config with an environment token placeholder", () => {
@@ -908,9 +953,9 @@ describe("agent-session-launcher", () => {
     );
     const runtime = mocks.terminalManager.startDeferredSession.mock.calls[0][1];
     expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_TOKEN).toBe("secret-token");
-    expect(runtime.runtimeInitialCommand).toContain("opencode 'C:\\runtime\\run-1' --agent pannel-handle-remote");
+    expect(runtime.runtimeInitialCommand).toContain("opencode --standalone 'C:\\runtime\\run-1'");
     expect(runtime.runtimeInitialCommand).not.toContain("secret-token");
-    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.pannel_handle_remote.url)
+    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.servers.pannel_handle_remote.url)
       .toBe("http://127.0.0.1:4568/mcp");
   });
 
@@ -988,7 +1033,7 @@ describe("agent-session-launcher", () => {
     const runtime = codexAppServerSessionService.start.mock.calls[0][1];
     expect(runtime.requiredMode).toBe("pannel-handle-remote");
     expect(runtime.runtimeEnv.PANNEL_HANDLE_REMOTE_AGENT_TOKEN).toBe("secret-token");
-    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.pannel_handle_remote.url).toBe(binding.url);
+    expect(JSON.parse(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).mcp.servers.pannel_handle_remote.url).toBe(binding.url);
     expect(runtime.runtimeEnv.OPENCODE_CONFIG_CONTENT).not.toContain("secret-token");
   });
 

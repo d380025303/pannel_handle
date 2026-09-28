@@ -13,6 +13,7 @@ type TerminalMessage = Extract<ServerMessage,
 type TerminalViewProps = {
   session: RuntimeSession;
   deviceId?: string;
+  connectionEpoch: number;
   send: (message: ClientMessage) => boolean;
   onTerminalMessage: (listener: (message: TerminalMessage) => void) => () => void;
   pasteText: string;
@@ -27,7 +28,7 @@ const KEYS = [
   ["Pg↑", "\x1b[5~"], ["Pg↓", "\x1b[6~"], ["Enter", "\r"], ["⌫", "\x7f"]
 ] as const;
 
-export function TerminalView({ session, deviceId, send, onTerminalMessage, pasteText, setPasteText, pasteOpen, setPasteOpen }: TerminalViewProps) {
+export function TerminalView({ session, deviceId, connectionEpoch, send, onTerminalMessage, pasteText, setPasteText, pasteOpen, setPasteOpen }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -114,12 +115,6 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage, paste
         terminal.write("\r\n\x1b[33m[会话已结束]\x1b[0m\r\n");
       }
     });
-    send({
-      v: PROTOCOL_VERSION,
-      type: "terminal.subscribe",
-      sessionId: session.id,
-      lastSeq: seqRef.current.get(session.id)
-    });
     terminal.focus();
     return () => {
       terminal.element?.removeEventListener("touchstart", handleTouchStart);
@@ -133,6 +128,12 @@ export function TerminalView({ session, deviceId, send, onTerminalMessage, paste
       fitRef.current = null;
     };
   }, [onTerminalMessage, send, sendInput, session.id]);
+
+  useEffect(() => {
+    if (!connectionEpoch) return;
+    send({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: session.id,
+      lastSeq: seqRef.current.get(session.id) });
+  }, [connectionEpoch, send, session.id]);
 
   useEffect(() => {
     const container = containerRef.current;

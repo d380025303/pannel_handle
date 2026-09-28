@@ -107,11 +107,11 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
         throw new Error("问题请求已失效。");
       await graphicalService.answerQuestion(sessionId, message.questionId, message.answers);
     } else if (message.type === "graphical.cancelQuestion") {
-      if (current.provider !== "codebuddy" || !current.questions?.some(value => String(value.requestId) === String(message.questionId)))
+      if ((current.provider !== "codebuddy" && current.provider !== "claude") || !current.questions?.some(value => String(value.requestId) === String(message.questionId)))
         throw new Error("问题请求已失效。");
       await graphicalService.cancelQuestion(sessionId, message.questionId);
     } else if (message.type === "graphical.mode") {
-      if (current.busy || current.archived) throw new Error("当前会话不可切换模式。");
+      if (current.busy || current.archived || current.pendingPlan) throw new Error("当前会话不可切换模式。");
       if (message.mode !== "plan" && message.mode !== "default") throw new Error("无效的图形会话模式。");
       if (message.mode === "plan" && current.capabilities?.plan === false) throw new Error("当前图形会话不支持 Plan 模式。");
       const provider = current.provider || "codex";
@@ -133,7 +133,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       await graphicalService.setExecutionPermission(sessionId, message.permission);
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.native-mode") {
-      if (!["codebuddy", "opencode"].includes(current.provider) || !current.threadId || current.busy || current.archived)
+      if (!["codebuddy", "opencode"].includes(current.provider) || !current.threadId || current.busy || current.archived || current.pendingPlan)
         throw new Error("当前会话不可切换原生模式。");
       if (typeof message.modeId !== "string" || !current.nativeModes?.some(mode => mode.id === message.modeId))
         throw new Error("请选择当前会话可用的模式。");

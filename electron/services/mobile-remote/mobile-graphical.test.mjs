@@ -180,7 +180,7 @@ describe("mobile graphical session route", () => {
     f.snapshot.provider = "codebuddy";
     f.snapshot.nativeModes = [{ id: "acceptEdits" }, { id: "plan" }, { id: "bypassPermissions" }];
     await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "default", requestId: "m2" });
-    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "acceptEdits");
+    expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "bypassPermissions");
     await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan", requestId: "m3" });
     expect(f.graphicalService.setNativeMode).toHaveBeenCalledWith("graph-1", "plan");
     f.snapshot.provider = "opencode";

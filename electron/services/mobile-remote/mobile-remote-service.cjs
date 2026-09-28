@@ -6,7 +6,7 @@ const { createMobileFiles } = require("./mobile-files.cjs");
 const { createTerminalSizeOwner } = require("./terminal-size-owner.cjs");
 const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./mobile-session-values.cjs");
 const { sanitizeHostLabel, getMobileHostname, isPrivateIpv4, listPrivateInterfaces } = require("./mobile-network.cjs");
-const { PROTOCOL_VERSION, HEARTBEAT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
+const { PROTOCOL_VERSION, HEARTBEAT_MS, HEARTBEAT_TIMEOUT_MS, MAX_INPUT_BYTES, MAX_INPUT_BYTES_PER_SECOND, MAX_BUFFERED_OUTPUT_BYTES } = require("./mobile-protocol.cjs");
 const http = require("node:http");
 const os = require("node:os");
 const { Bonjour } = require("bonjour-service");
@@ -60,6 +60,7 @@ function createMobileRemoteService({
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     if (socket.bufferedAmount > MAX_BUFFERED_OUTPUT_BYTES) {
       accessStore.recordAudit("connection.slow-client", { deviceId: socket.mobileDevice?.id, deviceName: socket.mobileDevice?.name });
+      socket.mobileCloseReason = "slow-client";
       socket.close(1013, "客户端接收过慢");
       return false;
     }
@@ -140,11 +141,13 @@ function createMobileRemoteService({
     });
     heartbeatTimer = setInterval(() => {
       for (const socket of webSocketServer.clients) {
-        if (socket.isAlive === false) {
+        if (socket.readyState !== WebSocket.OPEN) continue;
+        if (now() - socket.lastAliveAt >= HEARTBEAT_TIMEOUT_MS) {
+          socket.mobileCloseReason = "heartbeat-timeout";
+          accessStore.recordAudit("connection.heartbeat-timeout", { deviceId: socket.mobileDevice?.id, deviceName: socket.mobileDevice?.name });
           socket.terminate();
           continue;
         }
-        socket.isAlive = false;
         socket.ping();
       }
     }, HEARTBEAT_MS);

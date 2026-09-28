@@ -27,7 +27,7 @@ export function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled 
   </div>;
 }
 
-export function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" }) {
+export function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" | "claude" }) {
   const tabId = useId();
   const [choices, setChoices] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -50,7 +50,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
       if (question.options?.length && !choice.length && !question.isOther) {
         setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
       }
-      answers[question.id] = { answers: provider === "codebuddy"
+      answers[question.id] = { answers: provider === "codebuddy" || provider === "claude"
         ? [...(question.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
         : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
     }
@@ -66,7 +66,7 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
-  const agentName = provider === "codebuddy" ? "CodeBuddy" : "Codex";
+  const agentName = provider === "codebuddy" ? "CodeBuddy" : provider === "claude" ? "Claude" : "Codex";
   return <article className="codex-app-server-question" aria-label={`${agentName} 提问`}>
     <strong>{agentName} 提问</strong>
     {questions.length > 1 && <div className="codex-app-server-question-tabs" role="tablist" aria-label="切换问题">
@@ -86,24 +86,24 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
            checked={choices[question.id]?.includes(option.label) || false} disabled={sending || request.submitting}
            onChange={() => { setChoices(current => ({ ...current, [question.id]: question.multiSelect
              ? current[question.id]?.includes(option.label) ? current[question.id].filter(value => value !== option.label) : [...(current[question.id] || []), option.label]
-             : [option.label] })); if (provider === "codebuddy" && !question.multiSelect) setNotes(current => ({ ...current, [question.id]: "" })); setError(""); }} />
+             : [option.label] })); if (provider !== "codex" && !question.multiSelect) setNotes(current => ({ ...current, [question.id]: "" })); setError(""); }} />
         <span><strong>{option.label}</strong><small>{option.description}</small></span>
       </label>)}
-      <label className="codex-app-server-question-note">
+      {(provider !== "claude" || question.isOther) && <label className="codex-app-server-question-note">
         <span>{question.options?.length ? provider === "codebuddy" ? "自定义回答" : "补充说明或自定义回答" : "回答"}</span>
          {question.isSecret ? <input type="password" value={notes[question.id] || ""} disabled={sending || request.submitting}
            onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
-             if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />
+             if (provider !== "codex" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />
           : <textarea value={notes[question.id] || ""} disabled={sending || request.submitting}
              onChange={event => { setNotes(current => ({ ...current, [question.id]: event.target.value }));
-               if (provider === "codebuddy" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />}
-      </label>
+               if (provider !== "codex" && !question.multiSelect) setChoices(current => ({ ...current, [question.id]: [] })); setError(""); }} />}
+      </label>}
     </fieldset>)}
     {error && <p role="alert">{error}</p>}
     <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
       {sending || request.submitting ? "正在提交…" : "提交回答"}
     </button>
-    {provider === "codebuddy" && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
+    {(provider === "codebuddy" || provider === "claude") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
   </article>;
 }
 

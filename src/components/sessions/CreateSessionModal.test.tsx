@@ -13,6 +13,15 @@ afterEach(() => {
 });
 
 describe("CreateSessionModal structure", () => {
+  it("defaults new Claude sessions to graphical ACP", async () => {
+    const onCreate = vi.fn(async () => undefined);
+    render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Claude" }));
+    expect(screen.getByRole("checkbox", { name: "使用图形会话" })).toHaveProperty("checked", true);
+    fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ agentProvider: "claude", graphicalSessionEnabled: true })));
+  });
   it("defaults a new OpenCode session to ACP and allows terminal mode", async () => {
     const onCreate = vi.fn(async () => undefined);
     render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);

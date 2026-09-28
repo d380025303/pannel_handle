@@ -56,6 +56,13 @@ describe("AgentSwitcher", () => {
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("run-1", "codex"));
   });
 
+  it("offers Claude for a graphical local SSH bridge", () => {
+    render(<AgentSwitcher session={session({ type: "ssh", agentLocation: "local", runtimeMode: "app-server" })} onSwitch={vi.fn(async () => {})} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    expect(screen.getByRole("menuitem", { name: "Claude" })).toBeTruthy();
+  });
+
   it("shows a dismissible error when switching fails", async () => {
     const onSwitch = vi.fn(async () => { throw new Error("Failed to start replacement terminal."); });
     render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);

@@ -33,6 +33,45 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("reviews the ExitPlanMode payload and answers its ACP request before switching to Full Access", async () => {
+    const messages = [];
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread",
+        modes: { currentModeId: "plan", availableModes: [{ id: "plan" }, { id: "default" }, { id: "bypassPermissions" }] } } });
+      else if (message.method === "session/set_mode") emit({ id: message.id, result: {} });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    const turn = service.submit("one", "先制定计划", []);
+    await vi.waitFor(() => expect(messages.some(message => message.method === "session/prompt")).toBe(true));
+    emitMessage({ id: 91, method: "session/request_permission", params: { sessionId: "thread",
+      toolCall: { toolCallId: "exit-1", _meta: { "codebuddy.ai/toolName": "ExitPlanMode",
+        "codebuddy.ai/plan": "# 改造计划\n先检查，再修改。" } },
+      options: [{ kind: "allow_once", optionId: "execute" }, { kind: "reject_once", optionId: "revise" }] } });
+    const pending = service.snapshot("one").pendingPlan;
+    expect(service.snapshot("one").busy).toBe(true);
+    expect(service.snapshot("one").approvals).toEqual([]);
+    expect(service.snapshot("one").items.at(-1)).toMatchObject({ id: pending.itemId, type: "plan", text: "# 改造计划\n先检查，再修改。" });
+    await service.executePlan("one", pending.itemId);
+    expect(messages.find(message => message.id === 91).result).toEqual({ outcome: { outcome: "selected", optionId: "execute" } });
+    emitMessage({ method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "current_mode_update", currentModeId: "default" } } });
+    await vi.waitFor(() => expect(messages.some(message => message.method === "session/set_mode" && message.params.modeId === "bypassPermissions")).toBe(true));
+    expect(service.snapshot("one")).toMatchObject({ nativeMode: "bypassPermissions", executionPermission: "fullAccess", pendingPlan: null });
+    emitMessage({ id: messages.find(message => message.method === "session/prompt").id, result: { stopReason: "end_turn" } });
+    await turn;
+    await expect(service.executePlan("one", pending.itemId)).rejects.toThrow("已失效");
+    emitMessage({ method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "current_mode_update", currentModeId: "plan" } } });
+    emitMessage({ id: 92, method: "session/request_permission", params: { sessionId: "thread",
+      toolCall: { toolCallId: "exit-2", _meta: { "codebuddy.ai/toolName": "ExitPlanMode", "codebuddy.ai/plan": "# 新计划" } },
+      options: [{ kind: "allow_once", optionId: "execute" }, { kind: "reject_once", optionId: "revise" }] } });
+    await service.dismissPlan("one", service.snapshot("one").pendingPlan.itemId);
+    expect(messages.find(message => message.id === 92).result).toEqual({ outcome: { outcome: "selected", optionId: "revise" } });
+    service.shutdown();
+  });
   it("shows AskUserQuestion permission requests as questions and submits answers through CodeBuddy", async () => {
     const messages = [];
     let emitMessage;

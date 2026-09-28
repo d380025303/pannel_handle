@@ -1749,6 +1749,19 @@ describe("CodexAppServerSession", () => {
     expect(await screen.findByText("模式：Full Access")).toBeTruthy();
   });
 
+  it("keeps a busy CodeBuddy plan review actionable and blocks the mode shortcut until it is answered", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "plan",
+      nativeModes: [{ id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }],
+      mode: "plan", executionPermission: "askApproval", busy: true, error: null,
+      pendingPlan: { itemId: "codebuddy-plan:91" }, items: [{ id: "codebuddy-plan:91", type: "plan", text: "# 实施计划" }], approvals: [] } }));
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(setNativeMode).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "继续修改" }));
+    await waitFor(() => expect(dismissPlan).toHaveBeenCalledWith("run-1", "codebuddy-plan:91"));
+  });
+
   it("adds pasted images as removable attachments and sends them with text", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;

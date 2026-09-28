@@ -39,6 +39,7 @@ const { createCodexPluginService } = require("./services/codex-app-server/plugin
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
 const { createCodexInheritanceManager } = require("./services/codebuddy-acp/codex-inheritance.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
+const { createClaudeAcpSessionService } = require("./services/claude-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("./services/codebuddy-acp/session-router.cjs");
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createDiagnosticsStore } = require("./services/codex-app-server/diagnostics-store.cjs");
@@ -307,7 +308,10 @@ if (!gotSingleInstanceLock) {
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
       environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
     });
-    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService);
+    const claudeGraphicalService = createClaudeAcpSessionService({
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
+    });
+    codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService, claudeGraphicalService);
     const codexVersionService = createCodexVersionService({ terminalManager, sshAgentTransport });
     const codeBuddyVersionService = createCodeBuddyVersionService({ terminalManager, sshAgentTransport });
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,

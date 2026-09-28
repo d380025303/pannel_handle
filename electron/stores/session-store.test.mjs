@@ -43,6 +43,15 @@ afterEach(() => {
 });
 
 describe("session-store", () => {
+  it("keeps old Claude templates terminal-based while accepting an explicit graphical choice", () => {
+    const sessionsFile = createTempSessionsFile();
+    writeFileSync(sessionsFile, JSON.stringify([{ id: "claude", type: "windows", cwd: "C:\\work", agentProvider: "claude" }]));
+    const store = createStore(sessionsFile);
+    store.loadLibrary();
+    expect(store.getTemplate("claude").graphicalSessionEnabled).toBe(false);
+    store.updateLibrary("claude", { graphicalSessionEnabled: true });
+    expect(store.getTemplate("claude").graphicalSessionEnabled).toBe(true);
+  });
   it("keeps existing OpenCode templates in terminal mode and persists an explicit ACP choice", () => {
     const sessionsFile = createTempSessionsFile();
     writeFileSync(sessionsFile, JSON.stringify([{ id: "old", type: "windows", cwd: "C:\\work", agentProvider: "opencode" }]));

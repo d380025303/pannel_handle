@@ -13,6 +13,7 @@ type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 type Props = {
   session: RuntimeSession;
+  connectionEpoch: number;
   send: (message: ClientMessage) => boolean;
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void;
   draft: string;
@@ -21,14 +22,14 @@ type Props = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode"];
+const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude"];
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
 const permissions = [
   { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
   { value: "askApproval", name: "需要确认", description: "可修改工作区，越界操作先确认" },
   { value: "fullAccess", name: "完全访问", description: "可访问文件与网络，不再请求批准" }
 ] as const;
-export function GraphicalView({ session, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: Props) {
+export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const [sending, setSending] = useState(false);
   const setDraftRef = useRef(setDraft);
@@ -54,6 +55,7 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
   const [attachments, setAttachments] = useState<Array<{ key: string; file: File; fileId?: string; status: "uploading" | "ready" | "failed" }>>([]);
   const attachmentsRef = useRef<typeof attachments>([]);
   const switchIdRef = useRef<string | null>(null);
+  const subscribedEpochRef = useRef(0);
   const [switchingTo, setSwitchingTo] = useState<AgentProvider | null>(null);
   const threadRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -139,7 +141,6 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
         if (historyIdRef.current === message.requestId) setHistoryLoading(false);
       }
     });
-    send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id });
     return () => {
       unsubscribe();
       for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
@@ -150,6 +151,32 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
       uploadRequests.current.clear();
     };
   }, [session.id, send, onGraphicalMessage]);
+
+  useEffect(() => {
+    if (!connectionEpoch) return;
+    if (subscribedEpochRef.current && subscribedEpochRef.current !== connectionEpoch) {
+      if (pendingRef.current.size || uploadRequests.current.size) setError("连接中断，操作结果未确认；请核对会话内容后再重试。");
+      pendingRef.current.clear();
+      submitIdRef.current = null;
+      quickIdRef.current = null;
+      quickDraftRef.current = "";
+      modeIdRef.current = null;
+      modelIdRef.current = null;
+      switchIdRef.current = null;
+      historyIdRef.current = null;
+      setSending(false);
+      setChangingMode(false);
+      setChangingModel(false);
+      setSwitchingTo(null);
+      setHistoryLoading(false);
+      for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
+      for (const pending of uploadRequests.current.values()) pending.reject(new Error("连接已断开，请重新上传。"));
+      uploadRequests.current.clear();
+      setAttachments(current => current.map(item => ({ ...item, fileId: undefined, status: "failed" })));
+    }
+    subscribedEpochRef.current = connectionEpoch;
+    send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id });
+  }, [connectionEpoch, send, session.id]);
 
   const lastItem = snapshot?.items.at(-1);
   useEffect(() => { scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight }); }, [snapshot?.items.length, lastItem?.text, lastItem?.output]);
@@ -261,8 +288,9 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
     setAttachments(current => current.filter(value => value.key !== key));
   };
   const changeMode = (mode: "default" | "plan") => {
-    if (!snapshot || snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, mode)) return;
-    if (snapshot.mode === mode) return;
+    if (!snapshot || snapshot.busy || snapshot.archived || changingMode || snapshot.pendingPlan || !canSwitchMode(snapshot, mode)) return;
+    if (snapshot.provider === "codebuddy" ? mode === "plan" ? snapshot.mode === "plan"
+      : snapshot.executionPermission === "fullAccess" : snapshot.mode === mode) return;
     modeIdRef.current = action({ type: "graphical.mode", mode }) || null;
     if (modeIdRef.current) setChangingMode(true);
   };
@@ -367,7 +395,7 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
         {event.additionalDetails != null && <pre>{typeof event.additionalDetails === "string" ? event.additionalDetails : JSON.stringify(event.additionalDetails, null, 2)}</pre>}
       </details>)}
       {snapshot.pendingPlan && <article className="graphical-card"><strong>确认执行计划</strong><div className="graphical-actions">
-        <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}>暂不执行</button>
+        <button type="button" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: false })}>{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
         <button type="button" className="primary" onClick={() => action({ type: "graphical.plan", itemId: snapshot.pendingPlan!.itemId, execute: true })}>执行计划</button>
       </div></article>}
       {snapshot.approvals.map(approval => <article className="graphical-card" key={approval.requestId}>
@@ -415,15 +443,15 @@ export function GraphicalView({ session, send, onGraphicalMessage, draft, setDra
           <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}>×</button></header>
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
         {activeSheet === "menu" && <div className="graphical-sheet-list">
-          {snapshot.provider === "codex" && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
+          {(snapshot.provider === "codex" || snapshot.provider === "codebuddy" || snapshot.provider === "claude") && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
             <span>会话模式</span>
             <div className="graphical-mode-switch">
               <button type="button" aria-pressed={effectivePlan}
-                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "plan")}
+                disabled={snapshot.busy || snapshot.archived || changingMode || !!snapshot.pendingPlan || !canSwitchMode(snapshot, "plan")}
                 onClick={() => changeMode("plan")}>Plan</button>
-              <button type="button" aria-pressed={snapshot.mode === "default"}
-                disabled={snapshot.busy || snapshot.archived || changingMode || !canSwitchMode(snapshot, "default")}
-                onClick={() => changeMode("default")}>Exec</button>
+              <button type="button" aria-pressed={snapshot.provider === "codebuddy" ? snapshot.executionPermission === "fullAccess" : snapshot.mode === "default"}
+                disabled={snapshot.busy || snapshot.archived || changingMode || !!snapshot.pendingPlan || !canSwitchMode(snapshot, "default")}
+                onClick={() => changeMode("default")}>{snapshot.provider === "codebuddy" ? "Full Access" : "Exec"}</button>
             </div>
           </div>}
           {snapshot.provider === "codex"

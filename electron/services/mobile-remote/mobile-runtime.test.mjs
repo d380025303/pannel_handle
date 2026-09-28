@@ -117,6 +117,16 @@ describe("mobile component collaboration", () => {
     }
   });
 
+  it("records the WebSocket close code for an unexpected disconnect", () => {
+    const f = fixture();
+    const client = socket();
+    f.handlers.handleWebSocket(client, { socket: { remoteAddress: "192.168.1.2" } });
+    f.auth.handlePasswordLogin(client, { password: "correct-password", deviceName: "Phone" });
+    client.emit("close", 1006);
+    expect(f.accessStore.recordAudit).toHaveBeenCalledWith("connection.disconnected",
+      expect.objectContaining({ reason: "socket-close-1006" }));
+  });
+
   it("gates commands on authentication and enforces the authentication attempt window", async () => {
     vi.useFakeTimers();
     const f = fixture();
@@ -271,8 +281,16 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));
   service.handleTerminalEvent("terminal:data", { id: "run-1", data: "output" });
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.data", sessionId: "run-1", data: "output", seq: 1 }));
-  await vi.advanceTimersByTimeAsync(10_000);
+  await vi.advanceTimersByTimeAsync(30_000);
   expect(client.ping).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(client.terminate).not.toHaveBeenCalled();
+  client.emit("pong");
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(client.terminate).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(client.terminate).toHaveBeenCalledTimes(1);
+  expect(f.accessStore.recordAudit).toHaveBeenCalledWith("connection.heartbeat-timeout", expect.objectContaining({ deviceName: "Phone" }));
   service.setPassword("rotated-password");
   expect(f.accessStore.setPassword).toHaveBeenCalledWith("rotated-password");
   expect(client.close).toHaveBeenCalledWith(1008, "password-changed");

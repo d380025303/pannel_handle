@@ -21,7 +21,7 @@ function toSavedTemplates(sessionStore, terminalManager) {
     id: template.id,
     title: template.title,
     type: template.type,
-    runtimeMode: ["codex", "codebuddy", "opencode"].includes(template.agentProvider) && template.graphicalSessionEnabled !== false ? "app-server" : "terminal",
+    runtimeMode: ["codex", "codebuddy", "opencode", "claude"].includes(template.agentProvider) && template.graphicalSessionEnabled !== false ? "app-server" : "terminal",
     agentProvider: template.agentProvider,
     cwd: template.cwd,
     wslDistro: template.wslDistro,

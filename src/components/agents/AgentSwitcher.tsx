@@ -81,7 +81,7 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
         <div className="agent-switcher-menu" role="menu" aria-label={t("agentSwitch.menu")}>
           {AGENT_PROVIDER_OPTIONS.filter(option => option.value !== session.agentProvider
             && (isLocalSshAgent
-              ? supportsLocalBridge(option.value)
+              ? supportsLocalBridge(option.value) && (option.value !== "claude" || session.runtimeMode === "app-server")
               : !(session.type === "ssh" && (option.value === "copilot" || option.value === "gemini" || option.value === "grok")))).map(option => (
             <button key={option.value} type="button" role="menuitem" onClick={() => void switchTo(option.value)}>
               {option.label}

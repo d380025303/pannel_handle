@@ -10,7 +10,10 @@ html, body, #root { width: 100%; height: 100%; min-height: 0; margin: 0; overflo
 button, textarea { font: inherit; }
 button { color: inherit; }
 
-.app-shell { width: 100%; height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #080d16; }
+.app-shell { position: relative; width: 100%; height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #080d16; }
+.connection-overlay { position: absolute; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: #080d16bb; text-align: center; }
+.connection-overlay > div { max-width: 320px; padding: 20px; border: 1px solid #36506e; border-radius: 12px; background: #101827; }
+.connection-overlay p { color: #a8bdd4; }
 .app-header { min-height: 56px; padding: max(8px, env(safe-area-inset-top)) 12px 8px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #263244; background: #101827; }
 .menu-button { width: 38px; height: 38px; border: 1px solid #334155; border-radius: 10px; background: #172235; font-size: 20px; }
 .app-title { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
