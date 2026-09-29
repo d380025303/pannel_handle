@@ -16,7 +16,7 @@ export function MobileAccessSettings() {
 
   const applyState = (next: MobileAccessState) => {
     setState(next);
-    setInterfaceName(next.config.interfaceName || next.interfaces[0]?.name || "");
+    setInterfaceName(next.config.interfaceName);
     setPort(String(next.config.port));
   };
 
@@ -45,8 +45,15 @@ export function MobileAccessSettings() {
     }
   };
 
-  const saveNetwork = () => void update({ interfaceName, port: Number(port) });
-  const toggleEnabled = (enabled: boolean) => void update({ enabled, interfaceName, port: Number(port) });
+  const interfaceAvailable = Boolean(state?.interfaces.some((item) => item.name === interfaceName));
+  const unavailableInterface = Boolean(interfaceName && !interfaceAvailable);
+  const saveNetwork = () => {
+    if (interfaceAvailable) void update({ interfaceName, port: Number(port) });
+  };
+  const toggleEnabled = (enabled: boolean) => {
+    if (!enabled) void update({ enabled: false });
+    else if (interfaceAvailable) void update({ enabled: true, interfaceName, port: Number(port) });
+  };
 
   const savePassword = async () => {
     setBusy(true);
@@ -72,7 +79,7 @@ export function MobileAccessSettings() {
         <span className={`collapsible-chevron${open ? "" : " collapsed"}`}>▾</span>
         <h4>{t("settings.mobileTitle")}</h4>
         <label className="auto-restore-label ding-talk-toggle" onClick={(event) => event.stopPropagation()}>
-          <input type="checkbox" className="auto-restore-checkbox" checked={state.config.enabled} disabled={busy || !state.config.hasPassword} onChange={(event) => toggleEnabled(event.target.checked)} />
+          <input type="checkbox" className="auto-restore-checkbox" checked={state.config.enabled} disabled={busy || !state.config.hasPassword || (!state.config.enabled && !interfaceAvailable)} onChange={(event) => toggleEnabled(event.target.checked)} />
           <span className="auto-restore-track" />
           <span className="auto-restore-text">{state.running ? t("settings.mobileRunning") : t("settings.mobileStopped")}</span>
         </label>
@@ -87,10 +94,10 @@ export function MobileAccessSettings() {
             {passwordSaved && <small>{t("settings.mobilePasswordSaved")}</small>}
           </div>
           <div className="mobile-access-grid">
-            <label className="settings-field"><span className="modal-label">{t("settings.mobileInterface")}</span><select className="modal-input" value={interfaceName} disabled={busy} onChange={(event) => setInterfaceName(event.target.value)}>{state.interfaces.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.address}</option>)}</select></label>
+            <label className="settings-field"><span className="modal-label">{t("settings.mobileInterface")}</span><select className="modal-input" value={interfaceName} disabled={busy} onChange={(event) => setInterfaceName(event.target.value)}>{!interfaceName && <option value="" disabled>{t("settings.mobileSelectInterface")}</option>}{unavailableInterface && <option value={interfaceName} disabled>{t("settings.mobileUnavailableInterface", { name: interfaceName })}</option>}{state.interfaces.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.address}</option>)}</select></label>
             <label className="settings-field"><span className="modal-label">{t("settings.mobilePort")}</span><input className="modal-input" type="number" min="1024" max="65535" value={port} disabled={busy} onChange={(event) => setPort(event.target.value)} /></label>
           </div>
-          <div className="ding-talk-actions"><button className="modal-button" type="button" disabled={busy || !interfaceName} onClick={saveNetwork}>{t("common.save")}</button></div>
+          <div className="ding-talk-actions"><button className="modal-button" type="button" disabled={busy || !interfaceAvailable} onClick={saveNetwork}>{t("common.save")}</button></div>
           {state.running && <div className="mobile-access-addresses">{state.canonicalUrl && <code>{state.canonicalUrl}</code>}{state.fallbackUrl && <code>{state.fallbackUrl}</code>}<code>{state.localUrl}</code></div>}
           {state.running && <p className="settings-help">{state.fallbackUrl ? t("settings.mobileOpenHint") : t("settings.mobileLocalOpenHint")}</p>}
           {state.lastError && <p className="ding-talk-result error">{state.lastError}</p>}

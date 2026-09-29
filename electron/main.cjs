@@ -72,6 +72,7 @@ const { createSessionStore } = require("./stores/session-store.cjs");
 const { createBusinessDataStore } = require("./stores/business-data-store.cjs");
 const { createTemplateUsageStore } = require("./stores/template-usage-store.cjs");
 const { createTerminalManager, getDefaultShell, getWslShell } = require("./terminal/terminal-manager.cjs");
+const { createSessionShellService } = require("./terminal/session-shell-service.cjs");
 
 let windowManager = null;
 let sessionStore = null;
@@ -96,6 +97,7 @@ let codexModelBridgeModule = null;
 let dingTalkConfigStore = null;
 let knownHostStore = null;
 let terminalManager = null;
+let sessionShellService = null;
 let agentHookServer = null;
 let remoteFilesModule = null;
 let remoteSystemService = null;
@@ -242,6 +244,7 @@ if (!gotSingleInstanceLock) {
         }
       },
       onSessionClosed: (id) => {
+        sessionShellService?.close(id);
         codexAppServerSessionService?.close(id);
         void codexWorkspaceTrustService?.release(id).catch(error => console.error("Codex workspace trust cleanup failed:", error));
         if (agentNotificationManager) {
@@ -267,6 +270,10 @@ if (!gotSingleInstanceLock) {
           codexModelBridgeModule.disconnect(id);
         }
       }
+    });
+    sessionShellService = createSessionShellService({
+      terminalManager, environmentService, sessionStore, knownHostStore,
+      broadcast: (channel, payload) => windowManager.broadcast(channel, payload)
     });
     questionAnswerStore = createQuestionAnswerStore({ userData: app.getPath("userData") });
     diagnosticsStore = createDiagnosticsStore({ userData: app.getPath("userData") });
@@ -556,6 +563,7 @@ if (!gotSingleInstanceLock) {
     registerIpcHandlers({
       environmentService,
       terminalManager,
+      sessionShellService,
       mobileRemoteService,
       agentSessionLauncher,
       sessionStore,
@@ -612,6 +620,7 @@ app.on("window-all-closed", () => {
   if (terminalManager) {
     terminalManager.shutdown();
   }
+  sessionShellService?.shutdown();
   if (remoteFilesModule) {
     void remoteFilesModule.shutdown();
   }

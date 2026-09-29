@@ -299,6 +299,23 @@ contextBridge.exposeInMainWorld("terminalApi", {
   chooseTerminalBackgroundImage: () => ipcRenderer.invoke("terminal-background:choose-image")
 });
 
+contextBridge.exposeInMainWorld("sessionShellApi", {
+  open: (id, ownerToken) => ipcRenderer.invoke("session-shell:open", id, ownerToken),
+  close: (id, ownerToken) => ipcRenderer.invoke("session-shell:close", id, ownerToken),
+  write: (id, generation, data) => ipcRenderer.send("session-shell:write", { id, generation, data }),
+  resize: (id, generation, cols, rows) => ipcRenderer.send("session-shell:resize", { id, generation, cols, rows }),
+  onData: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("session-shell:data", listener);
+    return () => ipcRenderer.removeListener("session-shell:data", listener);
+  },
+  onExit: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("session-shell:exit", listener);
+    return () => ipcRenderer.removeListener("session-shell:exit", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("screenshotApi", {
   captureRegion: () => ipcRenderer.invoke("screenshot:capture-region")
 });

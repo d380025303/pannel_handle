@@ -130,6 +130,8 @@ export type TranslationKey =
   | "settings.mobileStopped"
   | "settings.mobileHttpWarning"
   | "settings.mobileInterface"
+  | "settings.mobileSelectInterface"
+  | "settings.mobileUnavailableInterface"
   | "settings.mobilePort"
   | "settings.mobilePassword"
   | "settings.mobileSetPassword"
@@ -667,6 +669,7 @@ export type TranslationKey =
   | "tabs.files"
   | "tabs.git"
   | "tabs.terminal"
+  | "tabs.closeSessionShell"
   | "tabs.workspace"
   | "tabs.debug"
   | "tabs.conversation"
@@ -1132,6 +1135,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileStopped": "已停止",
     "settings.mobileHttpWarning": "当前使用 HTTP 明文传输，移动访问密码也会经局域网明文发送。只能在可信私人局域网中启用，禁止映射到互联网。",
     "settings.mobileInterface": "局域网网卡",
+    "settings.mobileSelectInterface": "请选择局域网网卡",
+    "settings.mobileUnavailableInterface": "{name}（不可用，请重新选择）",
     "settings.mobilePort": "端口",
     "settings.mobilePassword": "移动访问密码（8–128 个字符）",
     "settings.mobileSetPassword": "设置密码",
@@ -1669,6 +1674,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.files": "文件",
     "tabs.git": "Git",
     "tabs.terminal": "终端",
+    "tabs.closeSessionShell": "关闭会话终端",
     "tabs.workspace": "工作区标签",
     "tabs.debug": "Debug",
     "tabs.conversation": "对话",
@@ -2126,6 +2132,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileStopped": "Stopped",
     "settings.mobileHttpWarning": "Traffic, including the mobile access password, is sent over unencrypted HTTP. Enable this only on a trusted private LAN and never expose it to the Internet.",
     "settings.mobileInterface": "LAN adapter",
+    "settings.mobileSelectInterface": "Select a LAN adapter",
+    "settings.mobileUnavailableInterface": "{name} (unavailable, select another)",
     "settings.mobilePort": "Port",
     "settings.mobilePassword": "Mobile access password (8–128 characters)",
     "settings.mobileSetPassword": "Set password",
@@ -2663,6 +2671,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.files": "Files",
     "tabs.git": "Git",
     "tabs.terminal": "Terminal",
+    "tabs.closeSessionShell": "Close session terminal",
     "tabs.workspace": "Workspace tabs",
     "tabs.debug": "Debug",
     "tabs.conversation": "Conversation",

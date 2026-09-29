@@ -1,7 +1,7 @@
 import type { EnvironmentSelection } from "./vite-env";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SetStateAction } from "react";
-import { ArrowDownToLine, FileText, Search, Terminal as TerminalIcon, X } from "lucide-react";
+import { ArrowDownToLine, FileText, MessageSquare, Search, Terminal as TerminalIcon, X } from "lucide-react";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { CreateSessionModal } from "./components/sessions/CreateSessionModal";
 import { DebugSidebar } from "./components/agents/DebugSidebar";
@@ -26,6 +26,7 @@ import { SessionPickerModal } from "./components/sessions/SessionPickerModal";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
 import { getAgentProviderLabel } from "./components/sessions/agentProviders";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
+import { SessionShellPanel } from "./components/terminal/SessionShellPanel";
 import { TerminalComposer } from "./components/terminal/TerminalComposer";
 import { QuickCommandBar } from "./components/terminal/QuickCommandBar";
 import { ProjectSearchModal } from "./components/remote/ProjectSearchModal";
@@ -59,7 +60,7 @@ import type { CreateSessionRequest } from "./components/sessions/CreateSessionMo
 import type { AgentHookDebugPayload, AgentLocation, AgentProvider, AgentModelSource, CodexBackend, FileTransferTask, Locale, MobileAccessState, QuickCommand, SshConfig, TerminalSession, ThemeId } from "./vite-env";
 
 type ProjectSearchMode = "files" | "text";
-type WorkspaceTab = "terminal" | "preview" | "search" | "transfers";
+type WorkspaceTab = "terminal" | "session-shell" | "preview" | "search" | "transfers";
 const emptyDraftReferences: CodexCapabilityReference[] = [];
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -140,6 +141,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [hookDebugEvents, setHookDebugEvents] = useState<AgentHookDebugPayload[]>([]);
   const [remoteFilesDirty, setRemoteFilesDirty] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("terminal");
+  const [openedShellIds, setOpenedShellIds] = useState<Set<string>>(() => new Set());
   const [previewTabs, setPreviewTabs] = useState<RemotePreviewTabSummary[]>([]);
   const [activePreviewTabId, setActivePreviewTabId] = useState<string | null>(null);
   const [closePreviewRequest, setClosePreviewRequest] = useState<{ tabId: string; requestId: number } | null>(null);
@@ -199,6 +201,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const isAppServerSession = terminalSessions.activeSession?.runtimeMode === "app-server";
   const appServerFooter = useCodexAppServerFooter(isAppServerSession ? terminalSessions.activeId : undefined);
   const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
+  useEffect(() => {
+    if (workspaceTab === "session-shell" && (!isAppServerSession || !terminalSessions.activeId || !openedShellIds.has(terminalSessions.activeId))) {
+      setWorkspaceTab("terminal");
+    }
+  }, [workspaceTab, isAppServerSession, terminalSessions.activeId, openedShellIds]);
   const terminalTheme = useMemo(() => (
     terminalBackgroundImage
       ? { ...activeTheme.terminal, background: "#00000000" }
@@ -497,6 +504,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       await Promise.all(fileTransfers.filter((task) => task.sessionId === id && (task.status === "queued" || task.status === "running")).map((task) => window.fileTransferApi.cancel(task.id)));
     }
     await terminalSessions.closeSession(id);
+    setOpenedShellIds(current => { const next = new Set(current); next.delete(id); return next; });
+    workspaceTabBySessionRef.current.delete(id);
+    if (id === terminalSessions.activeId && workspaceTabRef.current === "session-shell") setWorkspaceTab("terminal");
     terminalInstances.disposeTerminal(id);
   }, [fileTransfers, remoteFilesDirty, terminalInstances, terminalSessions, t]);
 
@@ -509,9 +519,9 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       workspaceTabBySessionRef.current.set(outgoingId, workspaceTabRef.current);
     }
     const cached = workspaceTabBySessionRef.current.get(id);
-    setWorkspaceTab(cached ?? "terminal");
+    setWorkspaceTab(cached === "session-shell" && !openedShellIds.has(id) ? "terminal" : cached ?? "terminal");
     terminalSessions.setActiveId(id);
-  }, [terminalSessions]);
+  }, [openedShellIds, terminalSessions]);
 
   useEffect(() => {
     return window.terminalApi.onSessionSelectRequested(({ id }) => {
@@ -763,7 +773,12 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowMcp(false);
             setShowProjectAssistant(false);
             setShowIdea(false);
-            setWorkspaceTab("terminal");
+            if (isAppServerSession && terminalSessions.activeId) {
+              setOpenedShellIds(current => new Set(current).add(terminalSessions.activeId!));
+              setWorkspaceTab("session-shell");
+            } else {
+              setWorkspaceTab("terminal");
+            }
           }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -866,9 +881,41 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 aria-selected={workspaceTab === "terminal"}
                 onClick={() => setWorkspaceTab("terminal")}
               >
-                <TerminalIcon aria-hidden="true" />
-                <span>{t("tabs.terminal")}</span>
+                {isAppServerSession ? <MessageSquare aria-hidden="true" /> : <TerminalIcon aria-hidden="true" />}
+                <span>{t(isAppServerSession ? "tabs.conversation" : "tabs.terminal")}</span>
               </button>
+              {isAppServerSession && terminalSessions.activeId && (
+                <div
+                  className={`workspace-tab file-tab ${workspaceTab === "session-shell" ? "active" : ""}`}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={workspaceTab === "session-shell"}
+                  onClick={() => {
+                    setOpenedShellIds(current => new Set(current).add(terminalSessions.activeId!));
+                    setWorkspaceTab("session-shell");
+                  }}
+                  onKeyDown={event => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setOpenedShellIds(current => new Set(current).add(terminalSessions.activeId!));
+                      setWorkspaceTab("session-shell");
+                    }
+                  }}
+                >
+                  <TerminalIcon aria-hidden="true" />
+                  <span>{t("tabs.terminal")}</span>
+                  {openedShellIds.has(terminalSessions.activeId) && <button className="workspace-tab-close" type="button" title={t("tabs.closeSessionShell")} aria-label={t("tabs.closeSessionShell")}
+                    onKeyDown={event => event.stopPropagation()}
+                    onClick={event => {
+                      event.stopPropagation();
+                      const id = terminalSessions.activeId!;
+                      void window.sessionShellApi.close(id, "");
+                      setOpenedShellIds(current => { const next = new Set(current); next.delete(id); return next; });
+                      if (workspaceTab === "session-shell") setWorkspaceTab("terminal");
+                      workspaceTabBySessionRef.current.set(id, "terminal");
+                    }}><X aria-hidden="true" /></button>}
+                </div>
+              )}
               {previewTabs.map((tab) => (
                 <div
                   className={`workspace-tab file-tab ${workspaceTab === "preview" && activePreviewTabId === tab.id ? "active" : ""}`}
@@ -1021,6 +1068,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   </div>
                 </footer>}
               </div>
+              {terminalSessions.sessions.filter(session => session.runtimeMode === "app-server" && openedShellIds.has(session.id)).map(session => (
+                <SessionShellPanel key={session.id} sessionId={session.id} theme={terminalTheme}
+                  visible={workspaceTab === "session-shell" && terminalSessions.activeId === session.id} />
+              ))}
               <div
                 className="workspace-preview"
                 ref={setPreviewHost}

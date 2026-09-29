@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -304,6 +304,12 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   });
 
   ipcMain.handle("terminal:history", (_event, id) => terminalManager.getHistory(id));
+  if (sessionShellService) {
+    ipcMain.handle("session-shell:open", (_event, id, ownerToken) => sessionShellService.open(String(id || ""), String(ownerToken || "")));
+    ipcMain.handle("session-shell:close", (_event, id, ownerToken) => sessionShellService.close(String(id || ""), String(ownerToken || "")));
+    ipcMain.on("session-shell:write", (_event, { id, generation, data }) => sessionShellService.write(String(id || ""), generation, data));
+    ipcMain.on("session-shell:resize", (_event, { id, generation, cols, rows }) => sessionShellService.resize(String(id || ""), generation, cols, rows));
+  }
 
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
   ipcMain.handle("remote-agent:approval-list", () => remoteAgentBridgeService.listPendingApprovals());

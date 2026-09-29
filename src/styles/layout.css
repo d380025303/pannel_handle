@@ -63,9 +63,37 @@
 }
 
 .workspace-content > .terminal-area,
+.workspace-content > .session-shell-panel,
 .workspace-content > .workspace-preview,
 .workspace-content > .workspace-search {
   grid-area: 1 / 1;
+}
+
+.session-shell-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  margin-bottom: 8px;
+  background: var(--color-bg-app);
+}
+
+.session-shell-host {
+  position: absolute;
+  inset: 0;
+}
+
+.session-shell-notice {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
 }
 
 .workspace-preview {

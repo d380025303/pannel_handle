@@ -73,4 +73,64 @@ describe("MobileAccessSettings", () => {
     expect(screen.getByText("选择的局域网网卡不可用，请重新选择。")).toBeTruthy();
     expect(screen.getByText(/当前仅可在本机打开/)).toBeTruthy();
   });
+
+  it("shows an unavailable saved adapter instead of silently selecting the first available one", async () => {
+    vi.mocked(window.mobileAccessApi.getState).mockResolvedValueOnce({
+      ...mobileAccessState,
+      config: { ...mobileAccessState.config, interfaceName: "WLAN 2" }
+    });
+    render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
+
+    const select = await screen.findByLabelText("局域网网卡") as HTMLSelectElement;
+    expect(select.value).toBe("WLAN 2");
+    expect(screen.getByRole("option", { name: "WLAN 2（不可用，请重新选择）" }).hasAttribute("disabled")).toBe(true);
+    const save = screen.getByRole("button", { name: "保存" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(window.mobileAccessApi.updateConfig).not.toHaveBeenCalled();
+
+    vi.mocked(window.mobileAccessApi.updateConfig).mockResolvedValueOnce(mobileAccessState);
+    fireEvent.change(select, { target: { value: "Ethernet" } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(window.mobileAccessApi.updateConfig).toHaveBeenCalledWith({ interfaceName: "Ethernet", port: 6174 }));
+  });
+
+  it("shows a placeholder and prevents enabling until an adapter is selected", async () => {
+    vi.mocked(window.mobileAccessApi.getState).mockResolvedValueOnce({
+      ...mobileAccessState,
+      config: { ...mobileAccessState.config, enabled: false, interfaceName: "" }
+    });
+    render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
+
+    const select = await screen.findByLabelText("局域网网卡") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(screen.getByRole("option", { name: "请选择局域网网卡" }).hasAttribute("disabled")).toBe(true);
+    const enabled = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(enabled.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
+
+    vi.mocked(window.mobileAccessApi.updateConfig).mockResolvedValueOnce(mobileAccessState);
+    fireEvent.change(select, { target: { value: "Ethernet" } });
+    expect(enabled.disabled).toBe(false);
+    fireEvent.click(enabled);
+    await waitFor(() => expect(window.mobileAccessApi.updateConfig).toHaveBeenCalledWith({ enabled: true, interfaceName: "Ethernet", port: 6174 }));
+  });
+
+  it("allows disabling access without resubmitting an unavailable adapter", async () => {
+    vi.mocked(window.mobileAccessApi.getState).mockResolvedValueOnce({
+      ...mobileAccessState,
+      config: { ...mobileAccessState.config, interfaceName: "WLAN 2" }
+    });
+    vi.mocked(window.mobileAccessApi.updateConfig).mockResolvedValueOnce({
+      ...mobileAccessState,
+      config: { ...mobileAccessState.config, enabled: false, interfaceName: "WLAN 2" }
+    });
+    render(<I18nProvider locale="zh-CN"><MobileAccessSettings /></I18nProvider>);
+
+    const enabled = await screen.findByRole("checkbox") as HTMLInputElement;
+    expect(enabled.disabled).toBe(false);
+    fireEvent.click(enabled);
+    await waitFor(() => expect(window.mobileAccessApi.updateConfig).toHaveBeenCalledWith({ enabled: false }));
+  });
 });

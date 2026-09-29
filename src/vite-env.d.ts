@@ -1239,6 +1239,15 @@ export type TerminalApi = {
   >;
 };
 
+export type SessionShellApi = {
+  open: (id: string, ownerToken: string) => Promise<{ generation: number; history: string; seq: number }>;
+  close: (id: string, ownerToken: string) => Promise<void>;
+  write: (id: string, generation: number, data: string) => void;
+  resize: (id: string, generation: number, cols: number, rows: number) => void;
+  onData: (callback: (payload: { id: string; generation: number; seq: number; data: string }) => void) => () => void;
+  onExit: (callback: (payload: { id: string; generation: number; exitCode: number }) => void) => () => void;
+};
+
 export type WindowApi = {
   minimize: () => void;
   toggleMaximize: () => void;
@@ -1534,6 +1543,7 @@ declare global {
     openCodeVersionApi: OpenCodeVersionApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
+    sessionShellApi: SessionShellApi;
     screenshotApi: ScreenshotApi;
     agentConversationApi: AgentConversationApi;
     launchTemplateApi: LaunchTemplateApi;

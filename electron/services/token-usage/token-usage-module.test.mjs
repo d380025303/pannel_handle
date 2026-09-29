@@ -86,10 +86,10 @@ describe("token usage module", () => {
     expect([...harness.ipcMain.handlers.keys()]).toContain("agent-token-stats:get");
     expect([...harness.ipcMain.listeners.keys()]).toContain("agent-usage:cancel");
 
-    expect(harness.ipcMain.handlers.get("agent-usage:get")({}, {
+    await expect(harness.ipcMain.handlers.get("agent-usage:get")({}, {
       sessionId: "panel-1",
       force: 1
-    })).toEqual({ sessionId: "panel-1", options: { force: true } });
+    })).resolves.toEqual({ sessionId: "panel-1", options: { force: true } });
     expect(harness.ipcMain.handlers.get("agent-token-stats:clear")()).toBe(true);
     expect(harness.statsStore.clear).toHaveBeenCalledTimes(1);
 
