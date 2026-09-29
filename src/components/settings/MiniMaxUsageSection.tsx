@@ -3,7 +3,7 @@ import { LoaderCircle, RefreshCw } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { MiniMaxUsageSnapshot } from "../../vite-env";
 
-type MiniMaxUsageSectionProps = { hasApiKey: boolean };
+type MiniMaxUsageSectionProps = { hasApiKey: boolean; defaultExpanded?: boolean };
 
 type MiniMaxUsageState =
   | { status: "idle" }
@@ -30,10 +30,10 @@ function formatTimestamp(locale: string, timestamp: number) {
   }).format(timestamp);
 }
 
-export function MiniMaxUsageSection({ hasApiKey }: MiniMaxUsageSectionProps) {
+export function MiniMaxUsageSection({ hasApiKey, defaultExpanded = false }: MiniMaxUsageSectionProps) {
   const { locale, t } = useI18n();
   const [usage, setUsage] = useState<MiniMaxUsageState>({ status: "idle" });
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [refreshing, setRefreshing] = useState(false);
   const requestRef = useRef(0);
 

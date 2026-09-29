@@ -61,12 +61,12 @@ export function TitleBarActionSettings({ order, hidden, screenshotEnabled, onCha
         </span>
         <span className="titlebar-action-name">{labels.get(id)}</span>
         {id === "screenshot" && !screenshotEnabled && <span className="settings-help">{t("settings.titleBarScreenshotUnavailable")}</span>}
-        <label className="titlebar-action-visibility">
+        {id !== "settings" && <label className="titlebar-action-visibility">
           <input type="checkbox" checked={!hidden.includes(id)} disabled={busy}
             aria-label={t("settings.titleBarShow", { name: labels.get(id) ?? id })}
             onChange={event => void save({ titleBarHiddenActions: event.target.checked ? hidden.filter(item => item !== id) : [...hidden, id] })} />
           <span>{t("settings.titleBarVisible")}</span>
-        </label>
+        </label>}
       </div>)}
     </div>
     {error && <p className="settings-result error" role="alert">{t("settings.titleBarSaveFailed")}: {error}</p>}

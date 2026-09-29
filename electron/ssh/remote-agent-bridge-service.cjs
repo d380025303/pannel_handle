@@ -778,6 +778,7 @@ function createRemoteAgentBridgeService({
     bindingsBySession.set(sessionId, binding);
     return {
       workspacePath,
+      managedWorkspace,
       developerInstructions,
       runtimeInstructions,
       url: `http://127.0.0.1:${port}/mcp`,

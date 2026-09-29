@@ -345,13 +345,17 @@ contextBridge.exposeInMainWorld("agentUsageApi", {
   getCodeBuddyUsage: (options) => ipcRenderer.invoke("agent-usage:get-codebuddy", {
     force: Boolean(options?.force)
   }),
+  getCodexUsage: (options) => ipcRenderer.invoke("agent-usage:get-codex", {
+    force: Boolean(options?.force)
+  }),
   consumeResetCredit: (sessionId, creditId, idempotencyKey) => ipcRenderer.invoke("agent-usage:consume-reset-credit", {
     sessionId,
     creditId,
     idempotencyKey
   }),
   cancel: (sessionId) => ipcRenderer.send("agent-usage:cancel", { sessionId }),
-  cancelCodeBuddyUsage: () => ipcRenderer.send("agent-usage:cancel-codebuddy")
+  cancelCodeBuddyUsage: () => ipcRenderer.send("agent-usage:cancel-codebuddy"),
+  cancelCodexUsage: () => ipcRenderer.send("agent-usage:cancel-codex")
 });
 
 contextBridge.exposeInMainWorld("workBuddyCheckinApi", {
@@ -412,6 +416,31 @@ contextBridge.exposeInMainWorld("remoteAgentApi", {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("remote-agent:approval-resolved", listener);
     return () => ipcRenderer.removeListener("remote-agent:approval-resolved", listener);
+  }
+});
+
+contextBridge.exposeInMainWorld("codexWorkspaceTrustApi", {
+  listPending: () => ipcRenderer.invoke("codex-workspace-trust:list"),
+  trustProject: id => ipcRenderer.invoke("codex-workspace-trust:project", id),
+  openHooks: id => ipcRenderer.invoke("codex-workspace-trust:open-hooks", id),
+  write: (id, data) => ipcRenderer.invoke("codex-workspace-trust:write", id, data),
+  resize: (id, cols, rows) => ipcRenderer.invoke("codex-workspace-trust:resize", id, cols, rows),
+  finish: id => ipcRenderer.invoke("codex-workspace-trust:finish", id),
+  cancel: id => ipcRenderer.invoke("codex-workspace-trust:cancel", id),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("codex-workspace-trust:changed", listener);
+    return () => ipcRenderer.removeListener("codex-workspace-trust:changed", listener);
+  },
+  onOutput: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("codex-workspace-trust:output", listener);
+    return () => ipcRenderer.removeListener("codex-workspace-trust:output", listener);
+  },
+  onResolved: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("codex-workspace-trust:resolved", listener);
+    return () => ipcRenderer.removeListener("codex-workspace-trust:resolved", listener);
   }
 });
 

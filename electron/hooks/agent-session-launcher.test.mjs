@@ -1116,6 +1116,27 @@ describe("agent-session-launcher", () => {
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(2);
   });
 
+  it("waits for graphical trust before starting a managed local SSH Codex App Server", async () => {
+    let approve;
+    const codexWorkspaceTrustService = { request: vi.fn(() => new Promise(resolve => { approve = resolve; })) };
+    const remoteAgentBridgeService = {
+      createBinding: vi.fn(async () => ({ workspacePath: "C:\\runtime\\run-1", managedWorkspace: true,
+        url: "http://127.0.0.1:4568/mcp", token: "secret-token", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN" })),
+      closeBinding: vi.fn(async () => {})
+    };
+    const codexAppServerSessionService = { start: vi.fn(async () => ({})) };
+    const mocks = createMocks({ remoteAgentBridgeService, codexAppServerSessionService, codexWorkspaceTrustService });
+    const launch = mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex",
+      agentLocation: "local", graphicalSessionEnabled: true, sshConfig: { host: "example.com" } });
+    await vi.waitFor(() => expect(codexWorkspaceTrustService.request).toHaveBeenCalledWith({
+      sessionId: "run-1", title: undefined, workspacePath: "C:\\runtime\\run-1"
+    }));
+    expect(codexAppServerSessionService.start).not.toHaveBeenCalled();
+    approve();
+    await launch;
+    expect(codexAppServerSessionService.start).toHaveBeenCalledOnce();
+  });
+
   it("cleans up a local bridge when its App Server fails to start", async () => {
     const remoteAgentBridgeService = {
       createBinding: vi.fn(async () => ({ workspacePath: "C:\\runtime\\run-1", url: "http://127.0.0.1:4568/mcp",

@@ -321,6 +321,12 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
     modeIdRef.current = action({ type: "graphical.native-mode", modeId }) || null;
     if (modeIdRef.current) setChangingMode(true);
   };
+  const executeOpenCodePlan = (itemId: string) => {
+    if (!snapshot || changingMode || modeIdRef.current || openCodePlanReplyId(snapshot) !== itemId) return;
+    setError("");
+    modeIdRef.current = action({ type: "graphical.plan", itemId, execute: true }) || null;
+    if (modeIdRef.current) setChangingMode(true);
+  };
   const switchAgent = (provider: AgentProvider) => {
     if (!snapshot || snapshot.busy || snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo
       || provider === snapshot.provider) return;
@@ -399,12 +405,12 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
             <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div>
             {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}>📎 {file.name}</span>)}</div> : null}
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
-              <button type="button" className="primary" disabled={changingMode} onClick={() => changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+              <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
             </div>}</article>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;
         if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p key={index}>{step.status === "completed" ? "✓" : "•"} {step.step}</p>)}
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
-            <button type="button" className="primary" disabled={changingMode} onClick={() => changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+            <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
           </div>}</article>;
         if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
         return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong></article>;

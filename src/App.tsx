@@ -17,6 +17,7 @@ import { GraphicalSessionPanel } from "./components/agents/GraphicalSessionPanel
 import type { CodexCapabilityReference } from "./vite-env";
 import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
+import { CodexWorkspaceTrustDialog } from "./components/agents/CodexWorkspaceTrustDialog";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
 import { GitStatusPanel } from "./components/git/GitStatusPanel";
 import { IdeaRunPanel } from "./components/idea/IdeaRunPanel";
@@ -34,7 +35,7 @@ import { resolveCodexFileLink } from "./utils/codexFileLink";
 import { RemoteSystemStatus } from "./components/remote/RemoteSystemStatus";
 import { RemoteSystemPanel } from "./components/remote/RemoteSystemPanel";
 import { TitleBar } from "./components/app/TitleBar";
-import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "./components/app/titleBarActions";
+import { DEFAULT_TITLE_BAR_ACTION_ORDER, withSettingsAction } from "./components/app/titleBarActions";
 import type { TitleBarActionId } from "./components/app/titleBarActions";
 import { SkillsManager } from "./components/skills/SkillsManager";
 import { McpManager } from "./components/mcp/McpManager";
@@ -115,6 +116,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showSkills, setShowSkills] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [showProjectAssistant, setShowProjectAssistant] = useState(false);
+  const [showIdea, setShowIdea] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
@@ -225,7 +227,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [showSettingsModal]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
-    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant),
+    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant || showIdea),
     terminalTheme,
     sessions: terminalSessions.sessions
   });
@@ -338,7 +340,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setDebugMode(config.debugMode);
         setScreenshotEnabled(config.screenshotEnabled);
         setScreenshotShortcut(config.screenshotShortcut);
-        setTitleBarActionOrder(config.titleBarActionOrder);
+        setTitleBarActionOrder(withSettingsAction(config.titleBarActionOrder));
         setTitleBarHiddenActions(config.titleBarHiddenActions);
         setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
         setAutoCollapseFileChains(config.autoCollapseFileChains);
@@ -476,6 +478,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       setShowSkills(false);
       setShowMcp(false);
       setShowProjectAssistant(false);
+      setShowIdea(false);
       setMcpDirty(false);
       setWorkspaceTab("terminal");
     } catch (err: any) {
@@ -680,7 +683,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const handleTitleBarActionsChange = useCallback(async (change: { titleBarActionOrder?: TitleBarActionId[]; titleBarHiddenActions?: TitleBarActionId[] }) => {
     const config = await window.terminalApi.setConfig(change);
-    setTitleBarActionOrder(config.titleBarActionOrder);
+    setTitleBarActionOrder(withSettingsAction(config.titleBarActionOrder));
     setTitleBarHiddenActions(config.titleBarHiddenActions);
   }, []);
 
@@ -705,7 +708,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   useEffect(() => {
     if (!terminalSessions.activeSession) {
       if (rightTool === "files" || rightTool === "git" || rightTool === "monitor") {
-        setRightTool(debugMode ? "debug" : "idea");
+        setRightTool(debugMode ? "debug" : "conversation");
       }
       return;
     }
@@ -721,12 +724,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
   const showFilesPanel = Boolean(terminalSessions.activeSession);
   const showMonitorPanel = terminalSessions.activeSession?.type === "ssh";
-  const showIdeaPanel = terminalSessions.activeSession?.type !== "ssh";
   const showRightTools = true;
   const activeRightTool: RightTool = resolveRightTool(rightTool, {
     hasSession: showFilesPanel,
     showMonitor: showMonitorPanel,
-    showIdea: showIdeaPanel,
     debugMode
   });
 
@@ -744,7 +745,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showTokenStats ? t("tokenStats.title") : terminalSessions.activeSession?.title}
+          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
@@ -761,6 +762,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowSkills(false);
             setShowMcp(false);
             setShowProjectAssistant(false);
+            setShowIdea(false);
             setWorkspaceTab("terminal");
           }}
           onOpenStats={() => {
@@ -769,6 +771,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowMcp(false);
             setShowTokenStats(true);
             setShowProjectAssistant(false);
+            setShowIdea(false);
           }}
           onOpenSkills={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -776,12 +779,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowMcp(false);
             setShowSkills(true);
             setShowProjectAssistant(false);
+            setShowIdea(false);
           }}
           onOpenMcp={() => {
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
             setShowProjectAssistant(false);
+            setShowIdea(false);
           }}
           onOpenProjectAssistant={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -789,6 +794,14 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowSkills(false);
             setShowMcp(false);
             setShowProjectAssistant(true);
+            setShowIdea(false);
+          }}
+          onOpenIdea={() => {
+            setShowTokenStats(false);
+            setShowSkills(false);
+            setShowMcp(false);
+            setShowProjectAssistant(false);
+            setShowIdea(true);
           }}
         />
         {terminalSessions.startupError && (
@@ -818,6 +831,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
 
         {showTokenStats && <AgentTokenStatsDashboard />}
         {showSkills && <SkillsManager />}
+        {showIdea && <IdeaRunPanel />}
         {showProjectAssistant && <ProjectAssistantPage initialSessionId={terminalSessions.activeSession?.agentProvider === "codex" ? terminalSessions.activeSession.id : undefined} />}
         {showMcp && (
           <McpManager
@@ -826,7 +840,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant ? "none" : undefined }}>
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant || showIdea ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}
@@ -1086,17 +1100,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <span>{t("tabs.conversation")}</span>
                     {agentConversation.unread && <span className="right-tool-unread" aria-label={t("conversation.unread")} />}
                   </button>
-                  {showIdeaPanel && (
-                    <button
-                      className={activeRightTool === "idea" ? "active" : ""}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeRightTool === "idea"}
-                      onClick={() => handleRightToolChange("idea")}
-                    >
-                      {t("tabs.idea")}
-                    </button>
-                  )}
                   {debugMode && (
                     <button
                       className={activeRightTool === "debug" ? "active" : ""}
@@ -1152,8 +1155,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                 />
               ) : activeRightTool === "conversation" ? (
                 <AgentConversationPanel snapshot={agentConversation.snapshot} session={terminalSessions.activeSession} />
-              ) : activeRightTool === "idea" ? (
-                <IdeaRunPanel />
               ) : (
                 <DebugSidebar
                   events={hookDebugEvents}
@@ -1168,6 +1169,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       </div>
 
       <RemoteAgentApprovalCard sessions={terminalSessions.sessions} />
+      <CodexWorkspaceTrustDialog />
 
       {showCreateModal && (
         <CreateSessionModal

@@ -306,6 +306,7 @@ function createAgentSessionLauncher({
   sshSessionRuntime,
   sshHookTunnelService,
   remoteAgentBridgeService,
+  codexWorkspaceTrustService,
   openRouterService,
   naraRouterService,
   miniMaxService,
@@ -646,6 +647,10 @@ function createAgentSessionLauncher({
       const preCommand = String(session.initialCommand || "").trim();
       if (preCommand) await remoteAgentBridgeService.runConfiguredCommand(session.id, preCommand);
       if (session.agentProvider !== "claude" && session.agentProvider !== "qoder") await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
+      if (session.agentProvider === "codex" && binding.managedWorkspace) {
+        if (!codexWorkspaceTrustService) throw new Error("Codex 工作区信任服务不可用。");
+        await codexWorkspaceTrustService.request({ sessionId: session.id, title: session.title, workspacePath: binding.workspacePath });
+      }
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions : undefined;
       const openCodeConfig = session.agentProvider === "opencode" ? buildLocalOpenCodeConfig(binding) : undefined;

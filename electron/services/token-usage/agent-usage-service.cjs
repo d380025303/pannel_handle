@@ -16,6 +16,7 @@ const INITIALIZE_REQUEST_ID = "pannel-handle-initialize";
 const RATE_LIMITS_REQUEST_ID = "pannel-handle-rate-limits";
 const RESET_CREDIT_REQUEST_ID = "pannel-handle-reset-credit";
 const SETTINGS_CODEBUDDY_SESSION_ID = "settings:codebuddy-usage";
+const SETTINGS_CODEX_SESSION_ID = "settings:codex-usage";
 const RESET_CREDIT_OUTCOMES = new Set(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]);
 
 function canceledUsageError() {
@@ -563,8 +564,20 @@ function createAgentUsageService({
     }, options);
   }
 
+  function getCodexUsage(options = {}) {
+    return getUsageForSession({
+      id: SETTINGS_CODEX_SESSION_ID,
+      type: "windows",
+      agentProvider: "codex"
+    }, options);
+  }
+
   function cancelCodeBuddyUsage() {
     disconnect(SETTINGS_CODEBUDDY_SESSION_ID);
+  }
+
+  function cancelCodexUsage() {
+    disconnect(SETTINGS_CODEX_SESSION_ID);
   }
 
   function consumeResetCredit(sessionId, options = {}) {
@@ -655,7 +668,7 @@ function createAgentUsageService({
     cacheKeysBySessionId.clear();
   }
 
-  return { cancelCodeBuddyUsage, consumeResetCredit, disconnect, getCodeBuddyUsage, getUsage, shutdown };
+  return { cancelCodeBuddyUsage, cancelCodexUsage, consumeResetCredit, disconnect, getCodeBuddyUsage, getCodexUsage, getUsage, shutdown };
 }
 
 module.exports = {

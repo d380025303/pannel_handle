@@ -15,6 +15,7 @@ const { createAgentHookServer } = require("./hooks/agent-hook-server.cjs");
 const { createAgentSessionLauncher } = require("./hooks/agent-session-launcher.cjs");
 const { createHookConfigManager } = require("./hooks/hook-config-manager.cjs");
 const { createRemoteHookConfigService } = require("./hooks/remote-hook-config-service.cjs");
+const { createCodexWorkspaceTrustService } = require("./hooks/codex-workspace-trust-service.cjs");
 const { createAgentNotificationManager } = require("./notifications/agent-notification-manager.cjs");
 const { createDingTalkNotificationManager } = require("./notifications/ding-talk-notification-manager.cjs");
 const { createClipboardImageService } = require("./services/clipboard/index.cjs");
@@ -101,6 +102,7 @@ let remoteSystemService = null;
 let skillsService = null;
 let mcpConfigService = null;
 let remoteAgentBridgeService = null;
+let codexWorkspaceTrustService = null;
 let tokenUsageModule = null;
 let postgresBackupService = null;
 let workBuddyCheckinService = null;
@@ -241,6 +243,7 @@ if (!gotSingleInstanceLock) {
       },
       onSessionClosed: (id) => {
         codexAppServerSessionService?.close(id);
+        void codexWorkspaceTrustService?.release(id).catch(error => console.error("Codex workspace trust cleanup failed:", error));
         if (agentNotificationManager) {
           agentNotificationManager.clearSession(id);
         }
@@ -391,6 +394,7 @@ if (!gotSingleInstanceLock) {
       workspacesRoot: path.join(app.getPath("userData"), "remote-agent-workspaces"),
       broadcast: windowManager.broadcast
     });
+    codexWorkspaceTrustService = createCodexWorkspaceTrustService({ broadcast: windowManager.broadcast });
     codexModelBridgeModule = createCodexModelBridgeModule({});
     settingsModule = createSettingsModule({
       ipcMain,
@@ -461,6 +465,7 @@ if (!gotSingleInstanceLock) {
       sshSessionRuntime,
       sshHookTunnelService,
       remoteAgentBridgeService,
+      codexWorkspaceTrustService,
       openRouterService: settingsModule.openRouterService,
       naraRouterService: settingsModule.naraRouterService,
       miniMaxService: settingsModule.miniMaxService,
@@ -572,6 +577,7 @@ if (!gotSingleInstanceLock) {
       remoteHookConfigService,
       projectSearchService,
       remoteAgentBridgeService,
+      codexWorkspaceTrustService,
       postgresBackupService,
       projectAssistantService,
       codexSessionControl,

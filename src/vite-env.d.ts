@@ -804,9 +804,11 @@ export type AgentUsageResetResult = {
 export type AgentUsageApi = {
   getUsage: (sessionId: string, options?: { force?: boolean }) => Promise<AgentUsageSnapshot | null>;
   getCodeBuddyUsage: (options?: { force?: boolean }) => Promise<AgentUsageSnapshot | null>;
+  getCodexUsage: (options?: { force?: boolean }) => Promise<AgentUsageSnapshot | null>;
   consumeResetCredit: (sessionId: string, creditId: string, idempotencyKey: string) => Promise<AgentUsageResetResult>;
   cancel: (sessionId: string) => void;
   cancelCodeBuddyUsage: () => void;
+  cancelCodexUsage: () => void;
 };
 
 export type WorkBuddyCheckinStatus = {
@@ -942,6 +944,33 @@ export type RemoteAgentApi = {
   onAudit: (callback: (payload: RemoteAgentAuditEvent) => void) => () => void;
   onApprovalRequested: (callback: (payload: RemoteAgentApprovalRequest) => void) => () => void;
   onApprovalResolved: (callback: (payload: { id: string; decision: RemoteAgentApprovalDecision }) => void) => () => void;
+};
+
+export type CodexWorkspaceTrustRequest = {
+  id: string;
+  sessionId: string;
+  title: string;
+  workspacePath: string;
+  phase: "project" | "hooks";
+  ready: boolean;
+  terminalOpen: boolean;
+  configPreview: string;
+  scriptPreview: string;
+  output: string;
+  error: string;
+};
+
+export type CodexWorkspaceTrustApi = {
+  listPending: () => Promise<CodexWorkspaceTrustRequest[]>;
+  trustProject: (id: string) => Promise<CodexWorkspaceTrustRequest>;
+  openHooks: (id: string) => Promise<CodexWorkspaceTrustRequest>;
+  write: (id: string, data: string) => Promise<void>;
+  resize: (id: string, cols: number, rows: number) => Promise<void>;
+  finish: (id: string) => Promise<boolean>;
+  cancel: (id: string) => Promise<boolean>;
+  onChanged: (callback: (request: CodexWorkspaceTrustRequest) => void) => () => void;
+  onOutput: (callback: (value: { id: string; data: string }) => void) => () => void;
+  onResolved: (callback: (value: { id: string }) => void) => () => void;
 };
 
 export type ProjectAssistantMessage = { role: "user" | "assistant" | "system"; text: string; at: number };
@@ -1520,6 +1549,7 @@ declare global {
     agentTokenStatsApi: AgentTokenStatsApi;
     postgresBackupApi: PostgresBackupApi;
     remoteAgentApi: RemoteAgentApi;
+    codexWorkspaceTrustApi: CodexWorkspaceTrustApi;
     fileTransferApi: FileTransferApi;
     gitApi: GitApi;
     projectSearchApi: ProjectSearchApi;

@@ -2110,7 +2110,7 @@ describe("CodexAppServerSession", () => {
     expect(input.value).toBe("保留草稿");
   });
 
-  it("shows a Build shortcut under the latest completed OpenCode Plan reply", async () => {
+  it("executes the latest OpenCode Plan reply without sending the draft", async () => {
     const items = [
       { id: "old-user", type: "userMessage", text: "旧问题" },
       { id: "old-plan", type: "agentMessage", text: "旧计划" },
@@ -2120,21 +2120,22 @@ describe("CodexAppServerSession", () => {
     const planned = { threadId: "open-1", provider: "opencode" as const, nativeMode: "plan", mode: "plan" as const,
       nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }],
       executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, items, approvals: [] };
-    setNativeMode.mockImplementationOnce(async () => ({ ...planned, nativeMode: "build", mode: "default" }));
     render(<CodexAppServerSession sessionId="run-1" />);
     const input = await screen.findByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "保留草稿" } });
     act(() => changed({ id: "run-1", snapshot: { ...planned, busy: true } }));
-    expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "执行计划" })).toBeNull();
     act(() => changed({ id: "run-1", snapshot: planned }));
-    const button = screen.getByRole("button", { name: "切到 Build" });
+    const button = screen.getByRole("button", { name: "执行计划" });
     expect(button.closest("article")?.textContent).toContain("实施计划");
     expect(button.closest("article")?.textContent).not.toContain("旧计划");
     fireEvent.click(button);
     fireEvent.click(button);
-    await waitFor(() => expect(setNativeMode).toHaveBeenCalledTimes(1));
-    expect(setNativeMode).toHaveBeenCalledWith("run-1", "build");
-    await waitFor(() => expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull());
+    await waitFor(() => expect(executePlan).toHaveBeenCalledTimes(1));
+    expect(executePlan).toHaveBeenCalledWith("run-1", "plan");
+    expect(setNativeMode).not.toHaveBeenCalled();
+    act(() => changed({ id: "run-1", snapshot: { ...planned, nativeMode: "build", mode: "default", busy: true } }));
+    expect(screen.queryByRole("button", { name: "执行计划" })).toBeNull();
     expect(submit).not.toHaveBeenCalled();
     expect(input.value).toBe("保留草稿");
   });
@@ -2147,15 +2148,29 @@ describe("CodexAppServerSession", () => {
       executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, approvals: [],
       items: [{ id: "user", type: "userMessage", text: "制定计划" }, { id: "plan", type: "turnPlan", plan: [{ step: "实施", status: "pending" }] }] };
     act(() => changed({ id: "run-1", snapshot: base }));
-    expect(screen.getByRole("button", { name: "切到 Build" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "执行计划" })).toBeTruthy();
     for (const changes of [
       { nativeModes: [{ id: "plan", name: "Plan" }] },
       { error: "计划失败" },
       { items: [...base.items, { id: "next", type: "userMessage", text: "再想想" }] }
     ]) {
       act(() => changed({ id: "run-1", snapshot: { ...base, ...changes } }));
-      expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "执行计划" })).toBeNull();
     }
+  });
+
+  it("keeps the OpenCode execute button available after execution setup fails", async () => {
+    executePlan.mockRejectedValueOnce(new Error("模式切换失败"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByRole("textbox", { name: "图形对话输入" });
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", nativeMode: "plan",
+      nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }], mode: "plan",
+      executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, approvals: [],
+      items: [{ id: "user", type: "userMessage", text: "制定计划" }, { id: "plan", type: "agentMessage", text: "计划内容" }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "执行计划" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("模式切换失败");
+    expect(screen.getByRole("button", { name: "执行计划" })).toBeTruthy();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("does not switch OpenCode modes while busy or when Build and Plan are unavailable", async () => {

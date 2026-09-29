@@ -945,7 +945,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     finally { if (currentSessionRef.current === sessionId) { changingModelRef.current = false; setChangingModel(false); } }
   }
   async function resolvePlan(itemId: string, execute: boolean) {
-    if (resolvingPlanRef.current || (snapshot.busy && snapshot.provider !== "codebuddy") || snapshot.pendingPlan?.itemId !== itemId) return;
+    if (resolvingPlanRef.current || snapshot.provider === "opencode" && changingModeRef.current
+      || (snapshot.busy && snapshot.provider !== "codebuddy")
+      || (snapshot.provider === "opencode" ? !execute || openCodePlanReplyId(snapshot) !== itemId
+        : snapshot.pendingPlan?.itemId !== itemId)) return;
     resolvingPlanRef.current = true;
     setResolvingPlan(true);
     setError("");
@@ -1210,7 +1213,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="codex-app-server-plan-confirm">
-            <button type="button" className="primary" disabled={changingMode} onClick={() => void changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+            <button type="button" className="primary" disabled={resolvingPlan || changingMode} onClick={() => void resolvePlan(item.id, true)}>执行计划</button>
           </div>}
           {item.type === "userMessage" && snapshot.provider === "codebuddy" && sessionType === "windows" && snapshot.capabilities?.rewind && item.rewindMessageId &&
             <button type="button" disabled={snapshot.busy || rewindPending} onClick={() => {
@@ -1228,7 +1231,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="codex-app-server-plan-confirm">
-            <button type="button" className="primary" disabled={changingMode} onClick={() => void changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+            <button type="button" className="primary" disabled={resolvingPlan || changingMode} onClick={() => void resolvePlan(item.id, true)}>执行计划</button>
           </div>}
         </article>;
         if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label={`已回答的 ${agentName} 提问`}>

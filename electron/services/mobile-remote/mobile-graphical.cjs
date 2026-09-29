@@ -146,6 +146,10 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       await graphicalService.setNativeMode(sessionId, message.modeId);
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.plan") {
+      if (current.provider === "opencode" && message.execute === true && typeof message.itemId === "string") {
+        await graphicalService.executePlan(sessionId, message.itemId);
+        return send(socket, { type: "command.ok", requestId: message.requestId });
+      }
       if (!current.pendingPlan || current.pendingPlan.itemId !== message.itemId)
         throw new Error("计划确认已失效。");
       if (message.execute === true) await graphicalService.executePlan(sessionId, message.itemId);

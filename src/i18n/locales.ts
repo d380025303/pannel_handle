@@ -69,6 +69,22 @@ export type TranslationKey =
   | "settings.environmentNavDescription"
   | "settings.modelsTitle"
   | "settings.modelsDescription"
+  | "settings.modelProviderSelect"
+  | "settings.modelConnectionTitle"
+  | "settings.modelCatalogTitle"
+  | "settings.modelCatalogHint"
+  | "settings.modelSearchLabel"
+  | "settings.modelVerificationTitle"
+  | "settings.modelVerificationHint"
+  | "settings.modelSelectHint"
+  | "settings.quotaTitle"
+  | "settings.quotaDescription"
+  | "settings.codexQuotaTitle"
+  | "settings.codexQuotaLocal"
+  | "settings.codexQuotaRefresh"
+  | "settings.miniMaxQuotaTitle"
+  | "settings.miniMaxQuotaConfigure"
+  | "settings.quotaCanceled"
   | "settings.mobileNavDescription"
   | "settings.notificationsTitle"
   | "settings.notificationsDescription"
@@ -656,6 +672,7 @@ export type TranslationKey =
   | "tabs.conversation"
   | "conversation.unread"
   | "tabs.idea"
+  | "idea.open"
   | "idea.subtitle"
   | "idea.refresh"
   | "idea.notConnected"
@@ -1054,6 +1071,22 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentNavDescription": "集中管理可供会话复用的普通环境变量配置。",
     "settings.modelsTitle": "模型服务",
     "settings.modelsDescription": "配置模型服务凭据、在线模型和兼容性验证。",
+    "settings.modelProviderSelect": "选择模型供应商",
+    "settings.modelConnectionTitle": "配置连接",
+    "settings.modelCatalogTitle": "查找模型",
+    "settings.modelCatalogHint": "刷新目录并选择要验证的模型。",
+    "settings.modelSearchLabel": "搜索模型",
+    "settings.modelVerificationTitle": "验证 CLI 兼容性",
+    "settings.modelVerificationHint": "分别检测所选模型能否用于各个 CLI。连接成功不代表模型已通过验证。",
+    "settings.modelSelectHint": "请先从模型目录中选择一个模型。",
+    "settings.quotaTitle": "额度",
+    "settings.quotaDescription": "查看本机 Codex、CodeBuddy 和 MiniMAX 额度。",
+    "settings.codexQuotaTitle": "Codex 额度",
+    "settings.codexQuotaLocal": "本机 Windows Codex 账号",
+    "settings.codexQuotaRefresh": "刷新 Codex 额度",
+    "settings.miniMaxQuotaTitle": "MiniMAX 额度",
+    "settings.miniMaxQuotaConfigure": "请先在“模型服务”中配置 MiniMAX API Key。",
+    "settings.quotaCanceled": "额度查询已取消，请重试。",
     "settings.mobileNavDescription": "配置局域网访问、设备密码与连接安全。",
     "settings.notificationsTitle": "通知",
     "settings.notificationsDescription": "配置会话状态的外部通知渠道。",
@@ -1124,7 +1157,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
     "settings.titleBarActionsTitle": "顶部图标",
-    "settings.titleBarActionsHint": "拖动手柄调整顺序，勾选显示图标；方向键也可移动聚焦的手柄。修改后立即保存。",
+    "settings.titleBarActionsHint": "拖动手柄或使用方向键调整顺序；其他图标可勾选显示，设置按钮始终显示。修改后立即保存。",
     "settings.titleBarDrag": "拖动{name}调整顺序",
     "settings.titleBarShow": "显示{name}",
     "settings.titleBarVisible": "显示",
@@ -1641,6 +1674,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.conversation": "对话",
     "conversation.unread": "有新的 Agent 回复",
     "tabs.idea": "IDEA",
+    "idea.open": "打开 IDEA",
     "idea.subtitle": "运行与调试配置",
     "idea.refresh": "刷新 IDEA 状态",
     "idea.notConnected": "未连接到 IDEA",
@@ -2031,6 +2065,22 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.environmentNavDescription": "Manage reusable non-secret environment variables for sessions.",
     "settings.modelsTitle": "Model services",
     "settings.modelsDescription": "Configure provider credentials, online models, and compatibility verification.",
+    "settings.modelProviderSelect": "Select model provider",
+    "settings.modelConnectionTitle": "Configure connection",
+    "settings.modelCatalogTitle": "Find models",
+    "settings.modelCatalogHint": "Refresh the catalog and select a model to verify.",
+    "settings.modelSearchLabel": "Search models",
+    "settings.modelVerificationTitle": "Verify CLI compatibility",
+    "settings.modelVerificationHint": "Check the selected model for each CLI. A working connection does not mean the model is verified.",
+    "settings.modelSelectHint": "Select a model from the catalog first.",
+    "settings.quotaTitle": "Quota",
+    "settings.quotaDescription": "View local Codex, CodeBuddy, and MiniMAX quota.",
+    "settings.codexQuotaTitle": "Codex quota",
+    "settings.codexQuotaLocal": "Local Windows Codex account",
+    "settings.codexQuotaRefresh": "Refresh Codex quota",
+    "settings.miniMaxQuotaTitle": "MiniMAX quota",
+    "settings.miniMaxQuotaConfigure": "Configure a MiniMAX API key under Model services first.",
+    "settings.quotaCanceled": "Quota request was canceled. Please retry.",
     "settings.mobileNavDescription": "Configure LAN access, the device password, and connection security.",
     "settings.notificationsTitle": "Notifications",
     "settings.notificationsDescription": "Configure external notifications for session states.",
@@ -2101,7 +2151,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",
     "settings.titleBarActionsTitle": "Title bar icons",
-    "settings.titleBarActionsHint": "Drag a handle to reorder icons, or use the arrow keys when focused. Changes are saved immediately.",
+    "settings.titleBarActionsHint": "Drag a handle or use the arrow keys to reorder icons. Other icons can be hidden; Settings stays visible. Changes are saved immediately.",
     "settings.titleBarDrag": "Drag {name} to reorder",
     "settings.titleBarShow": "Show {name}",
     "settings.titleBarVisible": "Show",
@@ -2618,6 +2668,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "tabs.conversation": "Conversation",
     "conversation.unread": "New Agent reply",
     "tabs.idea": "IDEA",
+    "idea.open": "Open IDEA",
     "idea.subtitle": "Run and debug configurations",
     "idea.refresh": "Refresh IDEA state",
     "idea.notConnected": "IDEA is not connected",

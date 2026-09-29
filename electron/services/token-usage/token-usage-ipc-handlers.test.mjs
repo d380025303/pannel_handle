@@ -19,9 +19,11 @@ describe("token-usage-ipc-handlers", () => {
     const agentUsageService = {
       getUsage: vi.fn(),
       getCodeBuddyUsage: vi.fn(async options => options),
+      getCodexUsage: vi.fn(async options => options),
       consumeResetCredit: vi.fn(),
       disconnect: vi.fn(),
-      cancelCodeBuddyUsage: vi.fn()
+      cancelCodeBuddyUsage: vi.fn(),
+      cancelCodexUsage: vi.fn()
     };
     const dispose = registerTokenUsageIpcHandlers({
       ipcMain,
@@ -34,6 +36,10 @@ describe("token-usage-ipc-handlers", () => {
     listeners.get("agent-usage:cancel-codebuddy")();
     expect(agentUsageService.getCodeBuddyUsage).toHaveBeenCalledWith({ force: true });
     expect(agentUsageService.cancelCodeBuddyUsage).toHaveBeenCalledTimes(1);
+    await expect(handlers.get("agent-usage:get-codex")({}, { force: true })).resolves.toEqual({ force: true });
+    listeners.get("agent-usage:cancel-codex")();
+    expect(agentUsageService.getCodexUsage).toHaveBeenCalledWith({ force: true });
+    expect(agentUsageService.cancelCodexUsage).toHaveBeenCalledTimes(1);
 
     agentUsageService.getUsage.mockRejectedValueOnce(Object.assign(new Error("canceled"), { code: "USAGE_CANCELED" }));
     await expect(handlers.get("agent-usage:get")({}, { sessionId: "run-1" })).resolves.toBeNull();
@@ -42,6 +48,8 @@ describe("token-usage-ipc-handlers", () => {
 
     dispose();
     expect(handlers.has("agent-usage:get-codebuddy")).toBe(false);
+    expect(handlers.has("agent-usage:get-codex")).toBe(false);
     expect(listeners.has("agent-usage:cancel-codebuddy")).toBe(false);
+    expect(listeners.has("agent-usage:cancel-codex")).toBe(false);
   });
 });

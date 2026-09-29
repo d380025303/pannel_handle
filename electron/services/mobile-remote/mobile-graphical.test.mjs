@@ -281,6 +281,22 @@ describe("mobile graphical session route", () => {
       .rejects.toThrow("不可切换");
   });
 
+  it("routes OpenCode plan execution through the service and keeps CodeBuddy confirmation gated", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    f.snapshot.provider = "opencode";
+    f.snapshot.pendingPlan = null;
+    await f.handlers.handle(f.socket, { type: "graphical.plan", sessionId: "graph-1", threadId: "thread-1",
+      itemId: "plan-1", execute: true, requestId: "p1" });
+    expect(f.graphicalService.executePlan).toHaveBeenCalledWith("graph-1", "plan-1");
+    expect(f.send).toHaveBeenCalledWith(f.socket, { type: "command.ok", requestId: "p1" });
+    await expect(f.handlers.handle(f.socket, { type: "graphical.plan", sessionId: "graph-1", threadId: "thread-1",
+      itemId: "plan-1", execute: false })).rejects.toThrow("失效");
+    f.snapshot.provider = "codebuddy";
+    await expect(f.handlers.handle(f.socket, { type: "graphical.plan", sessionId: "graph-1", threadId: "thread-1",
+      itemId: "plan-1", execute: true })).rejects.toThrow("失效");
+  });
+
   it("allows only idle graphical Agent switches with the current thread", async () => {
     const f = fixture();
     f.snapshot.approvals = [];

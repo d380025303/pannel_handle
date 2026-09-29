@@ -158,6 +158,25 @@ describe("SettingsModal navigation", () => {
     expect((screen.getByRole("button", { name: "恢复居中" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("opens a separate quota page and shows the three provider sections", async () => {
+    Object.defineProperty(window, "agentUsageApi", { configurable: true, value: {
+      getCodexUsage: vi.fn().mockRejectedValue(new Error("Codex unavailable")),
+      getCodeBuddyUsage: vi.fn().mockRejectedValue(new Error("CodeBuddy unavailable")),
+      cancelCodexUsage: vi.fn(), cancelCodeBuddyUsage: vi.fn()
+    } });
+    Object.defineProperty(window, "miniMaxApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: false }),
+      listModels: vi.fn().mockResolvedValue([])
+    } });
+    renderSettingsModal();
+    fireEvent.click(screen.getByRole("tab", { name: "额度" }));
+    expect(screen.getByRole("tabpanel", { name: "额度" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Codex 额度" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "CodeBuddy 额度" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "MiniMAX 额度" })).toBeTruthy();
+    expect(await screen.findByText("请先在“模型服务”中配置 MiniMAX API Key。")).toBeTruthy();
+  });
+
   it("uses the terminal area's aspect ratio and scales blur in the preview", () => {
     renderSettingsModal({ terminalBackgroundImage: "123-bg.png", terminalBackgroundBlur: 12, terminalBackgroundAreaSize: { width: 800, height: 600 } });
     const preview = screen.getByRole("img", { name: "终端背景" }) as HTMLImageElement;

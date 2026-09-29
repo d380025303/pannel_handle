@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -308,6 +308,13 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("remote-agent:audit-list", (_event, { sessionId }) => remoteAgentBridgeService.listAudit(sessionId));
   ipcMain.handle("remote-agent:approval-list", () => remoteAgentBridgeService.listPendingApprovals());
   ipcMain.handle("remote-agent:approval-resolve", (_event, { id, decision }) => remoteAgentBridgeService.resolveApproval(id, decision));
+  ipcMain.handle("codex-workspace-trust:list", () => codexWorkspaceTrustService.listPending());
+  ipcMain.handle("codex-workspace-trust:project", (_event, id) => codexWorkspaceTrustService.approveProject(id));
+  ipcMain.handle("codex-workspace-trust:open-hooks", (_event, id) => codexWorkspaceTrustService.openHooks(id));
+  ipcMain.handle("codex-workspace-trust:write", (_event, id, data) => codexWorkspaceTrustService.writeTerminal(id, data));
+  ipcMain.handle("codex-workspace-trust:resize", (_event, id, cols, rows) => codexWorkspaceTrustService.resizeTerminal(id, cols, rows));
+  ipcMain.handle("codex-workspace-trust:finish", (_event, id) => codexWorkspaceTrustService.finishHooks(id));
+  ipcMain.handle("codex-workspace-trust:cancel", (_event, id) => codexWorkspaceTrustService.cancel(id));
 
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     if (typeof text !== "string" || text.length === 0) {

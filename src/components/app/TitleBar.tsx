@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, Library, MessageSquareText, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, Library, Lightbulb, MessageSquareText, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
-import { DEFAULT_TITLE_BAR_ACTION_ORDER } from "./titleBarActions";
+import { DEFAULT_TITLE_BAR_ACTION_ORDER, withSettingsAction } from "./titleBarActions";
 import type { TitleBarActionId } from "./titleBarActions";
 
 type TitleBarProps = {
@@ -18,6 +18,7 @@ type TitleBarProps = {
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
   onOpenProjectAssistant?: () => void;
+  onOpenIdea?: () => void;
   mobileAccessState: MobileAccessState | null;
   screenshotEnabled?: boolean;
   onCaptureScreenshot?: () => void;
@@ -25,7 +26,7 @@ type TitleBarProps = {
   hiddenActions?: TitleBarActionId[];
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenProjectAssistant, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenProjectAssistant, onOpenIdea, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -65,12 +66,17 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
     skills: { label: t("skills.open"), icon: BookOpen, onClick: onOpenSkills },
     mcp: { label: t("mcp.open"), icon: Cable, onClick: onOpenMcp },
     assistant: { label: t("projectAssistant.open"), icon: MessageSquareText, onClick: onOpenProjectAssistant },
+    idea: { label: t("idea.open"), icon: Lightbulb, onClick: onOpenIdea },
     screenshot: { label: t("screenshot.capture"), icon: ScanLine, onClick: onCaptureScreenshot },
     library: { label: t("sidebar.openLibrary"), icon: Library, onClick: onOpenPicker },
     create: { label: t("sidebar.newSession"), icon: Plus, onClick: onOpenCreate }
   };
 
   const renderAction = (id: TitleBarActionId) => {
+    if (id === "settings") return <button key={id} className="titlebar-settings-btn" type="button"
+      title={t("settings.title")} aria-label={t("settings.open")} onClick={onOpenSettings}>
+      <Settings aria-hidden="true" />
+    </button>;
     if (hiddenActions.includes(id) || (id === "screenshot" && !screenshotEnabled)) return null;
     if (id === "quickAgent") return (
       <div className="titlebar-quick-agent" ref={quickAgentMenuRef} key={id}>
@@ -97,17 +103,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
       <div className="titlebar-brand">
         <span className="titlebar-brand-label">Pannel Handle</span>
         <div className="titlebar-actions" onDoubleClick={(event) => event.stopPropagation()}>
-          {actionOrder.slice(0, 7).map(renderAction)}
-          <button
-            className="titlebar-settings-btn"
-            type="button"
-            title={t("settings.title")}
-            aria-label={t("settings.open")}
-            onClick={onOpenSettings}
-          >
-            <Settings aria-hidden="true" />
-          </button>
-          {actionOrder.slice(7).map(renderAction)}
+          {withSettingsAction(actionOrder).map(renderAction)}
         </div>
       </div>
       {mobileAccessState?.running && (
@@ -118,7 +114,7 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
           </span>
         </button>
       )}
-      <div className="titlebar-session">{activeTitle || t("app.noActiveSession")}</div>
+      <div className="titlebar-session">{activeTitle}</div>
       <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
         <button
           className="window-control"

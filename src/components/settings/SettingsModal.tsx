@@ -1,4 +1,4 @@
-import { Bell, Bot, Braces, Database, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
+import { Bell, Bot, Braces, Database, Gauge, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { EnvironmentSettings, type EnvironmentSettingsHandle } from "../environment/EnvironmentSettings";
@@ -7,8 +7,10 @@ import type { AppTheme } from "../../themes";
 import type { Locale, ThemeId, TitleBarActionId, WindowsShell } from "../../vite-env";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { MobileAccessSettings } from "./MobileAccessSettings";
-import { OpenRouterSettings } from "./OpenRouterSettings";
-import { CodeBuddyQuotaSection } from "./CodeBuddyQuotaSettings";
+import { ModelServicesSettings } from "./OpenRouterSettings";
+import { CodeBuddyQuotaSettings } from "./CodeBuddyQuotaSettings";
+import { CodexQuotaSettings } from "./CodexQuotaSettings";
+import { MiniMaxQuotaSettings } from "./MiniMaxQuotaSettings";
 import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
@@ -51,7 +53,7 @@ type SettingsModalProps = {
   onCancel: () => void;
 };
 
-type SettingsCategory = "general" | "environment" | "models" | "mobile" | "notifications" | "backup";
+type SettingsCategory = "general" | "environment" | "models" | "quota" | "mobile" | "notifications" | "backup";
 
 export function SettingsModal({
   defaultWindowsShell,
@@ -209,6 +211,7 @@ export function SettingsModal({
     { id: "general" as const, label: t("settings.generalTitle"), description: t("settings.generalDescription"), icon: SettingsIcon },
     { id: "environment" as const, label: t("settings.environmentTitle"), description: t("settings.environmentNavDescription"), icon: Braces },
     { id: "models" as const, label: t("settings.modelsTitle"), description: t("settings.modelsDescription"), icon: Bot },
+    { id: "quota" as const, label: t("settings.quotaTitle"), description: t("settings.quotaDescription"), icon: Gauge },
     { id: "mobile" as const, label: t("settings.mobileTitle"), description: t("settings.mobileNavDescription"), icon: Smartphone },
     { id: "notifications" as const, label: t("settings.notificationsTitle"), description: t("settings.notificationsDescription"), icon: Bell },
     { id: "backup" as const, label: locale === "en-US" ? "Database backup" : "数据库备份", description: locale === "en-US" ? "Back up and browse sessions, statistics and Agent conversations by computer" : "按电脑备份并查看会话、统计和 Agent 对话", icon: Database }
@@ -607,10 +610,15 @@ export function SettingsModal({
             </section>
 
             <section id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models" hidden={activeCategory !== "models"} className="settings-page settings-page-stack">
-              <OpenRouterSettings />
-              <OpenRouterSettings provider="nararouter" />
-              <OpenRouterSettings provider="minimax" />
-              <CodeBuddyQuotaSection />
+              <ModelServicesSettings />
+            </section>
+
+            <section id="settings-panel-quota" role="tabpanel" aria-labelledby="settings-tab-quota" hidden={activeCategory !== "quota"} className="settings-page settings-page-stack">
+              {activeCategory === "quota" && <>
+                <CodexQuotaSettings />
+                <section className="settings-section"><CodeBuddyQuotaSettings /></section>
+                <MiniMaxQuotaSettings />
+              </>}
             </section>
 
             <section id="settings-panel-mobile" role="tabpanel" aria-labelledby="settings-tab-mobile" hidden={activeCategory !== "mobile"} className="settings-page settings-page-stack">

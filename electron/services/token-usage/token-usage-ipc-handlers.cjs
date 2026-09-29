@@ -1,6 +1,7 @@
 const TOKEN_USAGE_IPC_CHANNELS = [
   "agent-usage:get",
   "agent-usage:get-codebuddy",
+  "agent-usage:get-codex",
   "agent-usage:consume-reset-credit",
   "agent-token-stats:get",
   "agent-token-live:get",
@@ -26,6 +27,10 @@ function registerTokenUsageIpcHandlers({
     return canceledAsNull(agentUsageService.getCodeBuddyUsage({ force: Boolean(force) }));
   });
 
+  ipcMain.handle("agent-usage:get-codex", (_event, { force }) => {
+    return canceledAsNull(agentUsageService.getCodexUsage({ force: Boolean(force) }));
+  });
+
   ipcMain.handle("agent-usage:consume-reset-credit", (_event, { sessionId, creditId, idempotencyKey }) => {
     return agentUsageService.consumeResetCredit(sessionId, { creditId, idempotencyKey });
   });
@@ -38,6 +43,8 @@ function registerTokenUsageIpcHandlers({
     agentUsageService.cancelCodeBuddyUsage();
   };
   ipcMain.on("agent-usage:cancel-codebuddy", cancelCodeBuddyUsage);
+  const cancelCodexUsage = () => agentUsageService.cancelCodexUsage();
+  ipcMain.on("agent-usage:cancel-codex", cancelCodexUsage);
 
   ipcMain.handle("agent-token-stats:get", (_event, options) => agentTokenStatsStore.getDashboard(options));
   ipcMain.handle("agent-token-live:get", (_event, { sessionId }) => agentTokenStatsService.getLive(sessionId));
@@ -53,6 +60,7 @@ function registerTokenUsageIpcHandlers({
     }
     ipcMain.removeListener("agent-usage:cancel", cancelUsage);
     ipcMain.removeListener("agent-usage:cancel-codebuddy", cancelCodeBuddyUsage);
+    ipcMain.removeListener("agent-usage:cancel-codex", cancelCodexUsage);
   };
 }
 

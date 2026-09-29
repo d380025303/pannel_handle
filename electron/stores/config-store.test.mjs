@@ -25,13 +25,25 @@ describe("config-store", () => {
   it("normalizes, persists, and reloads title bar icon preferences", () => {
     const configFile = createTempConfigPath();
     const store = createConfigStore({ configFile });
-    store.updateConfig({ titleBarActionOrder: ["create", "create", "overview", "unknown", "terminal"], titleBarHiddenActions: ["stats", "stats", "overview", "unknown"] });
+    store.updateConfig({ titleBarActionOrder: ["create", "create", "overview", "unknown", "terminal"], titleBarHiddenActions: ["stats", "stats", "settings", "overview", "unknown"] });
     expect(store.getConfig().titleBarActionOrder.slice(0, 3)).toEqual(["create", "terminal", "stats"]);
     expect(store.getConfig().titleBarHiddenActions).toEqual(["stats"]);
     const reloaded = createConfigStore({ configFile });
     reloaded.loadConfig();
     expect(reloaded.getConfig().titleBarActionOrder).toEqual(store.getConfig().titleBarActionOrder);
     expect(reloaded.getConfig().titleBarHiddenActions).toEqual(["stats"]);
+  });
+
+  it("keeps the old settings position and persists a custom one", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"] }));
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig().titleBarActionOrder).toEqual(["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "settings", "screenshot", "library", "quickAgent"]);
+    store.updateConfig({ titleBarActionOrder: ["settings", ...store.getConfig().titleBarActionOrder.filter(id => id !== "settings")] });
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().titleBarActionOrder[0]).toBe("settings");
   });
 
   it("rolls back title bar preferences when saving fails", () => {
@@ -63,7 +75,7 @@ describe("config-store", () => {
       debugMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "dark-slate",
@@ -282,7 +294,7 @@ describe("config-store", () => {
       debugMode: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "light",

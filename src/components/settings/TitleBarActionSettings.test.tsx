@@ -31,4 +31,19 @@ describe("TitleBarActionSettings", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("disk unavailable"));
     expect((screen.getByRole("checkbox", { name: "显示打开终端" }) as HTMLInputElement).checked).toBe(true);
   });
+
+  it("reorders settings with the keyboard without offering a hide control", async () => {
+    const onChange = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(<TitleBarActionSettings order={DEFAULT_TITLE_BAR_ACTION_ORDER} hidden={[]}
+      screenshotEnabled onChange={onChange} />);
+    const settingsGrip = screen.getByRole("button", { name: "拖动打开设置调整顺序" });
+    expect(screen.queryByRole("checkbox", { name: "显示打开设置" })).toBeNull();
+    expect(settingsGrip.closest(".titlebar-action-row")?.querySelector("input")).toBeNull();
+    fireEvent.keyDown(settingsGrip, { key: "ArrowUp" });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({ titleBarActionOrder: [
+      ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => id !== "settings" && id !== "screenshot").slice(0, 6),
+      "settings", "screenshot", ...DEFAULT_TITLE_BAR_ACTION_ORDER.slice(8)
+    ] }));
+    expect(container.querySelectorAll(".titlebar-action-row")).toHaveLength(DEFAULT_TITLE_BAR_ACTION_ORDER.length);
+  });
 });

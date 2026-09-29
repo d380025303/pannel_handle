@@ -117,15 +117,30 @@ describe("TitleBar session actions", () => {
     expect(screen.queryByRole("button", { name: "区域截图" })).toBeNull();
   });
 
-  it("uses the configured order and hides selected icons while keeping settings available", () => {
+  it("uses the configured order and keeps settings available even if hidden was requested", () => {
+    const onOpenSettings = vi.fn();
     const { container } = render(<TitleBar isMaximized={false} mobileAccessState={null}
-      actionOrder={["create", "terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent"]}
-      hiddenActions={["terminal", "library"]}
-      onOpenSettings={() => undefined} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
+      actionOrder={["settings", "create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"]}
+      hiddenActions={["settings", "terminal", "library"]}
+      onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 3)).toEqual(["新建会话", "打开 Token 统计", "打开 Skills"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(0, 4)).toEqual(["打开设置", "新建会话", "打开 Token 统计", "打开 Skills"]);
     expect(screen.queryByRole("button", { name: "打开终端" })).toBeNull();
     expect(screen.queryByRole("button", { name: "从库中启动" })).toBeNull();
     expect(screen.getByRole("button", { name: "打开设置" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "打开 IDEA" })).toBeTruthy();
+  });
+
+  it("keeps settings visible when a running main process returns an old action order", () => {
+    const onOpenSettings = vi.fn();
+    const { container } = render(<TitleBar isMaximized={false} mobileAccessState={null}
+      actionOrder={["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"]}
+      onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
+    const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(6, 9)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
+    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 });

@@ -158,6 +158,72 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
+  it("switches a completed OpenCode plan to Build and starts execution in the same thread", async () => {
+    const requests = [];
+    let mode = "build";
+    const child = fakeChild((message, emit) => {
+      requests.push(message);
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions } });
+      else if (message.method === "session/set_config_option") {
+        mode = message.params.value;
+        emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: configOptions.map(option => option.id === "mode"
+          ? { ...option, currentValue: mode } : option) } });
+      } else if (message.method === "session/prompt") {
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+          sessionUpdate: "agent_message_chunk", content: { type: "text", text: mode === "plan" ? "实施计划" : "开始执行" }
+        } } });
+        emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    await service.setNativeMode("one", "plan");
+    await service.submit("one", "制定计划");
+    const plan = service.snapshot("one").items.findLast(item => item.type === "agentMessage");
+    await expect(service.executePlan("one", "old-plan")).rejects.toThrow("失效");
+    expect(requests.filter(message => message.method === "session/prompt")).toHaveLength(1);
+    await service.executePlan("one", plan.id);
+    await vi.waitFor(() => expect(requests.filter(message => message.method === "session/prompt")).toHaveLength(2));
+    const prompts = requests.filter(message => message.method === "session/prompt");
+    expect(prompts[1].params).toMatchObject({ sessionId: "thread",
+      prompt: [{ type: "text", text: "按上述计划执行。" }] });
+    expect(requests.findIndex(message => message.method === "session/set_config_option" && message.params.value === "build"))
+      .toBeLessThan(requests.indexOf(prompts[1]));
+    await expect(service.executePlan("one", plan.id)).rejects.toThrow("失效");
+    service.shutdown();
+  });
+
+  it("does not start OpenCode plan execution when switching to Build fails", async () => {
+    const prompts = [];
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread", configOptions } });
+      else if (message.method === "session/set_config_option") {
+        if (message.params.value === "build") emit({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "切换失败" } });
+        else emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: configOptions.map(option => option.id === "mode"
+          ? { ...option, currentValue: "plan" } : option) } });
+      } else if (message.method === "session/prompt") {
+        prompts.push(message);
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "thread", update: {
+          sessionUpdate: "agent_message_chunk", content: { type: "text", text: "实施计划" }
+        } } });
+        emit({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    await service.setNativeMode("one", "plan");
+    await service.submit("one", "制定计划");
+    const plan = service.snapshot("one").items.findLast(item => item.type === "agentMessage");
+    await expect(service.executePlan("one", plan.id)).rejects.toThrow("切换失败");
+    expect(prompts).toHaveLength(1);
+    expect(service.snapshot("one").nativeMode).toBe("plan");
+    service.shutdown();
+  });
+
   it("reports graphical token checkpoints after turns and when loading history or resetting statistics", async () => {
     const onTokenUsageCheckpoint = vi.fn(async () => {});
     const child = fakeChild((message, emit) => {

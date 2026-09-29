@@ -194,4 +194,22 @@ describe("TitleBar mobile access layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "打开终端" }));
     expect(onOpenTerminal).toHaveBeenCalledTimes(1);
   });
+
+  it("opens the IDEA panel from the title bar", () => {
+    const onOpenIdea = vi.fn();
+    render(
+      <TitleBar
+        activeTitle="PowerShell"
+        isMaximized={false}
+        mobileAccessState={null}
+        onOpenSettings={() => undefined}
+        onOpenPicker={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenIdea={onOpenIdea}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开 IDEA" }));
+    expect(onOpenIdea).toHaveBeenCalledTimes(1);
+  });
 });

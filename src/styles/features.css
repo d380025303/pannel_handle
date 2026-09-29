@@ -8318,3 +8318,43 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-elicitation-url button { padding: 6px 10px; border: 1px solid var(--color-border-strong); border-radius: 6px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
 .codex-app-server-elicitation-actions button:disabled,
 .codex-app-server-elicitation-url button:disabled { opacity: .5; cursor: default; }
+.codex-trust-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 62%);
+}
+
+.codex-trust-dialog {
+  width: min(760px, 100%);
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+  box-shadow: 0 20px 65px rgb(0 0 0 / 35%);
+}
+
+.codex-trust-dialog header,
+.codex-trust-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.codex-trust-dialog h2 { margin: 0; font-size: 18px; }
+.codex-trust-dialog p { line-height: 1.5; }
+.codex-trust-path { display: block; padding: 10px; overflow-wrap: anywhere; background: var(--color-bg-code); }
+.codex-trust-dialog details { margin-top: 10px; }
+.codex-trust-dialog details pre { max-height: 150px; overflow: auto; padding: 10px; background: var(--color-bg-code); white-space: pre-wrap; }
+.codex-trust-terminal { height: min(44vh, 390px); margin: 12px 0; padding: 8px; background: #12151d; }
+.codex-trust-error { color: var(--color-danger-text, #e47474); }
+.codex-trust-dialog footer { justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+.codex-trust-dialog footer button { min-height: 36px; padding: 7px 14px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); }
+.codex-trust-dialog footer button.primary { background: var(--color-accent); color: white; }
+.codex-trust-dialog footer button:disabled { opacity: .6; cursor: wait; }
+
+@media (max-width: 600px) {
+  .codex-trust-overlay { padding: 8px; }
+  .codex-trust-dialog { padding: 14px; }
+}

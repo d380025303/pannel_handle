@@ -1203,6 +1203,31 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function executePlan(id, itemId) {
     const entry = entryFor(id);
+    if (provider === "opencode") {
+      const lastUserIndex = entry.items.map(item => item.type).lastIndexOf("userMessage");
+      const reply = lastUserIndex < 0 ? [] : entry.items.slice(lastUserIndex + 1);
+      const latestPlan = reply.some(item => item.type === "turnError") ? null
+        : reply.filter(item => item.type === "agentMessage" && item.text?.trim()
+          || item.type === "turnPlan" && item.plan?.length).at(-1);
+      const build = entry.modes.find(mode => mode.id.toLowerCase() === "build");
+      if (!entry.threadId || entry.busy || entry.executingPlan || entry.pendingPlan || entry.approvals.size || entry.questions.size
+        || entry.nativeMode !== "plan" || !build || latestPlan?.id !== itemId || entry.error)
+        throw new Error("计划确认已失效。");
+      const threadId = entry.threadId;
+      entry.executingPlan = true;
+      try {
+        await setNativeMode(id, build.id);
+        if (sessions.get(id) !== entry || entry.threadId !== threadId || entry.busy)
+          throw new Error("对话已切换，计划执行已取消。");
+        void submit(id, "按上述计划执行。").catch(error => {
+          if (sessions.get(id) === entry && !entry.error) {
+            entry.error = error.message;
+            publish(id);
+          }
+        });
+      } finally { entry.executingPlan = false; }
+      return;
+    }
     const plan = entry.pendingPlan;
     if (provider !== "codebuddy" || !plan || plan.itemId !== itemId || plan.threadId !== entry.threadId)
       throw new Error("计划确认已失效。");

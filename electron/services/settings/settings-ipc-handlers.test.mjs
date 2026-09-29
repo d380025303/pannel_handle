@@ -146,10 +146,10 @@ describe("settings IPC handlers", () => {
     const harness = createHarness();
     const result = harness.ipcMain.handlers.get("config:set")({}, {
       titleBarActionOrder: ["create", "create", "overview", "unknown"],
-      titleBarHiddenActions: ["terminal", "overview", "unknown", "terminal"]
+      titleBarHiddenActions: ["terminal", "settings", "overview", "unknown", "terminal"]
     });
     expect(harness.configStore.updateConfig).toHaveBeenCalledWith({
-      titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent"],
+      titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "settings", "screenshot", "library", "quickAgent"],
       titleBarHiddenActions: ["terminal"]
     }, { throwOnSaveError: true });
     expect(result.titleBarHiddenActions).toEqual(["terminal"]);

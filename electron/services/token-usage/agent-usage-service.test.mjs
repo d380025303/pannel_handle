@@ -444,6 +444,27 @@ describe("agent-usage-service", () => {
     expect(transportFactory).not.toHaveBeenCalled();
   });
 
+  it("reads settings Codex quota from local Windows without a running session", async () => {
+    const transportFactory = vi.fn(() => createProtocolTransport(rateLimitResult(37)));
+    const service = createAgentUsageService({
+      terminalManager: { getSession: vi.fn(() => undefined) },
+      transportFactory,
+      now: () => 1000
+    });
+
+    await expect(service.getCodexUsage()).resolves.toMatchObject({
+      provider: "codex", limits: [{ usedPercent: 37, remainingPercent: 63 }]
+    });
+    expect(transportFactory).toHaveBeenCalledWith({
+      id: "settings:codex-usage", type: "windows", agentProvider: "codex"
+    });
+    await service.getCodexUsage();
+    expect(transportFactory).toHaveBeenCalledTimes(1);
+    service.cancelCodexUsage();
+    await service.getCodexUsage({ force: true });
+    expect(transportFactory).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a short redacted CLI diagnostic when Codex exits unexpectedly", async () => {
     const transport = createProtocolTransport();
     transport.write = vi.fn();

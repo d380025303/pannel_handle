@@ -35,7 +35,7 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for non-Codex sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const { result } = renderHook(() => useAgentUsage(session("plain")));
     expect(result.current.state).toEqual({ status: "hidden" });
     expect(getUsage).not.toHaveBeenCalled();
@@ -43,7 +43,7 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for OpenRouter-backed Codex sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const activeSession = { ...session("openrouter", "codex"), codexBackend: "openrouter" as const };
     const { result } = renderHook(() => useAgentUsage(activeSession));
     expect(result.current.state).toEqual({ status: "hidden" });
@@ -52,7 +52,7 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for NaraRouter-backed Codex sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const activeSession = { ...session("nararouter", "codex"), codexBackend: "nararouter" as const };
     const { result } = renderHook(() => useAgentUsage(activeSession));
     expect(result.current.state).toEqual({ status: "hidden" });
@@ -61,7 +61,7 @@ describe("useAgentUsage", () => {
 
   it("stays hidden for non-Windows CodeBuddy sessions", () => {
     const getUsage = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const codeBuddyWsl = { ...session("codebuddy-wsl", "codebuddy"), type: "wsl" as const, wslDistro: "Ubuntu" };
     const { result } = renderHook(() => useAgentUsage(codeBuddyWsl));
     expect(result.current.state).toEqual({ status: "hidden" });
@@ -70,7 +70,7 @@ describe("useAgentUsage", () => {
 
   it("loads Windows and WSL Qoder usage but hides SSH Qoder usage", async () => {
     const getUsage = vi.fn(async () => snapshot("qoder-total", "qoder"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const windowsQoder = session("qoder-windows", "qoder");
     const { result, rerender } = renderHook(({ activeSession }) => useAgentUsage(activeSession), {
       initialProps: { activeSession: windowsQoder }
@@ -87,7 +87,7 @@ describe("useAgentUsage", () => {
 
   it("loads usage and force refreshes after a completed Codex event", async () => {
     const getUsage = vi.fn(async () => snapshot("codex"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     let agentStatus: AgentStatusPayload | undefined;
     const activeSession = session("run-1", "codex");
     const { result, rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));
@@ -113,7 +113,7 @@ describe("useAgentUsage", () => {
     const second = new Promise<AgentUsageSnapshot>(resolve => { resolveSecond = resolve; });
     const getUsage = vi.fn((id: string) => id === "run-1" ? first : second);
     const cancel = vi.fn();
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel, cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel, cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     let activeSession = session("run-1", "codex");
     const { result, rerender } = renderHook(() => useAgentUsage(activeSession));
 
@@ -135,7 +135,7 @@ describe("useAgentUsage", () => {
       outcome: "reset" as const,
       snapshot: snapshot("codex-refreshed")
     }));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit, cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit, cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     const { result } = renderHook(() => useAgentUsage(session("run-1", "codex")));
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
 
@@ -152,7 +152,7 @@ describe("useAgentUsage", () => {
   it("polls an active Codex session every five minutes", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("codex"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     renderHook(() => useAgentUsage(session("run-1", "codex")));
     await act(async () => Promise.resolve());
     expect(getUsage).toHaveBeenCalledTimes(1);
@@ -164,7 +164,7 @@ describe("useAgentUsage", () => {
   it("polls an active Windows CodeBuddy session every minute", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     renderHook(() => useAgentUsage(session("run-1", "codebuddy")));
     await act(async () => Promise.resolve());
     expect(getUsage).toHaveBeenCalledTimes(1);
@@ -177,7 +177,7 @@ describe("useAgentUsage", () => {
   it("polls an active Qoder session every minute", async () => {
     vi.useFakeTimers();
     const getUsage = vi.fn(async () => snapshot("qoder-total", "qoder"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     renderHook(() => useAgentUsage(session("run-1", "qoder")));
     await act(async () => Promise.resolve());
     expect(getUsage).toHaveBeenCalledTimes(1);
@@ -188,7 +188,7 @@ describe("useAgentUsage", () => {
 
   it("force refreshes CodeBuddy quota after its completed hook event", async () => {
     const getUsage = vi.fn(async () => snapshot("codebuddy-total", "codebuddy"));
-    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn() };
+    window.agentUsageApi = { getUsage, getCodeBuddyUsage: vi.fn(), getCodexUsage: vi.fn(), consumeResetCredit: vi.fn(), cancel: vi.fn(), cancelCodeBuddyUsage: vi.fn(), cancelCodexUsage: vi.fn() };
     let agentStatus: AgentStatusPayload | undefined;
     const activeSession = session("run-1", "codebuddy");
     const { rerender } = renderHook(() => useAgentUsage(activeSession, agentStatus));
