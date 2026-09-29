@@ -44,7 +44,11 @@ function getProviderPaths(projectPath, provider) {
   return {
     configPath: definition.configPath ? posix.join(projectPath, ...definition.configPath) : undefined,
     scriptPath: posix.join(projectPath, ...(definition.scriptPath || definition.wslScriptPath)),
-    assetPath: path.join(__dirname, "hook-assets", definition.asset || definition.wslAsset)
+    assetPath: path.join(__dirname, "hook-assets", definition.asset || definition.wslAsset),
+    extraScripts: (definition.extraScripts || []).map(extra => ({
+      scriptPath: posix.join(projectPath, ...extra.scriptPath),
+      assetPath: path.join(__dirname, "hook-assets", extra.asset)
+    }))
   };
 }
 
@@ -144,9 +148,14 @@ function createRemoteHookConfigService({
     const paths = getProviderPaths(projectPath, provider);
     const expectedScript = fs.readFileSync(paths.assetPath, "utf-8");
     const script = await readRemoteText(sftp, paths.scriptPath);
+    const extras = await Promise.all(paths.extraScripts.map(async extra => ({
+      expected: fs.readFileSync(extra.assetPath, "utf-8"), actual: await readRemoteText(sftp, extra.scriptPath)
+    })));
+    const extraMatches = extras.every(extra => extra.actual.exists && extra.actual.content === extra.expected);
     if (!paths.configPath) {
       return {
-        status: script.exists && script.content === expectedScript ? "installed" : script.exists ? "needs_repair" : "not_installed",
+        status: script.exists && script.content === expectedScript && extraMatches ? "installed"
+          : script.exists || extras.some(extra => extra.actual.exists) ? "needs_repair" : "not_installed",
         scriptPath: paths.scriptPath,
         managedHookCount: script.exists ? 1 : 0,
         expectedHookCount: 1
@@ -163,7 +172,7 @@ function createRemoteHookConfigService({
       .length;
 
     const configMatches = JSON.stringify(config) === JSON.stringify(expectedConfig);
-    const scriptMatches = script.exists && script.content === expectedScript;
+    const scriptMatches = script.exists && script.content === expectedScript && extraMatches;
     return {
       status: configMatches && scriptMatches ? "installed" : managedCount > 0 || script.exists ? "needs_repair" : "not_installed",
       configPath: paths.configPath,
@@ -226,6 +235,8 @@ function createRemoteHookConfigService({
           await writeRemoteText(sftp, paths.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, snapshots);
         }
         await writeRemoteText(sftp, paths.scriptPath, expectedScript, snapshots);
+        for (const extra of paths.extraScripts)
+          await writeRemoteText(sftp, extra.scriptPath, fs.readFileSync(extra.assetPath, "utf-8"), snapshots);
       }
 
       await sftp.end();

@@ -1,10 +1,56 @@
 import { afterEach, expect, it, vi } from "vitest";
 import fs from "node:fs";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { createOpenCodeQuestionBridge } = require("../services/opencode-acp/question-bridge.cjs");
 
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.PANNEL_HANDLE_HOOK_URL;
   delete process.env.PANNEL_HANDLE_SESSION_ID;
+  delete process.env.PANNEL_HANDLE_OPENCODE_QUESTION_URL;
+  delete process.env.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN;
+});
+
+it("routes the built-in question tool through the graphical answer card", async () => {
+  const source = fs.readFileSync(new URL("./hook-assets/pannel-handle-opencode-question.js", import.meta.url), "utf8");
+  const { default: plugin } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const onQuestion = vi.fn();
+  const bridge = await createOpenCodeQuestionBridge({ session: { id: "one", type: "windows" }, onQuestion });
+  process.env.PANNEL_HANDLE_OPENCODE_QUESTION_URL = bridge.url;
+  process.env.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN = bridge.token;
+  let questionTool;
+  await plugin.setup({ tool: { transform: async callback => callback({ add: definition => { questionTool = definition; } }) } });
+  try {
+    expect(questionTool.name).toBe("question");
+    const input = { questions: [
+      { header: "方向", question: "优先做什么？", options: [{ label: "甲" }, { label: "乙" }], multiple: false },
+      { header: "补充", question: "还有什么要求？", options: [], custom: true }
+    ] };
+    const pending = questionTool.execute(input);
+    await vi.waitFor(() => expect(onQuestion).toHaveBeenCalledOnce());
+    const request = onQuestion.mock.calls[0][0];
+    expect(request.questions).toMatchObject([
+      { id: "q_0", question: "优先做什么？", multiSelect: false },
+      { id: "q_1", question: "还有什么要求？", isOther: true }
+    ]);
+    bridge.answer(request.requestId, { q_0: ["甲"], q_1: ["保持简单"] });
+    expect(await pending).toMatchObject({ metadata: { answers: [["甲"], ["保持简单"]] } });
+
+    const cancelled = questionTool.execute({ questions: [input.questions[0]] });
+    await vi.waitFor(() => expect(onQuestion).toHaveBeenCalledTimes(2));
+    bridge.cancel(onQuestion.mock.calls[1][0].requestId);
+    await expect(cancelled).rejects.toThrow("用户取消了提问");
+  } finally { bridge.close(); }
+});
+
+it("leaves the built-in question tool alone outside graphical sessions", async () => {
+  const source = fs.readFileSync(new URL("./hook-assets/pannel-handle-opencode-question.js", import.meta.url), "utf8");
+  const { default: plugin } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const transform = vi.fn();
+  await plugin.setup({ tool: { transform } });
+  expect(transform).not.toHaveBeenCalled();
 });
 
 it("reports V2 execution, tool, text, and token events through the existing Hook endpoint", async () => {

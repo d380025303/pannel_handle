@@ -120,6 +120,8 @@ describe("OpenCode ACP sessions", () => {
       openCodeQuestionBridgeFactory: async ({ onQuestion: callback }) => { onQuestion = callback; return questionBridge; } });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeQuestions: true });
     expect(spawnProcess.mock.calls[0][2].env.OPENCODE_ENABLE_QUESTION_TOOL).toBe("0");
+    expect(spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_URL).toBe(questionBridge.url);
+    expect(spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN).toBe(questionBridge.token);
     onQuestion({ requestId: "question-1", questions: [{ id: "plan", header: "方案", question: "选择方案",
       options: [{ label: "方案甲" }], isOther: true }] });
     expect(service.snapshot("one").questions).toHaveLength(1);

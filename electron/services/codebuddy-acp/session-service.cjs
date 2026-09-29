@@ -607,17 +607,19 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     if (Object.hasOwn(message, "id")) send(entry, { id: message.id, error: { code: -32601, message: "Unsupported client method" } });
   }
-  async function connectOpenCodeQuestions(id, entry) {
-    entry.openCodeQuestionBridge = await openCodeQuestionBridgeFactory({ session: entry.session, sshAgentTransport,
+  async function connectOpenCodeQuestions(id, session, getEntry) {
+    return openCodeQuestionBridgeFactory({ session, sshAgentTransport,
       onQuestion: ({ requestId, questions }) => {
-        if (sessions.get(id) !== entry || !entry.threadId) throw new Error("图形会话已关闭。");
+        const entry = getEntry();
+        if (!entry || sessions.get(id) !== entry || !entry.threadId) throw new Error("图形会话已关闭。");
         entry.questions.set(requestId, { requestId, submitting: false, bridge: true,
           params: { threadId: entry.threadId, turnId: entry.turnId || "", questions } });
         publish(id);
         status(id, entry, "e_prompt", questions[0].question);
       },
       onCancel: requestId => {
-        if (sessions.get(id) !== entry) return;
+        const entry = getEntry();
+        if (!entry || sessions.get(id) !== entry) return;
         entry.questions.delete(requestId);
         publish(id);
       }
@@ -628,11 +630,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       throw new Error(`${agentName} SSH 本机桥接缺少受限远端工具配置。`);
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}),
       ...(provider === "opencode" && runtime.openCodeQuestions ? { OPENCODE_ENABLE_QUESTION_TOOL: "0" } : {}) };
-    const child = isRemote({ session, runtime })
-      ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
-      : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
-        return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
-    const entry = { child, session, runtime, environment, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
+    let entry;
+    let openCodeQuestionBridge;
+    let child;
+    try {
+      if (provider === "opencode" && runtime.openCodeQuestions) {
+        openCodeQuestionBridge = await connectOpenCodeQuestions(session.id, session, () => entry);
+        environment.PANNEL_HANDLE_OPENCODE_QUESTION_URL = openCodeQuestionBridge.url;
+        environment.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN = openCodeQuestionBridge.token;
+      }
+      child = isRemote({ session, runtime })
+        ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
+        : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
+          return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
+    } catch (error) { openCodeQuestionBridge?.close(); throw error; }
+    entry = { child, session, runtime, environment, openCodeQuestionBridge, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
       error: null, pendingPlan: null, items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
@@ -685,7 +697,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
         throw new Error(`当前 ${agentName} CLI 不支持恢复断开的会话。`);
       entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true;
-      if (provider === "opencode" && runtime.openCodeQuestions) await connectOpenCodeQuestions(session.id, entry);
       const result = await request(entry, runtime.resumeThreadId ? "session/load" : "session/new", sessionParams(entry, runtime.resumeThreadId));
       entry.threadId = result.sessionId || runtime.resumeThreadId;
       if (!entry.threadId) throw new Error(`${agentName} ACP 未返回会话 ID。`);

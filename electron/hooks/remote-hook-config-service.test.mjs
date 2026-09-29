@@ -213,6 +213,8 @@ describe("remote-hook-config-service", () => {
     expect(result.ok).toBe(true);
     expect(result.providers.opencode.status).toBe("installed");
     expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-notification.js")).toContain("PANNEL_HANDLE_HOOK_URL");
+    expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-question.js"))
+      .toContain('id: "pannel-handle-graphical-question"');
     expect(sftp.read("/srv/app/opencode.json")).toBeUndefined();
   });
 

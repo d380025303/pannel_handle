@@ -563,6 +563,8 @@ function createAgentSessionLauncher({
     let session;
     try {
       session = create({ ...runtime, deferTerminalStart: true, runtimeMode: "app-server" });
+      if (target.type === "ssh" && target.agentProvider === "opencode" && target.agentLocation !== "local")
+        await ensureSshHook(session.id, terminalManager.getSession(session.id));
       await codexAppServerSessionService.start(terminalManager.getSession(session.id), runtime);
       return bindCodexBridgeRuntime(session, runtime);
     } catch (error) {

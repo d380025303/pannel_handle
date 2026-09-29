@@ -212,6 +212,8 @@ describe("agent-session-launcher", () => {
       expect(result).toMatchObject({ runtimeMode: "app-server", deferTerminalStart: true });
     }
     expect(codexAppServerSessionService.start).toHaveBeenCalledTimes(3);
+    expect(mocks.remoteHookConfigService.inspect).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: expect.any(String), path: "/srv/app" }), ["opencode"]);
     const terminal = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: false });
     expect(terminal.runtimeMode).toBeUndefined();
   });

@@ -149,7 +149,9 @@ const PROVIDER_CONFIG = {
   },
   opencode: {
     scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
-    asset: "pannel-handle-opencode-plugin.js"
+    asset: "pannel-handle-opencode-plugin.js",
+    extraScripts: [{ scriptPath: [".opencode", "plugins", "pannel-handle-question.js"],
+      asset: "pannel-handle-opencode-question.js" }]
   }
 };
 
@@ -439,7 +441,10 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
     return {
       configPath: definition.configPath ? projectPathApi.join(rootPath, ...definition.configPath) : undefined,
       scriptPath: projectPathApi.join(rootPath, ...(definition.scriptPath || (isWsl ? definition.wslScriptPath : definition.windowsScriptPath))),
-      assetPath: path.join(assetsDir, definition.asset || (isWsl ? definition.wslAsset : definition.windowsAsset))
+      assetPath: path.join(assetsDir, definition.asset || (isWsl ? definition.wslAsset : definition.windowsAsset)),
+      extraScripts: (definition.extraScripts || []).map(extra => ({
+        scriptPath: projectPathApi.join(rootPath, ...extra.scriptPath), assetPath: path.join(assetsDir, extra.asset)
+      }))
     };
   }
 
@@ -462,7 +467,9 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, target, provider);
         const expectedScript = targetFsApi.readFileSync(paths.assetPath, "utf-8");
-        const scriptMatches = targetFsApi.existsSync(paths.scriptPath) && targetFsApi.readFileSync(paths.scriptPath, "utf-8") === expectedScript;
+        const scriptMatches = targetFsApi.existsSync(paths.scriptPath) && targetFsApi.readFileSync(paths.scriptPath, "utf-8") === expectedScript
+          && paths.extraScripts.every(extra => targetFsApi.existsSync(extra.scriptPath)
+            && targetFsApi.readFileSync(extra.scriptPath, "utf-8") === targetFsApi.readFileSync(extra.assetPath, "utf-8"));
         const config = paths.configPath ? readJsonFile(targetFsApi, paths.configPath) : undefined;
         const expectedConfig = config ? buildConfig(config.value, provider, target.type, getCommandOverride(paths, target, provider)) : undefined;
         const managedCount = config ? countManagedCommands(config.value) : (targetFsApi.existsSync(paths.scriptPath) ? 1 : 0);
@@ -503,6 +510,7 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
           writes.push([paths.configPath, `${JSON.stringify(buildConfig(config.value, provider, target.type, getCommandOverride(paths, target, provider)), null, 2)}\n`]);
         }
         writes.push([paths.scriptPath, script]);
+        for (const extra of paths.extraScripts) writes.push([extra.scriptPath, targetFsApi.readFileSync(extra.assetPath, "utf-8")]);
       }
       for (const [filePath, content] of writes) {
         snapshots.push({
