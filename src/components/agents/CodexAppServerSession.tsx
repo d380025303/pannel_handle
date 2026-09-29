@@ -1003,8 +1003,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const visibleAcpModels = snapshot.provider === "opencode" && sessionType !== "ssh"
     ? (acpModel?.options || []).filter(option => {
       const source = option.value.split("/", 1)[0];
-      if (/^minimax(?:-|$)/i.test(source) && source !== "minimax") return false;
-      return !["openrouter", "nararouter", "minimax"].includes(source) || Boolean(openCodeAllowedModels?.has(option.value));
+      return ["openrouter", "nararouter", "minimax"].includes(source) && Boolean(openCodeAllowedModels?.has(option.value));
     }) : acpModel?.options || [];
   const selectionTitles: Record<SelectionKind, string> = {
     mode: isAcp ? `${agentName} 模式` : "模式", model: "模型", effort: "思考强度",

@@ -768,22 +768,28 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("上下文窗口：1M")).toBeTruthy();
   });
 
-  it("shows OpenCode ACP modes and model options without Codex permissions", async () => {
+  it("shows OpenCode ACP modes and verified external models without Codex permissions", async () => {
+    Object.defineProperty(window, "openRouterApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ hasApiKey: true }),
+      listModels: vi.fn().mockResolvedValue([{ id: "b", agentVerifications: { opencode: { status: "passed" } } }])
+    } });
     setModel.mockResolvedValueOnce({ threadId: "open-1", provider: "opencode", nativeMode: "build", nativeModes: [],
       mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [], acpOptions: [] });
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", nativeMode: "build",
       nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }], mode: "default",
       executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
-      acpOptions: [{ id: "model", type: "select", currentValue: "provider/a", options: [
-        { value: "provider/a", name: "Model A" }, { value: "provider/b", name: "Model B" }] }],
+      acpOptions: [{ id: "model", type: "select", currentValue: "opencode/a", options: [
+        { value: "opencode/a", name: "Model A" }, { value: "openrouter/b", name: "Model B" }] }],
       capabilities: { history: true, plan: true, attachments: true, permissions: false } } }));
     expect(screen.getByRole("region", { name: "OpenCode 图形会话" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.queryByRole("menuitem", { name: /执行权限/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: /模型/ }));
+    expect(await screen.findByRole("radio", { name: "Model B" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Model A" })).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "Model B" }));
-    await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "provider/b"));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("run-1", "openrouter/b"));
   });
 
   it("keeps verified service models selectable and offers reconnect in an external OpenCode session", async () => {
@@ -818,7 +824,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "重新连接以更新模型" }));
     await waitFor(() => expect(reconnect).toHaveBeenCalledWith("run-1"));
   });
-  it("shows only OpenCode-verified service models while keeping native ACP models", async () => {
+  it("shows only OpenCode-verified external models in local sessions", async () => {
     const serviceApi = (hasApiKey: boolean, models: Array<{ id: string; status: string }>) => ({
       getConfig: vi.fn().mockResolvedValue({ hasApiKey, favoriteModelIds: [] }),
       listModels: vi.fn().mockResolvedValue(models.map(model => ({ id: model.id, agentVerifications: { opencode: { status: model.status } } })))
@@ -836,7 +842,8 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", busy: false, error: null,
       mode: "default", executionPermission: "askApproval", items: [], approvals: [],
       acpOptions: [{ id: "model", type: "select", currentValue: "opencode/free", options: [
-        { value: "opencode/free", name: "Free" }, { value: "openrouter/ready", name: "Ready" },
+        { value: "opencode/free", name: "Free" }, { value: "other/custom", name: "Custom" },
+        { value: "openrouter/ready", name: "Ready" },
         { value: "openrouter/failed", name: "Failed" }, { value: "nararouter/no-key", name: "No key" },
         { value: "minimax/MiniMax-M2.7", name: "MiniMax M2.7" }, { value: "minimax/MiniMax-M3", name: "MiniMax M3" },
         { value: "minimax/MiniMax-M2", name: "MiniMax M2" }, { value: "minimax/MiniMax-M1", name: "MiniMax M1" },
@@ -844,12 +851,12 @@ describe("CodexAppServerSession", () => {
         { value: "minimax-cn-coding-plan/MiniMax-M2.7", name: "Coding Plan MiniMax M2.7" }
       ] }] } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: /^模型 Free$/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
-    expect(screen.getByRole("radio", { name: "Free" })).toBeTruthy();
     expect(await screen.findByRole("radio", { name: "MiniMax M3" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "MiniMax M2.7" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Ready" })).toBeTruthy();
-    for (const name of ["Failed", "No key", "MiniMax M2", "MiniMax M1", "China MiniMax M3", "Coding Plan MiniMax M2.7"])
+    for (const name of ["Free", "Custom", "Failed", "No key", "MiniMax M2", "MiniMax M1", "China MiniMax M3", "Coding Plan MiniMax M2.7"])
       expect(screen.queryByRole("radio", { name })).toBeNull();
   });
   it("keeps failed OpenCode model catalogs hidden and retries when the menu reopens", async () => {
@@ -875,6 +882,8 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "模型" }).textContent).toContain("MiniMax 模型读取失败"));
     expect(screen.queryByRole("radio", { name: "MiniMax M3" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Free" })).toBeNull();
+    expect(screen.getByText("当前会话没有可选项。")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
@@ -891,6 +900,7 @@ describe("CodexAppServerSession", () => {
       ] }] } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^模型 / }));
+    expect(screen.getByRole("radio", { name: "Free" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Remote MiniMax" })).toBeTruthy();
   });
   it("lists CodeBuddy-verified service models without favorites and switches to the selected model", async () => {
