@@ -46,7 +46,9 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
 
   const disabled = Boolean(switchingTo);
   const title = t("agentSwitch.title");
-  const tooltip = `${title}：${switchingTo ? t("agentSwitch.switching", { provider: getAgentProviderLabel(switchingTo) }) : getAgentProviderLabel(session.agentProvider)}`;
+  const currentProviderLabel = getAgentProviderLabel(session.agentProvider);
+  const tooltip = `${title}：${switchingTo ? t("agentSwitch.switching", { provider: getAgentProviderLabel(switchingTo) }) : currentProviderLabel}`;
+  const ariaLabel = switchingTo ? tooltip : `${title}（${t("agentSwitch.current", { provider: currentProviderLabel })}）`;
 
   const switchTo = async (provider: AgentProvider) => {
     setOpen(false);
@@ -68,13 +70,14 @@ export function AgentSwitcher({ session, onSwitch }: AgentSwitcherProps) {
         className="agent-switcher-trigger"
         type="button"
         title={tooltip}
-        aria-label={title}
+        aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen(value => !value)}
       >
         {switchingTo ? <LoaderCircle className="spin" aria-hidden="true" /> : <Bot aria-hidden="true" />}
+        <span className="agent-switcher-trigger-label">{currentProviderLabel}</span>
       </button>
       {open && (
         <div className="agent-switcher-menu" role="menu" aria-label={t("agentSwitch.menu")}>

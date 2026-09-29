@@ -25,7 +25,8 @@ describe("AgentSwitcher", () => {
     const onSwitch = vi.fn(async () => {});
     render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /切换当前会话的 Agent/ }));
+    expect(screen.getByRole("button", { name: /当前 Codex/ })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Codex" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Claude" }));
 
@@ -38,7 +39,7 @@ describe("AgentSwitcher", () => {
     expect(screen.queryByRole("button")).toBeNull();
 
     rerender(<AgentSwitcher session={session({ type: "ssh", agentLocation: "local" })} onSwitch={onSwitch} />);
-    const trigger = screen.getByRole("button", { name: "切换当前会话的 Agent" });
+    const trigger = screen.getByRole("button", { name: /切换当前会话的 Agent/ });
     expect((trigger as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(trigger);
     expect(screen.getByRole("menuitem", { name: "OpenCode" })).toBeTruthy();
@@ -50,7 +51,8 @@ describe("AgentSwitcher", () => {
     const onSwitch = vi.fn(async () => {});
     render(<AgentSwitcher session={session({ type: "ssh", agentProvider: "opencode", agentLocation: "local" })} onSwitch={onSwitch} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /切换当前会话的 Agent/ }));
+    expect(screen.getByRole("button", { name: /当前 OpenCode/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: "Codex" }));
 
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("run-1", "codex"));
@@ -59,7 +61,7 @@ describe("AgentSwitcher", () => {
   it("offers Claude for a graphical local SSH bridge", () => {
     render(<AgentSwitcher session={session({ type: "ssh", agentLocation: "local", runtimeMode: "app-server" })} onSwitch={vi.fn(async () => {})} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /切换当前会话的 Agent/ }));
     expect(screen.getByRole("menuitem", { name: "Claude" })).toBeTruthy();
   });
 
@@ -67,7 +69,7 @@ describe("AgentSwitcher", () => {
     const onSwitch = vi.fn(async () => { throw new Error("Failed to start replacement terminal."); });
     render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "切换当前会话的 Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /切换当前会话的 Agent/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Claude" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Failed to start replacement terminal.");
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -78,7 +80,7 @@ describe("AgentSwitcher", () => {
     const onSwitch = vi.fn(async () => {});
     const { rerender } = render(<AgentSwitcher session={session()} onSwitch={onSwitch} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /切换当前会话的 Agent/ }));
     expect(screen.getByRole("menuitem", { name: "GitHub Copilot" })).toBeTruthy();
 
     rerender(<AgentSwitcher session={session({ type: "ssh", agentLocation: "remote" })} onSwitch={onSwitch} />);

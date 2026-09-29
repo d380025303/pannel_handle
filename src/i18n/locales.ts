@@ -341,6 +341,7 @@ export type TranslationKey =
   | "agentSwitch.menu"
   | "agentSwitch.switching"
   | "agentSwitch.localSshUnavailable"
+  | "agentSwitch.current"
   | "session.agentCwdRequired"
   | "settings.defaultWindowsShell"
   | "settings.defaultWindowsShellHint"
@@ -1325,6 +1326,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "选择要切换到的 Agent",
     "agentSwitch.switching": "正在切换到 {provider}",
     "agentSwitch.localSshUnavailable": "本机 SSH 桥接仅支持在 Codex、CodeBuddy 与 OpenCode 之间切换",
+    "agentSwitch.current": "当前 {provider}",
     "session.agentCwdRequired": "选择 Agent CLI 时必须填写项目工作目录。",
     "settings.defaultWindowsShell": "Windows 默认 Shell",
     "settings.defaultWindowsShellHint": "保存后对新建会话生效，已有会话和模板保留原 Shell。PowerShell 7 需要单独安装。",
@@ -2301,6 +2303,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentSwitch.menu": "Choose an Agent to switch to",
     "agentSwitch.switching": "Switching to {provider}",
     "agentSwitch.localSshUnavailable": "Local SSH bridge sessions can only switch between Codex, CodeBuddy, and OpenCode",
+    "agentSwitch.current": "Current {provider}",
     "session.agentCwdRequired": "A project working directory is required when an Agent CLI is selected.",
     "settings.defaultWindowsShell": "Default Windows shell",
     "settings.defaultWindowsShellHint": "Applies to new sessions after saving. Existing sessions and templates keep their shell. PowerShell 7 requires a separate installation.",

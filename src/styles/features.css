@@ -1792,9 +1792,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
+  gap: 5px;
   min-height: 26px;
-  padding: 3px;
+  max-width: 140px;
+  padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
@@ -1803,6 +1804,13 @@
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.agent-switcher-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: var(--color-text);
 }
 
 .agent-switcher-trigger:hover:not(:disabled),
