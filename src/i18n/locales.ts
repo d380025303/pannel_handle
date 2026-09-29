@@ -592,6 +592,19 @@ export type TranslationKey =
   | "skills.remoteRequiresCodex"
   | "skills.pluginRequiresSession"
   | "mcp.title"
+  | "mcp.sessionStatusTitle"
+  | "mcp.sessionStatusDescription"
+  | "mcp.sessionStatusStart"
+  | "mcp.sessionStatusStop"
+  | "mcp.sessionStatusRetry"
+  | "mcp.sessionStatusRunning"
+  | "mcp.sessionStatusUnavailable"
+  | "mcp.sessionStatusCopyUrl"
+  | "mcp.sessionStatusRevealToken"
+  | "mcp.sessionStatusRefreshToken"
+  | "mcp.sessionStatusCopyToken"
+  | "mcp.sessionStatusExamples"
+  | "mcp.sessionStatusTokenHint"
   | "mcp.open"
   | "mcp.description"
   | "mcp.provider"
@@ -630,6 +643,7 @@ export type TranslationKey =
   | "mcp.saved"
   | "mcp.copyTo"
   | "mcp.copied"
+  | "mcp.copiedWithPermissions"
   | "mcp.copyExists"
   | "mcp.removed"
   | "mcp.conflict"
@@ -1609,6 +1623,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.remoteRequiresCodex": "打开该远程环境的 Codex 图形会话后可查看技能。",
     "skills.pluginRequiresSession": "打开 Codex 图形会话后可查看已安装插件的技能。",
     "mcp.title": "MCP 管理",
+    "mcp.sessionStatusTitle": "本机会话状态 MCP",
+    "mcp.sessionStatusDescription": "只读查看运行中的会话、Agent 状态和最近摘要",
+    "mcp.sessionStatusStart": "启用服务",
+    "mcp.sessionStatusStop": "停用服务",
+    "mcp.sessionStatusRetry": "重试启动",
+    "mcp.sessionStatusRunning": "运行中",
+    "mcp.sessionStatusUnavailable": "启动失败",
+    "mcp.sessionStatusCopyUrl": "复制地址",
+    "mcp.sessionStatusRevealToken": "查看令牌",
+    "mcp.sessionStatusRefreshToken": "重新查看令牌",
+    "mcp.sessionStatusCopyToken": "复制令牌",
+    "mcp.sessionStatusExamples": "客户端手动配置示例",
+    "mcp.sessionStatusTokenHint": "将令牌设为 PANNEL_HANDLE_MCP_TOKEN 环境变量；Claude 示例可直接替换令牌。",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、OpenCode、CodeBuddy 的用户与项目 MCP 配置",
     "mcp.provider": "MCP 提供方",
@@ -1647,6 +1674,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.saved": "MCP 配置已保存。",
     "mcp.copyTo": "复制到 {provider}",
     "mcp.copied": "已复制到 {provider}，请重启对应 Agent 会话以加载配置。",
+    "mcp.copiedWithPermissions": "服务和工具权限已复制到 {provider}，请重启对应 Agent 会话以加载配置。",
     "mcp.copyExists": "目标配置已有同名 MCP 服务“{name}”，未覆盖。",
     "mcp.removed": "MCP 服务已删除。",
     "mcp.conflict": "配置文件已被其它程序修改。当前草稿未覆盖磁盘内容，请刷新后重试。",
@@ -2618,6 +2646,19 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.remoteRequiresCodex": "Open a Codex graphical session in this remote environment to view its skills.",
     "skills.pluginRequiresSession": "Open a Codex graphical session to view installed plugin skills.",
     "mcp.title": "MCP Manager",
+    "mcp.sessionStatusTitle": "Local session status MCP",
+    "mcp.sessionStatusDescription": "Read running sessions, agent states and recent summaries",
+    "mcp.sessionStatusStart": "Enable server",
+    "mcp.sessionStatusStop": "Disable server",
+    "mcp.sessionStatusRetry": "Retry startup",
+    "mcp.sessionStatusRunning": "Running",
+    "mcp.sessionStatusUnavailable": "Failed to start",
+    "mcp.sessionStatusCopyUrl": "Copy URL",
+    "mcp.sessionStatusRevealToken": "Reveal token",
+    "mcp.sessionStatusRefreshToken": "Show token again",
+    "mcp.sessionStatusCopyToken": "Copy token",
+    "mcp.sessionStatusExamples": "Manual client configuration examples",
+    "mcp.sessionStatusTokenHint": "Set the token in PANNEL_HANDLE_MCP_TOKEN; the Claude example can use the token directly.",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex, OpenCode, and CodeBuddy",
     "mcp.provider": "MCP provider",
@@ -2656,6 +2697,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.saved": "MCP configuration saved.",
     "mcp.copyTo": "Copy to {provider}",
     "mcp.copied": "Copied to {provider}. Restart the corresponding Agent session to load the configuration.",
+    "mcp.copiedWithPermissions": "Server and tool permissions copied to {provider}. Restart the corresponding Agent session to load the configuration.",
     "mcp.copyExists": "The target already has an MCP server named “{name}”. Nothing was overwritten.",
     "mcp.removed": "MCP server removed.",
     "mcp.conflict": "The configuration file changed in another program. Your draft was not written; refresh and try again.",

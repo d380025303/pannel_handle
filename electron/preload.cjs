@@ -80,6 +80,17 @@ contextBridge.exposeInMainWorld("mcpApi", {
   copy: request => ipcRenderer.invoke("mcp:copy", request)
 });
 
+contextBridge.exposeInMainWorld("sessionStatusMcpApi", {
+  get: () => ipcRenderer.invoke("mcp-session-status:get"),
+  setEnabled: enabled => ipcRenderer.invoke("mcp-session-status:enable", enabled),
+  revealToken: () => ipcRenderer.invoke("mcp-session-status:reveal-token"),
+  onChanged: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("mcp-session-status:changed", listener);
+    return () => ipcRenderer.removeListener("mcp-session-status:changed", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("hookConfigApi", {
   selectProjectDirectory: defaultPath => ipcRenderer.invoke("hooks:select-project-directory", defaultPath),
   inspect: (target, providers) => ipcRenderer.invoke("hooks:inspect", { target, providers }),

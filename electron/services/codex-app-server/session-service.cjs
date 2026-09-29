@@ -861,13 +861,19 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const mapThread = thread => ({ id: thread.id, title: thread.name || thread.preview || "未命名会话",
       updatedAt: thread.updatedAt, source: typeof thread.source === "string" ? thread.source : "unknown",
       status: thread.status?.type || "notLoaded", archived, isPinned: thread.isPinned === true });
-    const pinnedPage = phase === "pinned" ? await list(true, pageCursor) : null;
+    let pinnedPage = null;
+    let ordinaryPage = null;
+    if (phase === "pinned" && isPinned === null && !cursor) {
+      [pinnedPage, ordinaryPage] = await Promise.all([list(true, null), list(false, null)]);
+    } else if (phase === "pinned") {
+      pinnedPage = await list(true, pageCursor);
+    }
     if (pinnedPage?.nextCursor) {
       if (pinnedPage.nextCursor === pageCursor) throw new Error("历史会话分页游标重复。");
       return { data: (pinnedPage.data || []).map(mapThread),
         nextCursor: isPinned !== null ? pinnedPage.nextCursor : encodeCursor("pinned", pinnedPage.nextCursor) };
     }
-    const ordinaryPage = isPinned === true ? null : await list(false, phase === "ordinary" ? pageCursor : null);
+    if (isPinned !== true && !ordinaryPage) ordinaryPage = await list(false, phase === "ordinary" ? pageCursor : null);
     const data = [...(pinnedPage?.data || []), ...(ordinaryPage?.data || [])];
     return { data: data.map(mapThread),
       nextCursor: isPinned !== null ? ordinaryPage?.nextCursor || pinnedPage?.nextCursor || null : encodeCursor("ordinary", ordinaryPage?.nextCursor) };

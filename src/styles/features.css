@@ -7032,6 +7032,7 @@ button.agent-usage-status[aria-expanded="true"] {
   color: var(--color-text);
   background: var(--color-bg);
 }
+.mcp-page:has(.session-status-mcp) { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
 
 .mcp-header,
 .mcp-header > div,
@@ -7050,6 +7051,18 @@ button.agent-usage-status[aria-expanded="true"] {
 .mcp-copy { display: flex; align-items: center; }
 
 .mcp-header { justify-content: space-between; gap: 16px; padding: 17px 24px 12px; }
+.session-status-mcp { margin: 0 24px 12px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-panel); font-size: 12px; }
+.session-status-mcp-heading, .session-status-mcp-details { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.session-status-mcp-heading { justify-content: space-between; }
+.session-status-mcp-heading div { display: grid; gap: 3px; }
+.session-status-mcp-heading small { color: var(--color-text-muted); }
+.session-status-mcp button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); }
+.session-status-mcp button svg { width: 13px; height: 13px; }
+.session-status-mcp-details { margin-top: 10px; }
+.session-status-mcp code { overflow-wrap: anywhere; }
+.session-status-mcp p[role="alert"] { color: var(--color-danger-text); }
+.session-status-mcp details { margin-top: 10px; }
+.session-status-mcp pre { overflow: auto; padding: 9px; border-radius: 7px; background: var(--color-bg-control); }
 .mcp-header > div { min-width: 0; gap: 12px; }
 .mcp-header > div > svg { width: 27px; height: 27px; color: var(--color-accent); }
 .mcp-header h1 { margin: 0; font-size: 22px; }

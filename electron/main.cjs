@@ -29,6 +29,7 @@ const { createRemoteFilesModule, registerRemoteFileScheme } = require("./service
 const { registerTerminalBackgroundScheme, registerTerminalBackgroundProtocol } = require("./services/settings/terminal-background.cjs");
 const { createSkillsService } = require("./services/skills/skills-service.cjs");
 const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cjs");
+const { createSessionStatusServer } = require("./services/mcp/session-status-server.cjs");
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
@@ -103,6 +104,7 @@ let remoteFilesModule = null;
 let remoteSystemService = null;
 let skillsService = null;
 let mcpConfigService = null;
+let sessionStatusServer = null;
 let remoteAgentBridgeService = null;
 let codexWorkspaceTrustService = null;
 let tokenUsageModule = null;
@@ -226,6 +228,7 @@ if (!gotSingleInstanceLock) {
       windowManager.broadcast(channel, payload);
       if (channel === "sessions:changed") postgresBackupService?.trackSessions(payload);
       mobileRemoteService?.handleDesktopEvent(channel, payload);
+      sessionStatusServer?.handleDesktopEvent(channel, payload);
     };
     terminalManager = createTerminalManager({
       environmentService,
@@ -535,6 +538,11 @@ if (!gotSingleInstanceLock) {
         }
       }
     });
+    sessionStatusServer = createSessionStatusServer({
+      userData: app.getPath("userData"), terminalManager,
+      graphicalService: codexAppServerSessionService, stateHub: terminalStateHub,
+      broadcast: windowManager.broadcast
+    });
     gitModule = createGitModule({
       ipcMain,
       terminalManager,
@@ -563,6 +571,7 @@ if (!gotSingleInstanceLock) {
     await remoteAgentBridgeService.start();
     await ideaModule.start().catch((err) => console.error("Failed to start IDEA bridge discovery:", err));
     await mobileRemoteService.start().catch((err) => console.error("Failed to start mobile access:", err));
+    await sessionStatusServer.start().catch((err) => console.error("Failed to start session status MCP:", err));
     registerIpcHandlers({
       environmentService,
       terminalManager,
@@ -583,6 +592,7 @@ if (!gotSingleInstanceLock) {
       remoteSystemService,
       skillsService,
       mcpConfigService,
+      sessionStatusServer,
       workBuddyCheckinService,
       hookConfigManager,
       remoteHookConfigService,
@@ -662,6 +672,9 @@ app.on("window-all-closed", () => {
   }
   if (mobileRemoteService) {
     void mobileRemoteService.stop();
+  }
+  if (sessionStatusServer) {
+    void sessionStatusServer.stop();
   }
   if (terminalStateHub) {
     terminalStateHub.shutdown();

@@ -32,6 +32,7 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.8",
     "@lezer/highlight": "1.2.3",
+    "@modelcontextprotocol/server": "2.2.0",
     "@qoder-ai/qoder-agent-sdk": "1.0.25",
     "@vitejs/plugin-react": "^4.5.0",
     "@vscode/ripgrep": "^1.18.0",

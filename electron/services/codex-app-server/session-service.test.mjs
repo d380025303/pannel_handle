@@ -28,8 +28,10 @@ function fakeProcess(received, respond) {
       const result = respond?.(request) ?? (request.method === "thread/start" ? { thread: { id: "thread-1", model: "test-model" } }
         : request.method === "model/list" ? { data: [{ id: "test-model", isDefault: true }] }
           : request.method === "turn/start" ? { turn: { id: "turn-1", status: "inProgress" } } : {});
-      child.stdout.write(`${JSON.stringify(result?.__error ? { id: request.id, error: { message: result.__error } }
-        : { id: request.id, result })}\n`);
+      const reply = value => child.stdout.write(`${JSON.stringify(value?.__error ? { id: request.id, error: { message: value.__error } }
+        : { id: request.id, result: value })}\n`);
+      if (typeof result?.then === "function") result.then(reply);
+      else reply(result);
     }
   });
   return child;
@@ -915,13 +917,33 @@ describe("Codex App Server session", () => {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
       const first = await service.listHistory("run-1");
       expect(first.data.map(item => item.id)).toEqual(["pinned-1"]);
-      expect(received.filter(item => item.method === "thread/list")).toHaveLength(1);
+      expect(received.filter(item => item.method === "thread/list")).toHaveLength(2);
       const second = await service.listHistory("run-1", first.nextCursor);
       expect(second.data.map(item => item.id)).toEqual(["pinned-2", "ordinary-1"]);
       const third = await service.listHistory("run-1", second.nextCursor);
       expect(third.data.map(item => item.id)).toEqual(["ordinary-2"]);
       expect(third.nextCursor).toBeNull();
       await expect(service.listHistory("run-1", first.nextCursor, true)).rejects.toThrow("无效的历史会话游标");
+    } finally { service.close("run-1"); }
+  });
+
+  it("requests pinned and ordinary history together on the first page", async () => {
+    const received = [];
+    let releasePinned;
+    const pinned = new Promise(resolve => { releasePinned = resolve; });
+    const child = fakeProcess(received, request => {
+      if (request.method !== "thread/list") return undefined;
+      if (request.params.isPinned) return pinned;
+      releasePinned({ data: [], nextCursor: null });
+      return { data: [{ id: "game4-thread", name: "game4 历史" }], nextCursor: null };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const history = await service.listHistory("run-1");
+      expect(received.filter(item => item.method === "thread/list").map(item => item.params.isPinned)).toEqual([true, false]);
+      expect(history.data.map(item => item.id)).toEqual(["game4-thread"]);
     } finally { service.close("run-1"); }
   });
 

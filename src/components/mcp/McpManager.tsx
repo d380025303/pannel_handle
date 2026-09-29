@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cable, Copy, Eye, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { SessionStatusMcpPanel } from "./SessionStatusMcpPanel";
 import type {
   McpDocument,
   McpProvider,
@@ -266,7 +267,8 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
       setQuery("");
       setDocument(result.document);
       selectServer(result.document.servers.find(server => server.name === result.serverName));
-      setNotice(t("mcp.copied", { provider: destinationProvider === "codex" ? "Codex" : "OpenCode" }));
+      setNotice(t(result.permissionsCopied ? "mcp.copiedWithPermissions" : "mcp.copied",
+        { provider: destinationProvider === "codex" ? "Codex" : "OpenCode" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -326,6 +328,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
         </div>
       </header>
 
+      {!embeddedCodex && <SessionStatusMcpPanel />}
       {!embeddedCodex && <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchTarget("codex", "user")}>Codex</button>
         <button type="button" role="tab" aria-selected={provider === "opencode"} className={provider === "opencode" ? "active" : ""} onClick={() => switchTarget("opencode", "user")}>OpenCode</button>

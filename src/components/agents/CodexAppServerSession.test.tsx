@@ -1274,6 +1274,24 @@ describe("CodexAppServerSession", () => {
     } finally { timeoutSpy.mockRestore(); }
   });
 
+  it("explains a slow history request and clears the message after loading", async () => {
+    let finishLoading: (value: { data: any[]; nextCursor: null }) => void = () => {};
+    listHistory.mockImplementationOnce(() => new Promise(resolve => { finishLoading = resolve; }));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number, ...args: any[]) =>
+      originalSetTimeout(handler, timeout === 4000 ? 0 : timeout, ...args)) as typeof window.setTimeout);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+      expect(await screen.findByRole("status")).toHaveProperty("textContent", "检索较慢，仍在读取历史会话…");
+      await act(async () => finishLoading({ data: [{ id: "game4-thread", title: "game4 历史", updatedAt: 123, source: "cli" }], nextCursor: null }));
+      expect(await screen.findByText("会话 ID：game4-thread")).toBeTruthy();
+      expect(screen.queryByText("检索较慢，仍在读取历史会话…")).toBeNull();
+    } finally { timeoutSpy.mockRestore(); }
+  });
+
   it("offers Codex thread actions, lists archived threads, and switches to a fork", async () => {
     listHistory.mockImplementation(async (_id, _cursor, archived) => ({ data: archived
       ? [{ id: "archived-1", title: "归档任务", updatedAt: 122, source: "cli", status: "notLoaded", archived: true }]

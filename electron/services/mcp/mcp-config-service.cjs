@@ -421,6 +421,55 @@ function stringRecord(value, label) {
   return value;
 }
 
+function openCodeToolAction(serverName, toolName) {
+  return `${serverName}_${toolName}`.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+function convertCodexToolPermissions(serverName, config) {
+  const hasAllowlist = config.enabled_tools !== undefined;
+  const hasDefault = config.default_tools_approval_mode !== undefined;
+  const hasOverrides = config.tools !== undefined;
+  if (!hasAllowlist && !hasDefault && !hasOverrides) return [];
+
+  const approvalEffect = (mode, field) => {
+    if (mode === "prompt") return "ask";
+    if (mode === "approve") return "allow";
+    throw new Error(`无法等价复制 MCP ${field}：${String(mode)}。`);
+  };
+  if (hasAllowlist && (!Array.isArray(config.enabled_tools)
+    || config.enabled_tools.some(name => typeof name !== "string" || !name.trim())))
+    throw new Error("MCP enabled_tools 必须是非空工具名组成的数组。");
+  if (hasOverrides && (!config.tools || typeof config.tools !== "object" || Array.isArray(config.tools)))
+    throw new Error("MCP tools 必须是对象。");
+
+  const defaultEffect = hasDefault ? approvalEffect(config.default_tools_approval_mode, "default_tools_approval_mode") : "allow";
+  const overrides = new Map();
+  for (const [name, value] of Object.entries(config.tools || {})) {
+    if (!name.trim() || !value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).some(key => key !== "approval_mode") || value.approval_mode === undefined)
+      throw new Error(`无法等价复制 MCP tools.${name}。`);
+    const action = openCodeToolAction(serverName, name);
+    if (overrides.has(action)) throw new Error(`无法等价复制 MCP tools：工具名规范化后重复 (${name})。`);
+    overrides.set(action, approvalEffect(value.approval_mode, `tools.${name}.approval_mode`));
+  }
+
+  const serverAction = `${openCodeToolAction(serverName, "")}*`;
+  const rule = (action, effect) => ({ action, resource: "*", effect });
+  if (!hasAllowlist) return [
+    ...(hasDefault ? [rule(serverAction, defaultEffect)] : []),
+    ...[...overrides].map(([action, effect]) => rule(action, effect))
+  ];
+
+  const names = new Map();
+  for (const name of config.enabled_tools) {
+    const action = openCodeToolAction(serverName, name);
+    if (names.has(action)) throw new Error(`无法等价复制 MCP enabled_tools：工具名规范化后重复 (${name})。`);
+    names.set(action, name);
+  }
+  return [rule(serverAction, "deny"),
+    ...[...names].map(([action]) => rule(action, overrides.get(action) || defaultEffect))];
+}
+
 function convertServer(sourceProvider, config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("MCP 服务配置格式无效。");
   const openCode = sourceProvider === "opencode";
@@ -432,15 +481,15 @@ function convertServer(sourceProvider, config) {
   if (config.cwd !== undefined && typeof config.cwd !== "string") throw new Error("MCP cwd 必须是字符串。");
   const supported = new Set(openCode
     ? ["type", "command", "cwd", "environment", "url", "headers", "disabled", "timeout", "oauth"]
-    : ["command", "args", "cwd", "env", "env_vars", "url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+    : ["command", "args", "cwd", "env", "env_vars", "url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec", "enabled_tools", "default_tools_approval_mode", "tools"]);
   const unsupported = Object.keys(config).filter(key => !supported.has(key));
   if (local) {
     const allowed = new Set(openCode ? ["type", "command", "cwd", "environment", "disabled", "timeout"]
-      : ["command", "args", "cwd", "env", "env_vars", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+      : ["command", "args", "cwd", "env", "env_vars", "enabled", "startup_timeout_sec", "tool_timeout_sec", "enabled_tools", "default_tools_approval_mode", "tools"]);
     unsupported.push(...Object.keys(config).filter(key => supported.has(key) && !allowed.has(key)));
   } else {
     const allowed = new Set(openCode ? ["type", "url", "headers", "disabled", "timeout", "oauth"]
-      : ["url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+      : ["url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec", "enabled_tools", "default_tools_approval_mode", "tools"]);
     unsupported.push(...Object.keys(config).filter(key => supported.has(key) && !allowed.has(key)));
   }
   if (openCode && config.oauth !== undefined && (config.oauth !== false || !Object.keys(config.headers || {}).some(key => key.toLowerCase() === "authorization")))
@@ -807,13 +856,33 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
       : openCodeServers(parseJsonDocument(destinationRecord.text, "OpenCode"));
     if (Object.hasOwn(destinationServers, serverName)) return { status: "exists" };
     const converted = convertServer(source.provider, sourceServers[serverName]);
-    const nextText = destinationProvider === "codex"
+    const permissionRules = source.provider === "codex"
+      ? convertCodexToolPermissions(serverName, sourceServers[serverName]) : [];
+    if (permissionRules.length) {
+      const sourcePrefix = openCodeToolAction(serverName, "");
+      const overlapping = Object.keys(destinationServers).find(name => {
+        const prefix = openCodeToolAction(name, "");
+        return prefix.startsWith(sourcePrefix) || sourcePrefix.startsWith(prefix);
+      });
+      if (overlapping) throw new Error(`无法安全复制 MCP 工具权限：服务“${serverName}”与“${overlapping}”的工具名称可能重叠。`);
+    }
+    let nextText = destinationProvider === "codex"
       ? replaceCodexServer(destinationRecord.text, undefined, serverName, converted)
       : applyJsonValue(destinationRecord.text, ["mcp", "servers", serverName], converted);
+    if (permissionRules.length) {
+      const destination = parseJsonDocument(destinationRecord.text, "OpenCode");
+      if (destination.permissions !== undefined && !Array.isArray(destination.permissions))
+        throw new Error("OpenCode permissions 必须是数组，无法复制 MCP 工具权限。");
+      if (!destination.permissions) nextText = applyJsonValue(nextText, ["permissions"], permissionRules);
+      else for (const [index, rule] of permissionRules.entries()) {
+        nextText = applyEdits(nextText, modify(nextText, ["permissions", destination.permissions.length + index], rule,
+          { formattingOptions: jsonFormattingOptions(nextText), isArrayInsertion: true }));
+      }
+    }
     if (readConfigFile(sourceTarget.filePath, fsApi).version !== sourceRecord.version
       || readConfigFile(destinationTarget.filePath, fsApi).version !== destinationRecord.version) return { status: "conflict" };
     atomicWrite(destinationTarget.filePath, nextText, fsApi);
-    return { status: "copied", document: list(destinationRequest), serverName };
+    return { status: "copied", document: list(destinationRequest), serverName, permissionsCopied: permissionRules.length > 0 };
   }
 
   return { list, reveal, save, remove, copy };

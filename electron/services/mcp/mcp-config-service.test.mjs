@@ -260,6 +260,83 @@ describe("mcp-config-service", () => {
     expect(JSON.parse(readFileSync(openCodePath, "utf8")).model).toBe("keep");
   });
 
+  it("copies Codex tool allowlists and approval overrides into OpenCode permissions", () => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.jsonc");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    writeFileSync(codexPath, '[mcp_servers."docs.server"]\ncommand = "node"\nenabled_tools = ["read", "write.file"]\ndefault_tools_approval_mode = "prompt"\n[mcp_servers."docs.server".tools."write.file"]\napproval_mode = "approve"\n');
+    writeFileSync(openCodePath, '{\n  // preserve\n  "model": "keep",\n  "permissions": [\n    // keep existing permission\n    { "action": "read", "resource": "*", "effect": "allow" }\n  ]\n}\n');
+    const source = service.list({ provider: "codex", scope: "user" });
+    const destination = service.list({ provider: "opencode", scope: "user" });
+    const result = service.copy({ source: { provider: "codex", scope: "user" }, name: "docs.server",
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version });
+    expect(result).toMatchObject({ status: "copied", permissionsCopied: true });
+    const text = readFileSync(openCodePath, "utf8");
+    expect(text).toContain("// preserve");
+    expect(text).toContain("// keep existing permission");
+    const document = JSON.parse(text.replace(/\/\/ preserve/, "").replace(/\/\/ keep existing permission/, ""));
+    expect(document.model).toBe("keep");
+    expect(document.mcp.servers["docs.server"]).toMatchObject({ type: "local", command: ["node"] });
+    expect(document.permissions).toEqual([
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "docs_server_*", resource: "*", effect: "deny" },
+      { action: "docs_server_read", resource: "*", effect: "ask" },
+      { action: "docs_server_write_file", resource: "*", effect: "allow" }
+    ]);
+  });
+
+  it("maps an empty allowlist to deny all server tools", () => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    writeFileSync(codexPath, '[mcp_servers.local]\ncommand = "node"\nenabled_tools = []\n');
+    const source = service.list({ provider: "codex", scope: "user" });
+    const destination = service.list({ provider: "opencode", scope: "user" });
+    expect(service.copy({ source: { provider: "codex", scope: "user" }, name: "local",
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version }).permissionsCopied).toBe(true);
+    const document = JSON.parse(readFileSync(path.join(homeDir, ".config", "opencode", "opencode.json"), "utf8"));
+    expect(document.permissions).toEqual([{ action: "local_*", resource: "*", effect: "deny" }]);
+  });
+
+  it("rejects tool rules that could also match an existing OpenCode server", () => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    writeFileSync(codexPath, '[mcp_servers.docs]\ncommand = "node"\nenabled_tools = ["read"]\n');
+    writeFileSync(openCodePath, '{"mcp":{"servers":{"docs_more":{"type":"local","command":["node"]}}}}');
+    const source = service.list({ provider: "codex", scope: "user" });
+    const destination = service.list({ provider: "opencode", scope: "user" });
+    expect(() => service.copy({ source: { provider: "codex", scope: "user" }, name: "docs",
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version })).toThrow(/工具名称可能重叠/);
+    expect(JSON.parse(readFileSync(openCodePath, "utf8")).mcp.servers).toHaveProperty("docs_more");
+  });
+
+  it.each([
+    ['default_tools_approval_mode = "writes"', /default_tools_approval_mode.*writes/],
+    ['default_tools_approval_mode = "auto"', /default_tools_approval_mode.*auto/],
+    ['enabled_tools = ["read", "read"]', /enabled_tools.*重复/],
+    ['[mcp_servers.local.tools.read]\noutput_token_limit = 100', /tools.read/],
+    ['[mcp_servers.local.tools.read]\napproval_mode = "writes"', /tools.read.approval_mode.*writes/]
+  ])("rejects unsupported Codex tool policy without writing: %s", (setting, expectedError) => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    writeFileSync(codexPath, `[mcp_servers.local]\ncommand = "node"\n${setting}\n`);
+    writeFileSync(openCodePath, '{ "model": "keep" }\n');
+    const source = service.list({ provider: "codex", scope: "user" });
+    const destination = service.list({ provider: "opencode", scope: "user" });
+    expect(() => service.copy({ source: { provider: "codex", scope: "user" }, name: "local",
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version })).toThrow(expectedError);
+    expect(readFileSync(openCodePath, "utf8")).toBe('{ "model": "keep" }\n');
+    expect(existsSync(`${openCodePath}.pannel-handle.bak`)).toBe(false);
+  });
+
   it("copies OpenCode HTTP and local servers back to Codex with environment references", () => {
     const { homeDir, service } = setup();
     const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");

@@ -1413,7 +1413,15 @@ export type McpApi = {
   reveal: (request: McpTargetRequest & { name: string; field: "url" | "args" | "env" | "headers"; key?: string; expectedVersion: string }) => Promise<{ status: "revealed"; value: string } | { status: "conflict" }>;
   save: (request: McpTargetRequest & { originalName?: string; draft: McpServerDraft; expectedVersion: string }) => Promise<{ status: "saved"; document: McpDocument; serverName: string } | { status: "conflict" }>;
   remove: (request: McpTargetRequest & { name: string; expectedVersion: string }) => Promise<{ status: "removed"; document: McpDocument } | { status: "conflict" }>;
-  copy: (request: { source: McpTargetRequest; name: string; expectedSourceVersion: string; expectedDestinationVersion: string }) => Promise<{ status: "copied"; document: McpDocument; serverName: string } | { status: "conflict" } | { status: "exists" }>;
+  copy: (request: { source: McpTargetRequest; name: string; expectedSourceVersion: string; expectedDestinationVersion: string }) => Promise<{ status: "copied"; document: McpDocument; serverName: string; permissionsCopied: boolean } | { status: "conflict" } | { status: "exists" }>;
+};
+
+export type SessionStatusMcpState = { enabled: boolean; running: boolean; url: string; error: string };
+export type SessionStatusMcpApi = {
+  get: () => Promise<SessionStatusMcpState>;
+  setEnabled: (enabled: boolean) => Promise<SessionStatusMcpState>;
+  revealToken: () => Promise<string>;
+  onChanged: (callback: (value: SessionStatusMcpState) => void) => () => void;
 };
 
 export type FileTransferApi = {
@@ -1566,6 +1574,7 @@ declare global {
     remoteSystemApi: RemoteSystemApi;
     skillsApi: SkillsApi;
     mcpApi: McpApi;
+    sessionStatusMcpApi: SessionStatusMcpApi;
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;

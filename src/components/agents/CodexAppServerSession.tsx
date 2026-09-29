@@ -183,6 +183,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historySlow, setHistorySlow] = useState(false);
   const [resumingHistory, setResumingHistory] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const wasActiveRef = useRef(false);
@@ -339,6 +340,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setHistoryQuery("");
     setHistoryError("");
     setLoadingHistory(false);
+    setHistorySlow(false);
     setResumingHistory(false);
     historyRequestRef.current += 1;
   }, [sessionId]);
@@ -632,7 +634,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   async function loadHistory(cursor: string | null = null, query = "") {
     const requestId = ++historyRequestRef.current;
     const searching = Boolean(query.trim());
-    setLoadingHistory(true); setHistoryError("");
+    setLoadingHistory(true); setHistorySlow(false); setHistoryError("");
+    const slowTimer = window.setTimeout(() => {
+      if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) setHistorySlow(true);
+    }, 4000);
     if (!cursor) { setHistory([]); setHistoryCursor(null); }
     try {
       const seenCursors = new Set<string>();
@@ -656,13 +661,18 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } catch (cause) {
       if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) setHistoryError(message(cause));
     } finally {
-      if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) setLoadingHistory(false);
+      window.clearTimeout(slowTimer);
+      if (currentSessionRef.current === sessionId && historyRequestRef.current === requestId) {
+        setLoadingHistory(false);
+        setHistorySlow(false);
+      }
     }
   }
   function closeHistory() {
     setHistoryOpen(false);
     historyRequestRef.current += 1;
     setLoadingHistory(false);
+    setHistorySlow(false);
     menuButtonRef.current?.focus();
   }
   async function selectHistory(threadId: string) {
@@ -1596,7 +1606,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {visibleHistory.length === 0 && !loadingHistory && !historyError && <p>{normalizedHistoryQuery ? "没有匹配的历史会话。" : historyArchived ? "当前项目没有已归档会话。" : "当前项目没有历史会话。"}</p>}
           {historyError && <p className="codex-app-server-history-error" role="alert">{historyError}</p>}
           {historyError && <div className="codex-app-server-history-actions"><button type="button" onClick={() => void loadHistory(null, historyQuery)}>重试加载</button></div>}
-          {loadingHistory && <p>正在加载历史会话…</p>}
+          {loadingHistory && <p role="status">{historySlow ? "检索较慢，仍在读取历史会话…" : "正在加载历史会话…"}</p>}
           {!normalizedHistoryQuery && historyCursor && <button type="button" disabled={loadingHistory} onClick={() => void loadHistory(historyCursor)}>加载更多</button>}
         </div>
       </div>

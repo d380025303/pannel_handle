@@ -64,10 +64,15 @@ describe("McpManager", () => {
       document: { ...documentFor("codex", "user"), version: "v2", servers: [{ ...codexServer, ...draft, id: `user:${draft.name}` }] }
     }));
     remove.mockResolvedValue({ status: "removed", document: { ...documentFor(), version: "v2", servers: [] } });
-    copy.mockImplementation(async ({ source, name }) => ({ status: "copied", serverName: name,
+    copy.mockImplementation(async ({ source, name }) => ({ status: "copied", serverName: name, permissionsCopied: false,
       document: { ...documentFor(source.provider === "codex" ? "opencode" : "codex", source.scope),
         servers: [{ ...codexServer, provider: source.provider === "codex" ? "opencode" : "codex", name }] } }));
     Object.defineProperty(window, "mcpApi", { configurable: true, value: { list, reveal, save, remove, copy } });
+    Object.defineProperty(window, "sessionStatusMcpApi", { configurable: true, value: {
+      get: vi.fn().mockResolvedValue({ enabled: false, running: false, url: "http://127.0.0.1:43124/mcp", error: "" }),
+      setEnabled: vi.fn().mockResolvedValue({ enabled: true, running: true, url: "http://127.0.0.1:43124/mcp", error: "" }),
+      revealToken: vi.fn().mockResolvedValue("secret"), onChanged: vi.fn().mockReturnValue(() => undefined)
+    } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
@@ -136,6 +141,15 @@ describe("McpManager", () => {
     expect(await screen.findByText(/已复制到 OpenCode/)).toBeTruthy();
   });
 
+  it("reports when tool permissions are copied with the server", async () => {
+    copy.mockImplementationOnce(async ({ name }) => ({ status: "copied", serverName: name, permissionsCopied: true,
+      document: { ...documentFor("opencode", "user"), servers: [{ ...codexServer, provider: "opencode", name }] } }));
+    renderManager();
+    await screen.findByRole("heading", { name: "local-tools" });
+    fireEvent.click(screen.getByRole("button", { name: "复制到 OpenCode" }));
+    expect(await screen.findByText(/服务和工具权限已复制到 OpenCode/)).toBeTruthy();
+  });
+
   it("shows a name conflict without switching providers", async () => {
     copy.mockResolvedValue({ status: "exists" });
     renderManager();
@@ -143,5 +157,17 @@ describe("McpManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "复制到 OpenCode" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "目标配置已有同名 MCP 服务“local-tools”，未覆盖。");
     expect((screen.getByRole("tab", { name: "Codex" }) as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("enables the local session status MCP and shows its manual configuration", async () => {
+    renderManager();
+    const panel = await screen.findByRole("region", { name: "本机会话状态 MCP" });
+    fireEvent.click(screen.getByRole("button", { name: "启用服务" }));
+    await waitFor(() => expect(window.sessionStatusMcpApi.setEnabled).toHaveBeenCalledWith(true));
+    expect(await screen.findByText("http://127.0.0.1:43124/mcp")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "查看令牌" }));
+    expect(await screen.findByText("secret")).toBeTruthy();
+    fireEvent.click(panel.querySelector("summary") as HTMLElement);
+    expect(screen.getByText(/bearer_token_env_var/)).toBeTruthy();
   });
 });
