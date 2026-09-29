@@ -171,9 +171,18 @@ describe("SettingsModal navigation", () => {
     renderSettingsModal();
     fireEvent.click(screen.getByRole("tab", { name: "额度" }));
     expect(screen.getByRole("tabpanel", { name: "额度" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Codex 额度" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "CodeBuddy 额度" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "MiniMAX 额度" })).toBeTruthy();
+    const quotaPage = screen.getByRole("tabpanel", { name: "额度" });
+    for (const name of ["Codex 额度", "CodeBuddy 额度", "MiniMAX 额度"]) {
+      const card = screen.getByRole("region", { name });
+      expect(card.parentElement).toBe(quotaPage);
+      expect(card.classList.contains("codebuddy-quota-settings")).toBe(true);
+    }
+    const codexToggle = screen.getByRole("button", { name: "Codex 额度" });
+    const codeBuddyToggle = screen.getByRole("button", { name: "CodeBuddy 额度" });
+    const miniMaxToggle = screen.getByRole("button", { name: "MiniMAX 额度" });
+    expect([codexToggle, codeBuddyToggle, miniMaxToggle].map(button => button.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
+    fireEvent.click(codeBuddyToggle);
+    expect([codexToggle, codeBuddyToggle, miniMaxToggle].map(button => button.getAttribute("aria-expanded"))).toEqual(["true", "false", "true"]);
     expect(await screen.findByText("请先在“模型服务”中配置 MiniMAX API Key。")).toBeTruthy();
   });
 

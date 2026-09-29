@@ -56,6 +56,13 @@ describe("CodeBuddyQuotaSettings", () => {
     expect(screen.getByText("基础额度")).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "基础额度" }).getAttribute("aria-valuenow")).toBe("25");
     expect(getCodeBuddyUsage).toHaveBeenCalledWith({ force: false });
+    const toggle = screen.getByRole("button", { name: "CodeBuddy 额度" });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("progressbar", { name: "基础额度" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("progressbar", { name: "基础额度" })).toBeTruthy();
+    expect(getCodeBuddyUsage).toHaveBeenCalledTimes(1);
 
     view.unmount();
     expect(cancelCodeBuddyUsage).toHaveBeenCalledTimes(1);

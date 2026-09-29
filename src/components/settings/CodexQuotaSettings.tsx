@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { AgentUsageSnapshot } from "../../vite-env";
 
@@ -23,6 +23,8 @@ function remainingClass(percent: number) {
 export function CodexQuotaSettings() {
   const { locale, t } = useI18n();
   const [state, setState] = useState<QuotaState>({ status: "loading" });
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
   const requestIdRef = useRef(0);
 
   const load = useCallback(async (force = false) => {
@@ -53,12 +55,17 @@ export function CodexQuotaSettings() {
 
   return <section className="settings-section codebuddy-quota-settings" aria-label={t("settings.codexQuotaTitle")}>
     <div className="codebuddy-quota-settings-header">
-      <h5>{t("settings.codexQuotaTitle")}</h5>
+      <h5><button type="button" className="quota-collapse-button" aria-expanded={expanded} aria-controls={contentId}
+        onClick={() => setExpanded(value => !value)}>
+        <span className={`collapsible-chevron${expanded ? "" : " collapsed"}`} aria-hidden="true">▾</span>
+        {t("settings.codexQuotaTitle")}
+      </button></h5>
       <button type="button" className="icon-button" title={t("usage.refresh")} aria-label={t("settings.codexQuotaRefresh")}
         disabled={state.status === "loading" || (state.status === "ready" && state.refreshing)} onClick={() => void load(true)}>
         <RefreshCw className={state.status === "ready" && state.refreshing ? "spin" : ""} aria-hidden="true" />
       </button>
     </div>
+    <div id={contentId} className="quota-collapsible-body" hidden={!expanded}>
     <p className="settings-help">{t("settings.codexQuotaLocal")}</p>
     {state.status === "loading" && <div className="codebuddy-quota-state" role="status"><LoaderCircle className="spin" aria-hidden="true" />{t("usage.loading")}</div>}
     {state.status === "error" && <div className="codebuddy-quota-error" role="alert">
@@ -86,5 +93,6 @@ export function CodexQuotaSettings() {
       </div>)}
       <small>{t("usage.updatedAt", { time: formatTimestamp(locale, state.snapshot.fetchedAt) })}</small>
     </div>}
+    </div>
   </section>;
 }

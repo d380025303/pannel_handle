@@ -21,8 +21,17 @@ describe("CodexQuotaSettings", () => {
     expect(await screen.findByRole("progressbar", { name: "Codex" })).toBeTruthy();
     expect(screen.getByText("1 个可用")).toBeTruthy();
     expect(getCodexUsage).toHaveBeenCalledWith({ force: false });
+    const toggle = screen.getByRole("button", { name: "Codex 额度" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("progressbar", { name: "Codex" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("progressbar", { name: "Codex" })).toBeTruthy();
+    expect(getCodexUsage).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "刷新 Codex 额度" }));
     await waitFor(() => expect(getCodexUsage).toHaveBeenCalledWith({ force: true }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     view.unmount();
     expect(cancelCodexUsage).toHaveBeenCalledTimes(1);
   });

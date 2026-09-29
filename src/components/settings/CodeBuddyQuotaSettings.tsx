@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { AgentUsageSnapshot } from "../../vite-env";
 import { CodeBuddyQuotaDetails } from "../agents/CodeBuddyQuotaDetails";
@@ -12,6 +12,8 @@ type QuotaState =
 export function CodeBuddyQuotaSettings() {
   const { t } = useI18n();
   const [state, setState] = useState<QuotaState>({ status: "loading" });
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
   const requestIdRef = useRef(0);
 
   const load = useCallback(async (force = false) => {
@@ -41,9 +43,13 @@ export function CodeBuddyQuotaSettings() {
   }, [load]);
 
   return (
-    <section className="codebuddy-quota-settings" aria-label={t("usage.codebuddyTitle")}>
+    <section className="settings-section codebuddy-quota-settings" aria-label={t("usage.codebuddyTitle")}>
       <div className="codebuddy-quota-settings-header">
-        <h5>{t("usage.codebuddyTitle")}</h5>
+        <h5><button type="button" className="quota-collapse-button" aria-expanded={expanded} aria-controls={contentId}
+          onClick={() => setExpanded(value => !value)}>
+          <span className={`collapsible-chevron${expanded ? "" : " collapsed"}`} aria-hidden="true">▾</span>
+          {t("usage.codebuddyTitle")}
+        </button></h5>
         <button
           type="button"
           className="icon-button"
@@ -55,6 +61,7 @@ export function CodeBuddyQuotaSettings() {
           <RefreshCw className={state.status === "ready" && state.refreshing ? "spin" : ""} aria-hidden="true" />
         </button>
       </div>
+      <div id={contentId} className="quota-collapsible-body" hidden={!expanded}>
       {state.status === "loading" && (
         <div className="codebuddy-quota-state" role="status">
           <LoaderCircle className="spin" aria-hidden="true" />
@@ -73,6 +80,7 @@ export function CodeBuddyQuotaSettings() {
           <CodeBuddyQuotaDetails snapshot={state.snapshot} showUpdatedAt />
         </div>
       )}
+      </div>
     </section>
   );
 }

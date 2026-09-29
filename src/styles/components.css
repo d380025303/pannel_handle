@@ -1215,6 +1215,40 @@
   transform: rotate(-90deg);
 }
 
+.quota-collapse-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quota-collapse-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.quota-collapsible-body {
+  display: grid;
+  gap: 10px;
+}
+
+.quota-collapsible-body[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quota-collapse-button .collapsible-chevron {
+    transition: none;
+  }
+}
+
 .ding-talk-settings p {
   margin: 0;
 }
@@ -1820,6 +1854,7 @@
 
 .codebuddy-quota-settings-header {
   justify-content: space-between;
+  min-height: 28px;
 }
 
 .codebuddy-quota-settings-header h5 {

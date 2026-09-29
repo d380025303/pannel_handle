@@ -616,7 +616,7 @@ export function SettingsModal({
             <section id="settings-panel-quota" role="tabpanel" aria-labelledby="settings-tab-quota" hidden={activeCategory !== "quota"} className="settings-page settings-page-stack">
               {activeCategory === "quota" && <>
                 <CodexQuotaSettings />
-                <section className="settings-section"><CodeBuddyQuotaSettings /></section>
+                <CodeBuddyQuotaSettings />
                 <MiniMaxQuotaSettings />
               </>}
             </section>
