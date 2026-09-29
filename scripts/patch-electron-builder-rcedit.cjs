@@ -1,27 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 
-const electronBuilderPackage = require.resolve("electron-builder/package.json");
-const pnpmRoot = path.resolve(
-  path.dirname(electronBuilderPackage),
-  "..",
-  "..",
-  ".."
-);
-const appBuilderLibEntry = fs
-  .readdirSync(pnpmRoot)
-  .find((name) => name.startsWith("app-builder-lib@"));
-
-if (!appBuilderLibEntry) {
-  throw new Error(`Cannot find app-builder-lib in ${pnpmRoot}`);
-}
-
-const packageRoot = path.join(
-  pnpmRoot,
-  appBuilderLibEntry,
-  "node_modules",
-  "app-builder-lib"
-);
+const packageRoot = path.dirname(require.resolve("app-builder-lib/package.json", {
+  paths: [path.dirname(require.resolve("electron-builder/package.json"))]
+}));
 const winPackagerPath = path.join(packageRoot, "out", "winPackager.js");
 const source = fs.readFileSync(winPackagerPath, "utf8");
 
