@@ -307,7 +307,7 @@ if (!gotSingleInstanceLock) {
       onTokenLiveEvent: event => tokenUsageModule?.handleGraphicalCodeBuddyLive(event)
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalOpenCode(usage)
     });
     const claudeGraphicalService = createClaudeAcpSessionService({
