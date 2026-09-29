@@ -1073,7 +1073,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function openCapabilities(tab: "skills" | "apps" | "mcp") {
     setMenuOpen(false); setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
-    if (!capabilities) void loadCapabilities();
+    if (!capabilities || snapshot.provider === "opencode") void loadCapabilities();
   }
   function openHistory() { setMenuOpen(false); setHistoryQuery(""); setCopyNotice(null); setHistoryOpen(true); }
   function openGoal() {
@@ -1113,6 +1113,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } finally { if (currentSessionRef.current === sessionId) setSelectionPending(false); }
   }
   const isCodex = !snapshot.provider || snapshot.provider === "codex";
+  const isOpenCode = snapshot.provider === "opencode";
   const versionProvider = snapshot.provider === "codebuddy" ? "codebuddy"
     : snapshot.provider === "opencode" ? "opencode"
     : isCodex ? "codex" : null;
@@ -1435,14 +1436,14 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
               {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
               {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
-              {isCodex && <button type="button" role="menuitem" onClick={() => openCapabilities(capabilityTab)}><BookOpen aria-hidden="true" />Skills、Apps 和 MCP</button>}
+              {(isCodex || isOpenCode) && <button type="button" role="menuitem" onClick={() => openCapabilities(isOpenCode && capabilityTab === "apps" ? "skills" : capabilityTab)}><BookOpen aria-hidden="true" />{isCodex ? "Skills、Apps 和 MCP" : "Skills 和 MCP"}</button>}
               <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
-            {isCodex && capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
+            {(isCodex || isOpenCode) && capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
               if (event.key === "Escape") { event.preventDefault(); setCapabilityOpen(false); menuButtonRef.current?.focus(); }
             }}>
               <div className="codex-app-server-capability-tabs" role="tablist" aria-label="能力类型">
-                {(["skills", "apps", "mcp"] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={capabilityTab === tab}
+                {(isCodex ? ["skills", "apps", "mcp"] as const : ["skills", "mcp"] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={capabilityTab === tab}
                   onClick={() => { setCapabilityTab(tab); setCapabilityQuery(""); }}>{tab === "skills" ? "Skills" : tab === "apps" ? "Apps" : "MCP"}</button>)}
               </div>
               <div className="codex-app-server-capability-search"><input autoFocus type="search" value={capabilityQuery} onChange={event => setCapabilityQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} placeholder="搜索能力" aria-label="搜索能力" />
@@ -1452,7 +1453,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 {capabilityError && <p role="alert">{capabilityError}</p>}
                 {capabilities?.errors[capabilityTab] && <p role="alert">{capabilities.errors[capabilityTab]}</p>}
                 {!capabilityLoading && capabilityTab === "skills" && capabilities?.skills.filter(skill => matchesCapability(skill.name, skill.description)).map(skill =>
-                  <button key={skill.path} type="button" disabled={!skill.enabled} onClick={() => insertCapability(`$${skill.name}`, { kind: "skill", name: skill.name, path: skill.path, token: `$${skill.name}` })}>
+                  <button key={skill.path || skill.id || skill.name} type="button" disabled={!skill.enabled} onClick={() => isOpenCode
+                    ? insertCapability(`请使用 skill 工具加载 ${skill.id || skill.name}`)
+                    : insertCapability(`$${skill.name}`, { kind: "skill", name: skill.name, path: skill.path, token: `$${skill.name}` })}>
                     <BookOpen aria-hidden="true" /><span><strong>{skill.name}</strong><small>{skill.description || skill.scope}</small></span>{!skill.enabled && <em>已停用</em>}</button>)}
                 {!capabilityLoading && capabilityTab === "apps" && capabilities?.apps.filter(app => matchesCapability(app.name, app.description)).map(app =>
                   <button key={app.id} type="button" disabled={!app.accessible || !app.enabled || !app.callable} onClick={() => insertCapability(`$${app.id}`, { kind: "app", name: app.name, path: `app://${app.id}`, token: `$${app.id}` })}>
@@ -1461,7 +1464,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                   <div className="codex-app-server-capability-server" key={server.name}><strong><Cable aria-hidden="true" />{server.name}<small>{server.status}</small></strong>
                     {server.toolsError && <p role="alert">{server.toolsError}</p>}
                     {server.tools.filter(tool => matchesCapability(server.name, `${tool.name} ${tool.description}`)).map(tool =>
-                      <button key={tool.name} type="button" disabled={server.status !== "connected"} onClick={() => insertCapability(`请使用 MCP 工具 mcp__${server.name}__${tool.name}`)}>
+                      <button key={tool.name} type="button" disabled={server.status !== "connected"} onClick={() => insertCapability(`请使用 MCP 工具 ${isOpenCode ? tool.name : `mcp__${server.name}__${tool.name}`}`)}>
                         <Wrench aria-hidden="true" /><span><strong>{tool.name}</strong><small>{tool.description}</small></span></button>)}
                   </div>)}
                 {!capabilityLoading && capabilities && !capabilities.errors[capabilityTab] &&

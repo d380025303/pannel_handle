@@ -7046,7 +7046,8 @@ button.agent-usage-status[aria-expanded="true"] {
 .mcp-key-value-row,
 .mcp-add-row,
 .mcp-save,
-.mcp-delete { display: flex; align-items: center; }
+.mcp-delete,
+.mcp-copy { display: flex; align-items: center; }
 
 .mcp-header { justify-content: space-between; gap: 16px; padding: 17px 24px 12px; }
 .mcp-header > div { min-width: 0; gap: 12px; }
@@ -7054,11 +7055,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .mcp-header h1 { margin: 0; font-size: 22px; }
 .mcp-header p { margin: 3px 0 0; color: var(--color-text-muted); font-size: 12px; }
 .mcp-header-actions { flex: none; gap: 8px; }
-.mcp-save, .mcp-delete { gap: 7px; min-height: 34px; padding: 0 13px; border-radius: 8px; }
+.mcp-save, .mcp-delete, .mcp-copy { gap: 7px; min-height: 34px; padding: 0 13px; border-radius: 8px; }
 .mcp-save { border: 1px solid var(--color-accent); color: #fff; background: var(--color-accent); }
 .mcp-delete { border: 1px solid var(--color-danger); color: var(--color-danger-text); background: transparent; }
-.mcp-save svg, .mcp-delete svg { width: 15px; height: 15px; }
-.mcp-save:disabled, .mcp-delete:disabled { opacity: 0.48; cursor: default; }
+.mcp-copy { border: 1px solid var(--color-border); color: var(--color-text); background: transparent; }
+.mcp-save svg, .mcp-delete svg, .mcp-copy svg { width: 15px; height: 15px; }
+.mcp-save:disabled, .mcp-delete:disabled, .mcp-copy:disabled { opacity: 0.48; cursor: default; }
 
 .mcp-provider-tabs, .mcp-scope-tabs { gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--color-border); }
 .mcp-provider-tabs button, .mcp-scope-tabs button { min-width: 108px; padding: 8px 15px; border: 0; border-bottom: 2px solid transparent; color: var(--color-text-muted); background: transparent; }

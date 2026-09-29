@@ -318,6 +318,8 @@ if (!gotSingleInstanceLock) {
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
       environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
+      getCapabilityEndpoint: id => agentHookServer?.getOpenCodeCapabilityEndpoint(id),
+      clearCapabilityEndpoint: id => agentHookServer?.clearOpenCodeCapabilityEndpoint(id),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalOpenCode(usage)
     });
     const claudeGraphicalService = createClaudeAcpSessionService({

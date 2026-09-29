@@ -311,8 +311,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const timer = publishTimers.get(id);
     if (timer) { clearTimeout(timer); publishTimers.delete(id); }
   }
-  function status(id, entry, state, summary) {
-    terminalManager.broadcastAgentStatus({ id, provider, status: state, eventName: "AcpTurn", activitySummary: summary || undefined });
+  function status(id, entry, state, summary, eventName = "AcpTurn") {
+    terminalManager.broadcastAgentStatus({ id, provider, status: state, eventName, activitySummary: summary || undefined });
   }
   function send(entry, message) {
     if (entry.httpTransport) {
@@ -615,13 +615,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         entry.questions.set(requestId, { requestId, submitting: false, bridge: true,
           params: { threadId: entry.threadId, turnId: entry.turnId || "", questions } });
         publish(id);
-        status(id, entry, "e_prompt", questions[0].question);
+        status(id, entry, "e_prompt", questions[0].question, "AcpQuestion");
       },
       onCancel: requestId => {
         const entry = getEntry();
         if (!entry || sessions.get(id) !== entry) return;
         entry.questions.delete(requestId);
         publish(id);
+        if (!entry.questions.size) status(id, entry, "running");
       }
     });
   }

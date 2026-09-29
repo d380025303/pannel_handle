@@ -586,6 +586,29 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("option", { name: /Skills|Apps|MCP|压缩对话|插件管理/ })).toBeNull();
   });
 
+  it("shows OpenCode session skills and MCP tools and inserts hints", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "open-1", provider: "opencode",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null,
+      items: [], approvals: [], capabilities: { history: true, plan: true, attachments: true, permissions: true } });
+    const openCapabilities = { skills: [{ id: "review", name: "Review", path: "C:/skills/review/SKILL.md",
+      description: "Review code", enabled: true, scope: "project" }], apps: [],
+    mcp: [{ name: "files", status: "connected", authStatus: "unknown", toolsError: null,
+      tools: [{ name: "files_read_file", description: "Read file" }] }], errors: {} };
+    listCapabilities.mockResolvedValueOnce(openCapabilities).mockResolvedValueOnce(openCapabilities);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills 和 MCP" }));
+    expect(screen.queryByRole("tab", { name: "Apps" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Review/ }));
+    expect((screen.getByPlaceholderText("向 OpenCode 发送消息") as HTMLTextAreaElement).value).toContain("skill 工具加载 review");
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Skills 和 MCP" }));
+    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    fireEvent.click(await screen.findByRole("button", { name: /files_read_file/ }));
+    expect((screen.getByPlaceholderText("向 OpenCode 发送消息") as HTMLTextAreaElement).value).toContain("MCP 工具 files_read_file");
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it("shows CodeBuddy modes supplied by ACP and hides Codex permission controls", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",

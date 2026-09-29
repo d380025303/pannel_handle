@@ -39,6 +39,7 @@ const list = vi.fn();
 const reveal = vi.fn();
 const save = vi.fn();
 const remove = vi.fn();
+const copy = vi.fn();
 
 function renderManager(session: TerminalSession | undefined = windowsSession, onDirtyChange = vi.fn()) {
   return render(
@@ -54,6 +55,7 @@ describe("McpManager", () => {
     reveal.mockReset();
     save.mockReset();
     remove.mockReset();
+    copy.mockReset();
     list.mockImplementation(async ({ provider, scope }) => documentFor(provider, scope));
     reveal.mockResolvedValue({ status: "revealed", value: "top-secret" });
     save.mockImplementation(async ({ draft }) => ({
@@ -62,7 +64,10 @@ describe("McpManager", () => {
       document: { ...documentFor("codex", "user"), version: "v2", servers: [{ ...codexServer, ...draft, id: `user:${draft.name}` }] }
     }));
     remove.mockResolvedValue({ status: "removed", document: { ...documentFor(), version: "v2", servers: [] } });
-    Object.defineProperty(window, "mcpApi", { configurable: true, value: { list, reveal, save, remove } });
+    copy.mockImplementation(async ({ source, name }) => ({ status: "copied", serverName: name,
+      document: { ...documentFor(source.provider === "codex" ? "opencode" : "codex", source.scope),
+        servers: [{ ...codexServer, provider: source.provider === "codex" ? "opencode" : "codex", name }] } }));
+    Object.defineProperty(window, "mcpApi", { configurable: true, value: { list, reveal, save, remove, copy } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
@@ -117,5 +122,26 @@ describe("McpManager", () => {
     renderManager({ ...windowsSession, type: "wsl", cwd: "/srv/app" } as TerminalSession);
     await screen.findByRole("heading", { name: "local-tools" });
     expect((screen.getByRole("tab", { name: "项目级" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("copies a selected Codex server to OpenCode and switches to the destination", async () => {
+    renderManager();
+    await screen.findByRole("heading", { name: "local-tools" });
+    fireEvent.click(screen.getByRole("button", { name: "复制到 OpenCode" }));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith({
+      source: { provider: "codex", scope: "user" }, name: "local-tools",
+      expectedSourceVersion: "codex-user-v1", expectedDestinationVersion: "opencode-user-v1"
+    }));
+    expect((screen.getByRole("tab", { name: "OpenCode" }) as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText(/已复制到 OpenCode/)).toBeTruthy();
+  });
+
+  it("shows a name conflict without switching providers", async () => {
+    copy.mockResolvedValue({ status: "exists" });
+    renderManager();
+    await screen.findByRole("heading", { name: "local-tools" });
+    fireEvent.click(screen.getByRole("button", { name: "复制到 OpenCode" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "目标配置已有同名 MCP 服务“local-tools”，未覆盖。");
+    expect((screen.getByRole("tab", { name: "Codex" }) as HTMLButtonElement).getAttribute("aria-selected")).toBe("true");
   });
 });

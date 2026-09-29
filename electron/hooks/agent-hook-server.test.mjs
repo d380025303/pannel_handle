@@ -25,6 +25,19 @@ function createServer(sessionOverrides = {}) {
 }
 
 describe("agent-hook-server", () => {
+  it("accepts capability endpoints only from Windows OpenCode graphical sessions", () => {
+    const { server } = createServer({ agentProvider: "opencode", type: "windows", runtimeMode: "app-server" });
+    const endpoint = { event_name: "capabilities.endpoint", pannel_handle_session_id: "run-1",
+      port: 43210, token: "12345678-1234-1234-1234-123456789abc" };
+    expect(server.handleAgentHook("opencode", endpoint)).toBe(true);
+    expect(server.getOpenCodeCapabilityEndpoint("run-1")).toEqual({ port: 43210, token: endpoint.token });
+    expect(server.handleAgentHook("opencode", { ...endpoint, port: 0 })).toBe(false);
+    server.stop();
+    expect(server.getOpenCodeCapabilityEndpoint("run-1")).toBeNull();
+    const remote = createServer({ agentProvider: "opencode", type: "ssh", runtimeMode: "app-server" });
+    expect(remote.server.handleAgentHook("opencode", endpoint)).toBe(false);
+  });
+
   it("maps Codex PermissionRequest to waiting_for_permission", () => {
     const { server, terminalManager } = createServer();
 

@@ -628,6 +628,9 @@ export type TranslationKey =
   | "mcp.reveal"
   | "mcp.saving"
   | "mcp.saved"
+  | "mcp.copyTo"
+  | "mcp.copied"
+  | "mcp.copyExists"
   | "mcp.removed"
   | "mcp.conflict"
   | "mcp.discardChanges"
@@ -1607,7 +1610,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.pluginRequiresSession": "打开 Codex 图形会话后可查看已安装插件的技能。",
     "mcp.title": "MCP 管理",
     "mcp.open": "打开 MCP 管理",
-    "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
+    "mcp.description": "查看和编辑 Codex、OpenCode、CodeBuddy 的用户与项目 MCP 配置",
     "mcp.provider": "MCP 提供方",
     "mcp.scope": "配置作用域",
     "mcp.scopeUser": "用户级",
@@ -1642,6 +1645,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.reveal": "揭示敏感值",
     "mcp.saving": "保存中…",
     "mcp.saved": "MCP 配置已保存。",
+    "mcp.copyTo": "复制到 {provider}",
+    "mcp.copied": "已复制到 {provider}，请重启对应 Agent 会话以加载配置。",
+    "mcp.copyExists": "目标配置已有同名 MCP 服务“{name}”，未覆盖。",
     "mcp.removed": "MCP 服务已删除。",
     "mcp.conflict": "配置文件已被其它程序修改。当前草稿未覆盖磁盘内容，请刷新后重试。",
     "mcp.discardChanges": "当前 MCP 配置有未保存修改，确定放弃吗？",
@@ -2613,7 +2619,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.pluginRequiresSession": "Open a Codex graphical session to view installed plugin skills.",
     "mcp.title": "MCP Manager",
     "mcp.open": "Open MCP Manager",
-    "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",
+    "mcp.description": "View and edit user and project MCP configuration for Codex, OpenCode, and CodeBuddy",
     "mcp.provider": "MCP provider",
     "mcp.scope": "Configuration scope",
     "mcp.scopeUser": "User",
@@ -2648,6 +2654,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "mcp.reveal": "Reveal sensitive value",
     "mcp.saving": "Saving…",
     "mcp.saved": "MCP configuration saved.",
+    "mcp.copyTo": "Copy to {provider}",
+    "mcp.copied": "Copied to {provider}. Restart the corresponding Agent session to load the configuration.",
+    "mcp.copyExists": "The target already has an MCP server named “{name}”. Nothing was overwritten.",
     "mcp.removed": "MCP server removed.",
     "mcp.conflict": "The configuration file changed in another program. Your draft was not written; refresh and try again.",
     "mcp.discardChanges": "This MCP configuration has unsaved changes. Discard them?",

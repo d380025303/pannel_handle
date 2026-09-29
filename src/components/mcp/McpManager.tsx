@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Cable, Eye, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { Cable, Copy, Eye, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type {
   McpDocument,
@@ -247,6 +247,33 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
     }
   };
 
+  const copyServer = async () => {
+    if (!document || !originalName || dirty || (provider !== "codex" && provider !== "opencode")) return;
+    const destinationProvider: McpProvider = provider === "codex" ? "opencode" : "codex";
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const destination = await window.mcpApi.list(targetFor(destinationProvider, scope));
+      const result = await window.mcpApi.copy({
+        source: requestTarget(), name: originalName,
+        expectedSourceVersion: document.version,
+        expectedDestinationVersion: destination.version
+      });
+      if (result.status === "conflict") { setError(t("mcp.conflict")); return; }
+      if (result.status === "exists") { setError(t("mcp.copyExists", { name: originalName })); return; }
+      setProvider(destinationProvider);
+      setQuery("");
+      setDocument(result.document);
+      selectServer(result.document.servers.find(server => server.name === result.serverName));
+      setNotice(t("mcp.copied", { provider: destinationProvider === "codex" ? "Codex" : "OpenCode" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const reveal = async (field: "url" | "args" | "env" | "headers", key?: string) => {
     if (!document || !originalName || !draft) return;
     setError("");
@@ -274,7 +301,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
     return (document?.servers || []).filter((server) => `${server.name}\n${server.command}\n${server.url}`.toLocaleLowerCase().includes(normalized));
   }, [document, query]);
 
-  const scopes: Array<{ value: McpScope; label: string; project: boolean }> = provider === "codex"
+  const scopes: Array<{ value: McpScope; label: string; project: boolean }> = provider !== "codebuddy"
     ? [{ value: "user", label: t("mcp.scopeUser"), project: false }, { value: "project", label: t("mcp.scopeProject"), project: true }]
     : [
       { value: "user", label: t("mcp.scopeUser"), project: false },
@@ -290,6 +317,10 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
           <div><h1>{t("mcp.title")}</h1><p>{t("mcp.description")}</p></div>
         </div>
         <div className="mcp-header-actions">
+          {!embeddedCodex && originalName && (provider === "codex" || provider === "opencode") &&
+            <button className="mcp-copy" type="button" disabled={saving || dirty || loading} onClick={() => void copyServer()}>
+              <Copy aria-hidden="true" />{t("mcp.copyTo", { provider: provider === "codex" ? "OpenCode" : "Codex" })}
+            </button>}
           {originalName && <button className="mcp-delete" type="button" disabled={saving} onClick={() => void remove()}><Trash2 aria-hidden="true" />{t("common.delete")}</button>}
           <button className="mcp-save" type="button" disabled={!dirty || saving} onClick={() => void save()}><Save aria-hidden="true" />{saving ? t("mcp.saving") : t("common.save")}</button>
         </div>
@@ -297,6 +328,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
 
       {!embeddedCodex && <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchTarget("codex", "user")}>Codex</button>
+        <button type="button" role="tab" aria-selected={provider === "opencode"} className={provider === "opencode" ? "active" : ""} onClick={() => switchTarget("opencode", "user")}>OpenCode</button>
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchTarget("codebuddy", "user")}>CodeBuddy</button>
       </div>}
       <div className="mcp-scope-tabs" role="tablist" aria-label={t("mcp.scope")}>
@@ -346,7 +378,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
                 <>
                   <label className="mcp-field"><span>{t("mcp.command")}</span><input value={draft.command} disabled={saving} onChange={(event) => setDraft({ ...draft, command: event.target.value })} /></label>
                   <label className="mcp-field"><span>{t("mcp.args")}</span><div className="mcp-secret-input"><textarea value={draft.argsMasked ? "••••••••" : draft.args.join("\n")} disabled={saving || draft.argsMasked} placeholder={t("mcp.argsHint")} onChange={(event) => setDraft({ ...draft, args: event.target.value.split(/\r?\n/).filter((value) => value !== "") })} />{draft.argsMasked && <button className="icon-button" type="button" disabled={saving} title={t("mcp.reveal")} aria-label={t("mcp.reveal")} onClick={() => void reveal("args")}><Eye aria-hidden="true" /></button>}</div></label>
-                  {provider === "codex" && <label className="mcp-field"><span>{t("mcp.cwd")}</span><input value={draft.cwd} disabled={saving} onChange={(event) => setDraft({ ...draft, cwd: event.target.value })} /></label>}
+                  {provider !== "codebuddy" && <label className="mcp-field"><span>{t("mcp.cwd")}</span><input value={draft.cwd} disabled={saving} onChange={(event) => setDraft({ ...draft, cwd: event.target.value })} /></label>}
                   <fieldset><legend>{t("mcp.env")}</legend><SecretRows entries={draft.env} disabled={saving} keyLabel={t("mcp.envKey")} valueLabel={t("mcp.reveal")} onChange={(env) => setDraft({ ...draft, env })} onReveal={(key) => void reveal("env", key)} /></fieldset>
                 </>
               ) : (
@@ -356,7 +388,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
                   <fieldset><legend>{t("mcp.headers")}</legend><SecretRows entries={draft.headers} disabled={saving} keyLabel={t("mcp.headerKey")} valueLabel={t("mcp.reveal")} onChange={(headers) => setDraft({ ...draft, headers })} onReveal={(key) => void reveal("headers", key)} /></fieldset>
                 </>
               )}
-              {provider === "codex" && <div className="mcp-form-grid">
+              {provider !== "codebuddy" && <div className="mcp-form-grid">
                 <label><span>{t("mcp.startupTimeout")}</span><input type="number" min="0.1" step="0.1" value={draft.startupTimeoutSec ?? ""} disabled={saving} onChange={(event) => setDraft({ ...draft, startupTimeoutSec: event.target.value })} /></label>
                 <label><span>{t("mcp.toolTimeout")}</span><input type="number" min="0.1" step="0.1" value={draft.toolTimeoutSec ?? ""} disabled={saving} onChange={(event) => setDraft({ ...draft, toolTimeoutSec: event.target.value })} /></label>
               </div>}

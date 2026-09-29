@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -11,6 +12,38 @@ afterEach(() => {
   delete process.env.PANNEL_HANDLE_SESSION_ID;
   delete process.env.PANNEL_HANDLE_OPENCODE_QUESTION_URL;
   delete process.env.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN;
+  delete process.env.PANNEL_HANDLE_OPENCODE_CAPABILITIES;
+});
+
+it("reads skills and MCP tools from the active OpenCode plugin process", async () => {
+  const source = fs.readFileSync(new URL("./hook-assets/pannel-handle-opencode-capabilities.js", import.meta.url), "utf8");
+  const { default: plugin } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  const sent = [];
+  const hook = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    sent.push(JSON.parse(body));
+    response.writeHead(200).end();
+  });
+  await new Promise(resolve => hook.listen(0, "127.0.0.1", resolve));
+  process.env.PANNEL_HANDLE_OPENCODE_CAPABILITIES = "1";
+  process.env.PANNEL_HANDLE_HOOK_URL = `http://127.0.0.1:${hook.address().port}/claude-hook`;
+  process.env.PANNEL_HANDLE_SESSION_ID = "panel-1";
+  const stop = await plugin.setup({ location: { directory: "C:\\work" },
+    skill: { list: async () => ({ data: [{ id: "review", name: "Review" }] }) },
+    mcp: { list: async () => ({ data: [{ name: "files", status: "connected" }] }) },
+    tool: { list: async () => [{ id: "files_read_file", description: "Read file" }], hook: async () => {} },
+    event: { subscribe: async function* () {} } });
+  await vi.waitFor(() => expect(sent[0]).toMatchObject({ event_name: "capabilities.endpoint",
+    pannel_handle_session_id: "panel-1" }));
+  const token = sent[0].token;
+  expect((await fetch(`http://127.0.0.1:${sent[0].port}/capabilities`)).status).toBe(404);
+  const response = await fetch(`http://127.0.0.1:${sent[0].port}/capabilities`,
+    { headers: { Authorization: `Bearer ${token}` } });
+  expect(await response.json()).toMatchObject({ skills: [{ id: "review" }], mcp: [{ name: "files" }],
+    tools: [{ id: "files_read_file" }] });
+  stop();
+  hook.close();
 });
 
 it("routes the built-in question tool through the graphical answer card", async () => {

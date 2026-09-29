@@ -151,7 +151,9 @@ const PROVIDER_CONFIG = {
     scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
     asset: "pannel-handle-opencode-plugin.js",
     extraScripts: [{ scriptPath: [".opencode", "plugins", "pannel-handle-question.js"],
-      asset: "pannel-handle-opencode-question.js" }]
+      asset: "pannel-handle-opencode-question.js" },
+    { scriptPath: [".opencode", "plugins", "pannel-handle-capabilities.js"],
+      asset: "pannel-handle-opencode-capabilities.js" }]
   }
 };
 

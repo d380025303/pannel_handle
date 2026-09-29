@@ -391,6 +391,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
 
   ipcMain.handle("mcp:remove", (_event, request) => mcpConfigService.remove(request));
 
+  ipcMain.handle("mcp:copy", (_event, request) => mcpConfigService.copy(request));
+
   ipcMain.handle("project-search:list-directories", (_event, { sessionId, rootPath }) => {
     return projectSearchService.listDirectories(sessionId, rootPath);
   });

@@ -7,9 +7,10 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 
 const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
-const PROVIDERS = new Set(["codex", "codebuddy"]);
+const PROVIDERS = new Set(["codex", "opencode", "codebuddy"]);
 const SCOPES = {
   codex: new Set(["user", "project"]),
+  opencode: new Set(["user", "project"]),
   codebuddy: new Set(["user", "project-local", "project"])
 };
 const SENSITIVE_URL_PATTERN = /[?]|^[a-z][a-z\d+.-]*:\/\/[^/]*@/i;
@@ -66,7 +67,12 @@ function resolveProjectDirectory(homeDir, terminalManager, sessionId) {
   return path.resolve(cwd);
 }
 
-function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager, environmentService }) {
+function openCodeConfigPath(directory, fsApi = fs) {
+  const jsonc = path.join(directory, "opencode.jsonc");
+  return fsApi.existsSync(jsonc) ? jsonc : path.join(directory, "opencode.json");
+}
+
+function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManager, environmentService, fsApi }) {
   validateProviderScope(provider, scope);
   const projectDirectory = scope === "user" ? undefined : resolveProjectDirectory(homeDir, terminalManager, sessionId);
   const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
@@ -82,6 +88,11 @@ function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManage
         : path.join(projectDirectory, ".codex", "config.toml")
     };
   }
+  if (provider === "opencode") {
+    const configBase = process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config");
+    return { provider, scope, projectDirectory,
+      filePath: openCodeConfigPath(scope === "user" ? path.join(configBase, "opencode") : projectDirectory, fsApi) };
+  }
   return {
     provider,
     scope,
@@ -92,15 +103,15 @@ function resolveTarget({ provider, scope, sessionId }, { homeDir, terminalManage
   };
 }
 
-function parseJsonDocument(text) {
+function parseJsonDocument(text, provider = "CodeBuddy") {
   if (!text.trim()) return {};
   const errors = [];
   const value = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length) {
     const first = errors[0];
-    throw new Error(`Invalid CodeBuddy MCP JSON (${printParseErrorCode(first.error)} at offset ${first.offset}).`);
+    throw new Error(`Invalid ${provider} MCP JSON (${printParseErrorCode(first.error)} at offset ${first.offset}).`);
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("CodeBuddy MCP configuration must be a JSON object.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${provider} MCP configuration must be a JSON object.`);
   return value;
 }
 
@@ -148,12 +159,14 @@ function numberOrUndefined(value) {
 
 function toSummary(name, config, enabled, target) {
   const safeConfig = config && typeof config === "object" && !Array.isArray(config) ? config : {};
-  const transport = safeConfig.command
+  const openCode = target.provider === "opencode";
+  const rawCommand = openCode ? (Array.isArray(safeConfig.command) ? safeConfig.command.map(String) : []) : [];
+  const transport = (openCode ? safeConfig.type === "local" : safeConfig.command)
     ? "stdio"
     : target.provider === "codebuddy" && safeConfig.type === "sse" ? "sse" : "http";
   const rawUrl = typeof safeConfig.url === "string" ? safeConfig.url : "";
   const urlMasked = Boolean(rawUrl && SENSITIVE_URL_PATTERN.test(rawUrl));
-  const rawArgs = Array.isArray(safeConfig.args) ? safeConfig.args.map(String) : [];
+  const rawArgs = openCode ? rawCommand.slice(1) : Array.isArray(safeConfig.args) ? safeConfig.args.map(String) : [];
   const argsMasked = rawArgs.some((arg, index) => SENSITIVE_ARG_PATTERN.test(arg) || (index > 0 && SENSITIVE_ARG_PATTERN.test(rawArgs[index - 1])));
   return {
     id: `${target.scope}:${name}`,
@@ -162,17 +175,17 @@ function toSummary(name, config, enabled, target) {
     name,
     enabled,
     transport,
-    command: typeof safeConfig.command === "string" ? safeConfig.command : "",
+    command: openCode ? rawCommand[0] || "" : typeof safeConfig.command === "string" ? safeConfig.command : "",
     args: argsMasked ? [] : rawArgs,
     argsMasked,
     cwd: typeof safeConfig.cwd === "string" ? safeConfig.cwd : "",
     url: urlMasked ? "" : rawUrl,
     urlMasked,
     bearerTokenEnvVar: typeof safeConfig.bearer_token_env_var === "string" ? safeConfig.bearer_token_env_var : "",
-    env: normalizeEntries(safeConfig.env),
+    env: normalizeEntries(openCode ? safeConfig.environment : safeConfig.env),
     headers: normalizeEntries(safeConfig.http_headers || safeConfig.headers),
-    startupTimeoutSec: numberOrUndefined(safeConfig.startup_timeout_sec),
-    toolTimeoutSec: numberOrUndefined(safeConfig.tool_timeout_sec)
+    startupTimeoutSec: openCode ? numberOrUndefined(safeConfig.timeout?.startup) === undefined ? undefined : safeConfig.timeout.startup / 1000 : numberOrUndefined(safeConfig.startup_timeout_sec),
+    toolTimeoutSec: openCode ? numberOrUndefined(safeConfig.timeout?.execution) === undefined ? undefined : safeConfig.timeout.execution / 1000 : numberOrUndefined(safeConfig.tool_timeout_sec)
   };
 }
 
@@ -192,6 +205,21 @@ function listCodeBuddy(record, target) {
   const disabled = new Set((getAtPath(document, paths.disabled) || []).map(String));
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) throw new Error("CodeBuddy mcpServers must be a JSON object.");
   return Object.entries(servers).map(([name, config]) => toSummary(name, config, !disabled.has(name), target));
+}
+
+function openCodeServers(document) {
+  const mcp = document.mcp;
+  if (mcp !== undefined && (!mcp || typeof mcp !== "object" || Array.isArray(mcp)))
+    throw new Error("OpenCode mcp must be a JSON object.");
+  const servers = mcp?.servers;
+  if (servers !== undefined && (!servers || typeof servers !== "object" || Array.isArray(servers)))
+    throw new Error("OpenCode mcp.servers must be a JSON object.");
+  return servers || {};
+}
+
+function listOpenCode(record, target) {
+  return Object.entries(openCodeServers(parseJsonDocument(record.text, "OpenCode")))
+    .map(([name, config]) => toSummary(name, config, config?.disabled !== true, target));
 }
 
 function validateName(value) {
@@ -219,7 +247,7 @@ function validateEntries(entries, label) {
 
 function validateDraft(provider, draft) {
   const name = validateName(draft?.name);
-  const allowedTransports = provider === "codex" ? new Set(["stdio", "http"]) : new Set(["stdio", "http", "sse"]);
+  const allowedTransports = provider === "codebuddy" ? new Set(["stdio", "http", "sse"]) : new Set(["stdio", "http"]);
   const transport = String(draft?.transport || "");
   if (!allowedTransports.has(transport)) throw new Error("Unsupported MCP transport for this provider.");
   const normalized = {
@@ -262,6 +290,30 @@ function buildConfig(provider, draft, existing = {}) {
   const next = { ...(existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {}) };
   const known = ["command", "args", "env", "cwd", "url", "headers", "http_headers", "bearer_token_env_var", "startup_timeout_sec", "tool_timeout_sec", "type", "enabled"];
   for (const key of known) delete next[key];
+  if (provider === "opencode") {
+    delete next.environment;
+    delete next.disabled;
+    delete next.timeout;
+    if (draft.transport === "stdio") {
+      delete next.oauth;
+      next.type = "local";
+      next.command = [draft.command, ...(draft.argsMasked ? existing.command?.slice(1) || [] : draft.args)];
+      if (draft.cwd) next.cwd = draft.cwd;
+      if (draft.env.length) next.environment = mergeEntries(existing.environment, draft.env);
+    } else {
+      next.type = "remote";
+      next.url = draft.urlMasked ? existing.url : draft.url;
+      if (draft.headers.length) next.headers = mergeEntries(existing.headers, draft.headers);
+    }
+    next.disabled = !draft.enabled;
+    const timeout = { ...(existing.timeout && typeof existing.timeout === "object" ? existing.timeout : {}) };
+    if (draft.startupTimeoutSec !== undefined) timeout.startup = Math.round(draft.startupTimeoutSec * 1000);
+    else delete timeout.startup;
+    if (draft.toolTimeoutSec !== undefined) timeout.execution = Math.round(draft.toolTimeoutSec * 1000);
+    else delete timeout.execution;
+    if (Object.keys(timeout).length) next.timeout = timeout;
+    return next;
+  }
   if (draft.transport === "stdio") {
     next.command = draft.command;
     const args = draft.argsMasked ? existing.args : draft.args;
@@ -360,6 +412,150 @@ function assertVersion(record, expectedVersion) {
   return null;
 }
 
+function stringRecord(value, label) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`MCP ${label} 必须是对象。`);
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") throw new Error(`MCP ${label}.${key} 必须是字符串。`);
+  }
+  return value;
+}
+
+function convertServer(sourceProvider, config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("MCP 服务配置格式无效。");
+  const openCode = sourceProvider === "opencode";
+  const local = openCode ? config.type === "local" : typeof config.command === "string";
+  const remote = openCode ? config.type === "remote" : typeof config.url === "string";
+  if (local === remote) throw new Error("MCP 服务必须明确使用 stdio 或 HTTP 传输方式。");
+  if (openCode && config.disabled !== undefined && typeof config.disabled !== "boolean") throw new Error("OpenCode MCP disabled 必须是布尔值。");
+  if (!openCode && config.enabled !== undefined && typeof config.enabled !== "boolean") throw new Error("Codex MCP enabled 必须是布尔值。");
+  if (config.cwd !== undefined && typeof config.cwd !== "string") throw new Error("MCP cwd 必须是字符串。");
+  const supported = new Set(openCode
+    ? ["type", "command", "cwd", "environment", "url", "headers", "disabled", "timeout", "oauth"]
+    : ["command", "args", "cwd", "env", "env_vars", "url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+  const unsupported = Object.keys(config).filter(key => !supported.has(key));
+  if (local) {
+    const allowed = new Set(openCode ? ["type", "command", "cwd", "environment", "disabled", "timeout"]
+      : ["command", "args", "cwd", "env", "env_vars", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+    unsupported.push(...Object.keys(config).filter(key => supported.has(key) && !allowed.has(key)));
+  } else {
+    const allowed = new Set(openCode ? ["type", "url", "headers", "disabled", "timeout", "oauth"]
+      : ["url", "http_headers", "env_http_headers", "bearer_token_env_var", "enabled", "startup_timeout_sec", "tool_timeout_sec"]);
+    unsupported.push(...Object.keys(config).filter(key => supported.has(key) && !allowed.has(key)));
+  }
+  if (openCode && config.oauth !== undefined && (config.oauth !== false || !Object.keys(config.headers || {}).some(key => key.toLowerCase() === "authorization")))
+    unsupported.push("oauth");
+  if (openCode && config.timeout && Object.keys(config.timeout).some(key => !["startup", "execution"].includes(key))) unsupported.push("timeout.catalog");
+  if (unsupported.length) throw new Error(`无法等价复制 MCP 设置：${[...new Set(unsupported)].join(", ")}`);
+
+  const seconds = (value, label) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`MCP ${label} 必须是正数。`);
+    return value;
+  };
+  const milliseconds = (value, label) => {
+    if (value === undefined) return undefined;
+    const converted = value * 1000;
+    if (!Number.isSafeInteger(converted) || converted <= 0)
+      throw new Error(`无法等价复制 MCP ${label}，OpenCode 需要整数毫秒。`);
+    return converted;
+  };
+  if (openCode && config.timeout !== undefined && (!config.timeout || typeof config.timeout !== "object" || Array.isArray(config.timeout)))
+    throw new Error("OpenCode MCP timeout 必须是对象。");
+  const timeout = openCode ? config.timeout || {} : {};
+  const startup = openCode ? seconds(timeout.startup, "startup timeout") : seconds(config.startup_timeout_sec, "startup timeout");
+  const execution = openCode ? seconds(timeout.execution, "execution timeout") : seconds(config.tool_timeout_sec, "tool timeout");
+  if (openCode && [startup, execution].some(value => value !== undefined && !Number.isInteger(value)))
+    throw new Error("OpenCode MCP 超时必须是整数毫秒。");
+
+  if (local) {
+    if (openCode) {
+      if (!Array.isArray(config.command) || !config.command.length || config.command.some(value => typeof value !== "string"))
+        throw new Error("OpenCode 本地 MCP command 必须是非空字符串数组。");
+      const environment = stringRecord(config.environment, "environment");
+      const env = {};
+      const envVars = [];
+      for (const [key, value] of Object.entries(environment)) {
+        if (typeof value !== "string") throw new Error(`MCP 环境变量 ${key} 必须是字符串。`);
+        const match = value.match(/^\{env:([A-Za-z_][A-Za-z\d_]*)\}$/);
+        if (match) {
+          if (match[1] !== key) throw new Error(`无法等价复制 MCP 环境变量：${key}`);
+          envVars.push(key);
+        } else if (value.includes("{env:")) throw new Error(`无法等价复制 MCP 环境变量：${key}`);
+        else env[key] = value;
+      }
+      return { command: config.command[0], args: config.command.slice(1), ...(config.cwd ? { cwd: config.cwd } : {}),
+        ...(Object.keys(env).length ? { env } : {}), ...(envVars.length ? { env_vars: envVars } : {}),
+        enabled: config.disabled !== true,
+        ...(startup !== undefined ? { startup_timeout_sec: startup / 1000 } : {}),
+        ...(execution !== undefined ? { tool_timeout_sec: execution / 1000 } : {}) };
+    }
+    if (typeof config.command !== "string" || !config.command.trim() || (config.args !== undefined && (!Array.isArray(config.args) || config.args.some(value => typeof value !== "string"))))
+      throw new Error("Codex 本地 MCP 命令或参数格式无效。");
+    const environment = { ...stringRecord(config.env, "env") };
+    for (const [key, value] of Object.entries(environment)) {
+      if (value.includes("{env:")) throw new Error(`无法等价复制 MCP 环境变量：${key}`);
+    }
+    if (config.env_vars !== undefined && !Array.isArray(config.env_vars)) throw new Error("MCP env_vars 必须是数组。");
+    for (const entry of config.env_vars || []) {
+      const name = typeof entry === "string" ? entry : entry?.source === "local" ? entry.name : null;
+      if (!/^[A-Za-z_][A-Za-z\d_]*$/.test(name || "") || Object.hasOwn(environment, name))
+        throw new Error("无法等价复制 MCP env_vars。");
+      environment[name] = `{env:${name}}`;
+    }
+    return { type: "local", command: [config.command, ...(config.args || [])], ...(config.cwd ? { cwd: config.cwd } : {}),
+      ...(Object.keys(environment).length ? { environment } : {}), disabled: config.enabled === false,
+      ...(startup !== undefined || execution !== undefined ? { timeout: {
+        ...(startup !== undefined ? { startup: milliseconds(startup, "startup timeout") } : {}),
+        ...(execution !== undefined ? { execution: milliseconds(execution, "execution timeout") } : {}) } } : {}) };
+  }
+
+  if (typeof config.url !== "string" || !/^https?:\/\//i.test(config.url) || config.url.includes("{env:"))
+    throw new Error("无法等价复制 MCP URL。");
+  if (openCode) {
+    const headers = {};
+    const envHttpHeaders = {};
+    let bearerTokenEnvVar;
+    for (const [key, value] of Object.entries(stringRecord(config.headers, "headers"))) {
+      const bearer = key.toLowerCase() === "authorization" && value.match(/^Bearer \{env:([A-Za-z_][A-Za-z\d_]*)\}$/);
+      const variable = value.match(/^\{env:([A-Za-z_][A-Za-z\d_]*)\}$/);
+      if (bearer) bearerTokenEnvVar = bearer[1];
+      else if (variable) envHttpHeaders[key] = variable[1];
+      else if (value.includes("{env:")) throw new Error(`无法等价复制 MCP Header：${key}`);
+      else headers[key] = value;
+    }
+    return { url: config.url, enabled: config.disabled !== true,
+      ...(Object.keys(headers).length ? { http_headers: headers } : {}),
+      ...(Object.keys(envHttpHeaders).length ? { env_http_headers: envHttpHeaders } : {}),
+      ...(bearerTokenEnvVar ? { bearer_token_env_var: bearerTokenEnvVar } : {}),
+      ...(startup !== undefined ? { startup_timeout_sec: startup / 1000 } : {}),
+      ...(execution !== undefined ? { tool_timeout_sec: execution / 1000 } : {}) };
+  }
+  const headers = { ...stringRecord(config.http_headers, "http_headers") };
+  for (const [key, value] of Object.entries(headers)) {
+    if (value.includes("{env:")) throw new Error(`无法等价复制 MCP Header：${key}`);
+  }
+  for (const [key, variable] of Object.entries(stringRecord(config.env_http_headers, "env_http_headers"))) {
+    if (!/^[A-Za-z_][A-Za-z\d_]*$/.test(variable)) throw new Error(`MCP Header ${key} 的环境变量名无效。`);
+    if (Object.keys(headers).some(existing => existing.toLowerCase() === key.toLowerCase()))
+      throw new Error(`无法等价复制重复 MCP Header：${key}`);
+    headers[key] = `{env:${variable}}`;
+  }
+  if (config.bearer_token_env_var) {
+    if (typeof config.bearer_token_env_var !== "string" || !/^[A-Za-z_][A-Za-z\d_]*$/.test(config.bearer_token_env_var))
+      throw new Error("MCP bearer_token_env_var 无效。");
+    if (Object.keys(headers).some(key => key.toLowerCase() === "authorization"))
+      throw new Error("无法等价复制重复 MCP Authorization Header。");
+    headers.Authorization = `Bearer {env:${config.bearer_token_env_var}}`;
+  }
+  return { type: "remote", url: config.url, disabled: config.enabled === false,
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(Object.keys(headers).some(key => key.toLowerCase() === "authorization") ? { oauth: false } : {}),
+    ...(startup !== undefined || execution !== undefined ? { timeout: {
+      ...(startup !== undefined ? { startup: milliseconds(startup, "startup timeout") } : {}),
+      ...(execution !== undefined ? { execution: milliseconds(execution, "execution timeout") } : {}) } } : {}) };
+}
+
 function bashQuote(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function runWsl(distro, script, input = null) {
   return new Promise((resolve, reject) => {
@@ -378,7 +574,7 @@ function runWsl(distro, script, input = null) {
 
 function createMcpConfigService({ homeDir, terminalManager, graphicalService, sshAgentTransport, sshFileSystem, environmentService, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
-  const context = { homeDir: path.resolve(homeDir), terminalManager, environmentService };
+  const context = { homeDir: path.resolve(homeDir), terminalManager, environmentService, fsApi };
 
   function remoteTarget(request) {
     if (!graphicalService || request?.provider !== "codex" || !request.sessionId) return null;
@@ -473,7 +669,8 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
     if (remote) return remoteList(remote);
     const target = resolveTarget(request || {}, context);
     const record = readConfigFile(target.filePath, fsApi);
-    const servers = target.provider === "codex" ? listCodex(record, target) : listCodeBuddy(record, target);
+    const servers = target.provider === "codex" ? listCodex(record, target)
+      : target.provider === "opencode" ? listOpenCode(record, target) : listCodeBuddy(record, target);
     return {
       provider: target.provider,
       scope: target.scope,
@@ -494,6 +691,8 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
     let config;
     if (target.provider === "codex") {
       config = parseTomlDocument(record.text).mcp_servers?.[name];
+    } else if (target.provider === "opencode") {
+      config = openCodeServers(parseJsonDocument(record.text, "OpenCode"))[name];
     } else {
       const document = parseJsonDocument(record.text);
       config = getAtPath(document, [...codeBuddyPaths(document, target).servers, name]);
@@ -501,10 +700,12 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
     if (!config || typeof config !== "object") throw new Error("MCP server was not found.");
     const field = request.field;
     if (field === "url") return { status: "revealed", value: String(config.url || "") };
-    if (field === "args") return { status: "revealed", value: JSON.stringify(Array.isArray(config.args) ? config.args.map(String) : []) };
-    if (field === "env") return { status: "revealed", value: String(config.env?.[String(request.key || "")] ?? "") };
+    if (field === "args") return { status: "revealed", value: JSON.stringify(target.provider === "opencode"
+      ? Array.isArray(config.command) ? config.command.slice(1).map(String) : []
+      : Array.isArray(config.args) ? config.args.map(String) : []) };
+    if (field === "env") return { status: "revealed", value: String((target.provider === "opencode" ? config.environment : config.env)?.[String(request.key || "")] ?? "") };
     if (field === "headers") {
-      return { status: "revealed", value: String((config.http_headers || config.headers)?.[String(request.key || "")] ?? "") };
+      return { status: "revealed", value: String((target.provider === "opencode" ? config.headers : config.http_headers || config.headers)?.[String(request.key || "")] ?? "") };
     }
     throw new Error("Unsupported MCP secret field.");
   }
@@ -527,6 +728,15 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
       }
       const existing = originalName ? servers[originalName] : undefined;
       nextText = replaceCodexServer(record.text, originalName, draft.name, buildConfig("codex", draft, existing));
+    } else if (target.provider === "opencode") {
+      const document = parseJsonDocument(record.text, "OpenCode");
+      const servers = openCodeServers(document);
+      if ((!originalName || originalName !== draft.name) && Object.hasOwn(servers, draft.name))
+        throw new Error("An MCP server with this name already exists in the selected scope.");
+      const existing = originalName ? servers[originalName] : undefined;
+      nextText = record.text;
+      if (originalName && originalName !== draft.name) nextText = applyJsonValue(nextText, ["mcp", "servers", originalName], undefined);
+      nextText = applyJsonValue(nextText, ["mcp", "servers", draft.name], buildConfig("opencode", draft, existing));
     } else {
       const document = parseJsonDocument(record.text);
       const paths = codeBuddyPaths(document, target);
@@ -560,6 +770,10 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
       const document = parseTomlDocument(record.text);
       if (!document.mcp_servers?.[name]) throw new Error("MCP server was not found.");
       nextText = replaceCodexServer(record.text, name);
+    } else if (target.provider === "opencode") {
+      const document = parseJsonDocument(record.text, "OpenCode");
+      if (!Object.hasOwn(openCodeServers(document), name)) throw new Error("MCP server was not found.");
+      nextText = applyJsonValue(record.text, ["mcp", "servers", name], undefined);
     } else {
       const document = parseJsonDocument(record.text);
       const paths = codeBuddyPaths(document, target);
@@ -573,7 +787,36 @@ function createMcpConfigService({ homeDir, terminalManager, graphicalService, ss
     return { status: "removed", document: list(request) };
   }
 
-  return { list, reveal, save, remove };
+  function copy(request) {
+    const { source, name, expectedSourceVersion, expectedDestinationVersion } = request || {};
+    if (!source || !["codex", "opencode"].includes(source.provider) || !["user", "project"].includes(source.scope))
+      throw new Error("不支持的 MCP 复制来源。");
+    const destinationProvider = source.provider === "codex" ? "opencode" : "codex";
+    const sourceTarget = resolveTarget(source, context);
+    const destinationRequest = { provider: destinationProvider, scope: source.scope, sessionId: source.sessionId };
+    const destinationTarget = resolveTarget(destinationRequest, context);
+    const sourceRecord = readConfigFile(sourceTarget.filePath, fsApi);
+    const destinationRecord = readConfigFile(destinationTarget.filePath, fsApi);
+    if (assertVersion(sourceRecord, expectedSourceVersion) || assertVersion(destinationRecord, expectedDestinationVersion))
+      return { status: "conflict" };
+    const serverName = validateName(name);
+    const sourceServers = source.provider === "codex" ? parseTomlDocument(sourceRecord.text).mcp_servers || {}
+      : openCodeServers(parseJsonDocument(sourceRecord.text, "OpenCode"));
+    if (!Object.hasOwn(sourceServers, serverName)) throw new Error("MCP server was not found.");
+    const destinationServers = destinationProvider === "codex" ? parseTomlDocument(destinationRecord.text).mcp_servers || {}
+      : openCodeServers(parseJsonDocument(destinationRecord.text, "OpenCode"));
+    if (Object.hasOwn(destinationServers, serverName)) return { status: "exists" };
+    const converted = convertServer(source.provider, sourceServers[serverName]);
+    const nextText = destinationProvider === "codex"
+      ? replaceCodexServer(destinationRecord.text, undefined, serverName, converted)
+      : applyJsonValue(destinationRecord.text, ["mcp", "servers", serverName], converted);
+    if (readConfigFile(sourceTarget.filePath, fsApi).version !== sourceRecord.version
+      || readConfigFile(destinationTarget.filePath, fsApi).version !== destinationRecord.version) return { status: "conflict" };
+    atomicWrite(destinationTarget.filePath, nextText, fsApi);
+    return { status: "copied", document: list(destinationRequest), serverName };
+  }
+
+  return { list, reveal, save, remove, copy };
 }
 
 module.exports = {

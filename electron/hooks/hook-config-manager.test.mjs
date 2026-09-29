@@ -207,6 +207,8 @@ describe("hook-config-manager", () => {
     expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
     expect(fs.readFileSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js"), "utf8"))
       .toContain('id: "pannel-handle-graphical-question"');
+    expect(fs.readFileSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-capabilities.js"), "utf8"))
+      .toContain('id: "pannel-handle-capabilities"');
     expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".qoder", "pannel-handle-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".gemini", "settings.json"))).toBe(true);

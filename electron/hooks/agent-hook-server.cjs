@@ -15,6 +15,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     grok: new Map()
   };
   const openCodeResponseStates = new Map();
+  const openCodeCapabilityEndpoints = new Map();
   let hookServer = null;
   let claudeHookUrl = "";
   let startPromise = null;
@@ -636,6 +637,13 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     }
 
     const eventName = getEventName(input);
+    if (provider === "opencode" && eventName === "capabilities.endpoint") {
+      if (session.agentProvider !== "opencode" || session.type !== "windows" || session.runtimeMode !== "app-server"
+        || !Number.isInteger(input.port) || input.port < 1 || input.port > 65535
+        || typeof input.token !== "string" || !/^[0-9a-f-]{36}$/i.test(input.token)) return false;
+      openCodeCapabilityEndpoints.set(session.id, { port: input.port, token: input.token });
+      return true;
+    }
     const openCodeEmptyResponse = provider === "opencode" && trackOpenCodeResponse(input, session);
     const status = openCodeEmptyResponse ? "failed" : getHookStatus(provider, input);
     if (!status) {
@@ -764,6 +772,7 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
   }
 
   function stop() {
+    openCodeCapabilityEndpoints.clear();
     if (hookServer) {
       hookServer.close();
       hookServer = null;
@@ -784,11 +793,21 @@ function createAgentHookServer({ terminalManager, agentTokenStatsService }) {
     return address && typeof address === "object" ? address.port : undefined;
   }
 
+  function getOpenCodeCapabilityEndpoint(id) {
+    return openCodeCapabilityEndpoints.get(id) || null;
+  }
+
+  function clearOpenCodeCapabilityEndpoint(id) {
+    openCodeCapabilityEndpoints.delete(id);
+  }
+
   return {
     start,
     stop,
     getHookUrl,
     getHookPort,
+    getOpenCodeCapabilityEndpoint,
+    clearOpenCodeCapabilityEndpoint,
     handleAgentHook,
     handleAgentHookDebug
   };

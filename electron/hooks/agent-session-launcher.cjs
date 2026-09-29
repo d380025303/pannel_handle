@@ -552,7 +552,9 @@ function createAgentSessionLauncher({
       ...(session.agentProvider === "gemini" && useAppServer(session) ? { acpArgs: compareVersions(geminiVersion, "0.56.0") >= 0 ? "--acp" : "--experimental-acp" } : {}),
       runtimeInitialCommand: wrapAgentStartCommand(session, buildAgentStartCommand(session, { openRouter, naraRouter, miniMax })),
       codexCommand: backend ? buildCodexBackendCommand(session, backend) : "codex",
-      runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...verifiedOpenCodeEnv, ...agentModelEnv },
+      runtimeEnv: { ...(backend ? { [backend.apiKeyEnv]: backend.apiKey } : {}), ...verifiedOpenCodeEnv, ...agentModelEnv,
+        ...(session.agentProvider === "opencode" && useAppServer(session) && session.type === "windows"
+          ? { PANNEL_HANDLE_OPENCODE_CAPABILITIES: "1" } : {}) },
       runtimeWslEnvKeys: [...(backend ? [backend.apiKeyEnv] : []), ...Object.keys(verifiedOpenCodeEnv), ...Object.keys(agentModelEnv)],
       ...(agentModel && session.agentProvider === "opencode" ? { openCodeModel: `${agentModel.providerId}/${agentModel.model}` } : {}),
       codexBridgeRegistration: bridgeRegistration

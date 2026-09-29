@@ -36,7 +36,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     allowPastedImage: route("allowPastedImage"), discardPastedImage: route("discardPastedImage"),
     readAccount: codexRoute("readAccount"), startLogin: codexRoute("startLogin"), cancelLogin: codexRoute("cancelLogin"),
     logout: codexRoute("logout"), refreshAccountUsage: codexRoute("refreshAccountUsage"),
-    listHistory: route("listHistory"), readInitialUserInput: codexRoute("readInitialUserInput"), listCapabilities: codexRoute("listCapabilities"),
+    listHistory: route("listHistory"), readInitialUserInput: codexRoute("readInitialUserInput"), listCapabilities: route("listCapabilities"),
     loginMcpServer: codexRoute("loginMcpServer"), reloadMcpServers: codexRoute("reloadMcpServers"),
     listPlugins: codexRoute("listPlugins"), installPlugin: codexRoute("installPlugin"), uninstallPlugin: codexRoute("uninstallPlugin"),
     addPluginMarketplace: codexRoute("addPluginMarketplace"), refreshPluginMarketplace: codexRoute("refreshPluginMarketplace"), removePluginMarketplace: codexRoute("removePluginMarketplace"),

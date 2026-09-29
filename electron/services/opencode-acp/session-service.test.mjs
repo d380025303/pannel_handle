@@ -7,10 +7,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
-const { createOpenCodeAcpSessionService, buildInvocation } = require("./session-service.cjs");
+const { createOpenCodeAcpSessionService, buildInvocation, normalizeCapabilities } = require("./session-service.cjs");
 const { stopAgentChild } = require("../codebuddy-acp/session-service.cjs");
 const { createGraphicalSessionRouter } = require("../codebuddy-acp/session-router.cjs");
 const { createSessionStore } = require("../../stores/session-store.cjs");
+
+it("maps OpenCode registry IDs to session skills and effective MCP tool names", () => {
+  expect(normalizeCapabilities({ skills: [{ id: "review", name: "Review", location: "C:/review/SKILL.md" }],
+    mcp: [{ name: "file-store", status: "connected" }],
+    tools: [{ id: "file_store_read_file", description: "Read" }, { id: "read", description: "Builtin" }], errors: {} }))
+    .toMatchObject({ skills: [{ id: "review", name: "Review" }],
+      mcp: [{ name: "file-store", status: "connected", tools: [{ name: "file_store_read_file" }] }] });
+});
 
 function fakeChild(onMessage) {
   const child = new EventEmitter();
@@ -67,10 +75,12 @@ describe("OpenCode ACP sessions", () => {
   it("routes the shared graphical API to OpenCode", () => {
     const codex = { snapshot: vi.fn(), close: vi.fn(), shutdown: vi.fn() };
     const buddy = { snapshot: vi.fn(), close: vi.fn(), shutdown: vi.fn() };
-    const openCode = { snapshot: vi.fn(() => "open-code"), close: vi.fn(), shutdown: vi.fn() };
+    const openCode = { snapshot: vi.fn(() => "open-code"), listCapabilities: vi.fn(() => ({ skills: [] })),
+      close: vi.fn(), shutdown: vi.fn() };
     const router = createGraphicalSessionRouter(codex, buddy,
       { getSession: () => ({ agentProvider: "opencode" }) }, openCode);
     expect(router.snapshot("run-1")).toBe("open-code");
+    expect(router.listCapabilities("run-1")).toEqual({ skills: [] });
     router.close("run-1");
     expect(openCode.close).toHaveBeenCalledWith("run-1");
   });
@@ -104,6 +114,8 @@ describe("OpenCode ACP sessions", () => {
 
   it("registers a question MCP server and returns user answers to its pending tool", async () => {
     let onQuestion;
+    let onCancel;
+    const broadcastAgentStatus = vi.fn();
     const questionBridge = { url: "http://127.0.0.1:1234/mcp", token: "secret",
       answer: vi.fn(), cancel: vi.fn(), close: vi.fn() };
     const child = fakeChild((message, emit) => {
@@ -116,8 +128,10 @@ describe("OpenCode ACP sessions", () => {
     });
     const spawnProcess = vi.fn(() => child);
     const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess,
-      openCodeQuestionBridgeFactory: async ({ onQuestion: callback }) => { onQuestion = callback; return questionBridge; } });
+      terminalManager: { broadcastAgentStatus }, broadcast: vi.fn(), spawnProcess,
+      openCodeQuestionBridgeFactory: async ({ onQuestion: questionCallback, onCancel: cancelCallback }) => {
+        onQuestion = questionCallback; onCancel = cancelCallback; return questionBridge;
+      } });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeQuestions: true });
     expect(spawnProcess.mock.calls[0][2].env.OPENCODE_ENABLE_QUESTION_TOOL).toBe("0");
     expect(spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_URL).toBe(questionBridge.url);
@@ -125,12 +139,27 @@ describe("OpenCode ACP sessions", () => {
     onQuestion({ requestId: "question-1", questions: [{ id: "plan", header: "方案", question: "选择方案",
       options: [{ label: "方案甲" }], isOther: true }] });
     expect(service.snapshot("one").questions).toHaveLength(1);
+    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: "one", provider: "opencode", status: "e_prompt", eventName: "AcpQuestion", activitySummary: "选择方案"
+    }));
     await service.answerQuestion("one", "question-1", { plan: { answers: ["方案甲"] } });
     expect(questionBridge.answer).toHaveBeenCalledWith("question-1", { plan: ["方案甲"] });
     expect(service.snapshot("one").questions).toHaveLength(0);
+    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "running", eventName: "AcpTurn"
+    }));
     onQuestion({ requestId: "question-2", questions: [{ id: "reason", question: "原因", isOther: true }] });
     await service.cancelQuestion("one", "question-2");
     expect(questionBridge.cancel).toHaveBeenCalledWith("question-2");
+    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "running", eventName: "AcpTurn"
+    }));
+    onQuestion({ requestId: "question-3", questions: [{ id: "next", question: "继续？", isOther: true }] });
+    onCancel("question-3");
+    expect(service.snapshot("one").questions).toHaveLength(0);
+    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "running", eventName: "AcpTurn"
+    }));
     service.shutdown();
     expect(questionBridge.close).toHaveBeenCalledOnce();
   });

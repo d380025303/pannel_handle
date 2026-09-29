@@ -1100,7 +1100,7 @@ export type CodexPluginApi = {
 };
 export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
 export type CodexSessionCapabilities = {
-  skills: Array<{ name: string; path: string; description: string; enabled: boolean; scope: string }>;
+  skills: Array<{ id?: string; name: string; path: string; description: string; enabled: boolean; scope: string }>;
   apps: Array<{ id: string; name: string; description: string; accessible: boolean; enabled: boolean; callable: boolean }>;
   mcp: Array<{ name: string; status: string; authStatus: string; toolsError: string | null;
     error?: string | null; failureReason?: string | null;
@@ -1359,7 +1359,7 @@ export type SkillsApi = {
   list: (provider: SkillProvider, sessionId?: string) => Promise<SkillsCatalog>;
 };
 
-export type McpProvider = "codex" | "codebuddy";
+export type McpProvider = "codex" | "opencode" | "codebuddy";
 export type McpScope = "user" | "project-local" | "project";
 export type McpTransport = "stdio" | "http" | "sse";
 
@@ -1413,6 +1413,7 @@ export type McpApi = {
   reveal: (request: McpTargetRequest & { name: string; field: "url" | "args" | "env" | "headers"; key?: string; expectedVersion: string }) => Promise<{ status: "revealed"; value: string } | { status: "conflict" }>;
   save: (request: McpTargetRequest & { originalName?: string; draft: McpServerDraft; expectedVersion: string }) => Promise<{ status: "saved"; document: McpDocument; serverName: string } | { status: "conflict" }>;
   remove: (request: McpTargetRequest & { name: string; expectedVersion: string }) => Promise<{ status: "removed"; document: McpDocument } | { status: "conflict" }>;
+  copy: (request: { source: McpTargetRequest; name: string; expectedSourceVersion: string; expectedDestinationVersion: string }) => Promise<{ status: "copied"; document: McpDocument; serverName: string } | { status: "conflict" } | { status: "exists" }>;
 };
 
 export type FileTransferApi = {

@@ -70,6 +70,19 @@ describe("SessionSidebar Agent summary", () => {
     expect(screen.queryByText("Codex 已完成")).toBeNull();
   });
 
+  it("shows an OpenCode question as waiting for an answer and keeps generic idle distinct", () => {
+    const { unmount } = renderSidebar({ id: session.id, provider: "opencode", status: "e_prompt",
+      eventName: "AcpQuestion", timestamp: 1, activitySummary: "选择方案" });
+    expect(screen.getByText("OpenCode 等待回答")).toBeTruthy();
+    expect(screen.getByText("选择方案")).toBeTruthy();
+    expect(screen.queryByText("OpenCode 空闲中")).toBeNull();
+
+    unmount();
+    renderSidebar({ id: session.id, provider: "opencode", status: "e_prompt",
+      eventName: "AcpTurn", timestamp: 2 });
+    expect(screen.getByText("OpenCode 空闲中")).toBeTruthy();
+  });
+
   it("does not render an empty summary placeholder", () => {
     const { container } = renderSidebar({
       id: session.id,

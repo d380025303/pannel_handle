@@ -210,4 +210,115 @@ describe("mcp-config-service", () => {
     expect(Object.keys(document.mcpServers)).toEqual(["two"]);
     expect(document.disabledMcpServers).toEqual(["two"]);
   });
+
+  it("manages OpenCode v2 user and project MCP files while preserving JSONC content", () => {
+    const { homeDir, projectDirectory, service } = setup();
+    const userPath = path.join(homeDir, ".config", "opencode", "opencode.jsonc");
+    mkdirSync(path.dirname(userPath), { recursive: true });
+    writeFileSync(userPath, '{\n  // keep this comment\n  "model": "keep",\n  "mcp": { "servers": { "existing": { "type": "local", "command": ["node", "server.js"], "disabled": true } } }\n}\n');
+    const user = service.list({ provider: "opencode", scope: "user" });
+    expect(user.path).toBe(userPath);
+    expect(user.servers[0]).toMatchObject({ name: "existing", command: "node", args: ["server.js"], enabled: false });
+    const saved = service.save({ provider: "opencode", scope: "user", expectedVersion: user.version,
+      draft: stdioDraft("second", { cwd: "C:\\tools", startupTimeoutSec: 3, toolTimeoutSec: 8,
+        env: [{ key: "TOKEN", value: "secret", masked: false }] }) });
+    expect(saved.status).toBe("saved");
+    const userText = readFileSync(userPath, "utf8");
+    expect(userText).toContain("// keep this comment");
+    expect(userText).toContain('"model": "keep"');
+    expect(JSON.parse(userText.replace(/\/\/ keep this comment/, "")).mcp.servers.second).toMatchObject({
+      type: "local", command: ["npx", "-y", "example-mcp"], cwd: "C:\\tools",
+      environment: { TOKEN: "secret" }, disabled: false, timeout: { startup: 3000, execution: 8000 }
+    });
+    const project = service.list({ provider: "opencode", scope: "project", sessionId: "windows" });
+    expect(project.path).toBe(path.join(projectDirectory, "opencode.json"));
+    expect(project.servers).toEqual([]);
+  });
+
+  it("copies Codex stdio and HTTP servers into OpenCode without exposing or altering source secrets", () => {
+    const { homeDir, service } = setup();
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    const codexText = '[mcp_servers.local]\ncommand = "node"\nargs = ["--token", "secret"]\nenabled = false\nstartup_timeout_sec = 2.5\ntool_timeout_sec = 6\n[mcp_servers.local.env]\nTOKEN = "private"\n\n[mcp_servers.remote]\nurl = "https://example.test/mcp"\nbearer_token_env_var = "MCP_TOKEN"\n[mcp_servers.remote.env_http_headers]\nX-Client = "CLIENT_ID"\n';
+    writeFileSync(codexPath, codexText);
+    writeFileSync(openCodePath, '{\n  "model": "keep"\n}\n');
+    for (const name of ["local", "remote"]) {
+      const source = service.list({ provider: "codex", scope: "user" });
+      const destination = service.list({ provider: "opencode", scope: "user" });
+      const result = service.copy({ source: { provider: "codex", scope: "user" }, name,
+        expectedSourceVersion: source.version, expectedDestinationVersion: destination.version });
+      expect(result.status).toBe("copied");
+    }
+    expect(readFileSync(codexPath, "utf8")).toBe(codexText);
+    const servers = JSON.parse(readFileSync(openCodePath, "utf8")).mcp.servers;
+    expect(servers.local).toMatchObject({ type: "local", command: ["node", "--token", "secret"],
+      environment: { TOKEN: "private" }, disabled: true, timeout: { startup: 2500, execution: 6000 } });
+    expect(servers.remote).toMatchObject({ type: "remote", url: "https://example.test/mcp", oauth: false,
+      headers: { Authorization: "Bearer {env:MCP_TOKEN}", "X-Client": "{env:CLIENT_ID}" } });
+    expect(JSON.parse(readFileSync(openCodePath, "utf8")).model).toBe("keep");
+  });
+
+  it("copies OpenCode HTTP and local servers back to Codex with environment references", () => {
+    const { homeDir, service } = setup();
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    writeFileSync(openCodePath, JSON.stringify({ mcp: { servers: {
+      remote: { type: "remote", url: "https://example.test/mcp", disabled: true, oauth: false,
+        headers: { Authorization: "Bearer {env:MCP_TOKEN}", "X-Tenant": "{env:TENANT}" },
+        timeout: { startup: 1500, execution: 4500 } },
+      local: { type: "local", command: ["node", "tool.js"], environment: { TOKEN: "{env:TOKEN}" } }
+    } } }, null, 2));
+    for (const name of ["remote", "local"]) {
+      const source = service.list({ provider: "opencode", scope: "user" });
+      const destination = service.list({ provider: "codex", scope: "user" });
+      expect(service.copy({ source: { provider: "opencode", scope: "user" }, name,
+        expectedSourceVersion: source.version, expectedDestinationVersion: destination.version }).status).toBe("copied");
+    }
+    const codex = service.list({ provider: "codex", scope: "user" });
+    expect(codex.servers.find(server => server.name === "remote")).toMatchObject({ enabled: false, bearerTokenEnvVar: "MCP_TOKEN", startupTimeoutSec: 1.5, toolTimeoutSec: 4.5 });
+    const toml = readFileSync(path.join(homeDir, ".codex", "config.toml"), "utf8");
+    expect(toml).toContain('X-Tenant = "TENANT"');
+    expect(toml).toMatch(/env_vars = \[\s*"TOKEN"\s*]/);
+  });
+
+  it("blocks incompatible settings, duplicate names, and stale versions without writing", () => {
+    const { homeDir, service } = setup();
+    const openCodePath = path.join(homeDir, ".config", "opencode", "opencode.json");
+    mkdirSync(path.dirname(openCodePath), { recursive: true });
+    writeFileSync(openCodePath, JSON.stringify({ mcp: { servers: {
+      custom: { type: "remote", url: "https://example.test/mcp", codemode: false },
+      duplicate: { type: "local", command: ["node"] }
+    } } }));
+    const codexPath = path.join(homeDir, ".codex", "config.toml");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    writeFileSync(codexPath, '[mcp_servers.duplicate]\ncommand = "node"\n');
+    const source = service.list({ provider: "opencode", scope: "user" });
+    const destination = service.list({ provider: "codex", scope: "user" });
+    const copy = name => service.copy({ source: { provider: "opencode", scope: "user" }, name,
+      expectedSourceVersion: source.version, expectedDestinationVersion: destination.version });
+    expect(() => copy("custom")).toThrow(/codemode/);
+    expect(copy("duplicate")).toEqual({ status: "exists" });
+    expect(service.copy({ source: { provider: "opencode", scope: "user" }, name: "custom",
+      expectedSourceVersion: "stale", expectedDestinationVersion: destination.version })).toEqual({ status: "conflict" });
+    expect(readFileSync(codexPath, "utf8")).toBe('[mcp_servers.duplicate]\ncommand = "node"\n');
+    expect(existsSync(`${codexPath}.pannel-handle.bak`)).toBe(false);
+  });
+
+  it("copies project MCP only within the selected Windows project and masks OpenCode secrets", () => {
+    const { projectDirectory, service } = setup();
+    const codexPath = path.join(projectDirectory, ".codex", "config.toml");
+    mkdirSync(path.dirname(codexPath), { recursive: true });
+    writeFileSync(codexPath, '[mcp_servers.project-api]\nurl = "https://example.test/mcp?token=private"\n');
+    const source = service.list({ provider: "codex", scope: "project", sessionId: "windows" });
+    const destination = service.list({ provider: "opencode", scope: "project", sessionId: "windows" });
+    expect(service.copy({ source: { provider: "codex", scope: "project", sessionId: "windows" },
+      name: "project-api", expectedSourceVersion: source.version, expectedDestinationVersion: destination.version }).status).toBe("copied");
+    const openCode = service.list({ provider: "opencode", scope: "project", sessionId: "windows" });
+    expect(openCode.path).toBe(path.join(projectDirectory, "opencode.json"));
+    expect(openCode.servers[0]).toMatchObject({ name: "project-api", url: "", urlMasked: true });
+    expect(service.reveal({ provider: "opencode", scope: "project", sessionId: "windows", name: "project-api",
+      field: "url", expectedVersion: openCode.version })).toEqual({ status: "revealed", value: "https://example.test/mcp?token=private" });
+  });
 });
