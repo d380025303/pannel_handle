@@ -30,6 +30,17 @@ const permissions = [
   { value: "askApproval", name: "需要确认", description: "可修改工作区，越界操作先确认" },
   { value: "fullAccess", name: "完全访问", description: "可访问文件与网络，不再请求批准" }
 ] as const;
+function openCodePlanReplyId(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider !== "opencode" || snapshot.nativeMode !== "plan" || snapshot.busy || snapshot.archived
+    || snapshot.error || snapshot.pendingPlan || !snapshot.threadId
+    || !snapshot.nativeModes?.some(mode => mode.id.toLowerCase() === "build")) return null;
+  const lastUserIndex = snapshot.items.map(item => item.type).lastIndexOf("userMessage");
+  if (lastUserIndex < 0) return null;
+  const reply = snapshot.items.slice(lastUserIndex + 1);
+  if (reply.some(item => item.type === "turnError")) return null;
+  return reply.filter(item => item.type === "agentMessage" && Boolean(item.text?.trim())
+    || item.type === "turnPlan" && Boolean(item.plan?.length)).at(-1)?.id || null;
+}
 export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: Props) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const [sending, setSending] = useState(false);
@@ -344,6 +355,8 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
     : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
   const effectivePlan = snapshot.mode === "plan";
+  const openCodePlanItemId = openCodePlanReplyId(snapshot);
+  const openCodeBuildMode = snapshot.nativeModes?.find(mode => mode.id.toLowerCase() === "build");
   return <section className="graphical-shell">
     <header className="graphical-header">
       <div className="graphical-header-details">
@@ -384,9 +397,15 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         if (item.type === "userMessage" || item.type === "agentMessage")
           return <article className={`graphical-message ${item.type}`} key={item.id}><small>{item.type === "userMessage" ? "你" : providerLabel(snapshot.provider)}</small>
             <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div>
-            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}>📎 {file.name}</span>)}</div> : null}</article>;
+            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}>📎 {file.name}</span>)}</div> : null}
+            {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
+              <button type="button" className="primary" disabled={changingMode} onClick={() => changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+            </div>}</article>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;
-        if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p key={index}>{step.status === "completed" ? "✓" : "•"} {step.step}</p>)}</article>;
+        if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p key={index}>{step.status === "completed" ? "✓" : "•"} {step.step}</p>)}
+          {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
+            <button type="button" className="primary" disabled={changingMode} onClick={() => changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+          </div>}</article>;
         if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
         return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong></article>;
       })}

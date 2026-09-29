@@ -361,6 +361,56 @@ it("keeps an OpenCode native mode choice open after failure and retries", () => 
   expect(screen.queryByRole("dialog", { name: "切换模式" })).toBeNull();
 });
 
+it("switches to Build from the latest OpenCode Plan reply without sending the draft", () => {
+  const { send, emit } = fixture();
+  const planned: GraphicalSnapshot = { ...snapshot, provider: "opencode", nativeMode: "plan", mode: "plan",
+    nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }],
+    items: [{ id: "old-user", type: "userMessage", text: "旧问题" },
+      { id: "old-plan", type: "agentMessage", text: "旧计划" },
+      { id: "user", type: "userMessage", text: "制定计划" },
+      { id: "plan", type: "agentMessage", text: "实施计划" }] };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...planned, busy: true } });
+  expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull();
+  fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "保留草稿" } });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: planned });
+  const button = screen.getByRole("button", { name: "切到 Build" });
+  expect(button.closest("article")?.textContent).toContain("实施计划");
+  expect(button.closest("article")?.textContent).not.toContain("旧计划");
+  fireEvent.click(button);
+  fireEvent.click(button);
+  const requests = send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.native-mode");
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toEqual(expect.objectContaining({ sessionId: "graph-1", threadId: "thread-1", modeId: "build" }));
+  expect(send.mock.calls.map(([message]) => message).some(message => message.type === "graphical.submit")).toBe(false);
+  expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("保留草稿");
+  emit({ v: PROTOCOL_VERSION, type: "error", code: "COMMAND_FAILED", message: "模式切换失败", requestId: requests[0].requestId });
+  expect(screen.getByRole("alert").textContent).toContain("模式切换失败");
+  expect((screen.getByRole("button", { name: "切到 Build" }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "切到 Build" }));
+  const retry = send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.native-mode").at(-1)!;
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...planned, nativeMode: "build", mode: "default" } });
+  emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: retry.requestId });
+  expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull();
+});
+
+it("hides the OpenCode Build shortcut when unavailable, failed, or followed by a new request", () => {
+  const { emit } = fixture();
+  const planned: GraphicalSnapshot = { ...snapshot, provider: "opencode", nativeMode: "plan", mode: "plan",
+    nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }],
+    items: [{ id: "user", type: "userMessage", text: "制定计划" },
+      { id: "plan", type: "turnPlan", plan: [{ step: "实施", status: "pending" }] }] };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: planned });
+  expect(screen.getByRole("button", { name: "切到 Build" })).toBeTruthy();
+  for (const changes of [
+    { nativeModes: [{ id: "plan", name: "Plan" }] },
+    { error: "计划失败" },
+    { items: [...planned.items, { id: "next", type: "userMessage", text: "再想想" }] }
+  ]) {
+    emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...planned, ...changes } });
+    expect(screen.queryByRole("button", { name: "切到 Build" })).toBeNull();
+  }
+});
+
 it("switches advertised Codex and ACP models while idle", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {

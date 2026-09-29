@@ -31,6 +31,17 @@ const codeBuddyModeDescriptions: Record<string, string> = {
   delegate: "将子任务委派给子 Agent 并行处理。"
 };
 const normalizeModeKey = (value: string) => (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function openCodePlanReplyId(snapshot: CodexAppServerSnapshot) {
+  if (snapshot.provider !== "opencode" || snapshot.nativeMode !== "plan" || snapshot.busy || snapshot.archived
+    || snapshot.error || snapshot.pendingPlan || !snapshot.threadId
+    || !snapshot.nativeModes?.some(mode => normalizeModeKey(mode.id) === "build")) return null;
+  const lastUserIndex = snapshot.items.map(item => item.type).lastIndexOf("userMessage");
+  if (lastUserIndex < 0) return null;
+  const reply = snapshot.items.slice(lastUserIndex + 1);
+  if (reply.some(item => item.type === "turnError")) return null;
+  return reply.filter(item => item.type === "agentMessage" && Boolean(item.text?.trim())
+    || item.type === "turnPlan" && Boolean(item.plan?.length)).at(-1)?.id || null;
+}
 const effortLabels: Record<string, string> = {
   none: "无", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高", ultra: "极致"
 };
@@ -1153,6 +1164,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const matchesCapability = (name: string, description: string) => `${name} ${description}`.toLocaleLowerCase().includes(capabilityQuery.trim().toLocaleLowerCase());
   const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
   const timeline = useMemo(() => isActive ? groupTimeline(snapshot) : [], [isActive, snapshot]);
+  const openCodePlanItemId = openCodePlanReplyId(snapshot);
+  const openCodeBuildMode = snapshot.nativeModes?.find(mode => normalizeModeKey(mode.id) === "build");
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
     {isCodex && (snapshot.backend || "openai") === "openai" && snapshot.account?.status === "signedOut" && <CodexAccountPanel key={sessionId} account={snapshot.account} preferDeviceCode={sessionType !== "windows"} busy={snapshot.busy} actions={{
       readAccount: () => window.codexAppServerApi.readAccount(sessionId),
@@ -1196,6 +1209,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
+          {openCodePlanItemId === item.id && openCodeBuildMode && <div className="codex-app-server-plan-confirm">
+            <button type="button" className="primary" disabled={changingMode} onClick={() => void changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
+          </div>}
           {item.type === "userMessage" && snapshot.provider === "codebuddy" && sessionType === "windows" && snapshot.capabilities?.rewind && item.rewindMessageId &&
             <button type="button" disabled={snapshot.busy || rewindPending} onClick={() => {
               setRewindTarget({ messageId: item.rewindMessageId!, text: item.text || "" });
@@ -1210,6 +1226,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             <p>计划已完成。确认后将在当前会话中执行。</p>
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>暂不执行</button>
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
+          </div>}
+          {openCodePlanItemId === item.id && openCodeBuildMode && <div className="codex-app-server-plan-confirm">
+            <button type="button" className="primary" disabled={changingMode} onClick={() => void changeNativeMode(openCodeBuildMode.id)}>切到 Build</button>
           </div>}
         </article>;
         if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label={`已回答的 ${agentName} 提问`}>
