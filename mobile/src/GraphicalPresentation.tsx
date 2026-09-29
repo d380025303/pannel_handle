@@ -1,5 +1,24 @@
 import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
 
+export const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"];
+export const permissions = [
+  { value: "readOnly", name: "只读", description: "可检查文件，不能修改或申请扩权" },
+  { value: "askApproval", name: "需要确认", description: "可修改工作区，越界操作先确认" },
+  { value: "fullAccess", name: "完全访问", description: "可访问文件与网络，不再请求批准" }
+] as const;
+
+export function openCodePlanReplyId(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider !== "opencode" || snapshot.nativeMode !== "plan" || snapshot.busy || snapshot.archived
+    || snapshot.error || snapshot.pendingPlan || !snapshot.threadId
+    || !snapshot.nativeModes?.some(mode => mode.id.toLowerCase() === "build")) return null;
+  const lastUserIndex = snapshot.items.map(item => item.type).lastIndexOf("userMessage");
+  if (lastUserIndex < 0) return null;
+  const reply = snapshot.items.slice(lastUserIndex + 1);
+  if (reply.some(item => item.type === "turnError")) return null;
+  return reply.filter(item => item.type === "agentMessage" && Boolean(item.text?.trim())
+    || item.type === "turnPlan" && Boolean(item.plan?.length)).at(-1)?.id || null;
+}
+
 export function providerLabel(provider?: string) {
   return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : provider === "qoder" ? "Qoder" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "Codex";
 }

@@ -1337,15 +1337,26 @@ export type RemoteSystemApi = {
 };
 
 export type SkillProvider = "codex" | "codebuddy";
+export type SkillSource = "project" | "personal" | "system" | "plugin";
 
 export type SkillSummary = {
   id: string;
   name: string;
   description: string;
+  path: string;
+  source: SkillSource;
+  enabled: boolean;
+};
+
+export type SkillsCatalog = {
+  skills: SkillSummary[];
+  pluginStatus: "available" | "requires-session" | "not-applicable";
+  projectStatus: "available" | "no-session" | "remote-unavailable" | "not-applicable";
+  projectPath?: string;
 };
 
 export type SkillsApi = {
-  list: (provider: SkillProvider) => Promise<SkillSummary[]>;
+  list: (provider: SkillProvider, sessionId?: string) => Promise<SkillsCatalog>;
 };
 
 export type McpProvider = "codex" | "codebuddy";

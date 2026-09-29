@@ -220,6 +220,12 @@ describe("Codex App Server session", () => {
       terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => fakeProcess(received, respond) });
     try {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const beforeSkills = received.length;
+      expect(await service.listSkills("run-1", true)).toEqual([{
+        name: "review", path: "C:\\skills\\review\\SKILL.md", description: "Review", enabled: true, scope: "user"
+      }]);
+      expect(received.slice(beforeSkills).map(item => item.method)).toEqual(["skills/list"]);
+      expect(received.at(-1).params.forceReload).toBe(true);
       expect(await service.listCapabilities("run-1")).toMatchObject({ skills: [{ name: "review" }], apps: [{ id: "github", callable: true }],
         mcp: [{ name: "files", tools: [{ name: "read_file" }] }] });
       expect(received.find(value => value.method === "app/list").params.threadId).toBe("thread-1");

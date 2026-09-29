@@ -89,6 +89,21 @@ it("clears a rejected saved password and waits for a new one", () => {
   expect(hook.result.current.status).toBe("password-required");
 });
 
+it("shows an authentication rate limit without starting an automatic retry", () => {
+  vi.useFakeTimers();
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  act(() => socket.receive("error", { code: "AUTH_RATE_LIMIT", message: "请稍后再试" }));
+  act(() => socket.close());
+  expect(hook.result.current.status).toBe("error");
+  expect(hook.result.current.statusMessage).toBe("请稍后再试");
+  expect(localStorage.getItem(passwordKey)).toBe("correct-password");
+  act(() => vi.advanceTimersByTime(8000));
+  expect(FakeWebSocket.instances).toHaveLength(1);
+});
+
 it.each(["PASSWORD_CHANGED", "CONNECTION_CLOSED"])("clears the password on %s", (code) => {
   localStorage.setItem(passwordKey, "correct-password");
   const hook = setup();

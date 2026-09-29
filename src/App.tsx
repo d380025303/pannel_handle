@@ -773,12 +773,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowMcp(false);
             setShowProjectAssistant(false);
             setShowIdea(false);
-            if (isAppServerSession && terminalSessions.activeId) {
-              setOpenedShellIds(current => new Set(current).add(terminalSessions.activeId!));
-              setWorkspaceTab("session-shell");
-            } else {
-              setWorkspaceTab("terminal");
-            }
           }}
           onOpenStats={() => {
             if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
@@ -845,7 +839,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         )}
 
         {showTokenStats && <AgentTokenStatsDashboard />}
-        {showSkills && <SkillsManager />}
+        {showSkills && <SkillsManager key={terminalSessions.activeSession?.id || "personal"} session={terminalSessions.activeSession} />}
         {showIdea && <IdeaRunPanel />}
         {showProjectAssistant && <ProjectAssistantPage initialSessionId={terminalSessions.activeSession?.agentProvider === "codex" ? terminalSessions.activeSession.id : undefined} />}
         {showMcp && (

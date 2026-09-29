@@ -26,17 +26,21 @@ afterEach(() => {
 });
 
 describe("skills-service", () => {
-  it("lists Codex user and system skills as name and description summaries", async () => {
+  it("lists Codex personal and built-in skills with their sources", async () => {
     const home = createHome();
     writeSkill(home, ".codex/skills/review", "---\nname: review\ndescription: Review code\n---\nDo it.");
+    writeSkill(home, ".agents/skills/review", "---\nname: review\ndescription: Another review\n---\nDo it.");
     writeSkill(home, ".codex/skills/.system/imagegen", "---\nname: imagegen\ndescription: Generate images\n---\nSystem.");
 
-    const skills = await createSkillsService({ homeDir: home }).list("codex");
+    const catalog = await createSkillsService({ homeDir: home }).list("codex");
 
-    expect(skills).toEqual([
-      { id: expect.any(String), name: "imagegen", description: "Generate images" },
-      { id: expect.any(String), name: "review", description: "Review code" }
+    expect(catalog).toMatchObject({ pluginStatus: "requires-session", projectStatus: "no-session" });
+    expect(catalog.skills).toEqual([
+      expect.objectContaining({ name: "imagegen", description: "Generate images", source: "system" }),
+      expect.objectContaining({ name: "review", description: "Another review", source: "personal" }),
+      expect.objectContaining({ name: "review", description: "Review code", source: "personal" })
     ]);
+    expect(new Set(catalog.skills.map(skill => skill.id)).size).toBe(3);
   });
 
   it("reads UTF-8 BOM front matter without exposing document content", async () => {
@@ -46,16 +50,17 @@ describe("skills-service", () => {
       Buffer.from("---\r\nname: review\r\ndescription: Review code\r\n---\r\nPrivate instructions", "utf-8")
     ]));
 
-    const [skill] = await createSkillsService({ homeDir: home }).list("codex");
+    const { skills: [skill] } = await createSkillsService({ homeDir: home }).list("codex");
 
-    expect(skill).toEqual({ id: expect.any(String), name: "review", description: "Review code" });
+    expect(skill).toMatchObject({ id: expect.any(String), name: "review", description: "Review code",
+      source: "personal", enabled: true });
     expect(Object.hasOwn(skill, "content")).toBe(false);
   });
 
   it("returns an empty CodeBuddy list without creating its directory", async () => {
     const home = createHome();
 
-    await expect(createSkillsService({ homeDir: home }).list("codebuddy")).resolves.toEqual([]);
+    await expect(createSkillsService({ homeDir: home }).list("codebuddy")).resolves.toMatchObject({ skills: [] });
     expect(fs.existsSync(path.join(home, ".codebuddy", "skills"))).toBe(false);
   });
 
@@ -63,9 +68,9 @@ describe("skills-service", () => {
     const home = createHome();
     writeSkill(home, ".codebuddy/skills/plain", "Instructions without front matter.");
 
-    const [skill] = await createSkillsService({ homeDir: home }).list("codebuddy");
+    const { skills: [skill] } = await createSkillsService({ homeDir: home }).list("codebuddy");
 
-    expect(skill).toEqual({ id: expect.any(String), name: "plain", description: "" });
+    expect(skill).toMatchObject({ id: expect.any(String), name: "plain", description: "", source: "personal" });
   });
 
   it("rejects unsupported providers", async () => {
@@ -73,7 +78,7 @@ describe("skills-service", () => {
     await expect(createSkillsService({ homeDir: home }).list("other")).rejects.toThrow("Unsupported Skills provider");
   });
 
-  it("ignores skill symlinks that escape the configured root", async () => {
+  it("follows symlinked skill folders without reading outside SKILL.md content", async () => {
     const home = createHome();
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-skills-outside-"));
     tempDirs.push(outside);
@@ -87,6 +92,65 @@ describe("skills-service", () => {
       throw err;
     }
 
-    await expect(createSkillsService({ homeDir: home }).list("codex")).resolves.toEqual([]);
+    const catalog = await createSkillsService({ homeDir: home }).list("codex");
+    expect(catalog.skills).toEqual([expect.objectContaining({ name: "escaped", source: "personal" })]);
+    expect(Object.hasOwn(catalog.skills[0], "content")).toBe(false);
+  });
+
+  it("finds project skills from the working directory through the repository root", async () => {
+    const home = createHome();
+    const repository = path.join(home, "repo");
+    fs.mkdirSync(path.join(repository, ".git"), { recursive: true });
+    fs.mkdirSync(path.join(repository, "module", "feature"), { recursive: true });
+    writeSkill(home, "repo/.agents/skills/shared", "---\nname: duplicate\ndescription: Root\n---");
+    writeSkill(home, "repo/module/.agents/skills/module", "---\nname: duplicate\ndescription: Module\n---");
+    writeSkill(home, "repo/module/feature/.agents/skills/local", "---\nname: local\ndescription: Local\n---");
+    const session = { id: "run-1", type: "windows", cwd: path.join(repository, "module", "feature") };
+    const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session } });
+
+    const catalog = await service.list("codex", session.id);
+    expect(catalog.projectStatus).toBe("available");
+    expect(catalog.skills.map(skill => [skill.name, skill.source])).toEqual([
+      ["duplicate", "project"], ["duplicate", "project"], ["local", "project"]
+    ]);
+  });
+
+  it("does not classify personal skills as project skills outside a Git repository", async () => {
+    const home = createHome();
+    writeSkill(home, ".agents/skills/personal", "---\nname: personal\n---");
+    fs.mkdirSync(path.join(home, "work"), { recursive: true });
+    const session = { id: "run-1", type: "windows", cwd: path.join(home, "work") };
+    const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session } });
+    const catalog = await service.list("codex", session.id);
+    expect(catalog.skills).toEqual([expect.objectContaining({ name: "personal", source: "personal" })]);
+  });
+
+  it("uses the active Codex runtime list and keeps remote, plugin, and disabled skills distinct", async () => {
+    const home = createHome();
+    const session = { id: "ssh-1", type: "ssh", cwd: "/work/repo", runtimeMode: "app-server", agentProvider: "codex" };
+    const listSkills = async () => [
+      { name: "same", path: "/work/repo/.agents/skills/same/SKILL.md", description: "Project", scope: "repo", enabled: true },
+      { name: "same", path: "/home/me/.agents/skills/same/SKILL.md", description: "Personal", scope: "user", enabled: true },
+      { name: "figma", path: "/home/me/.codex/plugins/cache/figma/skills/figma/SKILL.md", description: "Plugin", scope: "user", enabled: false },
+      { name: "creator", path: "/home/me/.codex/skills/.system/creator/SKILL.md", description: "Built-in", scope: "system", enabled: true }
+    ];
+    const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session },
+      codexAppServerSessionService: { getWorkspaceCwd: () => "/work/repo", listSkills } });
+    const catalog = await service.list("codex", session.id);
+    expect(catalog).toMatchObject({ pluginStatus: "available", projectStatus: "available", projectPath: "/work/repo" });
+    expect(catalog.skills.map(skill => [skill.name, skill.source, skill.enabled])).toEqual([
+      ["creator", "system", true], ["figma", "plugin", false],
+      ["same", "personal", true], ["same", "project", true]
+    ]);
+  });
+
+  it("does not replace remote skills with Windows skills when no Codex runtime is available", async () => {
+    const home = createHome();
+    writeSkill(home, ".agents/skills/local", "---\nname: local\n---");
+    const session = { id: "ssh-1", type: "ssh", cwd: "/work/repo" };
+    const service = createSkillsService({ homeDir: home, terminalManager: { getSession: () => session } });
+    await expect(service.list("codex", session.id)).resolves.toMatchObject({
+      skills: [], pluginStatus: "requires-session", projectStatus: "remote-unavailable"
+    });
   });
 });

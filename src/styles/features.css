@@ -6716,8 +6716,17 @@ button.agent-usage-status[aria-expanded="true"] {
 .skills-load-error { padding: 18px; border: 1px solid color-mix(in srgb, var(--color-danger) 45%, var(--color-border)); border-radius: 10px; color: var(--color-danger-text); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
 .skills-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-items: stretch; gap: 14px; }
 .skills-card { min-width: 0; padding: 16px; border: 1px solid var(--color-border); border-radius: 12px; background: color-mix(in srgb, var(--color-bg-panel) 96%, transparent); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08); }
-.skills-card h2 { overflow-wrap: anywhere; margin: 0; font-size: 15px; line-height: 1.35; }
+.skills-card h3 { overflow-wrap: anywhere; margin: 0; font-size: 15px; line-height: 1.35; }
 .skills-card p { overflow-wrap: anywhere; margin: 8px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }
+.skills-group + .skills-group { margin-top: 24px; }
+.skills-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.skills-group-heading h2 { margin: 0; font-size: 15px; }
+.skills-group-heading h2 span { margin-left: 5px; color: var(--color-text-muted); font-size: 12px; font-weight: 400; }
+.skills-group-heading small { overflow: hidden; max-width: 55%; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.skills-group-empty { margin: 0; padding: 13px 16px; border: 1px dashed var(--color-border); border-radius: 10px; color: var(--color-text-muted); font-size: 12px; }
+.skills-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.skills-disabled { flex: none; padding: 2px 6px; border-radius: 4px; color: var(--color-text-muted); background: var(--color-bg-control); font-size: 11px; }
+.skills-card-path { display: block; overflow: hidden; margin-top: 10px; color: var(--color-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 760px) {
   .skills-header { padding-inline: 14px; }

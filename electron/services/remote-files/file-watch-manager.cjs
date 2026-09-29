@@ -5,6 +5,7 @@ const WSL_UNC_PREFIX = "\\\\wsl.localhost\\";
 
 function createFileWatchManager({ terminalManager, broadcast, chokidarLoader = () => import("chokidar") }) {
   const watchers = new Map();
+  const operations = new Map();
   let chokidarPromise = null;
 
   function getChokidar() {
@@ -12,53 +13,92 @@ function createFileWatchManager({ terminalManager, broadcast, chokidarLoader = (
     return chokidarPromise;
   }
 
-  async function stop(sessionId) {
-    const watcher = watchers.get(sessionId);
-    watchers.delete(sessionId);
-    if (watcher) await watcher.close();
+  function enqueue(sessionId, operation) {
+    const previous = operations.get(sessionId) || Promise.resolve();
+    const next = previous.catch(() => undefined).then(operation);
+    operations.set(sessionId, next);
+    void next.finally(() => {
+      if (operations.get(sessionId) === next) operations.delete(sessionId);
+    }).catch(() => undefined);
+    return next;
   }
 
-  async function setDirectories(sessionId, directories) {
-    await stop(sessionId);
-    const session = terminalManager.getSession(sessionId);
-    if (!session || session.type === "ssh") return false;
-    const displayPaths = Array.from(new Set((directories || []).filter((value) => typeof value === "string" && value.trim())));
-    if (displayPaths.length === 0) return true;
-    const hostPaths = displayPaths.map((displayPath) => session.type === "wsl"
-      ? toWslHostPath(session.wslDistro, normalizeWslPath(displayPath))
-      : path.resolve(displayPath));
-    const chokidar = await getChokidar();
-    const watchOptions = {
-      persistent: true,
-      ignoreInitial: true,
-      depth: 0,
-      awaitWriteFinish: { stabilityThreshold: 180, pollInterval: 50 }
-    };
-    if (session.type === "wsl" && hostPaths.some((hostPath) => hostPath.toLowerCase().startsWith(WSL_UNC_PREFIX))) {
-      watchOptions.usePolling = true;
-      watchOptions.interval = 250;
-      watchOptions.binaryInterval = 500;
-    }
-    const watcher = chokidar.watch(hostPaths, watchOptions);
-    let timer = null;
-    const changed = new Set();
-    const flush = () => {
-      timer = null;
-      broadcast("remote-files:changed", { sessionId, paths: Array.from(changed) });
-      changed.clear();
-    };
-    watcher.on("all", (_event, hostPath) => {
-      const index = hostPaths.findIndex((root) => hostPath === root || hostPath.startsWith(`${root}${path.sep}`));
-      changed.add(displayPaths[Math.max(0, index)]);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, 180);
+  async function closeWatcher(sessionId) {
+    const state = watchers.get(sessionId);
+    watchers.delete(sessionId);
+    if (!state) return;
+    if (state.timer) clearTimeout(state.timer);
+    await state.watcher.close();
+  }
+
+  function stop(sessionId) {
+    return enqueue(sessionId, () => closeWatcher(sessionId));
+  }
+
+  function setDirectories(sessionId, directories) {
+    return enqueue(sessionId, async () => {
+      const session = terminalManager.getSession(sessionId);
+      if (!session || session.type === "ssh") {
+        await closeWatcher(sessionId);
+        return false;
+      }
+      const displayPaths = Array.from(new Set((directories || []).filter((value) => typeof value === "string" && value.trim())));
+      const paths = new Map(displayPaths.map((displayPath) => [session.type === "wsl"
+        ? toWslHostPath(session.wslDistro, normalizeWslPath(displayPath))
+        : path.resolve(displayPath), displayPath]));
+      if (paths.size === 0) {
+        await closeWatcher(sessionId);
+        return true;
+      }
+      const usePolling = session.type === "wsl" && [...paths.keys()].some((hostPath) => hostPath.toLowerCase().startsWith(WSL_UNC_PREFIX));
+      let state = watchers.get(sessionId);
+      if (state && state.usePolling !== usePolling) {
+        await closeWatcher(sessionId);
+        state = undefined;
+      }
+      if (state) {
+        const removed = [...state.paths.keys()].filter((hostPath) => !paths.has(hostPath));
+        const added = [...paths.keys()].filter((hostPath) => !state.paths.has(hostPath));
+        state.paths = paths;
+        if (removed.length > 0) await state.watcher.unwatch(removed);
+        if (added.length > 0) state.watcher.add(added);
+        return true;
+      }
+      const chokidar = await getChokidar();
+      const watchOptions = {
+        persistent: true,
+        ignoreInitial: true,
+        depth: 0,
+        awaitWriteFinish: { stabilityThreshold: 180, pollInterval: 50 }
+      };
+      if (usePolling) {
+        watchOptions.usePolling = true;
+        watchOptions.interval = 250;
+        watchOptions.binaryInterval = 500;
+      }
+      const watcher = chokidar.watch([...paths.keys()], watchOptions);
+      state = { watcher, paths, usePolling, timer: null, changed: new Set() };
+      watcher.on("all", (_event, hostPath) => {
+        const matching = [...state.paths.keys()]
+          .filter((root) => hostPath === root || hostPath.startsWith(`${root}${path.sep}`))
+          .sort((left, right) => right.length - left.length)[0];
+        if (!matching) return;
+        state.changed.add(state.paths.get(matching));
+        if (state.timer) clearTimeout(state.timer);
+        state.timer = setTimeout(() => {
+          state.timer = null;
+          broadcast("remote-files:changed", { sessionId, paths: [...state.changed] });
+          state.changed.clear();
+        }, 180);
+      });
+      watcher.on("error", (error) => broadcast("remote-files:watch-error", { sessionId, error: error instanceof Error ? error.message : String(error) }));
+      watchers.set(sessionId, state);
+      return true;
     });
-    watcher.on("error", (error) => broadcast("remote-files:watch-error", { sessionId, error: error instanceof Error ? error.message : String(error) }));
-    watchers.set(sessionId, watcher);
-    return true;
   }
 
   async function shutdown() {
+    await Promise.all([...operations.values()].map((operation) => operation.catch(() => undefined)));
     await Promise.all(Array.from(watchers.keys()).map(stop));
   }
 

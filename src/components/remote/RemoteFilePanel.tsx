@@ -338,6 +338,7 @@ export function RemoteFilePanel({
   const expandedPathsRef = useRef<Set<string>>(new Set());
   const searchQueryRef = useRef("");
   const directoryRequestRef = useRef(new Map<string, number>());
+  const directoryPendingRef = useRef(new Map<string, { sessionId: string; requestId: number; promise: Promise<RemoteFileEntry[] | undefined> }>());
   const directoryRequestSequenceRef = useRef(0);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
   const downloadTransferRef = useRef<DownloadTransferState | null>(null);
@@ -713,8 +714,12 @@ export function RemoteFilePanel({
     onActivePreviewTabChange?.(restoredActiveTabId, true);
   }, [closeFileContextMenu, onActivePreviewTabChange, onCurrentPathChange]);
 
-  const loadTreeDirectory = useCallback(async (path: string) => {
-    if (!sessionId) return undefined;
+  const loadTreeDirectory = useCallback((path: string, force = false): Promise<RemoteFileEntry[] | undefined> => {
+    if (!sessionId) return Promise.resolve(undefined);
+    const pending = directoryPendingRef.current.get(path);
+    if (!force && pending?.sessionId === sessionId && directoryRequestRef.current.get(path) === pending.requestId) {
+      return pending.promise;
+    }
     const requestId = directoryRequestSequenceRef.current + 1;
     directoryRequestSequenceRef.current = requestId;
     directoryRequestRef.current.set(path, requestId);
@@ -722,22 +727,28 @@ export function RemoteFilePanel({
       ...current,
       [path]: { status: "loading", entries: current[path]?.entries ?? [] }
     }));
-    try {
-      const nextEntries = await window.remoteFileApi.list(sessionId, path);
-      if (directoryRequestRef.current.get(path) !== requestId) return undefined;
-      updateDirectories((current) => ({
-        ...current,
-        [path]: { status: "ready", entries: nextEntries }
-      }));
-      return nextEntries;
-    } catch (err) {
-      if (directoryRequestRef.current.get(path) !== requestId) return undefined;
-      updateDirectories((current) => ({
-        ...current,
-        [path]: { status: "error", entries: current[path]?.entries ?? [], error: getErrorMessage(err) }
-      }));
-      throw err;
-    }
+    const promise = (async () => {
+      try {
+        const nextEntries = await window.remoteFileApi.list(sessionId, path);
+        if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+        updateDirectories((current) => ({
+          ...current,
+          [path]: { status: "ready", entries: nextEntries }
+        }));
+        return nextEntries;
+      } catch (err) {
+        if (directoryRequestRef.current.get(path) !== requestId) return undefined;
+        updateDirectories((current) => ({
+          ...current,
+          [path]: { status: "error", entries: current[path]?.entries ?? [], error: getErrorMessage(err) }
+        }));
+        throw err;
+      } finally {
+        if (directoryPendingRef.current.get(path)?.requestId === requestId) directoryPendingRef.current.delete(path);
+      }
+    })();
+    directoryPendingRef.current.set(path, { sessionId, requestId, promise });
+    return promise;
   }, [sessionId, updateDirectories]);
 
   const setRootDirectory = useCallback(async (path: string) => {
@@ -1175,7 +1186,7 @@ export function RemoteFilePanel({
       setExpandedPaths((current) => new Set([...current].filter((candidate) => candidate === path || !isPathInside(candidate, path))));
     }
     try {
-      return await loadTreeDirectory(path);
+      return await loadTreeDirectory(path, true);
     } catch (err) {
       setError(getErrorMessage(err));
       return undefined;
@@ -1655,6 +1666,16 @@ export function RemoteFilePanel({
     if (!sessionId || session?.type === "ssh") return undefined;
     const watched = Array.from(new Set([navigationRoot, ...expandedPaths].filter((value): value is string => Boolean(value))));
     const timer = window.setTimeout(() => { void window.remoteFileApi.watchDirectories(sessionId, watched); }, 120);
+    return () => window.clearTimeout(timer);
+  }, [expandedPaths, navigationRoot, session?.type, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || session?.type === "ssh") return undefined;
+    return () => { void window.remoteFileApi.unwatchDirectories(sessionId); };
+  }, [session?.type, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || session?.type === "ssh") return undefined;
     const removeChanged = window.remoteFileApi.onChanged((payload) => {
       if (payload.sessionId !== sessionId) return;
       payload.paths.forEach((changedPath) => { void refreshDirectory(changedPath); });
@@ -1674,12 +1695,10 @@ export function RemoteFilePanel({
     });
     const removeError = window.remoteFileApi.onWatchError((payload) => { if (payload.sessionId === sessionId) setError(payload.error); });
     return () => {
-      window.clearTimeout(timer);
       removeChanged();
       removeError();
-      void window.remoteFileApi.unwatchDirectories(sessionId);
     };
-  }, [expandedPaths, findCachedParentPath, handleReloadPreview, navigationRoot, refreshDirectory, session?.type, sessionId, t, updatePreviewTab]);
+  }, [findCachedParentPath, handleReloadPreview, refreshDirectory, session?.type, sessionId, t, updatePreviewTab]);
 
   const handleSavePreview = useCallback(async () => {
     if (

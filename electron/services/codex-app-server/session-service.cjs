@@ -938,19 +938,24 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (!current.busy) await resume(sessionId, threadId, true);
     }
   }
+  async function listSkills(id, forceRefresh = false) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    const response = await request(entry, "skills/list", { cwds: [projectCwd(entry)], forceReload: Boolean(forceRefresh) });
+    const group = (response.data || []).find(value => value.cwd === projectCwd(entry));
+    if (!group) throw new Error("Codex 未返回当前项目的技能列表。");
+    if (group?.errors?.length) throw new Error(group.errors.map(value => value.message || String(value)).join("；"));
+    return (group?.skills || []).filter(value => value?.name && value?.path).map(value => ({
+      name: value.name, path: value.path, description: value.description || "", enabled: value.enabled !== false,
+      scope: value.scope || ""
+    }));
+  }
   async function listCapabilities(id, forceRefresh = false) {
     const entry = sessions.get(id);
     if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
     const result = { skills: [], apps: [], mcp: [], errors: {} };
-    try {
-      const response = await request(entry, "skills/list", { cwds: [projectCwd(entry)], forceReload: Boolean(forceRefresh) });
-      const group = (response.data || []).find(value => value.cwd === projectCwd(entry));
-      result.skills = (group?.skills || []).filter(value => value?.name && value?.path).map(value => ({
-        name: value.name, path: value.path, description: value.description || "", enabled: value.enabled !== false,
-        scope: value.scope || ""
-      }));
-      if (group?.errors?.length) result.errors.skills = group.errors.map(value => value.message || String(value)).join("；");
-    } catch (error) { result.errors.skills = error.message; }
+    try { result.skills = await listSkills(id, forceRefresh); }
+    catch (error) { result.errors.skills = error.message; }
     try {
       const installed = await request(entry, "app/installed", { threadId: entry.threadId, forceRefresh: Boolean(forceRefresh) });
       const states = new Map((installed.apps || []).map(value => [value.id, value]));
@@ -1527,7 +1532,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

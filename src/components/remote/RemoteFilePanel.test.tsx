@@ -402,6 +402,67 @@ describe("RemoteFilePanel directory navigation", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("shares an in-flight directory read with navigation to the same path", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    let resolveChild!: (entries: RemoteFileEntry[]) => void;
+    remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
+      if (path === rootPath) return [directory("patches", childPath)];
+      if (path === childPath) return new Promise<RemoteFileEntry[]>((resolve) => { resolveChild = resolve; });
+      return [];
+    });
+    window.remoteFileApi = remoteFileApi;
+    const session = { id: "session-1", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    const { container } = render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.doubleClick(patches.closest("button")!);
+    const pathInput = container.querySelector<HTMLInputElement>(".remote-file-path input")!;
+    fireEvent.change(pathInput, { target: { value: childPath } });
+    fireEvent.keyDown(pathInput, { key: "Enter" });
+    expect(remoteFileApi.list).toHaveBeenCalledTimes(2);
+
+    await act(async () => { resolveChild([directory("01_SCHEMA", `${childPath}\\01_SCHEMA`)]); });
+    expect(await screen.findByTitle(`${childPath}\\01_SCHEMA`)).toBeTruthy();
+    expect(remoteFileApi.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a forced refresh replace an older in-flight directory result", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    const childRequests: Array<(entries: RemoteFileEntry[]) => void> = [];
+    let onChanged!: (payload: { sessionId: string; paths: string[] }) => void;
+    remoteFileApi.onChanged = vi.fn((callback) => { onChanged = callback; return () => undefined; });
+    remoteFileApi.list = vi.fn(async (_sessionId: string, path: string) => {
+      if (path === rootPath) return [directory("patches", childPath)];
+      if (path === childPath) return new Promise<RemoteFileEntry[]>((resolve) => { childRequests.push(resolve); });
+      return [];
+    });
+    window.remoteFileApi = remoteFileApi;
+    const session = { id: "session-1", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
+    const patches = await screen.findByTitle(childPath);
+    fireEvent.doubleClick(patches.closest("button")!);
+    expect(childRequests).toHaveLength(1);
+
+    act(() => { onChanged({ sessionId: session.id, paths: [childPath] }); });
+    await waitFor(() => expect(childRequests).toHaveLength(2));
+    await act(async () => { childRequests[1]([directory("latest", `${childPath}\\latest`)]); });
+    await act(async () => { childRequests[0]([directory("stale", `${childPath}\\stale`)]); });
+    expect(await screen.findByTitle(`${childPath}\\latest`)).toBeTruthy();
+    expect(screen.queryByTitle(`${childPath}\\stale`)).toBeNull();
+  });
+
+  it("keeps the file watcher active while expanding directories", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    window.remoteFileApi = remoteFileApi;
+    const session = { id: "session-1", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" } as TerminalSession;
+    render(<RemoteFilePanel session={session} autoCollapseFileChains={false} />);
+    const patches = await screen.findByTitle(childPath);
+    await waitFor(() => expect(remoteFileApi.watchDirectories).toHaveBeenCalledWith(session.id, [rootPath]));
+
+    fireEvent.doubleClick(patches.closest("button")!);
+    await waitFor(() => expect(remoteFileApi.watchDirectories).toHaveBeenCalledWith(session.id, [rootPath, childPath]));
+    expect(remoteFileApi.unwatchDirectories).not.toHaveBeenCalled();
+  });
+
   it("adds an entry path to the graphical input without writing to the terminal", async () => {
     window.remoteFileApi = createRemoteFileApi();
     const write = vi.fn();

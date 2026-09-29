@@ -6,6 +6,8 @@ const { createFileWatchManager } = fileWatchManagerModule;
 
 class FakeWatcher extends EventEmitter {
   close = vi.fn(async () => undefined);
+  add = vi.fn();
+  unwatch = vi.fn(async () => undefined);
 }
 
 function createHarness(session) {
@@ -96,7 +98,7 @@ describe("file watch manager", () => {
     await harness.manager.shutdown();
   });
 
-  it("reports watcher errors and closes replaced and active watchers", async () => {
+  it("updates watched directories without replacing the watcher", async () => {
     const harness = createHarness({ id: "run-1", type: "windows" });
     await harness.manager.setDirectories("run-1", ["C:\\workspace"]);
     const firstWatcher = harness.watchers[0];
@@ -107,12 +109,36 @@ describe("file watch manager", () => {
       error: "watch failed"
     });
 
-    await harness.manager.setDirectories("run-1", ["C:\\other"]);
-    expect(firstWatcher.close).toHaveBeenCalledOnce();
+    await harness.manager.setDirectories("run-1", ["C:\\workspace", "C:\\workspace\\src"]);
+    expect(firstWatcher.add).toHaveBeenCalledWith(["C:\\workspace\\src"]);
+    expect(firstWatcher.close).not.toHaveBeenCalled();
+    expect(harness.watch).toHaveBeenCalledOnce();
 
-    const secondWatcher = harness.watchers[1];
+    vi.useFakeTimers();
+    firstWatcher.emit("all", "change", "C:\\workspace\\src\\App.tsx");
+    await vi.advanceTimersByTimeAsync(180);
+    expect(harness.broadcast).toHaveBeenCalledWith("remote-files:changed", {
+      sessionId: "run-1",
+      paths: ["C:\\workspace\\src"]
+    });
+
+    await harness.manager.setDirectories("run-1", ["C:\\workspace"]);
+    expect(firstWatcher.unwatch).toHaveBeenCalledWith(["C:\\workspace\\src"]);
+    expect(firstWatcher.close).not.toHaveBeenCalled();
+
     await harness.manager.shutdown();
-    expect(secondWatcher.close).toHaveBeenCalledOnce();
+    expect(firstWatcher.close).toHaveBeenCalledOnce();
+  });
+
+  it("serializes rapid watch updates and stop", async () => {
+    const harness = createHarness({ id: "run-1", type: "windows" });
+    const first = harness.manager.setDirectories("run-1", ["C:\\workspace"]);
+    const second = harness.manager.setDirectories("run-1", ["C:\\workspace", "C:\\workspace\\src"]);
+    const stopped = harness.manager.stop("run-1");
+    await Promise.all([first, second, stopped]);
+    expect(harness.watch).toHaveBeenCalledOnce();
+    expect(harness.watchers[0].add).toHaveBeenCalledWith(["C:\\workspace\\src"]);
+    expect(harness.watchers[0].close).toHaveBeenCalledOnce();
   });
 
   it("does not create watchers for unavailable, SSH, or empty sessions", async () => {

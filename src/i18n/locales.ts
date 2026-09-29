@@ -582,6 +582,15 @@ export type TranslationKey =
   | "skills.empty"
   | "skills.codebuddyEmptyHint"
   | "skills.noMatches"
+  | "skills.source.project"
+  | "skills.source.personal"
+  | "skills.source.system"
+  | "skills.source.plugin"
+  | "skills.disabled"
+  | "skills.groupEmpty"
+  | "skills.projectRequiresSession"
+  | "skills.remoteRequiresCodex"
+  | "skills.pluginRequiresSession"
   | "mcp.title"
   | "mcp.open"
   | "mcp.description"
@@ -1587,6 +1596,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.empty": "尚未发现 Skills",
     "skills.codebuddyEmptyHint": "在 ~/.codebuddy/skills 中添加 Skill 后会显示在这里。",
     "skills.noMatches": "没有匹配的 Skills",
+    "skills.source.project": "项目级",
+    "skills.source.personal": "个人级",
+    "skills.source.system": "内置技能",
+    "skills.source.plugin": "插件技能",
+    "skills.disabled": "已停用",
+    "skills.groupEmpty": "暂无技能",
+    "skills.projectRequiresSession": "打开项目会话后可查看项目级技能。",
+    "skills.remoteRequiresCodex": "打开该远程环境的 Codex 图形会话后可查看技能。",
+    "skills.pluginRequiresSession": "打开 Codex 图形会话后可查看已安装插件的技能。",
     "mcp.title": "MCP 管理",
     "mcp.open": "打开 MCP 管理",
     "mcp.description": "查看和编辑 Codex、CodeBuddy 的用户与项目 MCP 配置",
@@ -2584,6 +2602,15 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.empty": "No Skills found",
     "skills.codebuddyEmptyHint": "Add a Skill under ~/.codebuddy/skills to see it here.",
     "skills.noMatches": "No matching Skills",
+    "skills.source.project": "Project",
+    "skills.source.personal": "Personal",
+    "skills.source.system": "Built-in",
+    "skills.source.plugin": "Plugin",
+    "skills.disabled": "Disabled",
+    "skills.groupEmpty": "No skills here",
+    "skills.projectRequiresSession": "Open a project session to view project skills.",
+    "skills.remoteRequiresCodex": "Open a Codex graphical session in this remote environment to view its skills.",
+    "skills.pluginRequiresSession": "Open a Codex graphical session to view installed plugin skills.",
     "mcp.title": "MCP Manager",
     "mcp.open": "Open MCP Manager",
     "mcp.description": "View and edit user and project MCP configuration for Codex and CodeBuddy",
