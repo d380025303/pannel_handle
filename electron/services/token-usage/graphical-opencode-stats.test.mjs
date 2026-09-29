@@ -46,6 +46,30 @@ describe("graphical OpenCode statistics", () => {
     expect(() => parseOpenCodeExport(JSON.stringify(exportData), "other")).toThrow("did not match");
   });
 
+  it("uses OpenCode V2 session totals and lists the models from flat assistant messages", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "graphical-opencode-v2-"));
+    const exportData = { info: { id: "fresh", tokens: { input: 20, output: 5,
+      reasoning: 2, cache: { read: 3, write: 4 } } }, messages: [
+      { id: "a", type: "assistant", model: { providerID: "openai", id: "gpt-5" },
+        tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 1, write: 0 } } },
+      { id: "a", type: "assistant", model: { providerID: "openai", id: "gpt-5" },
+        tokens: { input: 10, output: 3, reasoning: 0, cache: { read: 1, write: 0 } } },
+      { id: "user", type: "user" }
+    ] };
+    const parsed = parseOpenCodeExport(JSON.stringify(exportData), "fresh");
+    expect(parsed).toEqual({ tokens: { inputTokens: 27, cachedInputTokens: 3,
+      cacheWriteInputTokens: 4, outputTokens: 5, reasoningOutputTokens: 2, totalTokens: 34 },
+      models: ["openai/gpt-5"] });
+    const { module } = createModule(root, vi.fn(async () => parsed));
+    try {
+      await module.recordGraphicalOpenCode({ threadId: "fresh", session });
+      const dashboard = module.getDashboard({ range: "all", provider: "opencode" });
+      expect(dashboard.summary.tokens.totalTokens).toBe(34);
+      expect(dashboard.sessions).toMatchObject([{ provider: "opencode", models: ["openai/gpt-5"] }]);
+      expect(module.getDashboard({ range: "all", provider: "all" }).summary.tokens.totalTokens).toBe(34);
+    } finally { module.shutdown(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("reads a remote export with a quoted session ID and working directory", async () => {
     const exec = vi.fn(async () => JSON.stringify({ info: { id: "ses-1" }, messages: [] }));
     await readOpenCodeExport({ threadId: "ses-1", session: { id: "panel", type: "ssh", cwd: "/srv/my project" },

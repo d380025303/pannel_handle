@@ -42,14 +42,25 @@ function parseOpenCodeExport(output, threadId) {
     throw new Error("OpenCode session export did not match the requested session.");
   const messages = new Map();
   for (const item of exported.messages) {
-    const message = normalizeOpenCodeMessage(item);
+    const message = normalizeOpenCodeMessage(item?.type === "assistant" ? { info: {
+      id: item.id, role: "assistant", tokens: item.tokens,
+      modelID: item.model?.providerID && item.model?.id
+        ? `${item.model.providerID}/${item.model.id}` : item.model?.id
+    } } : item);
     if (message) messages.set(message.id, message);
   }
+  const models = new Set([...messages.values()].map(message => message.model).filter(Boolean));
+  const sessionUsage = exported.info?.tokens && typeof exported.info.tokens === "object"
+    ? normalizeOpenCodeMessage({ info: { id: threadId, role: "assistant", tokens: exported.info.tokens } })
+    : null;
+  if (exported.info?.model?.providerID && exported.info.model?.id)
+    models.add(`${exported.info.model.providerID}/${exported.info.model.id}`);
   const tokens = emptyTokens();
-  const models = new Set();
-  for (const message of messages.values()) {
-    for (const field of Object.keys(tokens)) tokens[field] += message.tokens[field] || 0;
-    if (message.model) models.add(message.model);
+  if (sessionUsage) {
+    Object.assign(tokens, sessionUsage.tokens);
+  } else {
+    for (const message of messages.values())
+      for (const field of Object.keys(tokens)) tokens[field] += message.tokens[field] || 0;
   }
   return { tokens, models: [...models] };
 }
