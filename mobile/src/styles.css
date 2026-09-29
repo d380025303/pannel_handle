@@ -93,7 +93,8 @@ button { color: inherit; }
 .session-drawer { width: min(88vw, 390px); height: 100%; display: flex; flex-direction: column; background: #101827; border-right: 1px solid #334155; box-shadow: 18px 0 50px #0008; }
 .session-drawer > header { display: flex; align-items: center; justify-content: space-between; padding: max(15px, env(safe-area-inset-top)) 16px 12px; }
 .session-drawer h2 { margin: 0; font-size: 18px; }
-.session-drawer > header button { border: 0; background: transparent; font-size: 28px; }
+.session-drawer > header button { display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; }
+.session-drawer > header button svg { width: 22px; height: 22px; }
 .session-drawer nav { display: grid; grid-template-columns: 1fr 1fr; padding: 0 12px 10px; border-bottom: 1px solid #263244; }
 .session-drawer nav button { padding: 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #8da2bb; }
 .session-drawer nav button.active { border-color: #22d3ee; color: #67e8f9; }
@@ -227,6 +228,10 @@ button { color: inherit; }
 .graphical-attachments span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .graphical-attachments .graphical-icon-button { flex: none; }
 .graphical-attachment-history { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; font-size: 11px; color: #9fb5ce; }
+.graphical-attachment-history span { display: inline-flex; align-items: center; gap: 4px; }
+.graphical-attachment-history svg { flex: none; width: 13px; height: 13px; }
+.graphical-plan-step { display: flex; align-items: flex-start; gap: 6px; }
+.graphical-plan-step svg { flex: none; width: 15px; height: 15px; margin-top: 2px; }
 @property --graphical-border-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 @keyframes graphical-border-run { to { --graphical-border-angle: 360deg; } }
 .graphical-input-border { --graphical-mode-border: #50d9f2; --graphical-mode-trail: #0b91ae; --graphical-mode-highlight: #f7fdff; width: 100%; min-width: 0; padding: 2px; border-radius: 10px; background: var(--graphical-mode-border); }
@@ -284,6 +289,7 @@ button { color: inherit; }
 .computer-files { min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .computer-files > header { display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 8px 12px; border-bottom: 1px solid #263244; background: #0d1522; }
 .computer-files > header button, .computer-files-toolbar button, .computer-file-download { padding: 8px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; }
+.computer-files > header button svg { display: block; width: 18px; height: 18px; }
 .computer-files > header strong { flex: none; }
 .computer-files > header span { min-width: 0; overflow: hidden; color: #91a4bc; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .computer-files-toolbar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #263244; }
@@ -291,7 +297,8 @@ button { color: inherit; }
 .computer-files-list > p { color: #91a4bc; }
 .computer-file-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; border: 1px solid #29384c; border-radius: 9px; background: #141f30; }
 .computer-file-name { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px; border: 0; background: transparent; text-align: left; }
-.computer-file-name span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.computer-file-name span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.computer-file-name svg { flex: none; width: 16px; height: 16px; }
 .computer-file-name small { color: #91a4bc; }
 .computer-file-name:disabled { color: inherit; opacity: 1; }
 .computer-file-download { flex: none; margin-right: 8px; }

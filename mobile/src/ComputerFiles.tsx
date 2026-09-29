@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, FileText, Folder, HardDrive } from "lucide-react";
 import { createRequestId } from "./protocol";
 import { PROTOCOL_VERSION, type ClientMessage, type ComputerFileEntry, type ServerMessage } from "./types";
 
@@ -79,7 +80,7 @@ export function ComputerFiles({ connectionEpoch, send, onFileMessage, onClose }:
 
   return <section className="computer-files">
     <header>
-      <button type="button" onClick={onClose} aria-label="返回会话">←</button>
+      <button type="button" onClick={onClose} aria-label="返回会话"><ArrowLeft aria-hidden="true" /></button>
       <strong>电脑文件</strong>
       <span>{path ?? "本地磁盘"}</span>
     </header>
@@ -95,7 +96,7 @@ export function ComputerFiles({ connectionEpoch, send, onFileMessage, onClose }:
       {!busy && entries.map(entry => <div className="computer-file-row" key={entry.path}>
         <button type="button" className="computer-file-name" disabled={entry.type === "file"}
           onClick={() => setHistory(current => [...current, entry.path])}>
-          <span>{entry.type === "file" ? "📄" : entry.type === "drive" ? "💽" : "📁"} {entry.name}</span>
+          <span>{entry.type === "file" ? <FileText aria-hidden="true" /> : entry.type === "drive" ? <HardDrive aria-hidden="true" /> : <Folder aria-hidden="true" />}{entry.name}</span>
           <small>{entry.type === "file" ? `${(entry.size ?? 0).toLocaleString()} 字节` : entry.type === "drive" ? "磁盘" : "文件夹"}</small>
         </button>
         {entry.type !== "drive" && <button type="button" className="computer-file-download" disabled={Boolean(downloading)}

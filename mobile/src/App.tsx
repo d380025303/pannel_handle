@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { Pencil, X } from "lucide-react";
 import { TerminalView } from "./TerminalView";
 import { GraphicalView } from "./GraphicalView";
 import { ComputerFiles } from "./ComputerFiles";
@@ -259,10 +260,10 @@ export default function App() {
                 <span className="mobile-home-status" data-status={overview?.status}>{overview?.detail ?? overview?.status ?? "获取状态中"}</span>
                 <div className="mobile-home-card-actions">
                   <button type="button" aria-label={`改名${session.title}`} title="改名" onClick={event => openSessionDialog("rename", session, event.currentTarget)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" /></svg>
+                    <Pencil aria-hidden="true" />
                   </button>
                   <button type="button" className="danger" aria-label={`关闭${session.title}`} title="关闭" onClick={event => openSessionDialog("close", session, event.currentTarget)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    <X aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -303,7 +304,7 @@ export default function App() {
       {drawerOpen && (
         <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)}>
           <aside className="session-drawer" onClick={(event) => event.stopPropagation()}>
-            <header><h2>会话</h2><button type="button" onClick={() => setDrawerOpen(false)}>×</button></header>
+            <header><h2>会话</h2><button type="button" aria-label="关闭会话列表" onClick={() => setDrawerOpen(false)}><X aria-hidden="true" /></button></header>
             <nav>
               <button className={drawerTab === "running" ? "active" : ""} type="button" onClick={() => setDrawerTab("running")}>运行中 ({remote.sessions.length})</button>
               <button className={drawerTab === "templates" ? "active" : ""} type="button" onClick={() => setDrawerTab("templates")}>已保存模板 ({remote.templates.length})</button>

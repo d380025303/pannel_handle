@@ -7926,6 +7926,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-history-select { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 0; border: 0; color: var(--color-text); background: transparent; text-align: left; }
 .codex-app-server-history-select:hover:not(:disabled) strong { color: var(--color-accent); }
 .codex-app-server-history-select strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.codex-app-server-history-select strong svg { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; }
 .codex-app-server-history-select small { color: var(--color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
 .codex-app-server-history-select span { color: var(--color-text-muted); font-size: 11px; }
 .codex-app-server-history-actions, .codex-app-server-history-rename { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -8233,7 +8234,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-selection-options > button { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 10px 12px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; }
 .codex-app-server-selection-options > button:hover:not(:disabled) { background: var(--color-bg-control-hover); }
 .codex-app-server-selection-options > button[aria-checked="true"] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-selection); }
-.codex-app-server-selection-options > button[aria-checked="true"]::after { content: "✓"; margin-left: 10px; }
+.codex-app-server-selection-options > button > svg { flex: none; width: 16px; height: 16px; margin-left: 10px; }
 .codex-app-server-selection-options > button span { display: grid; gap: 3px; min-width: 0; }
 .codex-app-server-selection-options > button strong { font-size: 13px; overflow-wrap: anywhere; }
 .codex-app-server-selection-options > button small { color: var(--color-text-secondary); font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
@@ -8262,7 +8263,6 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-fast-option { min-height: 36px; padding: 7px 11px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); text-align: left; font-size: 12px; }
 .codex-app-server-fast-option[aria-checked="true"] { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-selection); }
 .codex-app-server-fast-option small { margin-left: 8px; color: var(--color-text-muted); }
-.codex-app-server-permission-options > button[aria-checked="true"]::after { position: absolute; top: 7px; right: 8px; content: "✓"; font-size: 12px; line-height: 1; }
 .codex-app-server-permission-option { display: flex; flex-direction: column; gap: 5px; }
 .codex-app-server-permission-option strong { padding-right: 12px; font-size: 12px; }
 .codex-app-server-permission-option small { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }

@@ -822,25 +822,25 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         {terminalSessions.startupError && (
           <div className="startup-error-banner" role="alert">
             <span>{terminalSessions.startupError}</span>
-            <button type="button" onClick={terminalSessions.clearStartupError} aria-label={t("common.close")}>×</button>
+            <button type="button" onClick={terminalSessions.clearStartupError} aria-label={t("common.close")}><X aria-hidden="true" /></button>
           </div>
         )}
         {quickAgentError && (
           <div className="startup-error-banner" role="alert">
             <span>{quickAgentError}</span>
-            <button type="button" onClick={() => setQuickAgentError(null)} aria-label={t("common.close")}>×</button>
+            <button type="button" onClick={() => setQuickAgentError(null)} aria-label={t("common.close")}><X aria-hidden="true" /></button>
           </div>
         )}
         {screenshotError && (
           <div className="startup-error-banner" role="alert">
             <span>{screenshotError}</span>
-            <button type="button" onClick={() => setScreenshotError(null)} aria-label={t("common.close")}>×</button>
+            <button type="button" onClick={() => setScreenshotError(null)} aria-label={t("common.close")}><X aria-hidden="true" /></button>
           </div>
         )}
         {terminalSessions.activeAgentWarning && (
           <div className="startup-error-banner" role="alert">
             <span>{t("agent.openCodeEmptyResponse")}</span>
-            <button type="button" onClick={terminalSessions.dismissActiveAgentWarning} aria-label={t("common.close")}>×</button>
+            <button type="button" onClick={terminalSessions.dismissActiveAgentWarning} aria-label={t("common.close")}><X aria-hidden="true" /></button>
           </div>
         )}
 

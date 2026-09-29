@@ -1278,16 +1278,16 @@ describe("CodexAppServerSession", () => {
     const titles = () => Array.from(document.querySelectorAll(".codex-app-server-history-select strong"), item => item.textContent);
     expect(titles()).toEqual(["较新会话", "较早会话"]);
     fireEvent.click(screen.getAllByRole("button", { name: "置顶" }).at(-1)!);
-    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    await waitFor(() => expect(titles()).toEqual(["较早会话", "较新会话"]));
     expect(screen.getByRole("button", { name: "取消置顶" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消置顶" }));
     await waitFor(() => expect(titles()).toEqual(["较新会话", "较早会话"]));
     fireEvent.click(screen.getAllByRole("button", { name: "置顶" }).at(-1)!);
-    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    await waitFor(() => expect(titles()).toEqual(["较早会话", "较新会话"]));
     fireEvent.click(screen.getByRole("button", { name: "关闭历史会话" }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
-    await waitFor(() => expect(titles()).toEqual(["📌 较早会话", "较新会话"]));
+    await waitFor(() => expect(titles()).toEqual(["较早会话", "较新会话"]));
     expect(listHistory).toHaveBeenCalledTimes(2);
   });
 

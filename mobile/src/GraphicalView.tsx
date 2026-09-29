@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Check, Circle, Paperclip } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createRequestId } from "./protocol";
@@ -403,12 +404,12 @@ export function GraphicalView({ session, connectionEpoch, send, onGraphicalMessa
         if (item.type === "userMessage" || item.type === "agentMessage")
           return <article className={`graphical-message ${item.type}`} key={item.id}><small>{item.type === "userMessage" ? "你" : providerLabel(snapshot.provider)}</small>
             <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div>
-            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}>📎 {file.name}</span>)}</div> : null}
+            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}><Paperclip aria-hidden="true" />{file.name}</span>)}</div> : null}
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
               <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
             </div>}</article>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;
-        if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p key={index}>{step.status === "completed" ? "✓" : "•"} {step.step}</p>)}
+        if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p className="graphical-plan-step" key={index}>{step.status === "completed" ? <Check aria-hidden="true" /> : <Circle aria-hidden="true" />}<span>{step.step}</span></p>)}
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
             <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
           </div>}</article>;

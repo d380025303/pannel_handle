@@ -253,7 +253,7 @@ it("starts a filtered template and resets search when the drawer closes", () => 
   fireEvent.click(screen.getByRole("button", { name: "已保存模板 (2)" }));
   expect(screen.getByText("开发环境")).toBeTruthy();
   fireEvent.change(screen.getByRole("searchbox", { name: "搜索已保存模板" }), { target: { value: "missing" } });
-  fireEvent.click(screen.getByRole("button", { name: "×" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭会话列表" }));
   fireEvent.click(screen.getByRole("button", { name: "打开会话列表" }));
   expect(screen.getByText("Production API")).toBeTruthy();
 });

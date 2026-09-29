@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
+import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
 import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
@@ -1536,6 +1536,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {selectionOptions.map(option => <button key={option.value} type="button" role="radio" aria-checked={option.selected}
             disabled={selectionPending || option.disabled} onClick={() => void selectOption(option.value)}>
             <span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>
+            {option.selected && <Check aria-hidden="true" />}
           </button>)}
           {selectionOptions.length === 0 && <p>当前会话没有可选项。</p>}
         </div>
@@ -1574,7 +1575,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="submit" disabled={!renameDraft.trim() || Boolean(historyMutation)}>保存</button>
               <button type="button" onClick={() => setRenamingThreadId(null)}>取消</button>
             </form> : <button type="button" className="codex-app-server-history-select" disabled={snapshot.busy || sending || pastingImage || resumingHistory || Boolean(historyMutation) || Boolean(thread.archived) || thread.id === snapshot.threadId} onClick={() => void selectHistory(thread.id)}>
-              <strong>{thread.isPinned ? "📌 " : ""}{thread.title}</strong><small>会话 ID：{thread.id}</small><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
+              <strong>{thread.isPinned && <Pin aria-hidden="true" />}{thread.title}</strong><small>会话 ID：{thread.id}</small><span>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.source}</span>
             </button>}
             <div className="codex-app-server-history-actions">
               <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID")}>复制 ID</button>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, SlidersHorizontal } from "lucide-react";
+import { LoaderCircle, SlidersHorizontal, X } from "lucide-react";
 import type { AgentModelSource, TerminalSession } from "../../vite-env";
 
 const SOURCES: Array<{ id: AgentModelSource; label: string }> = [
@@ -37,6 +37,6 @@ export function AgentModelSourceSwitcher({ session, onSwitch }: {
       <small>切换将重启 Agent，并重新建立对话上下文。</small>
       {SOURCES.filter(item => item.id !== current).map(item => <button key={item.id} type="button" role="menuitem" onClick={() => void choose(item.id)}>{item.label}</button>)}
     </div>}
-    {error && <div className="agent-switcher-error" role="alert"><span>{error}</span><button type="button" aria-label="关闭" onClick={() => setError("")}>×</button></div>}
+    {error && <div className="agent-switcher-error" role="alert"><span>{error}</span><button type="button" aria-label="关闭" onClick={() => setError("")}><X aria-hidden="true" /></button></div>}
   </div>;
 }
