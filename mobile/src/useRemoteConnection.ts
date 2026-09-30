@@ -5,7 +5,7 @@ import type { RuntimeSession, SavedTemplate, ServerMessage, SessionOverview } fr
 type TerminalMessage = Extract<ServerMessage,
   { type: "terminal.snapshot" | "terminal.data" | "terminal.exit" | "terminal.size-owner" }>;
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
 export function useRemoteConnection() {
@@ -46,6 +46,7 @@ export function useRemoteConnection() {
         terminalListenersRef.current.forEach(listener => listener(message));
         break;
       case "graphical.snapshot":
+      case "graphical.delta":
       case "graphical.usage":
       case "graphical.history":
       case "graphical.upload.ready":

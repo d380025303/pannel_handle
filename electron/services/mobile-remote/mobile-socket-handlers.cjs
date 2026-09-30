@@ -189,7 +189,8 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       auth.handleSocketClosed(socket);
     });
   }
-  return { sendReady, handleWebSocket, handleGraphicalChanged: graphical.handleChanged };
+  return { sendReady, handleWebSocket, handleGraphicalChanged: graphical.handleChanged,
+    handleGraphicalDelta: graphical.handleDelta };
 }
 
 module.exports = { createMobileSocketHandlers };

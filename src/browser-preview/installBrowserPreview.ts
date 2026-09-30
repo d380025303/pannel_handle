@@ -499,7 +499,8 @@ export function installBrowserPreview() {
       answerQuestion: async () => undefined,
       cancelQuestion: async () => undefined,
       resolveElicitation: async () => undefined,
-      onChanged: () => () => undefined
+      onChanged: () => () => undefined,
+      onDelta: () => () => undefined
     } satisfies Window["codexAppServerApi"],
     codexVersionApi: {
       check: async () => ({ status: "available", currentVersion: "0.156.0", latestVersion: "0.157.0", method: "npm", environment: "windows" }),

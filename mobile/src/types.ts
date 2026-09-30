@@ -67,6 +67,7 @@ export type GraphicalQuestion = { requestId: number | string; submitting: boolea
   threadId: string; turnId: string; questions: Array<{ id: string; header: string; question: string;
     isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
 export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
+  streamId?: string; revision?: number;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
   nativeModes?: Array<{ id: string; name?: string }>;
   model?: string | null; effectiveModel?: string | null; backend?: string | null;
@@ -102,6 +103,8 @@ export type ServerMessage =
   | { v: 8; type: "terminal.exit"; sessionId: string; exitCode?: number }
   | { v: 8; type: "terminal.size-owner"; sessionId: string; owner: SizeOwner; cols: number; rows: number }
   | { v: 8; type: "graphical.snapshot"; sessionId: string; snapshot: GraphicalSnapshot }
+  | { v: 8; type: "graphical.delta"; sessionId: string; streamId: string; threadId: string | null;
+      baseRevision: number; revision: number; items: GraphicalItem[]; textDeltas: Array<{ itemId: string; delta: string }> }
   | { v: 8; type: "graphical.usage"; sessionId: string; threadId: string | null; requestId: string; usage: GraphicalUsage }
   | { v: 8; type: "graphical.history"; sessionId: string; threadId: string | null; requestId: string; history: GraphicalHistory }
   | { v: 8; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }
@@ -122,7 +125,7 @@ export type ClientMessage =
   | { v: 8; type: "session.rename"; sessionId: string; title: string; requestId: string }
   | { v: 8; type: "session.close"; sessionId: string; requestId: string }
   | { v: 8; type: "session.switch-agent"; sessionId: string; threadId: string | null; provider: AgentProvider; requestId: string }
-  | { v: 8; type: "graphical.subscribe"; sessionId: string }
+  | { v: 8; type: "graphical.subscribe"; sessionId: string; delta?: boolean }
   | { v: 8; type: "graphical.usage"; sessionId: string; threadId: string | null; force?: boolean; requestId: string }
   | { v: 8; type: "graphical.submit"; sessionId: string; threadId: string | null; text: string; fileIds?: string[]; requestId: string }
   | { v: 8; type: "graphical.upload.prepare"; sessionId: string; threadId: string | null; name: string; size: number; requestId: string }

@@ -17,6 +17,8 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       const models = snapshot.provider === "opencode"
         ? visibleOpenCodeOptions(snapshot, session, session?.type === "ssh" ? undefined : getOpenCodeVerifiedModels?.()) : undefined;
       send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot, models) });
+      socket.graphicalStreamId = snapshot.streamId || null;
+      socket.graphicalRevision = snapshot.revision ?? null;
     }
   }
 
@@ -42,6 +44,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     if (message.type === "graphical.subscribe") {
       socket.subscriptions.clear();
       socket.graphicalSessionId = sessionId;
+      socket.graphicalDelta = message.delta === true;
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
       return;
     }
@@ -170,7 +173,21 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     } catch { /* The session ended while a change was queued. */ }
   }
 
-  return { handle, handleChanged, assertSwitchAllowed };
+  function handleDelta(socket, payload) {
+    if (!socket?.authenticated || payload?.id !== socket.graphicalSessionId) return;
+    try {
+      assertSession(payload.id);
+      if (socket.graphicalDelta && socket.graphicalStreamId === payload.streamId
+        && socket.graphicalRevision === payload.baseRevision) {
+        send(socket, { type: "graphical.delta", sessionId: payload.id, streamId: payload.streamId,
+          threadId: payload.threadId, baseRevision: payload.baseRevision, revision: payload.revision,
+          items: toMobileGraphicalSnapshot({ items: payload.items }).items, textDeltas: payload.textDeltas });
+        socket.graphicalRevision = payload.revision;
+      } else sendSnapshot(socket, payload.id, graphicalService.snapshot(payload.id));
+    } catch { /* The session ended while a change was queued. */ }
+  }
+
+  return { handle, handleChanged, handleDelta, assertSwitchAllowed };
 }
 
 module.exports = { createMobileGraphicalHandlers, toMobileGraphicalSnapshot, toMobileUsageSnapshot };

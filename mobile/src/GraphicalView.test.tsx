@@ -16,7 +16,7 @@ const snapshot: GraphicalSnapshot = {
 function fixture(viewSession = session) {
   const send = vi.fn((_message: ClientMessage) => true);
   type GraphicalMessage = Extract<ServerMessage,
-    { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+    { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
   const listeners = new Set<(message: GraphicalMessage) => void>();
   const subscribe = (callback: (message: GraphicalMessage) => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
   let changeEpoch: (value: number) => void = () => {};
@@ -47,7 +47,7 @@ function modeButton(name: "Plan" | "Exec" | "Full Access") {
 
 it("subscribes to the selected graphical session and sends text with its thread identity", () => {
   const { send, emit } = fixture();
-  expect(send).toHaveBeenCalledWith({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: "graph-1" });
+  expect(send).toHaveBeenCalledWith({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: "graph-1", delta: true });
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
   expect(screen.getByText("完成")).toBeTruthy();
   fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "hello" } });
@@ -56,6 +56,19 @@ it("subscribes to the selected graphical session and sends text with its thread 
   expect(submit.textContent).toBe("");
   fireEvent.click(submit);
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
+});
+
+it("updates the current message from a delta and resubscribes after a gap", () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, streamId: "stream-1", revision: 1 } });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.delta", sessionId: "graph-1", streamId: "stream-1",
+    threadId: "thread-1", baseRevision: 1, revision: 2,
+    items: [], textDeltas: [{ itemId: "m1", delta: " 新内容" }] });
+  expect(screen.getByText(/新内容/)).toBeTruthy();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.delta", sessionId: "graph-1", streamId: "stream-1",
+    threadId: "thread-1", baseRevision: 4, revision: 5, items: [], textDeltas: [] });
+  expect(send.mock.calls.filter(([message]) => message.type === "graphical.subscribe")).toHaveLength(2);
 });
 
 it("resubscribes after reconnect without losing the draft", () => {

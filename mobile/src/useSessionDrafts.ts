@@ -3,7 +3,7 @@ import type { ConnectionStatus, RuntimeSession, ServerMessage } from "./types";
 
 type TextDraft = { text: string; version: number };
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 
 export function useSessionDrafts(sessions: RuntimeSession[], status: ConnectionStatus,
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void) {

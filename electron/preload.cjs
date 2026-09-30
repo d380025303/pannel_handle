@@ -220,6 +220,11 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("codex-app-server:changed", listener);
     return () => ipcRenderer.removeListener("codex-app-server:changed", listener);
+  },
+  onDelta: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("codex-app-server:delta", listener);
+    return () => ipcRenderer.removeListener("codex-app-server:delta", listener);
   }
 });
 

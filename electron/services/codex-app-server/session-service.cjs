@@ -153,7 +153,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       model: entry.model, tokenUsage: entry.tokenUsage, tokenUpdatedAt: entry.tokenUpdatedAt,
       turnOutputTokens: entry.turnOutputTokens, outputTokensPerSecond: entry.outputTokensPerSecond,
       outputRateAvailable: entry.outputRateAvailable,
-      items: [...entry.items], approvals: [...entry.approvals.values()].map(({ requestId, method, params }) => ({ requestId, method, params })),
+      streamId: entry.streamId, revision: entry.revision, items: [...entry.items], approvals: [...entry.approvals.values()].map(({ requestId, method, params }) => ({ requestId, method, params })),
       questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })),
       elicitations: [...entry.elicitations.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })) };
   }
@@ -171,13 +171,27 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function publish(id) {
     const timer = publishTimers.get(id);
     if (timer) { clearTimeout(timer); publishTimers.delete(id); }
-    if (sessions.has(id)) broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
+    const entry = sessions.get(id);
+    if (!entry) return;
+    entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
+    entry.revision += 1;
+    broadcast("codex-app-server:changed", { id, snapshot: snapshot(id) });
   }
   function schedulePublish(id) {
     if (!sessions.has(id) || publishTimers.has(id)) return;
     publishTimers.set(id, setTimeout(() => {
       publishTimers.delete(id);
-      publish(id);
+      const entry = sessions.get(id);
+      if (!entry) return;
+      const items = [...entry.streamItems].map(itemId => entry.items.find(item => item.id === itemId)).filter(Boolean);
+      const turnDiffs = [...entry.streamDiffs].map(turnId => entry.turnDiffs.get(turnId)).filter(Boolean);
+      const textDeltas = [...entry.streamText].map(([itemId, delta]) => ({ itemId, delta }));
+      entry.streamItems.clear(); entry.streamDiffs.clear(); entry.streamText.clear();
+      if (!items.length && !turnDiffs.length && !textDeltas.length) return;
+      const baseRevision = entry.revision;
+      entry.revision += 1;
+      broadcast("codex-app-server:delta", { id, streamId: entry.streamId, threadId: entry.threadId, baseRevision,
+        revision: entry.revision, items, turnDiffs, textDeltas });
     }, PUBLISH_COALESCE_MS));
   }
   function recordDiagnostic(entry, kind, payload, turnId = null) {
@@ -576,7 +590,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     if (["item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
       "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
-      "turn/diff/updated"].includes(message.method)) schedulePublish(id);
+      "turn/diff/updated"].includes(message.method)) {
+      if (message.method === "turn/diff/updated" && params.turnId) entry.streamDiffs.add(params.turnId);
+      else if ((message.method === "item/agentMessage/delta" || message.method === "item/plan/delta")
+        && params.itemId && typeof params.delta === "string" && entry.items.some(item => item.id === params.itemId))
+        entry.streamText.set(params.itemId, (entry.streamText.get(params.itemId) || "") + params.delta);
+      else if (params.itemId) entry.streamItems.add(params.itemId);
+      schedulePublish(id);
+    }
     else publish(id);
   }
 
@@ -605,7 +626,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       tokenUsage: null, tokenUpdatedAt: null, turnOutputBaseline: 0, turnOutputTokens: 0,
       outputTokensPerSecond: 0, outputRateAvailable: false, pendingThreadId: null, pendingTokenUsage: null,
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
-      status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0 };
+      status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0,
+      streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map() };
     entry.accountController = createAccountController({ request: (method, params) => request(entry, method, params),
       changed: () => { if (sessions.get(id) === entry) publish(id); },
       authenticated: async () => { if (sessions.get(id) === entry && !entry.threadId) await initializeThread(id, entry); } });

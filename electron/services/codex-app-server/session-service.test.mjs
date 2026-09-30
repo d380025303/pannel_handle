@@ -38,6 +38,36 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("broadcasts only changed items during streaming and keeps full snapshots for state changes", async () => {
+    const received = [];
+    const child = fakeProcess(received);
+    const broadcast = vi.fn();
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const streamId = service.snapshot("run-1").streamId;
+      child.stdout.write(`${JSON.stringify({ method: "item/started", params: { threadId: "thread-1",
+        item: { id: "old", type: "agentMessage", text: "x".repeat(100000) } } })}\n`);
+      child.stdout.write(`${JSON.stringify({ method: "item/started", params: { threadId: "thread-1",
+        item: { id: "new", type: "agentMessage", text: "" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").items).toHaveLength(2));
+      broadcast.mockClear();
+      child.stdout.write(`${JSON.stringify({ method: "item/agentMessage/delta", params: {
+        threadId: "thread-1", itemId: "new", delta: "hello" } })}\n`);
+      await vi.waitFor(() => expect(broadcast).toHaveBeenCalledWith("codex-app-server:delta", expect.any(Object)));
+      const delta = broadcast.mock.calls.find(([channel]) => channel === "codex-app-server:delta")[1];
+      expect(delta).toMatchObject({ id: "run-1", streamId, threadId: "thread-1",
+        items: [], textDeltas: [{ itemId: "new", delta: "hello" }], turnDiffs: [] });
+      expect(JSON.stringify(delta)).not.toContain("x".repeat(1000));
+      expect(delta.revision).toBe(delta.baseRevision + 1);
+      child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1",
+        turn: { id: "turn-1", status: "completed" } } })}\n`);
+      await vi.waitFor(() => expect(broadcast).toHaveBeenCalledWith("codex-app-server:changed", expect.objectContaining({
+        snapshot: expect.objectContaining({ revision: delta.revision + 1 }) })));
+    } finally { service.close("run-1"); }
+  });
+
   it("streams reasoning summaries by section and keeps the completed item authoritative", async () => {
     const child = fakeProcess([]);
     const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },

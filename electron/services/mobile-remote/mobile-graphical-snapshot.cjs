@@ -28,6 +28,7 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
   const snapshot = value || {};
   return {
     threadId: snapshot.threadId ?? null,
+    ...(snapshot.streamId ? { streamId: snapshot.streamId, revision: snapshot.revision } : {}),
     provider: snapshot.provider || "codex",
     busy: Boolean(snapshot.busy),
     archived: Boolean(snapshot.archived),

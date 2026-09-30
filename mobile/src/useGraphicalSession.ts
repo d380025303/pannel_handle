@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type Graphica
   type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
 export type GraphicalViewProps = {
   session: RuntimeSession;
   connectionEpoch: number;
@@ -20,6 +20,7 @@ export type GraphicalViewProps = {
 type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "history" | "permission" | "native-mode" | null;
 export function useGraphicalSession({ session, connectionEpoch, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: GraphicalViewProps) {
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
+  const snapshotRef = useRef<GraphicalSnapshot | null>(null);
   const [sending, setSending] = useState(false);
   const setDraftRef = useRef(setDraft);
   setDraftRef.current = setDraft;
@@ -56,6 +57,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   }, [attachments]);
 
   useEffect(() => {
+    snapshotRef.current = null;
     setSnapshot(null);
     setHistory(null);
     setActiveSheet(null);
@@ -92,7 +94,30 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           setAttachments([]);
         }
         threadRef.current = message.snapshot.threadId;
+        snapshotRef.current = message.snapshot;
         setSnapshot(message.snapshot);
+      } else if (message.type === "graphical.delta" && message.sessionId === session.id) {
+        const current = snapshotRef.current;
+        if (current?.streamId === message.streamId && (current.revision ?? -1) >= message.revision) {
+          return;
+        }
+        if (!current || current.streamId !== message.streamId || current.threadId !== message.threadId
+          || current.revision !== message.baseRevision) {
+          send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id, delta: true });
+        } else {
+          const items = [...current.items];
+          for (const text of message.textDeltas) {
+            const index = items.findIndex(value => value.id === text.itemId);
+            if (index >= 0) items[index] = { ...items[index], text: (items[index].text || "") + text.delta };
+          }
+          for (const item of message.items) {
+            const index = items.findIndex(value => value.id === item.id);
+            if (index < 0) items.push(item); else items[index] = item;
+          }
+          const next = { ...current, revision: message.revision, items };
+          snapshotRef.current = next;
+          setSnapshot(next);
+        }
       } else if (message.type === "graphical.history" && message.sessionId === session.id
         && message.requestId === historyIdRef.current && message.threadId === threadRef.current) {
         pendingRef.current.delete(message.requestId);
@@ -164,7 +189,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       setAttachments(current => current.map(item => ({ ...item, fileId: undefined, status: "failed" })));
     }
     subscribedEpochRef.current = connectionEpoch;
-    send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id });
+    send({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: session.id, delta: true });
   }, [connectionEpoch, send, session.id]);
 
   const lastItem = snapshot?.items.at(-1);

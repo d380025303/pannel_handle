@@ -270,6 +270,10 @@ function createMobileRemoteService({
       if (payload?.id) queueOverview(payload.id);
       return;
     }
+    if (channel === "codex-app-server:delta") {
+      for (const client of auth.getClients()) socketHandlers.handleGraphicalDelta(client.socket, payload);
+      return;
+    }
     if (channel === "terminal:started") {
       stateHub.start(payload.id, payload.cols, payload.rows);
       sizes.start(payload);

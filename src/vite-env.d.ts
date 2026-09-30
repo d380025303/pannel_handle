@@ -1004,6 +1004,8 @@ export type CodexThreadGoal = {
 
 export type CodexAppServerSnapshot = {
   threadId: string | null;
+  streamId?: string;
+  revision?: number;
   archived?: boolean;
   threadStatus?: { type: string; activeFlags?: string[] } | null;
   turnStatus?: string | null;
@@ -1069,6 +1071,9 @@ export type CodexAppServerSnapshot = {
   questions?: CodexQuestionRequest[];
   elicitations?: CodexMcpElicitation[];
 };
+export type CodexAppServerDelta = { id: string; streamId: string; threadId: string | null; baseRevision: number; revision: number;
+  items: CodexAppServerSnapshot["items"]; turnDiffs: NonNullable<CodexAppServerSnapshot["turnDiffs"]>;
+  textDeltas: Array<{ itemId: string; delta: string }> };
 
 export type CodexAppServerHistory = { id: string; title: string; updatedAt: number; source: string; status: string; archived?: boolean; isPinned?: boolean };
 export type CodexVersionState = { status: "current" | "available" | "updating" | "error";
@@ -1161,6 +1166,7 @@ export type CodexAppServerApi = {
   cancelQuestion: (id: string, requestId: number | string) => Promise<void>;
   resolveElicitation: (id: string, requestId: number | string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown> | null) => Promise<void>;
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
+  onDelta: (callback: (delta: CodexAppServerDelta) => void) => () => void;
 };
 export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };
 export type ProjectAssistantCodexScreen = { sessionId: string; ansi: string; seq: number; cols: number; rows: number; owner: string };

@@ -27,6 +27,27 @@ function fixture() {
 }
 
 describe("mobile graphical session route", () => {
+  it("sends streaming deltas to capable clients and full snapshots to legacy clients", async () => {
+    const f = fixture();
+    f.snapshot.streamId = "stream-1";
+    f.snapshot.revision = 3;
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1", delta: true });
+    f.send.mockClear();
+    const delta = { id: "graph-1", streamId: "stream-1", threadId: "thread-1", baseRevision: 3,
+      revision: 4, items: [], textDeltas: [{ itemId: "m1", delta: " world" }], turnDiffs: [] };
+    f.handlers.handleDelta(f.socket, delta);
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.delta",
+      baseRevision: 3, revision: 4, items: [], textDeltas: [{ itemId: "m1", delta: " world" }] }));
+    f.send.mockClear();
+    f.handlers.handleDelta(f.socket, { ...delta, baseRevision: 8, revision: 9 });
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.snapshot" }));
+    f.send.mockClear();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    f.send.mockClear();
+    f.handlers.handleDelta(f.socket, delta);
+    expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.snapshot" }));
+  });
+
   it("projects only mobile state and sends updates to the subscribed session", async () => {
     const f = fixture();
     expect(toMobileGraphicalSnapshot(f.snapshot)).not.toHaveProperty("account");
