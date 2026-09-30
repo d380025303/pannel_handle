@@ -532,12 +532,12 @@ describe("session-store", () => {
     const store = createStore(sessionsFile);
     store.addToLibrary({ id: "1", title: "Codex", agentProvider: "codex" });
     store.addToLibrary({ id: "2", title: "Other", agentProvider: "opencode" });
-    store.updateLibrary("1", { openCodeGraphicalOptions: { mode: "plan", model: "openai/gpt-5.5" } });
+    store.updateLibrary("1", { openCodeGraphicalOptions: { mode: "plan", model: "openai/gpt-5.5", effort: "high" } });
 
     const reloaded = createStore(sessionsFile);
     reloaded.loadLibrary();
     expect(reloaded.getTemplate("1")).toMatchObject({ agentProvider: "codex", openCodeGraphicalOptions: {
-      mode: "plan", model: "openai/gpt-5.5"
+      mode: "plan", model: "openai/gpt-5.5", effort: "high"
     } });
     expect(reloaded.getTemplate("2").openCodeGraphicalOptions).toBeUndefined();
     expect(reloaded.duplicateInLibrary("1").openCodeGraphicalOptions).toEqual(reloaded.getTemplate("1").openCodeGraphicalOptions);

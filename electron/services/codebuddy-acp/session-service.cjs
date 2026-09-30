@@ -143,7 +143,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function saveOption(entry, key, value) {
     const optionsKey = provider === "codebuddy" ? "codeBuddyGraphicalOptions" : provider === "opencode" ? "openCodeGraphicalOptions" : null;
-    if (!optionsKey || provider === "opencode" && key !== "model" && key !== "mode") return;
+    if (!optionsKey || provider === "opencode" && key !== "model" && key !== "mode" && key !== "effort") return;
     const options = { ...savedOptions(entry), [key]: value };
     entry.session[optionsKey] = options;
     const running = terminalManager.getSession?.(entry.session.id);
@@ -154,8 +154,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (provider !== "codebuddy" && provider !== "opencode") return;
     const saved = savedOptions(entry);
     if (provider === "opencode" && !entry.runtime.requiredMode) await enforceRequiredMode(entry, true);
-    for (const [key, optionId] of [["model", "model"], ["contextWindow", "context_window"], ["multitask", "multitask"]]) {
-      if (provider === "opencode" && key !== "model") continue;
+    for (const [key, optionId] of [["model", "model"], ["effort", "effort"], ["contextWindow", "context_window"], ["multitask", "multitask"]]) {
+      if (provider === "opencode" && key !== "model" && key !== "effort") continue;
+      if (provider === "codebuddy" && key === "effort") continue;
       if (provider === "codebuddy" && optionId === "model" && entry.session.modelSource && entry.session.modelSource !== "native") continue;
       const option = entry.configOptions.find(item => item.id === optionId);
       const value = saved[key];

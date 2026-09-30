@@ -160,7 +160,8 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     const openCodeGraphicalOptions = savedOpenCodeOptions && typeof savedOpenCodeOptions === "object" && !Array.isArray(savedOpenCodeOptions)
       ? {
           ...(typeof savedOpenCodeOptions.mode === "string" && savedOpenCodeOptions.mode.trim() ? { mode: savedOpenCodeOptions.mode.trim() } : {}),
-          ...(typeof savedOpenCodeOptions.model === "string" && savedOpenCodeOptions.model.trim() ? { model: savedOpenCodeOptions.model.trim() } : {})
+          ...(typeof savedOpenCodeOptions.model === "string" && savedOpenCodeOptions.model.trim() ? { model: savedOpenCodeOptions.model.trim() } : {}),
+          ...(typeof savedOpenCodeOptions.effort === "string" && savedOpenCodeOptions.effort.trim() ? { effort: savedOpenCodeOptions.effort.trim() } : {})
         }
       : undefined;
     return {

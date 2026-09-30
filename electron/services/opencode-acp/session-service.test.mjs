@@ -362,7 +362,7 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
-  it("remembers successful model and mode choices across OpenCode sessions and new threads", async () => {
+  it("remembers successful model, mode, and effort choices across OpenCode sessions and new threads", async () => {
     const saved = new Map();
     const requests = [];
     let nextThread = 0;
@@ -370,51 +370,75 @@ describe("OpenCode ACP sessions", () => {
       getTemplate: vi.fn(id => ({ openCodeGraphicalOptions: saved.get(id) })),
       updateLibrary: vi.fn((id, update) => saved.set(id, update.openCodeGraphicalOptions))
     };
-    const makeChild = () => fakeChild((message, emit) => {
-      requests.push(message);
-      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
-      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
-        result: { sessionId: `thread-${++nextThread}`, configOptions } });
-      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
-        result: { configOptions: configOptions.map(option => option.id === message.params.configId
-          ? { ...option, currentValue: message.params.value } : option) } });
-    });
+    const makeChild = () => {
+      let currentOptions = configOptions;
+      return fakeChild((message, emit) => {
+        requests.push(message);
+        if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: { loadSession: true } } });
+        else if (message.method === "session/new" || message.method === "session/load") {
+          currentOptions = configOptions;
+          emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: message.method === "session/load" ? "history" : `thread-${++nextThread}`, configOptions: currentOptions } });
+        } else if (message.method === "session/list") emit({ jsonrpc: "2.0", id: message.id, result: {
+          sessions: [{ sessionId: "history", cwd: "C:\\work" }]
+        } });
+        else if (message.method === "session/set_config_option") {
+          currentOptions = currentOptions.map(option => option.id === message.params.configId
+            ? { ...option, currentValue: message.params.value } : option);
+          emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: currentOptions } });
+        }
+      });
+    };
     const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
       terminalManager: { broadcastAgentStatus: vi.fn() }, sessionStore, broadcast: vi.fn(), spawnProcess: makeChild });
     const session = { id: "one", templateId: "saved-1", type: "windows", cwd: "C:\\work", shell: "powershell.exe" };
     await service.start(session);
     await service.setModel("one", "openai/gpt-5.5");
     await service.setNativeMode("one", "plan");
-    expect(saved.get("saved-1")).toEqual({ model: "openai/gpt-5.5", mode: "plan" });
+    await service.setEffort("one", "high");
+    expect(saved.get("saved-1")).toEqual({ model: "openai/gpt-5.5", mode: "plan", effort: "high" });
 
     await service.newThread("one");
     expect(service.snapshot("one").nativeMode).toBe("plan");
     expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5.5");
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "effort").currentValue).toBe("high");
     service.close("one");
 
     await service.start({ ...session, id: "two" });
     expect(service.snapshot("two").nativeMode).toBe("plan");
     expect(service.snapshot("two").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5.5");
+    expect(service.snapshot("two").acpOptions.find(option => option.id === "effort").currentValue).toBe("high");
     await service.start({ id: "other", templateId: "saved-2", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
     expect(service.snapshot("other").nativeMode).toBe("build");
     expect(service.snapshot("other").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5");
+    expect(service.snapshot("other").acpOptions.find(option => option.id === "effort").currentValue).toBe("medium");
     expect(requests.filter(request => request.method === "session/set_config_option" && request.params.value === "openai/gpt-5.5")).toHaveLength(3);
+    const restored = requests.filter(request => request.method === "session/set_config_option" && request.params.sessionId === "thread-2");
+    expect(restored.map(request => request.params.configId)).toEqual(["mode", "model", "effort"]);
+    await service.listHistory("two");
+    await service.resume("two", "history");
+    expect(service.snapshot("two").acpOptions.find(option => option.id === "effort").currentValue).toBe("high");
     service.shutdown();
   });
 
-  it("restores the selected model after closing and reopening the same saved template", async () => {
+  it("restores the selected model and effort after closing and reopening the same saved template", async () => {
     const directory = mkdtempSync(path.join(tmpdir(), "pannel-opencode-model-"));
     const sessionsFile = path.join(directory, "sessions.json");
     const makeStore = () => createSessionStore({ sessionsFile,
       getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe" });
-    const makeChild = () => fakeChild((message, emit) => {
-      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
-      else if (message.method === "session/new") emit({ jsonrpc: "2.0", id: message.id,
-        result: { sessionId: `thread-${message.id}`, configOptions } });
-      else if (message.method === "session/set_config_option") emit({ jsonrpc: "2.0", id: message.id,
-        result: { configOptions: configOptions.map(option => option.id === message.params.configId
-          ? { ...option, currentValue: message.params.value } : option) } });
-    });
+    const makeChild = () => {
+      let currentOptions = configOptions;
+      return fakeChild((message, emit) => {
+        if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
+        else if (message.method === "session/new") {
+          currentOptions = configOptions;
+          emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: `thread-${message.id}`, configOptions: currentOptions } });
+        } else if (message.method === "session/set_config_option") {
+          currentOptions = currentOptions.map(option => option.id === message.params.configId
+            ? { ...option, currentValue: message.params.value } : option);
+          emit({ jsonrpc: "2.0", id: message.id, result: { configOptions: currentOptions } });
+        }
+      });
+    };
     const makeService = sessionStore => createOpenCodeAcpSessionService({
       environmentService: { resolve: () => ({}) }, terminalManager: { broadcastAgentStatus: vi.fn() },
       sessionStore, broadcast: vi.fn(), spawnProcess: makeChild
@@ -428,18 +452,22 @@ describe("OpenCode ACP sessions", () => {
       service = makeService(store);
       await service.start({ ...store.getTemplate("saved-1"), id: "run-1", templateId: "saved-1" });
       await service.setModel("run-1", "openai/gpt-5.5");
+      await service.setEffort("run-1", "high");
       service.close("run-1");
       service.shutdown();
 
       const reopenedStore = makeStore();
       reopenedStore.loadLibrary();
       expect(reopenedStore.getTemplate("saved-1").openCodeGraphicalOptions.model).toBe("openai/gpt-5.5");
+      expect(reopenedStore.getTemplate("saved-1").openCodeGraphicalOptions.effort).toBe("high");
       expect(reopenedStore.getTemplate("saved-2").openCodeGraphicalOptions).toBeUndefined();
       service = makeService(reopenedStore);
       await service.start({ ...reopenedStore.getTemplate("saved-1"), id: "run-2", templateId: "saved-1" });
       expect(service.snapshot("run-2").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5.5");
+      expect(service.snapshot("run-2").acpOptions.find(option => option.id === "effort").currentValue).toBe("high");
       await service.start({ ...reopenedStore.getTemplate("saved-2"), id: "run-3", templateId: "saved-2" });
       expect(service.snapshot("run-3").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5");
+      expect(service.snapshot("run-3").acpOptions.find(option => option.id === "effort").currentValue).toBe("medium");
     } finally {
       service?.shutdown();
       rmSync(directory, { recursive: true, force: true });
@@ -447,7 +475,7 @@ describe("OpenCode ACP sessions", () => {
   });
 
   it("ignores unavailable saved choices and does not save failed changes", async () => {
-    const saved = { mode: "removed", model: "openai/removed" };
+    const saved = { mode: "removed", model: "openai/removed", effort: "removed" };
     const sessionStore = { getTemplate: vi.fn(() => ({ openCodeGraphicalOptions: saved })), updateLibrary: vi.fn() };
     const child = fakeChild((message, emit) => {
       if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
@@ -460,7 +488,9 @@ describe("OpenCode ACP sessions", () => {
     await service.start({ id: "one", templateId: "saved-1", type: "windows", cwd: "C:\\work" });
     expect(service.snapshot("one").nativeMode).toBe("build");
     expect(service.snapshot("one").acpOptions.find(option => option.id === "model").currentValue).toBe("openai/gpt-5");
+    expect(service.snapshot("one").acpOptions.find(option => option.id === "effort").currentValue).toBe("medium");
     await expect(service.setModel("one", "openai/gpt-5.5")).rejects.toThrow("rejected");
+    await expect(service.setEffort("one", "high")).rejects.toThrow("rejected");
     expect(sessionStore.updateLibrary).not.toHaveBeenCalled();
     service.shutdown();
   });

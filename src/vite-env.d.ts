@@ -55,7 +55,7 @@ export type TerminalSession = EnvironmentSelection & {
   codexExperimentalAcknowledged?: boolean;
   graphicalSessionEnabled?: boolean;
   codeBuddyGraphicalOptions?: { mode?: string; model?: string; contextWindow?: string; multitask?: boolean };
-  openCodeGraphicalOptions?: { mode?: string; model?: string };
+  openCodeGraphicalOptions?: { mode?: string; model?: string; effort?: string };
   codexExecutionPermission?: CodexExecutionPermission;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
