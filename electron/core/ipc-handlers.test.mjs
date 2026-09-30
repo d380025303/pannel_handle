@@ -15,6 +15,9 @@ describe("session IPC handlers", () => {
       ["codex-app-server:account-usage", "refreshAccountUsage", []],
       ["codex-app-server:mcp-login", "loginMcpServer", ["files"]],
       ["codex-app-server:mcp-reload", "reloadMcpServers", []],
+      ["codex-app-server:background-terminals-list", "listBackgroundTerminals", []],
+      ["codex-app-server:background-terminal-terminate", "terminateBackgroundTerminal", ["p-1"]],
+      ["codex-app-server:background-terminals-clean", "cleanBackgroundTerminals", []],
       ["codex-app-server:resolve-elicitation", "resolveElicitation", [71, "accept", { name: "calendar" }]]
     ];
     const codex = Object.fromEntries(methods.map(([, method]) => [method, vi.fn((...args) => ({ method, args }))]));

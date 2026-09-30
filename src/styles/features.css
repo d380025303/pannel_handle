@@ -7958,6 +7958,18 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-history-actions button:hover:not(:disabled), .codex-app-server-history-rename button:hover:not(:disabled) { background: var(--color-bg-control-hover); }
 .codex-app-server-history-copy-notice { margin: 0; padding: 0 20px 10px; color: var(--color-text-secondary); font-size: 11px; }
 .codex-app-server-history-rename input { flex: 1; min-width: 120px; border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 5px 7px; color: var(--color-text); background: var(--color-bg-control); }
+.codex-app-server-background-dialog { width: min(620px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); overflow: auto; }
+.codex-app-server-background-dialog > p { margin: 6px 20px 12px; color: var(--color-text-secondary); font-size: 13px; }
+.codex-app-server-background-dialog > p[role="alert"] { color: var(--color-danger-text); }
+.codex-app-server-background-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 12px; }
+.codex-app-server-background-actions button, .codex-app-server-background-row button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 7px; padding: 6px 10px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
+.codex-app-server-background-actions button:disabled, .codex-app-server-background-row button:disabled { opacity: .5; cursor: default; }
+.codex-app-server-background-actions svg { width: 14px; height: 14px; }
+.codex-app-server-background-list { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow: auto; padding: 0 20px 20px; }
+.codex-app-server-background-row { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; font-size: 12px; }
+.codex-app-server-background-row strong { max-width: 100%; overflow-wrap: anywhere; font-size: 13px; }
+.codex-app-server-background-row span { color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.codex-app-server-background-row button { margin-top: 4px; }
 .codex-app-server-goal-dialog { width: min(560px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); overflow: auto; }
 .codex-app-server-goal-content { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px; font-size: 13px; }
 .codex-app-server-goal-content > p { margin: 0; color: var(--color-text-secondary); }

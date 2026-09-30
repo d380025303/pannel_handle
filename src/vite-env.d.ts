@@ -1139,6 +1139,10 @@ export type CodexAppServerApi = {
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
   compactThread: (id: string) => Promise<CodexAppServerSnapshot>;
+  listBackgroundTerminals: (id: string) => Promise<Array<{ itemId: string; processId: string; command: string; cwd: string;
+    osPid: number | null; cpuPercent: number | null; rssKb: number | null }>>;
+  terminateBackgroundTerminal: (id: string, processId: string) => Promise<{ terminated: boolean }>;
+  cleanBackgroundTerminals: (id: string) => Promise<void>;
   getGoal: (id: string) => Promise<CodexAppServerSnapshot>;
   setGoal: (id: string, changes: { objective?: string; status?: "active" | "paused"; tokenBudget?: number | null }) => Promise<CodexAppServerSnapshot>;
   clearGoal: (id: string) => Promise<CodexAppServerSnapshot>;

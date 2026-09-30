@@ -1,12 +1,13 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Wrench, X } from "lucide-react";
+import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
 import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
 import { CodexVersionControl } from "./CodexVersionControl";
 import { CodexPluginDialog } from "./CodexPluginDialog";
+import { CodexBackgroundTerminalsDialog } from "./CodexBackgroundTerminalsDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
 import { CodexEventCard, DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 import { AttachmentTile, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
@@ -156,6 +157,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [rewindError, setRewindError] = useState("");
   const [goalOpen, setGoalOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
+  const [backgroundTerminalsOpen, setBackgroundTerminalsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [selectionKind, setSelectionKind] = useState<SelectionKind | null>(null);
   const [selectionError, setSelectionError] = useState("");
@@ -1136,6 +1138,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ...(isCodex ? [
       { id: "skills", label: "Skills 列表" }, { id: "apps", label: "Apps 列表" }, { id: "mcp", label: "MCP 列表" },
       { id: "plugins", label: "插件管理" },
+      { id: "background", label: "后台终端", disabled: !snapshot.threadId },
       { id: "compact", label: "压缩对话", disabled: snapshot.busy || sending },
       { id: "goal", label: "目标管理" }
     ] : []),
@@ -1169,6 +1172,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     else if (command.id === "history") openHistory();
     else if (command.id === "skills" || command.id === "apps" || command.id === "mcp") openCapabilities(command.id);
     else if (command.id === "plugins") setPluginOpen(true);
+    else if (command.id === "background") setBackgroundTerminalsOpen(true);
     else if (command.id === "compact") compactConversation();
     else if (command.id === "goal") openGoal();
     else if (command.id === "files") void addFiles();
@@ -1435,6 +1439,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
               {isCodex && <>
                 <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
+                <button type="button" role="menuitem" disabled={!snapshot.threadId} onClick={() => { setMenuOpen(false); setBackgroundTerminalsOpen(true); }}><Terminal aria-hidden="true" />后台终端</button>
                 <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
                 <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
@@ -1565,6 +1570,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       onUpdated={value => { if (currentSessionRef.current === sessionId && value.threadId === snapshot.threadId) setSnapshot(value); }} />}
     {pluginOpen && isCodex && <CodexPluginDialog key={sessionId} sessionId={sessionId} session={session} onClose={() => setPluginOpen(false)}
       onChanged={() => { setCapabilities(null); }} />}
+    {backgroundTerminalsOpen && isCodex && snapshot.threadId && <CodexBackgroundTerminalsDialog key={`${sessionId}:${snapshot.threadId}`}
+      sessionId={sessionId} onClose={() => setBackgroundTerminalsOpen(false)} />}
     {historyOpen && <div className="modal-overlay codex-app-server-history-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeHistory(); }}>
       <div className="modal-dialog codex-app-server-history-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-app-server-history-title" onKeyDown={event => {
         if (event.key === "Escape") { event.stopPropagation(); closeHistory(); return; }

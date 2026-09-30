@@ -42,6 +42,9 @@ describe("CodexAppServerSession", () => {
   const newThread = vi.fn().mockResolvedValue({ threadId: "thread-2", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const compactThread = vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval",
     busy: true, compacting: true, compactionStatus: "running", error: null, items: [], approvals: [] });
+  const listBackgroundTerminals = vi.fn().mockResolvedValue([]);
+  const terminateBackgroundTerminal = vi.fn().mockResolvedValue({ terminated: true });
+  const cleanBackgroundTerminals = vi.fn().mockResolvedValue(undefined);
   const getGoal = vi.fn().mockResolvedValue(undefined);
   const setGoal = vi.fn();
   const clearGoal = vi.fn();
@@ -72,6 +75,9 @@ describe("CodexAppServerSession", () => {
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
     submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    listBackgroundTerminals.mockReset().mockResolvedValue([]);
+    terminateBackgroundTerminal.mockReset().mockResolvedValue({ terminated: true });
+    cleanBackgroundTerminals.mockReset().mockResolvedValue(undefined);
     Object.defineProperty(window, "externalLinkApi", { configurable: true, value: { open: openExternal } });
     writeText.mockReset().mockResolvedValue(true);
     readInitialUserInput.mockReset().mockResolvedValue(null);
@@ -92,7 +98,7 @@ describe("CodexAppServerSession", () => {
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
       submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
-      resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
+      resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; },
@@ -1053,6 +1059,18 @@ describe("CodexAppServerSession", () => {
     expect(messages.scrollTop).toBe(120);
   });
 
+  it("opens background terminals from the Codex menu", async () => {
+    listBackgroundTerminals.mockResolvedValueOnce([{ itemId: "item-1", processId: "p-1", command: "pnpm dev",
+      cwd: "C:\\project", osPid: null, cpuPercent: null, rssKb: null }]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "后台终端" }));
+    expect(await screen.findByRole("dialog", { name: "后台终端" })).toBeTruthy();
+    expect(await screen.findByText("pnpm dev")).toBeTruthy();
+    expect(listBackgroundTerminals).toHaveBeenCalledWith("run-1");
+  });
+
   it("opens history from the input menu and keeps icon actions inside the input", async () => {
     listHistory.mockResolvedValueOnce({ data: [{ id: "old-thread", title: "之前的任务", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: null });
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
@@ -1071,6 +1089,8 @@ describe("CodexAppServerSession", () => {
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "历史会话" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "插件管理" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "后台终端" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "压缩对话" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });

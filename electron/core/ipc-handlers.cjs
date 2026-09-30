@@ -75,6 +75,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
     ipcMain.handle("codex-app-server:compact", (_event, id) => codexAppServerSessionService.compactThread(String(id || "")));
+    ipcMain.handle("codex-app-server:background-terminals-list", (_event, id) => codexAppServerSessionService.listBackgroundTerminals(String(id || "")));
+    ipcMain.handle("codex-app-server:background-terminal-terminate", (_event, id, processId) =>
+      codexAppServerSessionService.terminateBackgroundTerminal(String(id || ""), processId));
+    ipcMain.handle("codex-app-server:background-terminals-clean", (_event, id) => codexAppServerSessionService.cleanBackgroundTerminals(String(id || "")));
     ipcMain.handle("codex-app-server:goal-get", (_event, id) => codexAppServerSessionService.getGoal(String(id || "")));
     ipcMain.handle("codex-app-server:goal-set", (_event, id, changes) => codexAppServerSessionService.setGoal(String(id || ""), changes));
     ipcMain.handle("codex-app-server:goal-clear", (_event, id) => codexAppServerSessionService.clearGoal(String(id || "")));

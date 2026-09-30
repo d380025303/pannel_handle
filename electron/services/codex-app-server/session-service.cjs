@@ -811,6 +811,52 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     return snapshot(id);
   }
+  function backgroundThread(id) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId || !entry.child?.stdin?.writable) throw new Error("Codex 会话未就绪。");
+    return entry;
+  }
+  async function listBackgroundTerminals(id) {
+    const entry = backgroundThread(id);
+    const threadId = entry.threadId;
+    const data = [];
+    const cursors = new Set();
+    let cursor = null;
+    do {
+      const result = await request(entry, "thread/backgroundTerminals/list", {
+        threadId, limit: 100, ...(cursor ? { cursor } : {})
+      });
+      if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换，请重新加载后台终端。");
+      if (!Array.isArray(result?.data)) throw new Error("Codex 返回的后台终端列表无效。");
+      data.push(...result.data.filter(item => item && typeof item.processId === "string" && item.processId));
+      cursor = result.nextCursor || null;
+      if (cursor && (typeof cursor !== "string" || cursors.has(cursor))) throw new Error("后台终端分页游标无效。");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    entry.backgroundTerminalThreadId = threadId;
+    entry.backgroundTerminalIds = new Set(data.map(item => item.processId));
+    return data;
+  }
+  async function terminateBackgroundTerminal(id, processId) {
+    const entry = backgroundThread(id);
+    if (typeof processId !== "string" || entry.backgroundTerminalThreadId !== entry.threadId
+      || !entry.backgroundTerminalIds?.has(processId))
+      throw new Error("后台终端不存在或列表已过期，请刷新后重试。");
+    const threadId = entry.threadId;
+    const result = await request(entry, "thread/backgroundTerminals/terminate", { threadId, processId });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换，请重新加载后台终端。");
+    if (result?.terminated !== true) throw new Error("Codex 未能终止该后台终端，请刷新列表。");
+    entry.backgroundTerminalIds.delete(processId);
+    return result;
+  }
+  async function cleanBackgroundTerminals(id) {
+    const entry = backgroundThread(id);
+    const threadId = entry.threadId;
+    await request(entry, "thread/backgroundTerminals/clean", { threadId });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换，请重新加载后台终端。");
+    entry.backgroundTerminalThreadId = threadId;
+    entry.backgroundTerminalIds = new Set();
+  }
   function allowFiles(id, filePaths) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
@@ -1579,7 +1625,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

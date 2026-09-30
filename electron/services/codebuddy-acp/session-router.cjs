@@ -44,6 +44,8 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     renameThread: route("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
     archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
     compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),
+    listBackgroundTerminals: codexRoute("listBackgroundTerminals"), terminateBackgroundTerminal: codexRoute("terminateBackgroundTerminal"),
+    cleanBackgroundTerminals: codexRoute("cleanBackgroundTerminals"),
     setMode: route("setMode"), setModel: route("setModel"), setEffort: route("setEffort"), setFastMode: codexRoute("setFastMode"),
     listModelMetadata(id) {
       if (serviceFor(id) !== codeBuddy) return [];

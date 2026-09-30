@@ -38,6 +38,70 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("lists all background terminals and terminates only listed process ids", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method === "thread/backgroundTerminals/list") return request.params.cursor
+        ? { data: [{ itemId: "item-2", processId: "p-2", command: "serve", cwd: "C:\\project" }], nextCursor: null }
+        : { data: [{ itemId: "item-1", processId: "p-1", command: "watch", cwd: "C:\\project" }], nextCursor: "page-2" };
+      if (request.method === "thread/backgroundTerminals/terminate") return { terminated: true };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await expect(service.terminateBackgroundTerminal("run-1", "p-1")).rejects.toThrow("刷新后重试");
+      expect((await service.listBackgroundTerminals("run-1")).map(item => item.processId)).toEqual(["p-1", "p-2"]);
+      expect(received.filter(item => item.method === "thread/backgroundTerminals/list").map(item => item.params)).toEqual([
+        { threadId: "thread-1", limit: 100 }, { threadId: "thread-1", limit: 100, cursor: "page-2" }
+      ]);
+      await expect(service.terminateBackgroundTerminal("run-1", "unknown")).rejects.toThrow("刷新后重试");
+      await expect(service.terminateBackgroundTerminal("run-1", "p-2")).resolves.toEqual({ terminated: true });
+      expect(received.find(item => item.method === "thread/backgroundTerminals/terminate").params)
+        .toEqual({ threadId: "thread-1", processId: "p-2" });
+      await expect(service.terminateBackgroundTerminal("run-1", "p-2")).rejects.toThrow("刷新后重试");
+      await service.cleanBackgroundTerminals("run-1");
+      expect(received.find(item => item.method === "thread/backgroundTerminals/clean").params).toEqual({ threadId: "thread-1" });
+    } finally { service.close("run-1"); }
+  });
+
+  it("keeps background terminal errors and stale thread results from authorizing termination", async () => {
+    const received = [];
+    let fail = false;
+    const child = fakeProcess(received, request => {
+      if (request.method === "thread/backgroundTerminals/list") return fail ? { __error: "list failed" }
+        : { data: [{ processId: "p-1" }], nextCursor: null };
+      if (request.method === "thread/backgroundTerminals/terminate") return { __error: "terminate failed" };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await service.listBackgroundTerminals("run-1");
+      await expect(service.terminateBackgroundTerminal("run-1", "p-1")).rejects.toThrow("terminate failed");
+      fail = true;
+      await expect(service.listBackgroundTerminals("run-1")).rejects.toThrow("list failed");
+      expect(received.filter(item => item.method === "thread/backgroundTerminals/terminate")).toHaveLength(1);
+    } finally { service.close("run-1"); }
+  });
+
+  it("rejects a background terminal list returned after switching threads", async () => {
+    let reply;
+    const child = fakeProcess([], request => {
+      if (request.method === "thread/backgroundTerminals/list") return new Promise(resolve => { reply = resolve; });
+      if (request.method === "thread/start") return { thread: { id: reply ? "thread-2" : "thread-1", model: "test-model" } };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const pending = service.listBackgroundTerminals("run-1");
+      await service.newThread("run-1");
+      reply({ data: [{ processId: "p-old" }], nextCursor: null });
+      await expect(pending).rejects.toThrow("已切换");
+      await expect(service.terminateBackgroundTerminal("run-1", "p-old")).rejects.toThrow("刷新后重试");
+    } finally { service.close("run-1"); }
+  });
   it("broadcasts only changed items during streaming and keeps full snapshots for state changes", async () => {
     const received = [];
     const child = fakeProcess(received);
