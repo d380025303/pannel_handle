@@ -1,4 +1,7 @@
 const crypto = require("node:crypto");
+const { StringDecoder } = require("node:string_decoder");
+
+const MAX_STREAM_LINE_BYTES = 16 * 1024 * 1024;
 
 function invalidRequest(message) {
   return Object.assign(new Error(message), { statusCode: 400 });
@@ -190,7 +193,9 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   const responseId = `resp_${crypto.randomUUID().replace(/-/g, "")}`;
   const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
   const createdAt = Math.floor(Date.now() / 1000);
+  const decoder = new StringDecoder("utf8");
   let lineBuffer = "";
+  let lineBytes = 0;
   let text = "";
   let messageStarted = false;
   let usage;
@@ -220,7 +225,10 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
       return;
     }
     let chunk;
-    try { chunk = JSON.parse(payload); } catch { return; }
+    try { chunk = JSON.parse(payload); } catch {
+      failure = { code: "invalid_stream", message: "Chat Completions upstream returned invalid JSON in its stream." };
+      return;
+    }
     if (chunk.error) {
       failure = {
         code: String(chunk.error.code || chunk.error.type || "provider_error"),
@@ -257,13 +265,35 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
     }
   }
 
-  function push(chunk) {
-    lineBuffer += chunk.toString("utf-8");
-    const lines = lineBuffer.split(/\r?\n/);
-    lineBuffer = lines.pop() || "";
-    for (const line of lines) {
-      if (line.trimStart().startsWith("data:")) consumePayload(line.trimStart().slice(5).trim());
+  function appendLinePart(part) {
+    lineBytes += Buffer.byteLength(part, "utf8");
+    if (lineBytes > MAX_STREAM_LINE_BYTES) {
+      failure = { code: "stream_line_too_large", message: "Chat Completions upstream returned a stream line larger than 16 MiB." };
+      return false;
     }
+    lineBuffer += part;
+    return true;
+  }
+
+  function consumeText(value) {
+    let start = 0;
+    while (!failure && start < value.length) {
+      const newline = value.indexOf("\n", start);
+      if (newline === -1) {
+        appendLinePart(value.slice(start));
+        break;
+      }
+      if (!appendLinePart(value.slice(start, newline))) break;
+      const line = lineBuffer.trimStart();
+      if (line.startsWith("data:")) consumePayload(line.slice(5).trim());
+      lineBuffer = "";
+      lineBytes = 0;
+      start = newline + 1;
+    }
+  }
+
+  function push(chunk) {
+    if (!failure) consumeText(decoder.write(chunk));
   }
 
   function responseUsage() {
@@ -277,7 +307,8 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   }
 
   function finish() {
-    if (lineBuffer.trimStart().startsWith("data:")) consumePayload(lineBuffer.trimStart().slice(5).trim());
+    if (!failure) consumeText(decoder.end());
+    if (!failure && lineBuffer.trimStart().startsWith("data:")) consumePayload(lineBuffer.trimStart().slice(5).trim());
     if (!failure && requireDone && !sawDone && !(allowFinishReasonAsDone && sawFinishReason)) {
       failure = { code: "incomplete_stream", message: "Chat Completions stream ended before [DONE]." };
     }
@@ -330,4 +361,4 @@ function createResponseAccumulator({ model, customTools = new Set(), toolAliases
   return { start, push, finish, fail };
 }
 
-module.exports = { invalidRequest, validateResponsesRequest, responsesToChat, createResponseAccumulator, textFromContent, parseCustomArguments, toolAlias };
+module.exports = { MAX_STREAM_LINE_BYTES, invalidRequest, validateResponsesRequest, responsesToChat, createResponseAccumulator, textFromContent, parseCustomArguments, toolAlias };

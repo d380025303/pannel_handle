@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import protocol from "./responses-chat-completions-protocol.cjs";
 
-const { responsesToChat, createResponseAccumulator } = protocol;
+const { MAX_STREAM_LINE_BYTES, responsesToChat, createResponseAccumulator } = protocol;
 
 describe("Responses to Chat Completions protocol", () => {
   it("converts Responses messages and custom tools to Chat Completions", () => {
@@ -126,6 +126,33 @@ describe("Responses to Chat Completions protocol", () => {
     expect(response.output[1]).toMatchObject({ type: "custom_tool_call", call_id: "call-1", name: "apply_patch", input: "*** Begin Patch" });
     expect(response.usage.total_tokens).toBe(14);
     expect(events.at(-1).type).toBe("response.completed");
+  });
+
+  it("preserves UTF-8 characters split across upstream chunks", () => {
+    const parser = createResponseAccumulator({ model: "model-a", requireDone: true });
+    parser.start();
+    const wire = Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: "中文" } }] })}\n\ndata: [DONE]\n\n`);
+    const split = wire.indexOf(Buffer.from("中")) + 1;
+    parser.push(wire.subarray(0, split));
+    parser.push(wire.subarray(split));
+
+    expect(parser.finish().output[0].content[0].text).toBe("中文");
+  });
+
+  it("fails on malformed JSON even if the upstream later sends [DONE]", () => {
+    const parser = createResponseAccumulator({ model: "model-a", requireDone: true });
+    parser.start();
+    parser.push(Buffer.from("data: {bad-json}\n\ndata: [DONE]\n\n"));
+
+    expect(parser.finish()).toMatchObject({ status: "failed", error: { code: "invalid_stream" } });
+  });
+
+  it("bounds an upstream line without a newline", () => {
+    const parser = createResponseAccumulator({ model: "model-a", requireDone: true });
+    parser.start();
+    parser.push(Buffer.from("data: " + "x".repeat(MAX_STREAM_LINE_BYTES)));
+
+    expect(parser.finish()).toMatchObject({ status: "failed", error: { code: "stream_line_too_large" } });
   });
 
   it("turns Chat Completions stream failures and truncated streams into Responses failures", () => {

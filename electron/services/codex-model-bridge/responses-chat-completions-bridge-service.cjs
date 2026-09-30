@@ -13,11 +13,14 @@ function readBody(request, limit = MAX_REQUEST_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
     request.on("data", chunk => {
+      if (tooLarge) return;
       size += chunk.length;
       if (size > limit) {
+        tooLarge = true;
+        chunks.length = 0;
         reject(Object.assign(new Error("请求正文过大。"), { statusCode: 413 }));
-        request.destroy();
         return;
       }
       chunks.push(chunk);
@@ -73,8 +76,9 @@ function createResponsesChatCompletionsBridgeService({
   spawnSync = defaultSpawnSync
 }) {
   const listeners = new Map();
+  const pendingListeners = new Map();
   const registrations = new Map();
-  let shuttingDown = false;
+  let shutdownPromise;
 
   function findRegistration(token) {
     for (const registration of registrations.values()) {
@@ -170,17 +174,23 @@ function createResponsesChatCompletionsBridgeService({
   }
 
   function listen(host) {
+    if (shutdownPromise) return Promise.reject(new Error(`${providerName} bridge is shutting down.`));
     if (listeners.has(host)) return Promise.resolve(listeners.get(host));
-    return new Promise((resolve, reject) => {
+    if (pendingListeners.has(host)) return pendingListeners.get(host);
+    const pending = new Promise((resolve, reject) => {
       const server = http.createServer((request, response) => void route(request, response).catch(error => errorResponse(response, 500, error.message)));
       server.once("error", reject);
       server.listen(0, host, () => {
+        server.off("error", reject);
         const address = server.address();
         const entry = { server, origin: `http://${host.includes(":") ? `[${host}]` : host}:${address.port}` };
         listeners.set(host, entry);
         resolve(entry);
       });
     });
+    pendingListeners.set(host, pending);
+    void pending.then(() => pendingListeners.delete(host), () => pendingListeners.delete(host));
+    return pending;
   }
 
   function resolveWslHost(distro) {
@@ -203,6 +213,7 @@ function createResponsesChatCompletionsBridgeService({
   }
 
   function register(key, apiKey, models) {
+    if (shutdownPromise) throw new Error(`${providerName} bridge is shutting down.`);
     const token = randomToken();
     registrations.set(key, { token, apiKey, models: new Set(models || []) });
     return token;
@@ -252,12 +263,14 @@ function createResponsesChatCompletionsBridgeService({
     registrations.delete(sessionId);
   }
 
-  async function shutdown() {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    await Promise.all([...listeners.values()].map(({ server }) => new Promise(resolve => server.close(resolve))));
-    listeners.clear();
-    registrations.clear();
+  function shutdown() {
+    if (!shutdownPromise) shutdownPromise = (async () => {
+      await Promise.allSettled([...pendingListeners.values()]);
+      await Promise.all([...listeners.values()].map(({ server }) => new Promise(resolve => server.close(resolve))));
+      listeners.clear();
+      registrations.clear();
+    })();
+    return shutdownPromise;
   }
 
   return { fetchResponses, getLaunchConfig, bindSession, releaseRegistration, disconnect, shutdown };

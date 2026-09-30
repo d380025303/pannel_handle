@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createResponsesChatCompletionsBridgeService } = require("./responses-chat-completions-bridge-service.cjs");
+const { MAX_REQUEST_BYTES, createResponsesChatCompletionsBridgeService } = require("./responses-chat-completions-bridge-service.cjs");
 const services = [];
 
 afterEach(async () => {
@@ -24,6 +24,31 @@ function createService(fetchImpl, options = {}) {
 }
 
 describe("Responses Chat Completions bridge", () => {
+  it("shares a listener across concurrent launches and closes it on shutdown", async () => {
+    const service = createService(vi.fn());
+    const launches = await Promise.all(Array.from({ length: 8 }, () => service.getLaunchConfig(
+      { type: "windows" }, { apiKey: "secret", model: "model-a" }
+    )));
+    const origins = new Set(launches.map(launch => new URL(launch.baseUrl).origin));
+    expect(origins.size).toBe(1);
+
+    await service.shutdown();
+    await expect(fetch(`${[...origins][0]}/health`)).rejects.toThrow();
+  });
+
+  it("returns HTTP 413 when the request body exceeds the limit", async () => {
+    const service = createService(vi.fn());
+    const launch = await service.getLaunchConfig({ type: "windows" }, { apiKey: "secret", model: "model-a" });
+    const response = await fetch(`${launch.baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${launch.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "model-a", input: "x".repeat(MAX_REQUEST_BYTES) })
+    });
+
+    expect(response.status).toBe(413);
+    expect((await response.json()).error.message).toContain("请求正文过大");
+  });
+
   it("keeps the provider key in the main process and converts both streaming directions", async () => {
     const fetchImpl = vi.fn(async () => new Response([
       `data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}`,
