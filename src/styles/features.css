@@ -7993,6 +7993,9 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-message.userMessage { align-self: flex-end; max-width: min(78%, 760px); border-color: var(--color-border-strong); background: var(--color-bg-selection); }
 .codex-app-server-message.turnError { width: min(100%, 900px); border-color: var(--color-danger); color: var(--color-danger-text); background: var(--color-danger-bg); }
 .codex-app-server-message.turnError > strong { color: inherit; }
+.codex-app-server-message.codexEvent { max-width: min(88%, 900px); color: var(--color-text-secondary); }
+.codex-app-server-message.codexEvent details { margin-top: 8px; }
+.codex-app-server-message.codexEvent summary { cursor: pointer; }
 .codex-app-server-event, .codex-app-server-approval { align-self: flex-start; width: 100%; }
 .codex-app-server-message p { margin: 0; }
 .codex-app-server-markdown { white-space: normal; }

@@ -1844,9 +1844,9 @@ describe("CodexAppServerSession", () => {
     const firstSummary = await screen.findByRole("button", { name: /工具调用 · 4 项/ });
     const secondSummary = screen.getByRole("button", { name: /工具调用 · 5 项/ });
     expect(Array.from(document.querySelectorAll(".codex-app-server-messages > article, .codex-app-server-messages > section"))
-      .slice(0, 4).map(node => node.textContent)).toEqual([
+      .slice(0, 5).map(node => node.textContent)).toEqual([
         expect.stringContaining("回复 A"), expect.stringContaining("工具调用 · 4 项"),
-        expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
+        expect.stringContaining("推理摘要"), expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
       ]);
     expect(screen.queryByText("a-0")).toBeNull();
     expect(screen.queryByText("b-0")).toBeNull();
@@ -1871,6 +1871,34 @@ describe("CodexAppServerSession", () => {
     expect(firstSummary.getAttribute("aria-expanded")).toBe("false");
     expect(secondSummary.getAttribute("aria-expanded")).toBe("true");
     expect(secondSummary.closest(".codex-app-server-event")!.querySelector(".codex-app-server-tool-heading")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows Codex reasoning and lifecycle events in order between tool groups", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false, error: null, approvals: [], items: [
+      { id: "cmd-1", turnId: "turn-1", type: "commandExecution", command: "pwd", status: "completed" },
+      { id: "reason-1", turnId: "turn-1", type: "reasoning", summary: ["检查项目", "准备测试"] },
+      { id: "cmd-2", turnId: "turn-1", type: "commandExecution", command: "pnpm test", status: "completed" },
+      { id: "collab-1", turnId: "turn-1", type: "collabToolCall", tool: "spawn_agent", status: "completed", newThreadId: "child-1" },
+      { id: "image-1", turnId: "turn-1", type: "imageView", path: "C:/project/screenshot.png" },
+      { id: "review-start", turnId: "turn-1", type: "enteredReviewMode", review: "当前改动" },
+      { id: "review-end", turnId: "turn-1", type: "exitedReviewMode", review: "发现一个问题" },
+      { id: "compact-1", turnId: "turn-1", type: "contextCompaction", status: "completed" },
+      { id: "future-1", turnId: "turn-1", type: "futureEvent", secret: "must not render" }
+    ] } });
+    await screen.findByText("检查项目");
+    const timeline = document.querySelector(".codex-app-server-messages")!;
+    const entries = Array.from(timeline.querySelectorAll(":scope > article, :scope > section"));
+    expect(entries.map(entry => entry.textContent)).toEqual([
+      expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("检查项目"),
+      expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("协作调用 · spawn_agent"),
+      expect.stringContaining("C:/project/screenshot.png"), expect.stringContaining("开始代码审查"),
+      expect.stringContaining("发现一个问题"), expect.stringContaining("上下文压缩完成"),
+      expect.stringContaining("未识别的事件类型：futureEvent")
+    ]);
+    expect(timeline.textContent).not.toContain("must not render");
+    expect(screen.getAllByRole("button", { name: /工具调用 · 1 项/ })).toHaveLength(2);
   });
 
   it("folds commands and file changes into one ordered group", async () => {

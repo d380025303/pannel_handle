@@ -38,6 +38,72 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it("streams reasoning summaries by section and keeps the completed item authoritative", async () => {
+    const child = fakeProcess([]);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      emit("item/started", { threadId: "thread-1", turnId: "turn-1", item: { id: "reason-1", type: "reasoning" } });
+      emit("item/reasoning/summaryPartAdded", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 0 });
+      emit("item/reasoning/summaryTextDelta", { threadId: "other-thread", itemId: "reason-1", summaryIndex: 0, delta: "wrong" });
+      emit("item/reasoning/summaryTextDelta", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 0, delta: "检查" });
+      emit("item/reasoning/summaryTextDelta", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 0, delta: "文件" });
+      emit("item/reasoning/summaryPartAdded", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 1 });
+      emit("item/reasoning/summaryTextDelta", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 1, delta: "运行测试" });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items[0].summary).toEqual(["检查文件", "运行测试"]));
+      emit("item/completed", { threadId: "thread-1", turnId: "turn-1",
+        item: { id: "reason-1", type: "reasoning", summary: ["最终摘要"] } });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items[0].summary).toEqual(["最终摘要"]));
+    } finally { service.close("run-1"); }
+  });
+
+  it("keeps review entry and result as two ordered items when they share an id", async () => {
+    const child = fakeProcess([]);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      child.stdout.write(`${JSON.stringify({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1",
+        item: { id: "review-1", type: "enteredReviewMode", review: "当前改动" } } })}\n`);
+      child.stdout.write(`${JSON.stringify({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-1",
+        item: { id: "review-1", type: "exitedReviewMode", review: "发现一个问题" } } })}\n`);
+      await vi.waitFor(() => expect(service.snapshot("run-1").items.map(item => item.type))
+        .toEqual(["enteredReviewMode", "exitedReviewMode"]));
+    } finally { service.close("run-1"); }
+  });
+
+  it("restores completed Codex event items when a stored thread is resumed", async () => {
+    const child = fakeProcess([], request => {
+      if (request.method === "thread/read") return { thread: { id: "thread-2", cwd: "C:\\project" } };
+      if (request.method === "thread/resume") return { thread: { id: "thread-2", cwd: "C:\\project", turns: [{
+        id: "turn-2", status: "completed", items: [
+          { id: "reason-2", type: "reasoning", summary: ["历史摘要"] },
+          { id: "collab-2", type: "collabToolCall", tool: "spawn_agent", status: "completed" },
+          { id: "image-2", type: "imageView", path: "C:/project/image.png" },
+          { id: "review-2", type: "enteredReviewMode", review: "当前改动" },
+          { id: "review-2", type: "exitedReviewMode", review: "历史审查" },
+          { id: "compact-2", type: "contextCompaction" }
+        ]
+      }] } };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await service.resume("run-1", "thread-2");
+      expect(service.snapshot("run-1").items).toMatchObject([
+        { type: "reasoning", summary: ["历史摘要"], turnId: "turn-2" },
+        { type: "collabToolCall", tool: "spawn_agent", turnId: "turn-2" },
+        { type: "imageView", path: "C:/project/image.png", turnId: "turn-2" },
+        { id: "review-2:enteredReviewMode", type: "enteredReviewMode", review: "当前改动", turnId: "turn-2" },
+        { id: "review-2", type: "exitedReviewMode", review: "历史审查", turnId: "turn-2" },
+        { type: "contextCompaction", status: "completed", turnId: "turn-2" }
+      ]);
+    } finally { service.close("run-1"); }
+  });
+
   it("tracks current-thread MCP failures and reloads after OAuth completion", async () => {
     const received = [];
     const child = fakeProcess(received, request => request.method === "mcpServer/oauth/login"

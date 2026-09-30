@@ -44,6 +44,7 @@ function displayItem(item) {
 
 function historyItems(thread) {
   return (thread?.turns || []).flatMap(turn => (turn.items || []).map(item => ({ ...displayItem(item),
+    ...(item.type === "enteredReviewMode" ? { id: `${item.id}:enteredReviewMode` } : {}),
     ...(item.type === "contextCompaction" ? { status: "completed" } : {}),
     ...(turn.id ? { turnId: turn.id } : {}) }))).filter(item => item?.id);
 }

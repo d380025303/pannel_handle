@@ -8,7 +8,7 @@ import { CodexGoalDialog } from "./CodexGoalDialog";
 import { CodexVersionControl } from "./CodexVersionControl";
 import { CodexPluginDialog } from "./CodexPluginDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
-import { DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
+import { CodexEventCard, DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 import { AttachmentTile, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
 import { subscribeGraphicalSession } from "./graphicalSessionSubscription";
 
@@ -1257,6 +1257,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         if (item.type === "contextCompaction") return <article className="codex-app-server-message contextCompaction" key={item.id} role="status">
           {item.status === "failed" ? "上下文压缩失败" : item.status === "completed" ? "上下文压缩完成" : "正在压缩上下文…"}
         </article>;
+        if (isCodex) return <CodexEventCard key={item.id} item={item} />;
         return null;
       })}
       {snapshot.compacting && <div className="codex-app-server-compaction-status" role="status">正在压缩当前会话，请等待完成…</div>}

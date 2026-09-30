@@ -13,9 +13,10 @@ type DisplayItem = ToolDisplayItem
   | { kind: "diff"; diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
-function groupTools(items: SessionItem[]): ToolDisplayItem[] {
+function groupTools(items: SessionItem[], showCodexEvents = false): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
-  const isHidden = (item: SessionItem) => !isTool(item) && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
+  const isHidden = (item: SessionItem) => !showCodexEvents && !isTool(item)
+    && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
   for (const item of items) {
     if (isHidden(item)) continue;
@@ -102,6 +103,35 @@ export function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { it
   </section>;
 }
 
+const standardItemTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "contextCompaction"]);
+export function CodexEventCard({ item }: { item: SessionItem }) {
+  if (item.type === "reasoning") {
+    const summary = item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n") || "";
+    return <article className="codex-app-server-message codexEvent" key={item.id}>
+      <strong>推理摘要</strong>{summary ? <MarkdownBlock className="codex-app-server-markdown" content={summary} /> : <p>正在思考…</p>}
+    </article>;
+  }
+  if (item.type === "collabToolCall") return <article className="codex-app-server-message codexEvent" key={item.id}>
+    <strong>协作调用 · {item.tool || "协作工具"}</strong>
+    <p>{statusLabel(item.status)}{item.agentStatus ? ` · 成员${item.agentStatus}` : ""}</p>
+    {item.senderThreadId && <p>发起线程：{item.senderThreadId}</p>}
+    {item.receiverThreadId && <p>目标线程：{item.receiverThreadId}</p>}
+    {item.newThreadId && <p>新线程：{item.newThreadId}</p>}
+    {item.prompt && <details><summary>查看任务内容</summary><p>{item.prompt}</p></details>}
+  </article>;
+  if (item.type === "imageView") return <article className="codex-app-server-message codexEvent" key={item.id}>
+    <strong>查看图片</strong><p>{item.path || "未提供图片路径"}</p>
+  </article>;
+  if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return <article className="codex-app-server-message codexEvent" key={item.id}>
+    <strong>{item.type === "enteredReviewMode" ? "开始代码审查" : "代码审查完成"}</strong>
+    {item.review && <MarkdownBlock className="codex-app-server-markdown" content={item.review} />}
+  </article>;
+  if (standardItemTypes.has(item.type)) return null;
+  return <article className="codex-app-server-message codexEvent" key={item.id}>
+    <strong>Codex 事件</strong><p>未识别的事件类型：{item.type}</p>
+  </article>;
+}
+
 export const teamStatusLabels: Record<string, string> = {
   running: "运行中", idle: "空闲", paused: "已暂停", completed: "已完成", failed: "失败",
   cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
@@ -169,7 +199,7 @@ export function DiagnosticCard({ event }: { event: Diagnostic }) {
   </details>;
 }
 export function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
-  const groups = groupTools(snapshot.items);
+  const groups = groupTools(snapshot.items, !snapshot.provider || snapshot.provider === "codex");
   const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
   const diffs = snapshot.turnDiffs || [];
   const eventsByTurn = new Map<string, Diagnostic[]>();

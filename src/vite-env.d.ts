@@ -1052,6 +1052,9 @@ export type CodexAppServerSnapshot = {
   pendingPlan: { itemId: string } | null;
   items: Array<{ id: string; type: string; turnId?: string; rewindMessageId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
+    summary?: Array<string | { text?: string }>;
+    review?: string; path?: string; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
+    prompt?: string; agentStatus?: string;
     result?: unknown; locations?: Array<{ path?: string; uri?: string }>;
     attachments?: Array<{ path: string; name: string }>;
     parts?: Array<{ type: "text"; text: string } | { type: "image"; path: string; name: string }>;

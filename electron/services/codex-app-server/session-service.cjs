@@ -490,7 +490,11 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
             if (!item.attachments?.length) item.attachments = local.attachments;
           }
         }
-        const index = entry.items.findIndex(value => value.id === item.id);
+        let index = entry.items.findIndex(value => value.id === item.id);
+        if (item.type === "exitedReviewMode" && entry.items[index]?.type === "enteredReviewMode") {
+          entry.items[index].id = `${item.id}:enteredReviewMode`;
+          index = -1;
+        }
         if (index < 0) entry.items.push(item); else entry.items[index] = item;
         if (item.type !== "userMessage") updateSummary(id, entry, itemSummary(item));
       }
@@ -500,6 +504,20 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (item) {
         item.text = (item.text || "") + (params.delta || "");
         updateSummary(id, entry, itemSummary(item));
+      }
+    }
+    if (message.method === "item/reasoning/summaryTextDelta" || message.method === "item/reasoning/summaryPartAdded") {
+      const item = entry.items.find(value => value.id === params.itemId && value.type === "reasoning");
+      if (item) {
+        const summary = Array.isArray(item.summary) ? [...item.summary] : [];
+        const index = Number.isSafeInteger(params.summaryIndex) && params.summaryIndex >= 0
+          ? params.summaryIndex : message.method === "item/reasoning/summaryPartAdded" ? summary.length : Math.max(0, summary.length - 1);
+        if (message.method === "item/reasoning/summaryPartAdded") {
+          if (summary[index] == null) summary[index] = "";
+        } else if (typeof params.delta === "string") {
+          summary[index] = `${typeof summary[index] === "string" ? summary[index] : ""}${params.delta}`;
+        }
+        item.summary = summary;
       }
     }
     if (message.method === "turn/plan/updated" && params.turnId) {
@@ -557,6 +575,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       broadcastStatus(id, entry, true);
     }
     if (["item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
+      "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
       "turn/diff/updated"].includes(message.method)) schedulePublish(id);
     else publish(id);
   }
