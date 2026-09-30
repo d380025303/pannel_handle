@@ -28,15 +28,16 @@ function listLocalOpenCode({ homeDir, cwd, scope, includeArchived, fsApi, Databa
   const database = openDatabase({ homeDir, fsApi, Database, env });
   if (!database) return [];
   try {
+    database.function("normalize_history_cwd", { deterministic: true }, value => normalizeCwd(value, true));
     const rows = database.prepare(`SELECT s.id, s.directory, s.title, s.time_created, s.time_updated, s.time_archived,
       (SELECT json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id
        WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
          AND json_extract(p.data, '$.type') = 'text' AND trim(json_extract(p.data, '$.text')) <> ''
        ORDER BY m.time_created, p.time_created LIMIT 1) AS preview
-      FROM session s WHERE s.parent_id IS NULL`).all();
-    return rows.filter(row => (includeArchived || !row.time_archived)
-      && (scope === "all" || normalizeCwd(row.directory, true) === normalizeCwd(cwd, true)))
-      .map(row => ({ ref: `opencode:${row.id}`, provider: "opencode", title: row.title || row.preview || "OpenCode conversation",
+      FROM session s WHERE s.parent_id IS NULL
+        ${includeArchived ? "" : "AND (s.time_archived IS NULL OR s.time_archived = 0)"}
+        ${scope === "all" ? "" : "AND normalize_history_cwd(s.directory) = ?"}`).all(...(scope === "all" ? [] : [normalizeCwd(cwd, true)]));
+    return rows.map(row => ({ ref: `opencode:${row.id}`, provider: "opencode", title: row.title || row.preview || "OpenCode conversation",
         preview: row.preview || "", cwd: row.directory || "", createdAt: timestampMs(row.time_created),
         updatedAt: timestampMs(row.time_updated), archived: Boolean(row.time_archived) }));
   } finally {

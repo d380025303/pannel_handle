@@ -8,6 +8,7 @@ function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database 
   if (!fsApi.existsSync(databaseFile)) return [];
   const database = new Database(databaseFile, { readOnly: true });
   try {
+    database.function("normalize_history_cwd", { deterministic: true }, value => normalizeCwd(value, true));
     const rows = database.prepare(`
       SELECT id, cwd, title, created_at, updated_at, archived,
              first_user_message, preview
@@ -15,12 +16,10 @@ function listLocalCodex({ homeDir, cwd, scope, includeArchived, fsApi, Database 
       WHERE source IN ('cli', 'vscode')
         AND first_user_message <> ''
         ${includeArchived ? "" : "AND archived = 0"}
+        ${scope === "all" ? "" : "AND normalize_history_cwd(cwd) = ?"}
       ORDER BY recency_at_ms DESC, updated_at_ms DESC, updated_at DESC
-      LIMIT 5000
-    `).all();
-    const expectedCwd = normalizeCwd(cwd, true);
+    `).all(...(scope === "all" ? [] : [normalizeCwd(cwd, true)]));
     return rows
-      .filter(row => scope === "all" || normalizeCwd(row.cwd, true) === expectedCwd)
       .map(row => ({
         ref: `codex:${row.id}`,
         provider: "codex",

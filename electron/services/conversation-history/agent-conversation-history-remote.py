@@ -64,20 +64,20 @@ def list_codex(payload):
             raise RuntimeError("Unsupported Codex history schema")
         order = "recency_at_ms DESC, updated_at_ms DESC, updated_at DESC" if {"recency_at_ms", "updated_at_ms"}.issubset(columns) else "updated_at DESC"
         archived = "" if payload.get("includeArchived") else "AND archived = 0"
+        cwd_filter = "" if payload.get("scope") == "all" else "AND rtrim(cwd, '/') = ?"
+        parameters = () if payload.get("scope") == "all" else (str(payload.get("cwd") or "").rstrip("/"),)
         rows = connection.execute(
             f"""SELECT id, cwd, title, created_at, updated_at, archived, first_user_message, preview
                 FROM threads
-                WHERE source IN ('cli', 'vscode') AND first_user_message <> '' {archived}
-                ORDER BY {order} LIMIT 5000"""
+                WHERE source IN ('cli', 'vscode') AND first_user_message <> '' {archived} {cwd_filter}
+                ORDER BY {order}""",
+            parameters
         ).fetchall()
     finally:
         connection.close()
-    expected_cwd = str(payload.get("cwd") or "").rstrip("/")
     items = []
     for row in rows:
         cwd = str(row["cwd"] or "")
-        if payload.get("scope") != "all" and cwd.rstrip("/") != expected_cwd:
-            continue
         preview = str(row["first_user_message"] or row["preview"] or "")
         items.append({
             "ref": f"codex:{row['id']}",
@@ -156,9 +156,9 @@ def gemini_records(file_name):
     return list(iter_jsonl(file_name))
 
 
-def gemini_messages(file_name):
+def gemini_messages(records):
     messages = {}
-    for item in gemini_records(file_name):
+    for item in records:
         checkpoint = (item.get("$set") or {}).get("messages") if isinstance(item, dict) else None
         if isinstance(checkpoint, list):
             messages = {str(message["id"]): message for message in checkpoint if isinstance(message, dict) and message.get("id")}
@@ -182,7 +182,7 @@ def list_gemini(payload):
     for file_name in gemini_files(payload):
         records = gemini_records(file_name)
         metadata = next((item for item in records if isinstance(item, dict) and (item.get("sessionId") or item.get("projectHash"))), {})
-        messages = gemini_messages(file_name)
+        messages = gemini_messages(records)
         first_user = next((item for item in messages if item.get("type") == "user"), {})
         preview = first_user.get("content") if isinstance(first_user.get("content"), str) else ""
         project_hash = os.path.basename(os.path.dirname(os.path.dirname(file_name)))
@@ -262,8 +262,8 @@ def parse_messages(provider, file_name):
                 continue
             if data.get("role") == "user":
                 kind = "user"
-            elif data.get("role") == "assistant" and data.get("phase") in {"commentary", "final"}:
-                kind = data.get("phase")
+            elif data.get("role") == "assistant" and data.get("phase") in {"commentary", "final", "final_answer"}:
+                kind = "final" if data.get("phase") == "final_answer" else data.get("phase")
             else:
                 continue
             text = get_text(data.get("content"))
@@ -339,20 +339,21 @@ def list_opencode(payload):
     if connection is None:
         return []
     try:
-        rows = connection.execute("""SELECT s.id, s.directory, s.title, s.time_created, s.time_updated, s.time_archived,
-            (SELECT json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id
-             WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
-               AND json_extract(p.data, '$.type') = 'text' AND trim(json_extract(p.data, '$.text')) <> ''
-             ORDER BY m.time_created, p.time_created LIMIT 1) AS preview
-            FROM session s WHERE s.parent_id IS NULL""").fetchall()
-        expected_cwd = str(payload.get("cwd") or "").rstrip("/")
+        archived_filter = "" if payload.get("includeArchived") else "AND (s.time_archived IS NULL OR s.time_archived = 0)"
+        cwd_filter = "" if payload.get("scope") == "all" else "AND rtrim(s.directory, '/') = ?"
+        parameters = () if payload.get("scope") == "all" else (str(payload.get("cwd") or "").rstrip("/"),)
+        rows = connection.execute(f"""SELECT s.id, s.directory, s.title, s.time_created, s.time_updated, s.time_archived,
+             (SELECT json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id
+              WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
+                AND json_extract(p.data, '$.type') = 'text' AND trim(json_extract(p.data, '$.text')) <> ''
+              ORDER BY m.time_created, p.time_created LIMIT 1) AS preview
+             FROM session s WHERE s.parent_id IS NULL {archived_filter} {cwd_filter}""", parameters).fetchall()
         return [{"ref": f"opencode:{row['id']}", "provider": "opencode",
                  "title": row["title"] or row["preview"] or "OpenCode conversation",
                  "preview": row["preview"] or "", "cwd": row["directory"] or "",
                  "createdAt": timestamp_ms(row["time_created"]), "updatedAt": timestamp_ms(row["time_updated"]),
                  "archived": bool(row["time_archived"])}
-                for row in rows if (payload.get("includeArchived") or not row["time_archived"])
-                and (payload.get("scope") == "all" or str(row["directory"] or "").rstrip("/") == expected_cwd)]
+                for row in rows]
     finally:
         connection.close()
 
@@ -447,7 +448,7 @@ def history_messages(payload):
         file_name = codex_rollout(session_id) if provider == "codex" else gemini_transcript(session_id) if provider == "gemini" else codebuddy_transcript(session_id)
     if provider == "gemini":
         messages = [{"id": str(item.get("id")), "provider": "gemini", "kind": "user" if item.get("type") == "user" else "reply", "text": item.get("content", ""), "timestamp": timestamp_ms(item.get("timestamp"))}
-                    for item in gemini_messages(file_name) if isinstance(item.get("content"), str) and item.get("content").strip()]
+                    for item in gemini_messages(gemini_records(file_name)) if isinstance(item.get("content"), str) and item.get("content").strip()]
     elif provider not in {"grok", "opencode"}:
         messages = parse_messages(provider, file_name)
     messages = sorted(messages, key=lambda item: -item["timestamp"])

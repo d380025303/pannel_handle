@@ -11,6 +11,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn: defaultSpawn } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
+const LIST_CACHE_TTL_MS = 30_000;
+const MAX_LIST_CACHE_ENTRIES = 2;
 
 function createAgentConversationHistoryService({
   terminalManager,
@@ -22,6 +24,7 @@ function createAgentConversationHistoryService({
   remoteScriptFile = path.join(__dirname, "agent-conversation-history-remote.py")
 }) {
   const codeBuddyMetadataCache = new Map();
+  const listCache = new Map();
   function getSession(panelSessionId) {
     const session = terminalManager.getSession(String(panelSessionId || ""));
     if (!session) throw new Error("Session is not running.");
@@ -60,6 +63,15 @@ function createAgentConversationHistoryService({
       return runRemote(session, "list", request);
     }
 
+    const cacheKey = JSON.stringify([session.id, session.type, session.cwd, providers, request.scope,
+      request.includeArchived, request.query]);
+    const now = Date.now();
+    for (const [key, entry] of listCache) {
+      if (now - entry.createdAt >= LIST_CACHE_TTL_MS) listCache.delete(key);
+    }
+    const cached = request.cursor !== null && request.cursor !== "" ? listCache.get(cacheKey) : null;
+    if (cached) return { ...filterAndPage(cached.items, request), errors: cached.errors };
+
     const items = [];
     const errors = [];
     for (const provider of providers) {
@@ -79,6 +91,9 @@ function createAgentConversationHistoryService({
         errors.push({ provider, message: `${provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode" : provider === "gemini" ? "Gemini" : provider === "grok" ? "Grok" : "CodeBuddy"} history is unavailable.` });
       }
     }
+    listCache.delete(cacheKey);
+    listCache.set(cacheKey, { items, errors, createdAt: now });
+    if (listCache.size > MAX_LIST_CACHE_ENTRIES) listCache.delete(listCache.keys().next().value);
     return { ...filterAndPage(items, request), errors };
   }
 
