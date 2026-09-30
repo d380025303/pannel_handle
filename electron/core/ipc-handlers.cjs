@@ -54,6 +54,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("project-assistant:codex-mode", (_event, sessionId) => codexSessionControl.switchMode(sessionId));
   }
   if (codexAppServerSessionService) {
+    ipcMain.handle("opencode-auth:start", (_event, id, methodId) => codexAppServerSessionService.startAcpLogin(String(id || ""), String(methodId || "")));
+    ipcMain.handle("opencode-auth:cancel", (_event, id, generation) => codexAppServerSessionService.cancelAcpLogin(String(id || ""), generation));
+    ipcMain.on("opencode-auth:write", (_event, id, generation, data) => codexAppServerSessionService.writeAcpLogin(String(id || ""), generation, data));
+    ipcMain.on("opencode-auth:resize", (_event, id, generation, cols, rows) => codexAppServerSessionService.resizeAcpLogin(String(id || ""), generation, cols, rows));
     ipcMain.handle("codex-app-server:windows-sandbox-setup", (_event, id, mode) => codexAppServerSessionService.setupWindowsSandbox(String(id || ""), mode));
     ipcMain.handle("codex-app-server:sub-agent-view", (_event, id, expanded, threadId, rootThreadId) => codexAppServerSessionService.setSubAgentView(String(id || ""), expanded, threadId, rootThreadId));
     ipcMain.handle("codex-app-server:sub-agents-refresh", (_event, id, rootThreadId) => codexAppServerSessionService.refreshSubAgents(String(id || ""), rootThreadId));
@@ -66,6 +70,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:account-usage", (_event, id) => codexAppServerSessionService.refreshAccountUsage(String(id || "")));
     ipcMain.handle("codex-app-server:history", (_event, id, cursor, archived, isPinned) => codexAppServerSessionService.listHistory(String(id || ""), cursor, archived, isPinned));
     ipcMain.handle("codex-app-server:initial-user-input", (_event, id, threadId) => codexAppServerSessionService.readInitialUserInput(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:revert-thread", (_event, id, messageId) => codexAppServerSessionService.revertThread(String(id || ""), messageId));
+    ipcMain.handle("codex-app-server:restore-thread", (_event, id) => codexAppServerSessionService.restoreThread(String(id || "")));
     ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
     ipcMain.handle("codex-app-server:rewind", (_event, id, messageId, scope) => codexAppServerSessionService.rewind(String(id || ""), messageId, scope));
     ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));

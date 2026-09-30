@@ -1030,7 +1030,23 @@ export type CodexSubAgents = {
     createdAt: number; loading: boolean; error: string | null; items: CodexAppServerSnapshot["items"] }>;
 };
 
+export type OpenCodeAuthState = {
+  status: "idle" | "running" | "reconnecting" | "succeeded" | "failed" | "cancelled";
+  generation: number;
+  error: string | null;
+};
+
+export type OpenCodeAuthApi = {
+  start: (id: string, methodId: string) => Promise<{ generation: number; history: string; seq: number }>;
+  cancel: (id: string, generation: number) => Promise<void>;
+  write: (id: string, generation: number, data: string) => void;
+  resize: (id: string, generation: number, cols: number, rows: number) => void;
+  onData: (callback: (payload: { id: string; generation: number; seq: number; data: string }) => void) => () => void;
+  onState: (callback: (payload: OpenCodeAuthState & { id: string }) => void) => () => void;
+};
+
 export type CodexAppServerSnapshot = {
+  acpAuth?: OpenCodeAuthState & { required: boolean; methods: Array<{ id: string; name: string; description: string }> };
   subAgents?: CodexSubAgents;
   windowsSandboxSetup?: CodexWindowsSandboxSetup;
   threadId: string | null;
@@ -1058,7 +1074,9 @@ export type CodexAppServerSnapshot = {
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
-  capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
+  openCodeRevert?: { messageID: string; files?: unknown[] } | null;
+  historyActionsError?: string | null;
+  capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; renameHistory?: boolean; revertHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
   account?: CodexAccountState | null;
@@ -1091,7 +1109,7 @@ export type CodexAppServerSnapshot = {
     summary?: Array<string | { text?: string }>;
     review?: string; path?: string; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
     prompt?: string; agentStatus?: string;
-    result?: unknown; locations?: Array<{ path?: string; uri?: string }>;
+    result?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;
     attachments?: Array<{ path: string; name: string }>;
     parts?: Array<{ type: "text"; text: string } | { type: "image"; path: string; name: string }>;
     afterItemId?: string | null;
@@ -1205,6 +1223,8 @@ export type CodexAppServerApi = {
   refreshAccountUsage: (id: string) => Promise<CodexAccountState>;
   listHistory: (id: string, cursor?: string | null, archived?: boolean, isPinned?: boolean | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
   readInitialUserInput: (id: string, threadId: string) => Promise<{ text: string; attachments: Array<{ path: string; name: string }> } | null>;
+  revertThread: (id: string, messageId: string) => Promise<CodexAppServerSnapshot>;
+  restoreThread: (id: string) => Promise<CodexAppServerSnapshot>;
   renameThread: (id: string, threadId: string, name: string) => Promise<void>;
   rewind: (id: string, messageId: string, scope: "Code" | "Conversation" | "CodeAndConversation") => Promise<{
     snapshot: CodexAppServerSnapshot; filesChanged: string[]; historyRewound: boolean; fileRewindError: string | null }>;
@@ -1675,6 +1695,7 @@ declare global {
     codexVersionApi: CodexVersionApi;
     codeBuddyVersionApi: CodeBuddyVersionApi;
     openCodeVersionApi: OpenCodeVersionApi;
+    openCodeAuthApi: OpenCodeAuthApi;
     environmentApi: EnvironmentApi;
     terminalApi: TerminalApi;
     sessionShellApi: SessionShellApi;

@@ -1,4 +1,6 @@
 import type { AgentProvider, GraphicalItem, GraphicalSnapshot } from "./types";
+import { useState } from "react";
+import { AcpToolContent } from "../../src/components/shared/AcpToolContent";
 
 export const graphicalProviders: AgentProvider[] = ["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"];
 export const permissions = [
@@ -109,21 +111,22 @@ function codeBuddyToolPresentation(item: GraphicalItem) {
   return { label, summary: target.split(/[\\/]/).pop() || "" };
 }
 export function ToolItem({ item, codeBuddy = false }: { item: GraphicalItem; codeBuddy?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const presentation = codeBuddy ? codeBuddyToolPresentation(item) : null;
-  return <details className="graphical-tool">
+  return <details className="graphical-tool" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><span className="graphical-tool-label">{presentation?.label || toolLabel(item)}</span><span className="graphical-tool-summary">{presentation?.summary ?? toolSummary(item)}</span>
       <span className="graphical-tool-status">{itemStatus(item.status)}</span></summary>
-    <div className="graphical-tool-details">
+    {(!item.toolContent || expanded) && <div className="graphical-tool-details">
       {codeBuddy && item.toolName && <pre>{item.toolName}</pre>}
       {item.command && <pre>{item.command}</pre>}{item.server && <p>{item.server}</p>}{item.query && <p>{item.query}</p>}
       {item.arguments != null && <pre>{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
-      {item.text && <p>{item.text}</p>}{item.output && <pre>{item.output}</pre>}
+      {item.text && <p>{item.text}</p>}{item.toolContent ? <AcpToolContent content={item.toolContent} /> : item.output && <pre>{item.output}</pre>}
       {item.result != null && <pre>{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
       {item.changes != null && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-      {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}</p>)}
+      {item.locations?.map((location, index) => <p key={index}>{location.path || location.uri || "相关位置"}{location.line != null ? `:${location.line}` : ""}</p>)}
       {!item.command && !item.server && !item.query && item.arguments == null && !item.text && !item.output && !(codeBuddy && item.toolName)
-        && item.result == null && item.changes == null && !item.locations?.length && <p>等待工具返回内容…</p>}
-    </div>
+        && item.result == null && item.changes == null && !item.locations?.length && !item.toolContent?.length && <p>等待工具返回内容…</p>}
+    </div>}
   </details>;
 }
 

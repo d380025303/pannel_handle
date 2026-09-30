@@ -31,6 +31,8 @@ describe("CodexAppServerSession", () => {
   const listHistory = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
   const renameThread = vi.fn().mockResolvedValue(undefined);
   const rewind = vi.fn();
+  const revertThread = vi.fn();
+  const restoreThread = vi.fn();
   const pinThread = vi.fn().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned }));
   const forkTurnToNewSession = vi.fn().mockResolvedValue({ id: "run-2" });
   const forkThread = vi.fn().mockResolvedValue({ threadId: "branch-1", mode: "default", busy: false, error: null, items: [], approvals: [] });
@@ -76,6 +78,7 @@ describe("CodexAppServerSession", () => {
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
     submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkTurnToNewSession.mockReset().mockResolvedValue({ id: "run-2" }); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    revertThread.mockReset(); restoreThread.mockReset();
     listBackgroundTerminals.mockReset().mockResolvedValue([]);
     terminateBackgroundTerminal.mockReset().mockResolvedValue({ terminated: true });
     cleanBackgroundTerminals.mockReset().mockResolvedValue(undefined);
@@ -98,7 +101,7 @@ describe("CodexAppServerSession", () => {
     } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
-      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkTurnToNewSession, forkThread, archiveThread, unarchiveThread, listCapabilities,
+      revertThread, restoreThread, submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkTurnToNewSession, forkThread, archiveThread, unarchiveThread, listCapabilities,
       resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
@@ -273,6 +276,45 @@ describe("CodexAppServerSession", () => {
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "opencode", mode: "default", busy: false,
       error: null, items: [{ id: "user-1", type: "userMessage", text: "继续" }], approvals: [] } }));
     expect(screen.queryByRole("group", { name: "OpenCode CLI 更新" })).toBeNull();
+  });
+
+  it("reverts OpenCode messages with native semantics and preserves an existing draft", async () => {
+    const base = { threadId: "ses_active", provider: "opencode" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, approvals: [],
+      capabilities: { history: true, plan: true, attachments: true, permissions: false, revertHistory: true },
+      items: [{ id: "msg_first", type: "userMessage", text: "Original input", rewindMessageId: "msg_first" }] };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce(base);
+    revertThread.mockResolvedValueOnce({ ...base, items: [], openCodeRevert: { messageID: "msg_first" } });
+    restoreThread.mockResolvedValueOnce(base);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 OpenCode 发送消息");
+    fireEvent.change(input, { target: { value: "Existing draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "回退到此处" }));
+    expect(screen.getByRole("dialog", { name: "OpenCode 会话回退" })).toBeTruthy();
+    expect(screen.queryByLabelText("仅对话")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "确认回退" }));
+    await waitFor(() => expect(revertThread).toHaveBeenCalledWith("run-1", "msg_first"));
+    expect(await screen.findByRole("button", { name: "恢复已撤销内容" })).toBeTruthy();
+    expect(input).toHaveProperty("value", "Existing draft");
+    fireEvent.click(screen.getByRole("button", { name: "取回原输入" }));
+    expect(input).toHaveProperty("value", "Original input");
+    fireEvent.click(screen.getByRole("button", { name: "恢复已撤销内容" }));
+    await waitFor(() => expect(restoreThread).toHaveBeenCalledWith("run-1"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "恢复已撤销内容" })).toBeNull());
+  });
+
+  it("offers OpenCode history rename when the runtime supports it", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "ses_active", provider: "opencode",
+      mode: "default", executionPermission: "askApproval", pendingPlan: null, busy: false, error: null, items: [], approvals: [],
+      capabilities: { history: true, plan: false, permissions: false, attachments: true, renameHistory: true } });
+    listHistory.mockResolvedValueOnce({ data: [{ id: "ses_old", title: "Old title", updatedAt: 1, source: "OpenCode" }], nextCursor: null });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    fireEvent.click(await screen.findByRole("button", { name: "重命名" }));
+    fireEvent.change(screen.getByLabelText("重命名 Old title"), { target: { value: "New title" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(renameThread).toHaveBeenCalledWith("run-1", "ses_old", "New title"));
   });
 
   it("offers Windows CodeBuddy rewind only for messages with a stable ID", async () => {

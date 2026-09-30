@@ -19,6 +19,10 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     if (typeof service[method] !== "function") throw new Error("当前图形会话不支持此操作。");
     return service[method](id, ...args);
   };
+  const authInput = method => (id, ...args) => {
+    // Terminal input can arrive after the owning panel has closed or switched Agent.
+    if (terminalManager.getSession(id)?.agentProvider === "opencode") return openCode?.[method]?.(id, ...args);
+  };
   const codexRoute = method => (id, ...args) => {
     const session = terminalManager.getSession(id);
     if (!session || session.agentProvider !== "codex") throw new Error("仅 Codex 图形会话支持此操作。");
@@ -43,11 +47,14 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     setupWindowsSandbox: routeCodex("setupWindowsSandbox"),
     readAccount: codexRoute("readAccount"), startLogin: codexRoute("startLogin"), cancelLogin: codexRoute("cancelLogin"),
     logout: codexRoute("logout"), refreshAccountUsage: codexRoute("refreshAccountUsage"),
+    startAcpLogin: route("startAcpLogin"), cancelAcpLogin: authInput("cancelAcpLogin"),
+    writeAcpLogin: authInput("writeAcpLogin"), resizeAcpLogin: authInput("resizeAcpLogin"),
     listHistory: route("listHistory"), readInitialUserInput: codexRoute("readInitialUserInput"), listCapabilities: route("listCapabilities"),
     loginMcpServer: codexRoute("loginMcpServer"), reloadMcpServers: codexRoute("reloadMcpServers"),
     listPlugins: codexRoute("listPlugins"), installPlugin: codexRoute("installPlugin"), uninstallPlugin: codexRoute("uninstallPlugin"),
     addPluginMarketplace: codexRoute("addPluginMarketplace"), refreshPluginMarketplace: codexRoute("refreshPluginMarketplace"), removePluginMarketplace: codexRoute("removePluginMarketplace"),
     resume: route("resume"), newThread: route("newThread"),
+    revertThread: route("revertThread"), restoreThread: route("restoreThread"),
     renameThread: route("renameThread"), pinThread: routeCodex("pinThread"),
     forkThread(id, threadId, ...args) {
       const service = serviceFor(id);
@@ -105,8 +112,8 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
       return codeBuddy.rewind(id, messageId, scope);
     },
     resolveElicitation: codexRoute("resolveElicitation"),
-    close(id) { codex.close(id); codeBuddy.close(id); openCode?.close(id); claude?.close(id); qoder?.close(id); gemini?.close(id); grok?.close(id); },
-    shutdown() { codex.shutdown(); codeBuddy.shutdown(); openCode?.shutdown(); claude?.shutdown(); qoder?.shutdown(); gemini?.shutdown(); grok?.shutdown(); }
+    close(id) { return Promise.allSettled([codex.close(id), codeBuddy.close(id), openCode?.close(id), claude?.close(id), qoder?.close(id), gemini?.close(id), grok?.close(id)]); },
+    shutdown() { return Promise.allSettled([codex.shutdown(), codeBuddy.shutdown(), openCode?.shutdown(), claude?.shutdown(), qoder?.shutdown(), gemini?.shutdown(), grok?.shutdown()]); }
   };
 }
 

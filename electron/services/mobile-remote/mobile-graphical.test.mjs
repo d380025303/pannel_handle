@@ -266,11 +266,13 @@ describe("mobile graphical session route", () => {
   it("projects tool details needed by the mobile timeline", () => {
     const projected = toMobileGraphicalSnapshot({ ...fixture().snapshot, items: [
       { id: "file-1", type: "fileChange", changes: [{ path: "src/App.tsx" }], private: "secret" },
-      { id: "search-1", type: "mcpToolCall", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 } }
+      { id: "search-1", type: "mcpToolCall", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 },
+        toolContent: [{ type: "diff", path: "a", oldText: null, newText: "new" }], locations: [{ path: "a", line: 4 }] }
     ] });
     expect(projected.items).toMatchObject([
       { id: "file-1", changes: [{ path: "src/App.tsx" }] },
-      { id: "search-1", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 } }
+      { id: "search-1", server: "docs", tool: "find", arguments: { topic: "ACP" }, result: { count: 2 },
+        toolContent: [{ type: "diff", path: "a", oldText: null, newText: "new" }], locations: [{ path: "a", line: 4 }] }
     ]);
     expect(JSON.stringify(projected)).not.toContain("secret");
   });

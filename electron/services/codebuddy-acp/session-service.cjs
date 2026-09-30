@@ -11,9 +11,12 @@ const { waitForEndpoint, createCodeBuddyHttpTransport, sanitizeDiagnostic } = re
 const { getPromotionDisplay } = require("../workbuddy/model-catalog-values.cjs");
 const { createAcpProviderPolicy } = require("./provider-policy.cjs");
 const { normalizeCwd } = require("../conversation-history/history-values.cjs");
+const { runOpenCodeHistoryControl, isOpenCodeMessageId } = require("../opencode-acp/history-control.cjs");
 const { isRewindMessageId, runRewindControl } = require("./rewind-control.cjs");
 const { emptyGoalState, applyGoalUpdate } = require("./goal-state.cjs");
 const { createOpenCodeQuestionBridge } = require("../opencode-acp/question-bridge.cjs");
+const { readAuthMethods, createOpenCodeAuthService } = require("../opencode-acp/auth-service.cjs");
+const { fileResourceLink, applyStructuredToolUpdate, resourceAttachment } = require("../opencode-acp/content-values.cjs");
 const { createCodeBuddyJobsService } = require("./jobs-service.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
@@ -132,8 +135,10 @@ async function createRemoteChild(transportService, session, environment, provide
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, historyService,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
   httpTransportFactory = createCodeBuddyHttpTransport, openCodeQuestionBridgeFactory = createOpenCodeQuestionBridge, workBuddyModelCatalogService,
-  onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl }) {
+  onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl,
+  spawnAuthTerminal, clearCapabilityEndpoint, openCodeControl }) {
   const sessions = new Map();
+  const closingSessions = new Map();
   const historyOperations = new Set();
   const codeBuddyOperations = new Map();
   const historyTargets = new Set();
@@ -141,6 +146,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   const publishTimers = new Map();
   const policy = createAcpProviderPolicy(provider);
   const agentName = policy.agentName;
+  const auth = provider === "opencode" ? createOpenCodeAuthService({
+    spawnTerminal: spawnAuthTerminal, sshAgentTransport, broadcast, changed: publish,
+    getContext(id) {
+      const entry = entryFor(id);
+      assertHistoryIdle(entry);
+      if (historyOperations.has(id)) throw new Error("会话操作正在进行，请稍后重试。");
+      return { entry, session: entry.session, runtime: entry.runtime, environment: entry.environment, authMethods: entry.authMethods };
+    },
+    async reconnect(id, context) {
+      if (sessions.get(id) !== context.entry || !terminalManager.getSession(id)) throw new Error("原图形会话已关闭或切换。");
+      clearCapabilityEndpoint?.(id);
+      await restart(id, true);
+      if (!entryFor(id).threadId || entryFor(id).authRequired) throw new Error("OpenCode 仍需要认证，请重新登录。");
+    }
+  }) : null;
   const jobs = provider === "codebuddy" ? createCodeBuddyJobsService({ spawnProcess, resolveHttpEndpoint,
     httpTransportFactory, buildInvocation, stopAgentChild, broadcast }) : null;
   function savedOptions(entry) {
@@ -286,15 +306,18 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const entry = entryFor(id);
     if (entry.historySnapshot) return { ...entry.historySnapshot, busy: true };
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
-      busy: entry.busy || Boolean(entry.mainAgentChanging) || historyOperations.has(id), error: entry.error, pendingPlan: entry.pendingPlan
+      busy: entry.busy || Boolean(entry.mainAgentChanging) || historyOperations.has(id) || Boolean(auth?.isActive(id)), error: entry.error, pendingPlan: entry.pendingPlan
         ? { itemId: entry.pendingPlan.itemId } : null, model: entry.model,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
+      ...(provider === "opencode" ? { acpAuth: { ...auth.snapshot(id), required: entry.authRequired,
+        methods: entry.authMethods.map(({ id, name, description }) => ({ id, name, description })) } } : {}),
       ...(provider === "codebuddy" ? { codeBuddyGoal: { ...entry.codeBuddyGoal } } : {}),
       ...(provider === "codebuddy" ? { mainAgent: entry.mainAgent ? { ...entry.mainAgent, changing: Boolean(entry.mainAgentChanging) } : null } : {}),
       ...(provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
       contextUsage: entry.contextUsage,
+      ...(provider === "opencode" ? { openCodeRevert: entry.openCodeRevert || null, historyActionsError: entry.historyActionsError || null } : {}),
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
       approvals: [...entry.approvals.values()].map(value => value.display),
@@ -435,11 +458,20 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (kind === "agent_message_chunk" || kind === "agent_thought_chunk" || kind === "user_message_chunk") {
       if (kind === "user_message_chunk" && !entry.loadingThreadId && !member) {
         const submitted = items.findLast(item => item.type === "userMessage" && item.turnId === turnId);
-        if (submitted && isRewindMessageId(update.messageId)) submitted.rewindMessageId = update.messageId;
+        if (submitted && (provider === "opencode" ? isOpenCodeMessageId(update.messageId) : isRewindMessageId(update.messageId))) submitted.rewindMessageId = update.messageId;
       } else if (kind !== "user_message_chunk" || entry.loadingThreadId || member) {
+        if (provider === "opencode" && kind === "user_message_chunk") {
+          const attachment = resourceAttachment(update.content);
+          if (attachment) {
+            let loaded = update.messageId ? items.find(item => item.id === update.messageId) : items.findLast(item => item.type === "userMessage" && item.turnId === turnId);
+            if (!loaded) { loaded = { id: update.messageId || randomUUID(), type: "userMessage", turnId, text: "", attachments: [] }; items.push(loaded); }
+            loaded.attachments ||= [];
+            if (!loaded.attachments.some(file => file.path === attachment.path)) loaded.attachments.push(attachment);
+          }
+        }
         appendText(items, kind === "user_message_chunk" ? "userMessage" : kind === "agent_message_chunk" ? "agentMessage" : "reasoning",
           update.content?.text, update.messageId, turnId);
-        if (kind === "user_message_chunk" && isRewindMessageId(update.messageId)) {
+        if (kind === "user_message_chunk" && (provider === "opencode" ? isOpenCodeMessageId(update.messageId) : isRewindMessageId(update.messageId))) {
           const loaded = items.findLast(item => item.type === "userMessage" && item.id === update.messageId);
           if (loaded) loaded.rewindMessageId = update.messageId;
         }
@@ -452,9 +484,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         item.toolName = update.title || item.toolName || "工具调用";
         item.toolKind = update.kind || item.toolKind || "other";
         item.status = update.status || item.status;
-        const output = update.content?.map(block => block.content?.text || block.content?.uri || block.text || "").filter(Boolean).join("\n");
-        if (output) item.output = output;
-        if (Array.isArray(update.locations)) item.locations = update.locations.map(location => ({ path: location.path, uri: location.uri }));
+        if (provider === "opencode") applyStructuredToolUpdate(item, update);
+        else {
+          const output = update.content?.map(block => block.content?.text || block.content?.uri || block.text || "").filter(Boolean).join("\n");
+          if (output) item.output = output;
+          if (Array.isArray(update.locations)) item.locations = update.locations.map(location => ({ path: location.path, uri: location.uri }));
+        }
       }
     } else if (kind === "plan") {
       const steps = (update.entries || []).map(step => ({ step: step.content || "", status: step.status === "completed" ? "completed" : step.status === "in_progress" ? "inProgress" : "pending" }));
@@ -518,10 +553,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const pending = entry.pending.get(message.id);
       if (!pending) return;
       clearTimeout(pending.timer); entry.pending.delete(message.id);
+      if (provider === "opencode" && message.error?.code === -32000) {
+        entry.authRequired = true; publish(id);
+      }
       if (message.error) pending.reject(Object.assign(new Error(safeStderr(message.error.data?.details || message.error.message || "ACP 请求失败。", entry.environment)), { code: message.error.code }));
       else pending.resolve(message.result);
       return;
     }
+    if (sessions.get(id) !== entry) return;
     if (message.method === "session/update") return onUpdate(id, entry, message.params);
     if (provider === "codebuddy" && message.method === "_codebuddy.ai/question") {
       const params = message.params || {};
@@ -646,6 +685,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     });
   }
   async function start(session, runtime = {}) {
+    await closingSessions.get(session.id);
+    const authGeneration = runtime.authGeneration;
+    runtime = { ...runtime }; delete runtime.authGeneration;
+    const loginClosed = () => authGeneration != null && (!auth?.isActive(session.id) || auth.snapshot(session.id).generation !== authGeneration);
+    if (loginClosed()) throw new Error("原图形会话已关闭。");
     if ((provider === "claude" || provider === "qoder") && runtime.localBridge && (!runtime.remoteBridge?.url || !runtime.remoteBridge?.token || !runtime.remoteBridge?.instructions))
       throw new Error(`${agentName} SSH 本机桥接缺少受限远端工具配置。`);
     const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}),
@@ -664,11 +708,18 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
           return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
     } catch (error) { openCodeQuestionBridge?.close(); throw error; }
+    if (loginClosed()) { openCodeQuestionBridge?.close(); stopAgentChild(child, provider); throw new Error("原图形会话已关闭。"); }
     entry = { child, session, runtime, environment, openCodeQuestionBridge, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
       error: null, pendingPlan: null, items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
+      authMethods: [], authRequired: false,
       codeBuddyGoal: emptyGoalState(),
       contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
+    if (provider === "opencode" && runtime.retainedTimeline) {
+      entry.allowedFiles = new Set(runtime.retainedTimeline.allowedFiles);
+      entry.pastedImages = new Set(runtime.retainedTimeline.pastedImages);
+      entry.uploadedFiles = new Set(runtime.retainedTimeline.uploadedFiles);
+    }
     entry.listedThreadIds = new Set();
     sessions.set(session.id, entry);
     let stderr = "";
@@ -678,7 +729,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       catch { if (sessions.get(session.id) === entry) { entry.error = `${agentName} 返回了无效 ACP 消息。`; publish(session.id); } }
     });
     function fail(error) {
-      if (sessions.get(session.id) !== entry) return;
+      if (sessions.get(session.id) !== entry) {
+        for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
+        entry.pending.clear();
+        return;
+      }
       entry.busy = false; entry.error = error.message;
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
       entry.openCodeQuestionBridge?.cancelAll();
@@ -710,21 +765,37 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         transport.on("error", fail);
         await transport.connect();
       }
-      const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } }, _meta: { "codebuddy.ai": { question: true, goalSnapshotReplay: true, ...(!runtime.localBridge && !runtime.requiredMode ? { mainAgentSupport: true } : {}) } } } : provider === "claude" ? { elicitation: { form: {} } } : {} });
+      const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } }, _meta: { "codebuddy.ai": { question: true, goalSnapshotReplay: true, ...(!runtime.localBridge && !runtime.requiredMode ? { mainAgentSupport: true } : {}) } } } : provider === "claude" ? { elicitation: { form: {} } } : provider === "opencode" ? { auth: { terminal: true } } : {} });
+      if (provider === "opencode") entry.authMethods = readAuthMethods(initialized?.authMethods);
       if (provider === "qoder" && runtime.localBridge && initialized?.agentCapabilities?.mcpCapabilities?.http !== true)
         throw new Error("Qoder ACP 不支持 SSH 本机桥接所需的 HTTP MCP 通道。");
       entry.supportsLoad = initialized?.agentCapabilities?.loadSession === true;
       entry.multitaskSupport = initialized?.agentCapabilities?.multitaskSupport === true;
       entry.mainAgentSupport = provider === "codebuddy" && !runtime.localBridge && !runtime.requiredMode && initialized?.agentCapabilities?.mainAgentSupport === true;
-      if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true)
+      if (runtime.resumeThreadId && initialized?.agentCapabilities?.loadSession !== true
+        && !(provider === "opencode" && runtime.retainedTimeline && initialized?.agentCapabilities?.sessionCapabilities?.resume != null))
         throw new Error(`当前 ${agentName} CLI 不支持恢复断开的会话。`);
       entry.capabilities.history = initialized?.agentCapabilities?.loadSession === true;
       if (provider === "opencode") {
         const capabilities = initialized?.agentCapabilities?.sessionCapabilities;
+        entry.supportsResume = capabilities?.resume != null;
+        entry.supportsClose = capabilities?.close != null;
         entry.capabilities.forkHistory = capabilities?.fork != null;
         entry.capabilities.deleteHistory = capabilities?.delete != null;
       }
-      const result = await request(entry, runtime.resumeThreadId ? "session/load" : "session/new", sessionParams(entry, runtime.resumeThreadId));
+      const retained = runtime.retainedTimeline;
+      let result;
+      if (runtime.resumeThreadId && retained && entry.supportsResume) {
+        entry.items = retained.items;
+        try { result = await request(entry, "session/resume", sessionParams(entry, runtime.resumeThreadId)); }
+        catch (error) {
+          if (error.code !== -32601) throw error;
+          entry.items = [];
+          result = await request(entry, "session/load", sessionParams(entry, runtime.resumeThreadId));
+        }
+      } else result = await request(entry, runtime.resumeThreadId ? "session/load" : "session/new", sessionParams(entry, runtime.resumeThreadId));
+      if (sessions.get(session.id) !== entry) throw new Error("会话已关闭。");
+      delete entry.runtime.retainedTimeline;
       entry.threadId = result.sessionId || runtime.resumeThreadId;
       if (!entry.threadId) throw new Error(`${agentName} ACP 未返回会话 ID。`);
       entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
@@ -744,20 +815,47 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             : entry.configOptions.map(item => item.id === "model" ? { ...item, currentValue: runtime.openCodeModel } : item);
         }
       }
+      if (provider === "opencode" && (runtime.openCodeQuestions || openCodeControl)) await refreshOpenCodeHistoryState(entry);
       await restoreOptions(entryFor(session.id));
       await refreshMainAgents(entry);
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
       if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
       reportTokenLive(entry, "sessionStart", { resumed: Boolean(runtime.resumeThreadId) });
-    } catch (error) { const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" || provider === "grok" ? withStderr(error) : error; close(session.id); throw failure; }
+    } catch (error) {
+      if (provider === "opencode" && error.code === -32000 && sessions.get(session.id) === entry) {
+        entry.authRequired = true; entry.error = "OpenCode 需要登录，请从会话菜单打开登录入口。";
+        entry.busy = false; entry.loadingThreadId = null; publish(session.id); return;
+      }
+      const failure = provider === "codebuddy" || provider === "claude" || provider === "qoder" || provider === "gemini" || provider === "grok" ? withStderr(error) : error;
+      if (sessions.get(session.id) === entry) close(session.id, auth?.snapshot(session.id).status === "reconnecting");
+      throw failure;
+    }
   }
-  function close(id) {
+  function close(id, preserveAuth = false) {
+    if (!preserveAuth) auth?.close(id);
     const entry = sessions.get(id);
-    if (!entry) return;
+    if (!entry) return closingSessions.get(id);
     clearPendingPublish(id);
     sessions.delete(id);
-    disposeEntry(entry);
+    if (provider !== "opencode" || !entry.supportsClose || !entry.threadId || !entry.child.stdin.writable
+      || entry.child.exitCode != null || entry.child.signalCode != null) { disposeEntry(entry); return; }
+    entry.openCodeQuestionBridge?.cancelAll();
+    for (const requestId of entry.approvals.keys()) {
+      try { send(entry, { id: requestId, result: { outcome: { outcome: "cancelled" } } }); } catch {}
+    }
+    entry.approvals.clear(); entry.questions.clear();
+    const closing = request(entry, "session/close", { sessionId: entry.threadId }, 3000)
+      .catch(() => {}).finally(() => {
+        disposeEntry(entry);
+        if (closingSessions.get(id) === closing) closingSessions.delete(id);
+      });
+    closingSessions.set(id, closing);
+    return closing;
+  }
+  async function closePreviousThread(entry, threadId) {
+    if (provider !== "opencode" || !entry.supportsClose || !threadId || threadId === entry.threadId) return;
+    try { await request(entry, "session/close", { sessionId: threadId }, 3000); } catch {}
   }
   function disposeEntry(entry) {
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
@@ -776,7 +874,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       void (isRemote(entry) && file.startsWith("/") ? sshFileSystem.remove(entry.session.id, file) : fs.promises.rm(hostPath, { force: true })).catch(() => {});
     }
   }
-  function shutdown() { jobs?.shutdown(); for (const id of [...sessions.keys()]) close(id); }
+  function shutdown() {
+    auth?.shutdown();
+    jobs?.shutdown();
+    for (const id of [...sessions.keys()]) close(id);
+    return Promise.allSettled([...closingSessions.values()]);
+  }
   function jobsEntry(id) {
     const entry = entryFor(id);
     if (!jobs || entry.session.type !== "windows" || entry.runtime.localBridge)
@@ -788,13 +891,33 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return jobs[method]({ session: entry.session, runtime: entry.runtime, environment: entry.environment,
       cwd: workspace(entry) }, ...args);
   };
-  async function restart(id) {
+  async function restart(id, preserveAuth = false) {
     const entry = entryFor(id);
     const session = terminalManager.getSession(id);
     terminalManager.setAppServerConnectionState?.(id, "reconnecting");
-    const runtime = { ...entry.runtime, resumeThreadId: entry.threadId };
-    close(id);
-    await start(session, runtime);
+    const runtime = { ...entry.runtime, resumeThreadId: entry.threadId || entry.runtime.resumeThreadId };
+    if (preserveAuth) runtime.authGeneration = auth.snapshot(id).generation;
+    if (provider === "opencode") runtime.retainedTimeline = {
+      items: entry.items.map(item => { const copy = { ...item }; delete copy.streaming; return copy; }),
+      allowedFiles: [...entry.allowedFiles], pastedImages: [...entry.pastedImages], uploadedFiles: [...entry.uploadedFiles]
+    };
+    // Keep pasted/uploaded attachment files available to the replacement process.
+    if (provider === "opencode") { entry.pastedImages.clear(); entry.uploadedFiles.clear(); }
+    await close(id, preserveAuth);
+    if (preserveAuth && (!auth?.isActive(id) || !terminalManager.getSession(id))) throw new Error("原图形会话已关闭。");
+    try { await start(session, runtime); }
+    catch (error) {
+      // Keep the login entry usable when reinitialization fails (including failure to spawn).
+      if (preserveAuth && auth?.isActive(id) && terminalManager.getSession(id) && !sessions.has(id)) {
+        entry.runtime = { ...runtime }; delete entry.runtime.authGeneration;
+        entry.threadId = null; entry.loadingThreadId = null; entry.busy = false;
+        entry.error = `登录后重连失败：${error.message}`;
+        entry.pastedImages = new Set(runtime.retainedTimeline?.pastedImages || []);
+        entry.uploadedFiles = new Set(runtime.retainedTimeline?.uploadedFiles || []);
+        sessions.set(id, entry); publish(id);
+      }
+      throw error;
+    }
     return terminalManager.listSessions().find(value => value.id === id);
   }
   async function listHistory(id, cursor = null) {
@@ -839,8 +962,81 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : value.updatedAt ? Date.parse(value.updatedAt) / 1000 || 0 : 0,
       source: agentName, status: "saved" })), nextCursor: result.nextCursor || null };
   }
+  async function controlOpenCode(entry, operation, threadId = entry.threadId, body) {
+    if (sessions.get(entry.session.id) !== entry) throw new Error("OpenCode 会话已关闭或重新连接。");
+    const result = await (openCodeControl || runOpenCodeHistoryControl)({ session: entry.session,
+      cwd: workspace(entry), environment: entry.environment, sshAgentTransport, operation, threadId, body });
+    if (sessions.get(entry.session.id) !== entry) throw new Error("OpenCode 会话已关闭或重新连接，请刷新历史状态。");
+    return result;
+  }
+  async function updateOpenCodeMessageIds(entry) {
+    if (!(entry.runtime.openCodeQuestions || openCodeControl)) return;
+    const target = entry.items.findLast(item => item.type === "userMessage" && item.turnId === entry.turnId);
+    if (!target || target.rewindMessageId) return;
+    try {
+      const messages = await controlOpenCode(entry, "session.message.list");
+      const users = Array.isArray(messages) ? messages.filter(message => message.type === "user") : [];
+      const latest = users[0];
+      if (latest && isOpenCodeMessageId(latest.id) && String(latest.text || "").trim() === String(target.text || "").trim()) target.rewindMessageId = latest.id;
+    } catch (error) { entry.historyActionsError = `无法读取回退消息标识：${error.message}`; }
+  }
+  async function refreshOpenCodeHistoryState(entry) {
+    try {
+      if (!entry.openCodeHistoryVersion) {
+        const version = await controlOpenCode(entry, "version");
+        const parts = String(version).match(/^(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number);
+        if (!parts || parts[0] < 2 || parts[0] === 2 && parts[1] === 0 && parts[2] < 18)
+          throw new Error("需要 OpenCode V2.0.18 或更新版本。");
+        entry.openCodeHistoryVersion = version;
+      }
+      const info = await controlOpenCode(entry, "session.get");
+      if (info?.id !== entry.threadId) throw new Error("OpenCode 返回了其他会话的状态。");
+      entry.openCodeRevert = info.revert || null;
+      entry.capabilities.revertHistory = true;
+      entry.capabilities.renameHistory = true;
+      entry.historyActionsError = null;
+      if (entry.openCodeRevert) {
+        const boundary = entry.items.findIndex(item => item.rewindMessageId === entry.openCodeRevert.messageID || item.id === entry.openCodeRevert.messageID);
+        if (boundary >= 0) entry.items = entry.items.slice(0, boundary);
+      }
+    } catch (error) {
+      entry.capabilities.revertHistory = false;
+      entry.capabilities.renameHistory = false;
+      entry.historyActionsError = `OpenCode 历史控制不可用，请检查 V2 安装：${error.message}`;
+    }
+  }
+  async function changeOpenCodeRevert(id, messageId, restore = false) {
+    const entry = entryFor(id);
+    if (provider !== "opencode" || !entry.capabilities.revertHistory) throw new Error("当前 OpenCode 不支持回退，请检查或升级 V2。");
+    assertHistoryIdle(entry);
+    if (restore ? !entry.openCodeRevert : !isOpenCodeMessageId(messageId) || !entry.items.some(item => item.type === "userMessage" && item.rewindMessageId === messageId))
+      throw new Error("回退目标已失效，请刷新会话。");
+    entry.listedThreadIds.add(entry.threadId);
+    await checkHistoryTarget(entry, entry.threadId);
+    let failure;
+    try {
+      await controlOpenCode(entry, restore ? "session.revert.clear" : "session.revert.stage", entry.threadId,
+        restore ? undefined : { messageID: messageId, files: true });
+    } catch (error) { failure = error; }
+    // Re-read the stored boundary even after errors: file operations may have partially succeeded.
+    await refreshOpenCodeHistoryState(entry);
+    const threadId = entry.threadId;
+    await resume(id, threadId);
+    if (failure) throw failure;
+    if (entry.historyActionsError) throw new Error(entry.historyActionsError);
+    return snapshot(id);
+  }
   async function renameThread(id, threadId, name) {
     const entry = entryFor(id);
+    if (provider === "opencode") {
+      if (!entry.capabilities.renameHistory) throw new Error("当前 OpenCode 不支持重命名，请检查或升级 V2。");
+      await checkHistoryTarget(entry, threadId);
+      const title = String(name || "").trim();
+      if (!title || title.length > 200) throw new Error("会话名称须为 1 到 200 个字符。");
+      await controlOpenCode(entry, "session.update", threadId, { title });
+      publish(id);
+      return;
+    }
     if (provider !== "codebuddy" || !entry.httpTransport?.renameSession) throw new Error("当前会话不支持重命名。");
     if (typeof threadId !== "string" || !entry.listedThreadIds.has(threadId)) throw new Error("只能重命名当前项目列出的历史会话。");
     const title = String(name || "").trim();
@@ -860,7 +1056,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return entryFor(id).httpTransport.pluginRequest(method, route, body);
   }
   function assertHistoryIdle(entry) {
-    if (entry.busy || entry.pendingPlan || entry.approvals.size || entry.questions.size || entry.executingPlan || activeOperations.has(entry.session.id))
+    if (entry.busy || entry.pendingPlan || entry.approvals.size || entry.questions.size || entry.executingPlan || activeOperations.has(entry.session.id) || auth?.isActive(entry.session.id))
       throw new Error("当前会话正在执行或有待处理操作，请处理后重试。");
   }
   async function checkHistoryTarget(entry, threadId) {
@@ -911,6 +1107,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         }
       }
       if (provider !== "opencode") return operation(id, ...args);
+      if (auth?.isActive(id)) throw new Error("OpenCode 登录正在进行，请稍后重试。");
       const threadId = sessions.get(id)?.threadId;
       if (historyOperations.has(id) || activeOperations.has(id) || (threadId && historyTargets.has(threadId)))
         throw new Error("会话操作正在进行，请稍后重试。");
@@ -963,6 +1160,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.listedThreadIds.add(forkId);
       await recordTokenUsage(entry, { resumed: true });
       status(id, entry, "cleared");
+      await closePreviousThread(entry, previous.threadId);
       return snapshot(id);
     } catch (error) {
       Object.assign(entry, previous);
@@ -1028,6 +1226,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if ([...sessions.values()].some(other => other !== entry && other.threadId === threadId)) throw new Error("该历史会话已在其他窗口打开。");
     const previousCommands = entry.availableCommands;
     const previousGoal = entry.codeBuddyGoal;
+    const previousItems = entry.items;
+    const previousThreadId = entry.threadId;
     if (provider === "codebuddy") entry.codeBuddyGoal = emptyGoalState();
     entry.loadingThreadId = threadId;
     entry.availableCommands = []; entry.earlyCommands.clear(); entry.awaitingSession = true;
@@ -1037,6 +1237,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     let result;
     try { result = await request(entry, "session/load", sessionParams(entry, threadId)); }
     catch (error) {
+      entry.items = previousItems;
       entry.availableCommands = previousCommands;
       if (provider === "codebuddy") entry.codeBuddyGoal = previousGoal;
       entry.earlyCommands.clear(); entry.awaitingSession = false;
@@ -1049,10 +1250,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     applySessionOptions(entry, result);
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
-    if (provider === "opencode") await restoreOptions(entry);
+    if (provider === "opencode") {
+      await restoreOptions(entry);
+      if (entry.runtime.openCodeQuestions || openCodeControl) await refreshOpenCodeHistoryState(entry);
+    }
     await refreshMainAgents(entry);
     publish(id);
     await recordTokenUsage(entry, { resumed: true });
+    await closePreviousThread(entry, previousThreadId);
     return snapshot(id);
   }
   async function newThread(id) {
@@ -1060,6 +1265,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (entry.busy || entry.pendingPlan) throw new Error("当前轮次尚未结束。");
     if (entry.approvals.size || entry.questions.size) throw new Error("请先处理当前会话的待确认请求。");
     const previousCommands = entry.availableCommands;
+    const previousThreadId = entry.threadId;
     entry.availableCommands = []; entry.earlyCommands.clear(); entry.awaitingSession = true;
     let result;
     try { result = await request(entry, "session/new", sessionParams(entry)); }
@@ -1069,7 +1275,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       publish(id);
       throw error;
     }
-    entry.threadId = result.sessionId; entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.contextUsage = null;
+    entry.threadId = result.sessionId;
+    entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.contextUsage = null;
+    if (provider === "opencode") {
+      entry.openCodeRevert = null;
+      if (entry.runtime.openCodeQuestions || openCodeControl) await refreshOpenCodeHistoryState(entry);
+    }
     if (provider === "codebuddy") entry.codeBuddyGoal = emptyGoalState();
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
     entry.earlyCommands.clear(); entry.awaitingSession = false;
@@ -1080,6 +1291,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     await refreshMainAgents(entry);
     publish(id);
     status(id, entry, "cleared");
+    await closePreviousThread(entry, previousThreadId);
     return snapshot(id);
   }
   async function setMode(id, mode) {
@@ -1282,14 +1494,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const imageBlocks = new Map();
     for (const file of files) {
       let agentPath = file;
-      if (isRemote(entry) && path.win32.isAbsolute(file)) {
+      if (isRemote(entry) && !file.startsWith("/") && path.win32.isAbsolute(file)) {
         const directory = path.posix.join(await sshFileSystem.cwd(id), ".cache", "pannel-handle", "acp", randomUUID());
         await sshFileSystem.mkdir(id, directory, true);
         await sshFileSystem.chmod(id, directory, 0o700);
         agentPath = path.posix.join(directory, path.win32.basename(file));
         await sshFileSystem.fastPut(id, file, agentPath);
         entry.uploadedFiles.add(directory);
-      } else if (entry.session.type === "wsl" && path.win32.isAbsolute(file)) {
+      } else if (entry.session.type === "wsl" && !file.startsWith("/") && path.win32.isAbsolute(file)) {
         const drive = file[0].toLowerCase();
         agentPath = `/mnt/${drive}/${file.slice(3).replace(/\\/g, "/")}`;
       }
@@ -1301,10 +1513,22 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         const block = { type: "image", mimeType: mime, data: Buffer.from(data).toString("base64") };
         if (orderedContent) imageBlocks.set(file, block);
         else prompt.push(block);
+      } else if (provider === "opencode") {
+        const hostPath = entry.session.type === "wsl" && agentPath.startsWith("/") ? toWslHostPath(entry.session.wslDistro, agentPath) : file;
+        const stat = isRemote(entry) && agentPath.startsWith("/")
+          ? await sshFileSystem.stat(id, agentPath) : await fs.promises.stat(hostPath);
+        if (stat.isDirectory?.()) throw new Error("附件必须是文件。");
+        if (!(isRemote(entry) && agentPath.startsWith("/"))) await fs.promises.access(hostPath, fs.constants.R_OK);
+        prompt.push(fileResourceLink(agentPath, stat.size));
       } else prompt.push({ type: "text", text: `\n请读取以下附件文件：${JSON.stringify(agentPath)}` });
       attachments.push({ path: agentPath, name: path.basename(file) });
     }
     if (orderedContent) prompt.unshift(...orderedContent.map(part => part.type === "text" ? { type: "text", text: part.text } : imageBlocks.get(part.path)));
+    if (provider === "opencode" && entry.openCodeRevert) {
+      try { await controlOpenCode(entry, "session.revert.commit"); }
+      catch (error) { await refreshOpenCodeHistoryState(entry); if (sessions.get(id) === entry) publish(id); throw error; }
+      entry.openCodeRevert = null;
+    }
     entry.error = null; entry.busy = true; entry.foregroundBusy = true;
     let settlePrompt;
     entry.promptCompletion = new Promise(resolve => { settlePrompt = resolve; });
@@ -1318,6 +1542,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try {
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
         ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
+      if (sessions.get(id) !== entry) return;
       for (const file of files) entry.allowedFiles.delete(file);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       for (const item of entry.items) if (item.turnId === entry.turnId) delete item.streaming;
@@ -1327,12 +1552,16 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             ? `${agentName} 本轮未完成（${result.stopReason}）。` : "";
         appendTurnError(entry, entry.turnId, detail);
       }
+      if (provider === "opencode") await updateOpenCodeMessageIds(entry);
       status(id, entry, result?.stopReason === "end_turn" ? "completed" : "failed"); publish(id);
       if (!entry.busy) reportTokenLive(entry, "turnEnd");
       if (entry.executePlanInFullAccess) void promoteApprovedPlan(id, entry);
       void recordTokenUsage(entry);
-    } catch (error) { entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
+    } catch (error) {
+      if (sessions.get(id) !== entry) throw error;
+      entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       entry.error = appendTurnError(entry, entry.turnId, error.message) ? null : error.message;
+      if (provider === "opencode") await updateOpenCodeMessageIds(entry);
       status(id, entry, "failed", error.message); publish(id); if (!entry.busy) reportTokenLive(entry, "turnEnd"); void recordTokenUsage(entry); throw error; }
     finally { settlePrompt(); entry.promptCompletion = null; await refreshMainAgents(entry); }
   }
@@ -1541,7 +1770,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     publish(id);
     status(id, entry, "running");
   }
-  return { start: startWithHistoryReservation, restart: guardHistoryOperation(restart), close, shutdown, snapshot, listModelMetadata, pluginRuntime, pluginRequest, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, renameThread, rewind: guardHistoryOperation(rewind),
+  return { start: startWithHistoryReservation, restart: guardHistoryOperation(restart), close, shutdown, snapshot, listModelMetadata, pluginRuntime, pluginRequest, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, renameThread: provider === "opencode" ? (id, threadId, name) => withHistoryOperation(id, threadId, () => renameThread(id, threadId, name)) : renameThread,
+    revertThread: (id, messageId) => withHistoryOperation(id, null, () => changeOpenCodeRevert(id, messageId)),
+    restoreThread: id => withHistoryOperation(id, null, () => changeOpenCodeRevert(id, null, true)), rewind: guardHistoryOperation(rewind),
+    startAcpLogin(id, methodId) { if (!auth) throw new Error("仅 OpenCode 支持此登录入口。"); return auth.start(id, methodId); },
+    cancelAcpLogin: (id, generation) => auth?.cancel(id, generation),
+    writeAcpLogin: (id, generation, data) => auth?.write(id, generation, data),
+    resizeAcpLogin: (id, generation, cols, rows) => auth?.resize(id, generation, cols, rows),
     listJobs: id => withJobs(id, "list"), jobDispatchContext: id => withJobs(id, "dispatchContext"),
     listResumableJobs: id => withJobs(id, "resumable"), dispatchJob: (id, input) => withJobs(id, "dispatch", input),
     resumeJob: (id, sessionId) => withJobs(id, "resume", sessionId), jobTranscript: (id, jobId) => withJobs(id, "transcript", jobId),

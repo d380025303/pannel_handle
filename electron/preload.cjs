@@ -183,6 +183,8 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   refreshAccountUsage: id => ipcRenderer.invoke("codex-app-server:account-usage", id),
   listHistory: (id, cursor, archived, isPinned) => ipcRenderer.invoke("codex-app-server:history", id, cursor, archived, isPinned),
   readInitialUserInput: (id, threadId) => ipcRenderer.invoke("codex-app-server:initial-user-input", id, threadId),
+  revertThread: (id, messageId) => ipcRenderer.invoke("codex-app-server:revert-thread", id, messageId),
+  restoreThread: id => ipcRenderer.invoke("codex-app-server:restore-thread", id),
   renameThread: (id, threadId, name) => ipcRenderer.invoke("codex-app-server:rename-thread", id, threadId, name),
   rewind: (id, messageId, scope) => ipcRenderer.invoke("codex-app-server:rewind", id, messageId, scope),
   pinThread: (id, threadId, isPinned) => ipcRenderer.invoke("codex-app-server:pin-thread", id, threadId, isPinned),
@@ -354,6 +356,23 @@ contextBridge.exposeInMainWorld("terminalApi", {
   getConfig: () => ipcRenderer.invoke("config:get"),
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial),
   chooseTerminalBackgroundImage: () => ipcRenderer.invoke("terminal-background:choose-image")
+});
+
+contextBridge.exposeInMainWorld("openCodeAuthApi", {
+  start: (id, methodId) => ipcRenderer.invoke("opencode-auth:start", id, methodId),
+  cancel: (id, generation) => ipcRenderer.invoke("opencode-auth:cancel", id, generation),
+  write: (id, generation, data) => ipcRenderer.send("opencode-auth:write", id, generation, data),
+  resize: (id, generation, cols, rows) => ipcRenderer.send("opencode-auth:resize", id, generation, cols, rows),
+  onData: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("opencode-auth:data", listener);
+    return () => ipcRenderer.removeListener("opencode-auth:data", listener);
+  },
+  onState: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("opencode-auth:state", listener);
+    return () => ipcRenderer.removeListener("opencode-auth:state", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("sessionShellApi", {

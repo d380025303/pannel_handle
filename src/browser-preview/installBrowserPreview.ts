@@ -461,6 +461,8 @@ export function installBrowserPreview() {
       refreshAccountUsage: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       listHistory: async () => ({ data: [], nextCursor: null }),
       readInitialUserInput: async () => null,
+      revertThread: async () => { throw new Error("预览模式不支持 OpenCode 回退。"); },
+      restoreThread: async () => { throw new Error("预览模式不支持 OpenCode 恢复。"); },
       rewind: async () => { throw new Error("预览模式不支持 CodeBuddy 回退。"); },
       listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: true, scope: "user" }],
         apps: [{ id: "github", name: "GitHub", description: "代码托管", accessible: true, enabled: true, callable: true }],

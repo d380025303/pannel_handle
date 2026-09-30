@@ -55,7 +55,7 @@ export type ComputerFileEntry = { name: string; path: string; type: "drive" | "d
 export type GraphicalItem = { id: string; type: string; turnId?: string; text?: string; command?: string;
   output?: string; status?: string; toolName?: string; toolKind?: string; explanation?: string;
   tool?: string; server?: string; query?: string; arguments?: unknown; result?: unknown;
-  changes?: unknown; locations?: Array<{ path?: string; uri?: string }>;
+  changes?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;
   attachments?: Array<{ name: string }>;
   plan?: Array<{ step: string; status: string }>;
   questions?: Array<{ id: string; header: string; question: string; answers: string[] }> };

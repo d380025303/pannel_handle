@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -35,6 +35,94 @@ const configOptions = [
 ];
 
 describe("OpenCode ACP sessions", () => {
+  it("sends authorized files as resource links and keeps structured tool results in snapshots", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "opencode-resource-"));
+    const file = path.join(root, "中文 #%.txt");
+    const image = path.join(root, "photo.png");
+    writeFileSync(file, "attachment marker"); writeFileSync(image, "image");
+    let prompt;
+    const content = [{ type: "diff", path: file, oldText: "old", newText: "new" },
+      { type: "content", content: { type: "text", text: "done" } }];
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") {
+        prompt = message.params.prompt;
+        emit({ method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "tool_call",
+          toolCallId: "tool", title: "Edit", rawInput: { path: file }, rawOutput: false, content, locations: [{ path: file, line: 7 }] } } });
+        emit({ method: "session/update", params: { sessionId: "thread", update: { sessionUpdate: "tool_call_update",
+          toolCallId: "tool", status: "completed", rawInput: null } } });
+        emit({ id: message.id, result: { stopReason: "end_turn" } });
+      }
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: root, shell: "powershell.exe" });
+      await expect(service.submit("one", "read", [file])).rejects.toThrow("附件未授权");
+      service.allowFiles("one", [file, image]);
+      await service.submit("one", "read", [file, image]);
+      expect(prompt).toMatchObject([{ type: "text", text: "read" }, { type: "resource_link", name: "中文 #%.txt",
+        mimeType: "text/plain", size: 17 }, { type: "image", mimeType: "image/png" }]);
+      expect(prompt[1].uri).toContain("%E4%B8%AD%E6%96%87%20%23%25.txt");
+      expect(service.snapshot("one").items.find(item => item.id === "tool")).toMatchObject({
+        arguments: { path: file }, result: false, toolContent: content, locations: [{ path: file, line: 7 }], status: "completed" });
+      const missing = path.join(root, "missing.txt"); service.allowFiles("one", [missing]);
+      await expect(service.submit("one", "read", [missing])).rejects.toThrow("ENOENT");
+      expect(service.snapshot("one").busy).toBe(false);
+    } finally { service.shutdown(); rmSync(root, { recursive: true, force: true }); }
+  });
+  it.each(["wsl", "ssh"])("sends resource links using the %s Agent path", async type => {
+    const file = type === "wsl" ? "C:\\work\\中文 #%.txt" : "/srv/app/中文 #%.txt";
+    let prompt;
+    const reply = (message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread" } });
+      else if (message.method === "session/prompt") { prompt = message.params.prompt; emit({ id: message.id, result: { stopReason: "end_turn" } }); }
+    };
+    const transport = new EventEmitter();
+    transport.write = chunk => reply(JSON.parse(String(chunk)), message => transport.emit("stdout", Buffer.from(JSON.stringify(message) + "\n")));
+    transport.close = vi.fn();
+    const fileSystem = { stat: vi.fn(async () => ({ size: 42 })) };
+    const fsPromises = require("node:fs").promises;
+    const stat = vi.spyOn(fsPromises, "stat").mockResolvedValue({ size: 42, isDirectory: () => false });
+    const access = vi.spyOn(fsPromises, "access").mockResolvedValue(undefined);
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn(), setAppServerConnectionState: vi.fn() }, broadcast: vi.fn(),
+      spawnProcess: () => fakeChild(reply), sshAgentTransport: { createStdioTransport: async () => transport }, sshFileSystem: fileSystem });
+    try {
+      await service.start({ id: "one", type, cwd: type === "wsl" ? "/mnt/c/work" : "/srv/app", wslDistro: "Ubuntu" });
+      service.allowFiles("one", [file]); await service.submit("one", "read", [file]);
+      expect(prompt[1]).toMatchObject({ type: "resource_link", name: "中文 #%.txt", size: 42,
+        uri: type === "wsl" ? "file:///mnt/c/work/%E4%B8%AD%E6%96%87%20%23%25.txt" : "file:///srv/app/%E4%B8%AD%E6%96%87%20%23%25.txt" });
+      if (type === "ssh") expect(fileSystem.stat).toHaveBeenCalledWith("one", file);
+    } finally { await service.shutdown(); stat.mockRestore(); access.mockRestore(); }
+  });
+  it("replays structured file attachments and tool content when loading history", async () => {
+    const child = fakeChild((message, emit) => {
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/load") {
+        const update = value => emit({ method: "session/update", params: { sessionId: "saved", update: value } });
+        const resource = { sessionUpdate: "user_message_chunk", messageId: "user", content: {
+          type: "resource_link", uri: "file:///C:/work/a%20b.txt", name: "a b.txt" } };
+        update(resource); update(resource);
+        update({ sessionUpdate: "user_message_chunk", messageId: "user", content: { type: "text", text: "read it" } });
+        update({ sessionUpdate: "tool_call", toolCallId: "read", rawInput: 0, rawOutput: false,
+          content: [{ type: "content", content: { type: "text", text: "saved result" } }] });
+        emit({ id: message.id, result: { sessionId: "saved" } });
+      }
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { resumeThreadId: "saved" });
+      expect(service.snapshot("one").items).toMatchObject([
+        { id: "user", text: "read it", attachments: [{ path: "C:\\work\\a b.txt", name: "a b.txt" }] },
+        { id: "read", arguments: 0, result: false, toolContent: [{ type: "content" }] }
+      ]);
+      expect(service.snapshot("one").items[0].attachments).toHaveLength(1);
+    } finally { await service.shutdown(); }
+  });
   it("publishes advertised slash commands for the current thread and replaces them across updates", async () => {
     let emitUpdate;
     let threadNumber = 0;

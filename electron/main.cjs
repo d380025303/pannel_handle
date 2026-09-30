@@ -626,7 +626,20 @@ if (!gotSingleInstanceLock) {
   });
 }
 
-app.on("window-all-closed", () => {
+let graphicalShutdownComplete = false;
+let graphicalShutdownPending = null;
+app.on("before-quit", event => {
+  if (graphicalShutdownComplete || !codexAppServerSessionService) return;
+  event.preventDefault();
+  if (!graphicalShutdownPending) {
+    graphicalShutdownPending = Promise.resolve(codexAppServerSessionService.shutdown())
+      .catch(error => console.error("Graphical session shutdown failed:", error))
+      .finally(() => { graphicalShutdownComplete = true; app.quit(); });
+  }
+});
+
+app.on("window-all-closed", async () => {
+  await codexAppServerSessionService?.shutdown();
   if (configStore) {
     configStore.saveConfig();
   }

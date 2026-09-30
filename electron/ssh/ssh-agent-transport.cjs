@@ -69,6 +69,48 @@ function createSshAgentTransport({ sshSessionRuntime }) {
     });
   }
 
+  async function createInteractiveTransport(sessionId, { command, actionName, signal }) {
+    const client = await sshSessionRuntime.connectClient(sessionId, { actionName });
+    if (signal?.aborted) { client.end(); throw new Error("登录已取消。"); }
+    return new Promise((resolve, reject) => {
+      const abort = () => { client.end(); reject(new Error("登录已取消。")); };
+      signal?.addEventListener("abort", abort, { once: true });
+      client.exec(command, { pty: { term: "xterm-256color", cols: 100, rows: 24 } }, (error, stream) => {
+        signal?.removeEventListener("abort", abort);
+        if (signal?.aborted) { stream?.end(); client.end(); reject(new Error("登录已取消。")); return; }
+        if (error) { client.end(); reject(error); return; }
+        const events = new EventEmitter();
+        let closed = false;
+        let exitCode = null;
+        let exitSignal = null;
+        const finish = reason => {
+          if (closed) return;
+          closed = true;
+          events.emit("exit", { exitCode, signal: exitSignal, reason });
+          client.end();
+        };
+        stream.on("data", data => events.emit("data", String(data)));
+        stream.stderr?.on("data", data => events.emit("data", String(data)));
+        stream.on("exit", (code, signal) => { exitCode = Number.isInteger(code) ? code : null; exitSignal = signal; });
+        stream.on("close", () => finish("remote-exit"));
+        stream.on("error", () => finish("transport-error"));
+        client.on("error", () => finish("transport-error"));
+        client.on("close", () => finish("connection-close"));
+        resolve({
+          onData(callback) { events.on("data", callback); return { dispose: () => events.off("data", callback) }; },
+          onExit(callback) { events.on("exit", callback); return { dispose: () => events.off("exit", callback) }; },
+          write(data) { if (!closed) stream.write(data); },
+          resize(cols, rows) { if (!closed) stream.setWindow(rows, cols, 0, 0); },
+          kill() {
+            if (closed) return;
+            closed = true;
+            stream.signal?.("TERM"); stream.end(); client.end();
+          }
+        });
+      });
+    });
+  }
+
   async function createHttpForwarder(sessionId, remotePort) {
     const client = await sshSessionRuntime.connectClient(sessionId, { actionName: "CodeBuddy ACP HTTP connection" });
     const agent = new http.Agent({ keepAlive: true });
@@ -192,7 +234,7 @@ function createSshAgentTransport({ sshSessionRuntime }) {
     };
   }
 
-  return { exec, createStdioTransport, createHttpForwarder, createReverseHttpForwarder, createReusableCommandClient };
+  return { exec, createStdioTransport, createInteractiveTransport, createHttpForwarder, createReverseHttpForwarder, createReusableCommandClient };
 }
 
 module.exports = { createSshAgentTransport };

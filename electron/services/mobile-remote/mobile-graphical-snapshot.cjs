@@ -57,7 +57,7 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
       command: item.command, output: item.output, status: item.status,
       toolName: item.toolName, toolKind: item.toolKind, explanation: item.explanation,
       tool: item.tool, server: item.server, query: item.query,
-      arguments: item.arguments, result: item.result, changes: item.changes, locations: item.locations,
+      arguments: item.arguments, result: item.result, changes: item.changes, locations: item.locations, toolContent: item.toolContent,
       plan: item.plan, questions: item.questions,
       attachments: (item.attachments || []).map(file => ({ name: file.name || "附件" }))
     })),

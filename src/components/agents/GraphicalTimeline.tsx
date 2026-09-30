@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { ChevronRight, CircleCheck, CircleX, Code2, FileDiff, FileSearch, FileText, Globe2, Search, Terminal, Wrench } from "lucide-react";
 import type { CodexAppServerSnapshot } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
+import { AcpToolContent } from "../shared/AcpToolContent";
 
 const statusLabels: Record<string, string> = { completed: "已完成", inProgress: "进行中", in_progress: "进行中", pending: "待处理", failed: "失败", declined: "已拒绝" };
 export const statusLabel = (status?: string) => statusLabels[status || ""] || status || "进行中";
@@ -60,7 +61,7 @@ function toolDetails(item: SessionItem) {
     const value = change && typeof change === "object" ? change as Record<string, unknown> : {};
     return <div key={`${String(value.path || "file")}-${index}`}><FileText aria-hidden="true" /><span>{String(value.path || value.filePath || "未知文件")}</span><small>{String(value.kind || value.type || "变更")}</small></div>;
   })}</div><details className="codex-app-server-tool-raw"><summary>原始变更</summary><pre>{JSON.stringify(item.changes, null, 2)}</pre></details></>;
-  if (item.locations?.length) return <div className="codex-app-server-tool-files">{item.locations.map((location, index) => <div key={index}><FileSearch aria-hidden="true" /><span>{location.path || location.uri || "相关位置"}</span></div>)}</div>;
+  if (item.locations?.length) return <div className="codex-app-server-tool-files">{item.locations.map((location, index) => <div key={index}><FileSearch aria-hidden="true" /><span>{location.path || location.uri || "相关位置"}{location.line != null ? `:${location.line}` : ""}</span></div>)}</div>;
   return null;
 }
 
@@ -86,10 +87,10 @@ function ToolCard({ item, codeBuddy = false }: { item: SessionItem; codeBuddy?: 
       {item.query && <p className="codex-app-server-tool-query">{item.query}</p>}
       {item.arguments != null && <pre className="codex-app-server-tool-command">{typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments, null, 2)}</pre>}
       {toolDetails(item)}
-      {item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
+      {item.toolContent ? <AcpToolContent content={item.toolContent} /> : item.output && <pre className="codex-app-server-tool-output">{item.output}</pre>}
       {item.result != null && <pre className="codex-app-server-tool-output">{typeof item.result === "string" ? item.result : JSON.stringify(item.result, null, 2)}</pre>}
       {item.changes != null && !Array.isArray(item.changes) && <pre>{JSON.stringify(item.changes, null, 2)}</pre>}
-      {!item.command && !item.output && !item.query && !item.arguments && !item.locations?.length && item.changes == null && item.result == null && !(codeBuddy && item.toolName) && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
+      {!item.command && !item.output && !item.query && item.arguments == null && !item.locations?.length && !item.toolContent?.length && item.changes == null && item.result == null && !(codeBuddy && item.toolName) && <p className="codex-app-server-tool-placeholder">等待工具返回内容…</p>}
     </div>}
   </div>;
 }
@@ -234,4 +235,3 @@ export function groupTimeline(snapshot: CodexAppServerSnapshot, minimalMode = fa
   result.push(...diffs.filter(diff => !seenTurns.has(diff.turnId)).map(diff => ({ kind: "diff", diff } as DisplayItem)));
   return result;
 }
-

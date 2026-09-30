@@ -1,10 +1,33 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import type { CodexAppServerSnapshot } from "../../vite-env";
-import { CodexEventCard, groupTimeline, TeamMemberTimeline } from "./GraphicalTimeline";
+import { CodexEventCard, groupTimeline, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 
 afterEach(cleanup);
+
+it("renders OpenCode structured results only on expansion and keeps expansion on updates", () => {
+  const item = { id: "a", type: "toolCall", toolName: "Edit", arguments: false, result: 0,
+    output: "unique output", locations: [{ path: "/work/a", line: 4 }], toolContent: [
+      { type: "content", content: { type: "text", text: "unique output" } },
+      { type: "diff", path: "/work/a", oldText: "before", newText: "after" },
+      { type: "content", content: { type: "image", mimeType: "image/png", data: "aGVsbG8=" } },
+      { type: "content", content: { type: "resource_link", name: "a.txt", uri: "file:///work/a.txt" } }
+    ] };
+  const { rerender } = render(<ToolGroup items={[item]} expanded onToggle={() => {}} />);
+  expect(screen.queryByText("unique output")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
+  expect(screen.getAllByText("unique output")).toHaveLength(1);
+  expect(screen.getByText("false")).toBeTruthy();
+  expect(screen.getByText("0")).toBeTruthy();
+  expect(screen.getByText("/work/a:4")).toBeTruthy();
+  expect(screen.getByAltText("工具返回的图片")).toBeTruthy();
+  expect(screen.getByText("a.txt")).toBeTruthy();
+  fireEvent.click(screen.getByText("/work/a", { selector: "summary" }));
+  rerender(<ToolGroup items={[{ ...item, status: "completed" }]} expanded onToggle={() => {}} />);
+  expect(screen.getByText("before").closest("details")?.open).toBe(true);
+  expect(screen.getByText("after")).toBeTruthy();
+});
 
 type SessionItem = CodexAppServerSnapshot["items"][number];
 const tool = (id: string, turnId = "turn-1"): SessionItem => ({ id, turnId, type: "commandExecution", status: "completed" });

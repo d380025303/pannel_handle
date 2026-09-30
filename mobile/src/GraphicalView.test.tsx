@@ -6,6 +6,29 @@ import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type Runt
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+it("shows OpenCode structured results and preserves expanded details on updates", async () => {
+  const { emit } = fixture();
+  const value = { ...snapshot, provider: "opencode" as const, items: [{ id: "tool", type: "toolCall", toolName: "Edit",
+    arguments: false, result: 0, output: "unique output", locations: [{ path: "/work/a", line: 3 }], toolContent: [
+      { type: "content", content: { type: "text", text: "unique output" } },
+      { type: "diff", path: "/work/a", oldText: "before", newText: "after" },
+      { type: "content", content: { type: "image", mimeType: "image/png", data: "aGVsbG8=" } }
+    ] }] };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: value });
+  fireEvent.click(screen.getByRole("button", { name: /工具调用 · 1 项/ }));
+  expect(screen.queryByText("unique output")).toBeNull();
+  fireEvent.click(screen.getByText("Edit"));
+  await waitFor(() => expect(screen.getAllByText("unique output")).toHaveLength(1));
+  expect(screen.getByText("false")).toBeTruthy();
+  expect(screen.getByText("0")).toBeTruthy();
+  expect(screen.getByText("/work/a:3")).toBeTruthy();
+  expect(screen.getByAltText("工具返回的图片")).toBeTruthy();
+  fireEvent.click(screen.getByText("/work/a", { selector: "summary" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...value, busy: true } });
+  expect(screen.getByText("before").closest("details")?.open).toBe(true);
+  expect(screen.getByText("after")).toBeTruthy();
+});
+
 const session: RuntimeSession = { id: "graph-1", title: "Agent", type: "windows", runtimeMode: "app-server", agentProvider: "codex" };
 const snapshot: GraphicalSnapshot = {
   threadId: "thread-1", provider: "codex", busy: false, archived: false, error: null,

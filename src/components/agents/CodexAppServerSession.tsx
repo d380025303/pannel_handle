@@ -15,6 +15,7 @@ import { CodexCapabilityDetail, type CapabilityDetailTarget } from "./CodexCapab
 import { CodexWindowsSandboxDialog } from "./CodexWindowsSandboxDialog";
 import { CodexBackgroundTerminalsDialog } from "./CodexBackgroundTerminalsDialog";
 import { CodeBuddyJobsDialog } from "./CodeBuddyJobsDialog";
+import { OpenCodeAuthDialog } from "./OpenCodeAuthDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
 import { CodexEventCard, DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 import { AttachmentTile, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
@@ -142,6 +143,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [historyCopyingThreadId, setHistoryCopyingThreadId] = useState<string | null>(null);
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const rewindDraftRef = useRef({ draft, hasAttachments: attachments.length > 0 });
+  rewindDraftRef.current = { draft, hasAttachments: attachments.length > 0 };
   const [inlineImages, setInlineImages] = useState<InlineImage[]>([]);
   const [previewFile, setPreviewFile] = useState<{ path: string; name: string } | null>(null);
   const [preview, setPreview] = useState<AttachmentPreview | null>(null);
@@ -164,7 +167,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [rewindTarget, setRewindTarget] = useState<{ messageId: string; text: string } | null>(null);
   const [rewindScope, setRewindScope] = useState<"Code" | "Conversation" | "CodeAndConversation">("CodeAndConversation");
   const [rewindPending, setRewindPending] = useState(false);
+  const [openCodeLoginOpen, setOpenCodeLoginOpen] = useState(false);
   const [rewindError, setRewindError] = useState("");
+  const [revertedInput, setRevertedInput] = useState("");
   const [goalOpen, setGoalOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
@@ -339,6 +344,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setRenamingThreadId(null);
     setHistoryOpen(false);
     setRewindTarget(null);
+    setRevertedInput("");
     setRewindScope("CodeAndConversation");
     setRewindPending(false);
     setRewindError("");
@@ -373,6 +379,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       onSnapshot(next) {
         loadedSessionIdRef.current = sessionId;
         if (threadIdRef.current && threadIdRef.current !== next.threadId) {
+          setRevertedInput("");
           setRewindTarget(null);
           setAttachments([]);
           setInlineImages([]);
@@ -757,16 +764,36 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     if (!rewindTarget || rewindPending) return;
     setRewindPending(true); setRewindError("");
     try {
-      const result = await window.codexAppServerApi.rewind(sessionId, rewindTarget.messageId, rewindScope);
+      const result = snapshot.provider === "opencode"
+        ? { snapshot: await window.codexAppServerApi.revertThread(sessionId, rewindTarget.messageId) }
+        : await window.codexAppServerApi.rewind(sessionId, rewindTarget.messageId, rewindScope);
       if (currentSessionRef.current !== sessionId) return;
       timelineRef.current = result.snapshot;
       setSnapshot(result.snapshot);
       setExpandedGroupId(null);
-      if (rewindScope !== "Code") { setDraft(rewindTarget.text); setDraftReferences([]); }
+      if (snapshot.provider === "opencode") {
+        setRevertedInput(rewindTarget.text);
+        if (!rewindDraftRef.current.draft.trim() && !rewindDraftRef.current.hasAttachments) { setDraft(rewindTarget.text); setDraftReferences([]); }
+      } else if (rewindScope !== "Code") { setDraft(rewindTarget.text); setDraftReferences([]); }
       setRewindTarget(null);
     } catch (cause) {
       if (currentSessionRef.current === sessionId) {
         setRewindError(message(cause));
+        try { setSnapshot(await window.codexAppServerApi.snapshot(sessionId)); } catch {}
+      }
+    } finally { if (currentSessionRef.current === sessionId) setRewindPending(false); }
+  }
+  async function restoreOpenCodeRevert() {
+    if (rewindPending || snapshot.busy || sending) return;
+    setRewindPending(true); setError("");
+    try {
+      const next = await window.codexAppServerApi.restoreThread(sessionId);
+      if (currentSessionRef.current !== sessionId) return;
+      timelineRef.current = next; setSnapshot(next);
+      setRevertedInput("");
+    } catch (cause) {
+      if (currentSessionRef.current === sessionId) {
+        setError(message(cause));
         try { setSnapshot(await window.codexAppServerApi.snapshot(sessionId)); } catch {}
       }
     } finally { if (currentSessionRef.current === sessionId) setRewindPending(false); }
@@ -1322,8 +1349,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {openCodePlanItemId === item.id && openCodeBuildMode && <div className="codex-app-server-plan-confirm">
             <button type="button" className="primary" disabled={resolvingPlan || changingMode} onClick={() => void resolvePlan(item.id, true)}>执行计划</button>
           </div>}
-          {item.type === "userMessage" && snapshot.provider === "codebuddy" && sessionType === "windows" && snapshot.capabilities?.rewind && item.rewindMessageId &&
-            <button type="button" disabled={snapshot.busy || rewindPending} onClick={() => {
+          {item.type === "userMessage" && ((snapshot.provider === "codebuddy" && sessionType === "windows" && snapshot.capabilities?.rewind) || (snapshot.provider === "opencode" && snapshot.capabilities?.revertHistory)) && item.rewindMessageId &&
+            <button type="button" disabled={snapshot.busy || sending || rewindPending || Boolean(snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length)} onClick={() => {
               setRewindTarget({ messageId: item.rewindMessageId!, text: item.text || "" });
               setRewindScope("CodeAndConversation"); setRewindError("");
             }}>回退到此处</button>}
@@ -1521,7 +1548,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || Boolean(forkingTurnId) || (snapshot.busy && !canSendWhileBusy)} />
         <div className="codex-app-server-input-actions">
           <div className="codex-app-server-menu-anchor">
-            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={!snapshot.threadId || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
+            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={(!snapshot.threadId && !isOpenCode) || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
             {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
               if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
               if (event.key === "Tab") setMenuOpen(false);
@@ -1531,7 +1558,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               const index = items.indexOf(document.activeElement as HTMLButtonElement);
               items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
             }}>
-              <button type="button" role="menuitem" disabled={snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
+              {isOpenCode && <button type="button" role="menuitem" disabled={snapshot.busy || sending || Boolean(snapshot.pendingPlan) || snapshot.approvals.length > 0 || Boolean(snapshot.questions?.length)} onClick={() => { setMenuOpen(false); setOpenCodeLoginOpen(true); }}>登录 OpenCode</button>}
+              <button type="button" role="menuitem" disabled={!snapshot.threadId || snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
               {isCodex && <>
                 <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
                 <button type="button" role="menuitem" disabled={!snapshot.threadId} onClick={() => { setMenuOpen(false); setBackgroundTerminalsOpen(true); }}><Terminal aria-hidden="true" />后台终端</button>
@@ -1539,6 +1567,12 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                 <button type="button" role="menuitem" disabled={reviewDisabled} onClick={openReview}><FileIcon aria-hidden="true" />代码审查</button>
                 <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
+              {snapshot.provider === "opencode" && <button type="button" role="menuitem"
+                title={snapshot.historyActionsError || undefined}
+                disabled={!snapshot.capabilities?.revertHistory || snapshot.busy || sending || rewindPending || Boolean(snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length) || !snapshot.items.some(item => item.type === "userMessage" && item.rewindMessageId)}
+                onClick={() => { const target = [...snapshot.items].reverse().find(item => item.type === "userMessage" && item.rewindMessageId);
+                  if (target?.rewindMessageId) { setRewindTarget({ messageId: target.rewindMessageId, text: target.text || "" }); setRewindError(""); setMenuOpen(false); }
+                }}>撤销上一轮</button>}
               {snapshot.provider === "codebuddy" && <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>}
               {canManageCodeBuddyPlugins && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>}
               {canManageCodeBuddyJobs && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyJobsOpen(true); }}>后台智能体</button>}
@@ -1728,7 +1762,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               <button type="button" aria-label={`复制会话 ID：${thread.id}`} onClick={() => void copyText(thread.id, "会话 ID")}>复制 ID</button>
               {isCodex && <button type="button" disabled={Boolean(historyCopyingThreadId)} aria-label={`复制首条用户输入：${thread.id}`}
                 onClick={() => void copyInitialUserInput(thread.id)}>{historyCopyingThreadId === thread.id ? "读取中…" : "复制首条输入"}</button>}
-              {(isCodex || snapshot.provider === "codebuddy") && <button type="button" disabled={Boolean(historyMutation)} onClick={() => { setRenamingThreadId(thread.id); setRenameDraft(thread.title); }}>重命名</button>}
+              {(isCodex || snapshot.provider === "codebuddy" || snapshot.capabilities?.renameHistory) && <button type="button" disabled={Boolean(historyMutation) || (snapshot.provider === "opencode" && (snapshot.busy || sending || resumingHistory || Boolean(snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length)))} onClick={() => { setRenamingThreadId(thread.id); setRenameDraft(thread.title); }}>重命名</button>}
               {snapshot.provider === "opencode" && <>
                 {snapshot.capabilities?.forkHistory && <button type="button"
                   disabled={snapshot.busy || mainAgentPending || sending || pastingImage || resumingHistory || Boolean(historyMutation || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length)}
@@ -1756,14 +1790,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         </div>
       </div>
     </div>}
+    {isOpenCode && openCodeLoginOpen && <OpenCodeAuthDialog sessionId={sessionId} auth={snapshot.acpAuth} onClose={() => setOpenCodeLoginOpen(false)} />}
+    {snapshot.provider === "opencode" && snapshot.openCodeRevert && <div className="codex-app-server-history-copy-notice" role="status">
+      已回退，发送新消息将确认回退。
+      <button type="button" disabled={!snapshot.capabilities?.revertHistory || snapshot.busy || sending || rewindPending || Boolean(snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length)} onClick={() => void restoreOpenCodeRevert()}>恢复已撤销内容</button>
+      {revertedInput && <button type="button" disabled={snapshot.busy || sending} onClick={() => { setDraft(revertedInput); setDraftReferences([]); }}>取回原输入</button>}
+    </div>}
     {rewindTarget && <div className="modal-overlay" onMouseDown={event => { if (event.target === event.currentTarget && !rewindPending) setRewindTarget(null); }}>
-      <div className="modal-dialog" role="dialog" aria-modal="true" aria-label="CodeBuddy 会话回退" onKeyDown={event => { if (event.key === "Escape" && !rewindPending) setRewindTarget(null); }}>
+      <div className="modal-dialog" role="dialog" aria-modal="true" aria-label={`${agentName} 会话回退`} onKeyDown={event => { if (event.key === "Escape" && !rewindPending) setRewindTarget(null); }}>
         <h2>回退到此处</h2><p>{rewindTarget.text.slice(0, 160) || "所选用户消息"}</p>
-        <fieldset disabled={rewindPending}><legend>回退范围</legend>
+        {snapshot.provider === "opencode" ? <p>将回退此消息及后续对话和文件修改。回退后可恢复；发送新消息将确认回退。</p> : <fieldset disabled={rewindPending}><legend>回退范围</legend>
           {([ ["Conversation", "仅对话"], ["Code", "仅代码"], ["CodeAndConversation", "对话和代码"] ] as const).map(([value, label]) =>
             <label key={value}><input type="radio" name="codebuddy-rewind-scope" checked={rewindScope === value} onChange={() => setRewindScope(value)} />{label}</label>)}
-        </fieldset>
-        <p>代码回退只覆盖 CodeBuddy 文件编辑工具记录的改动；终端命令和外部修改不在其中。</p>
+        </fieldset>}
+        {snapshot.provider === "codebuddy" && <p>代码回退只覆盖 CodeBuddy 文件编辑工具记录的改动；终端命令和外部修改不在其中。</p>}
         {rewindError && <p role="alert">{rewindError}</p>}
         <div><button type="button" disabled={rewindPending} onClick={() => setRewindTarget(null)}>取消</button>
           <button type="button" disabled={rewindPending || snapshot.busy} onClick={() => void confirmRewind()}>{rewindPending ? "正在回退…" : "确认回退"}</button></div>
