@@ -30,7 +30,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
         }
         const item = entry.item;
         if (item.type === "userMessage" || item.type === "agentMessage")
-          return <article className={`graphical-message ${item.type}`} key={item.id}><small>{item.type === "userMessage" ? "你" : providerLabel(snapshot.provider)}</small>
+          return <article className={`graphical-message ${item.type}`} key={item.id}>
             <div className="graphical-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ""}</ReactMarkdown></div>
             {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <span key={index}><Paperclip aria-hidden="true" />{file.name}</span>)}</div> : null}
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">

@@ -1361,7 +1361,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {snapshot.compacting && <div className="codex-app-server-compaction-status" role="status">正在压缩当前会话，请等待完成…</div>}
       {snapshot.reviewing && <div className="codex-app-server-compaction-status" role="status">正在审查代码，可停止审查后继续发送消息。</div>}
       {!snapshot.compacting && snapshot.compactionStatus === "failed" && !snapshot.error &&
-        <div className="codex-app-server-compaction-status" role="alert">上下文压缩失败，请重试。</div>}
+        <div className="codex-app-server-compaction-status" role="alert">{isCodex ? "上下文压缩失败，请重试。" : "上下文压缩失败，请查看会话记录。"}</div>}
       {snapshot.approvals.map(approval => <article className="codex-app-server-approval" key={approval.requestId}>
         <strong>{approval.params.networkApprovalContext ? "网络访问确认" : approval.method.includes("fileChange") ? "文件修改确认" : "操作确认"}</strong>
         {approval.params.reason && <p>{approval.params.reason}</p>}

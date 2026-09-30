@@ -185,7 +185,6 @@ button { color: inherit; }
 .graphical-empty { margin: 28px 12px; color: #8fa4bc; text-align: center; }
 .graphical-message { max-width: 95%; margin: 0 0 12px; padding: 10px 12px; border: 1px solid #29384c; border-radius: 12px; background: #141f30; overflow-wrap: anywhere; }
 .graphical-message.userMessage { margin-left: auto; border-color: #0e7490; background: #083344; }
-.graphical-message small { color: #67e8f9; }
 .graphical-message p, .graphical-card p { margin: 7px 0 0; white-space: pre-wrap; line-height: 1.5; }
 .graphical-markdown pre { overflow-x: auto; padding: 9px; border-radius: 7px; background: #080d16; white-space: pre; }
 .graphical-markdown code { overflow-wrap: anywhere; }
