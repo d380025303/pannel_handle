@@ -73,6 +73,7 @@ export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvid
   model?: string | null; effectiveModel?: string | null; backend?: string | null;
   models?: Array<{ id: string; displayName: string }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
+  contextUsage?: { used: number; size: number } | null;
   acpOptions?: Array<{ id: string; currentValue?: string | boolean; options: Array<{ value: string; name: string }> }>;
   capabilities: { history?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;

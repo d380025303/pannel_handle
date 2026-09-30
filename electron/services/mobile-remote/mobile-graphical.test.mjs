@@ -170,6 +170,13 @@ describe("mobile graphical session route", () => {
     expect(JSON.stringify(projected)).not.toContain("secret");
   });
 
+  it("projects only OpenCode context counts", () => {
+    const projected = toMobileGraphicalSnapshot({ ...fixture().snapshot, provider: "opencode",
+      contextUsage: { used: 250, size: 1000, categories: { tools: 50 }, private: "secret" } });
+    expect(projected.contextUsage).toEqual({ used: 250, size: 1000 });
+    expect(JSON.stringify(projected)).not.toContain("secret");
+  });
+
   it("switches only advertised models for each provider", async () => {
     const f = fixture();
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });

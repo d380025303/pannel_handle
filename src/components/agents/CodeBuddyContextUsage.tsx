@@ -9,7 +9,7 @@ const categories = [
   ["mcp", "MCP"], ["skills", "Skills"]
 ] as const;
 
-export function CodeBuddyContextUsage({ usage }: { usage: ContextUsage | null }) {
+export function CodeBuddyContextUsage({ usage, provider = "codebuddy" }: { usage: ContextUsage | null; provider?: "codebuddy" | "opencode" }) {
   const { locale } = useI18n();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -43,7 +43,7 @@ export function CodeBuddyContextUsage({ usage }: { usage: ContextUsage | null })
       </svg>
       <span>{valid ? `${percent.toFixed(1)}%` : "上下文等待中"}</span>
     </button>
-    {open && valid && <div className="agent-token-live-popover codebuddy-context-popover" role="dialog" aria-label="CodeBuddy 上下文用量">
+    {open && valid && <div className="agent-token-live-popover codebuddy-context-popover" role="dialog" aria-label={`${provider === "opencode" ? "OpenCode" : "CodeBuddy"} 上下文用量`}>
       <header><span><strong>上下文用量</strong></span><button type="button" aria-label="关闭" onClick={() => { setOpen(false); buttonRef.current?.focus(); }}><X aria-hidden="true" /></button></header>
       <div className="agent-token-live-grid">
         <span>已用 / 窗口</span><strong>{format(usage.used)} / {format(usage.size)} tokens</strong>

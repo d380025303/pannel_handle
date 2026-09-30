@@ -461,9 +461,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     } else if (kind === "config_option_update") {
       const before = entry.configOptions;
       entry.configOptions = update.configOptions || [];
-      if (provider === "codebuddy" && ["model", "context_window"].some(key =>
+      if ((provider === "codebuddy" || provider === "opencode") && ["model", "context_window"].some(key =>
         before.find(option => option.id === key)?.currentValue !== entry.configOptions.find(option => option.id === key)?.currentValue)) entry.contextUsage = null;
-    } else if (provider === "codebuddy" && kind === "usage_update") {
+    } else if ((provider === "codebuddy" || provider === "opencode") && kind === "usage_update") {
       const used = update.used;
       const size = update.size;
       if (Number.isFinite(used) && used >= 0 && Number.isFinite(size) && size > 0) {
@@ -959,7 +959,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const result = await request(entry, (provider === "gemini" || provider === "grok") && optionId === "model" ? "session/set_model" : "session/set_config_option",
       (provider === "gemini" || provider === "grok") && optionId === "model" ? { sessionId: entry.threadId, modelId: value } : { sessionId: entry.threadId, configId: optionId, value });
     entry.configOptions = result?.configOptions || entry.configOptions.map(item => item.id === optionId ? { ...item, currentValue: value } : item);
-    if (provider === "codebuddy" && (optionId === "model" || optionId === "context_window")) entry.contextUsage = null;
+    if ((provider === "codebuddy" || provider === "opencode") && (optionId === "model" || optionId === "context_window")) entry.contextUsage = null;
     if (provider === "codebuddy" || provider === "opencode") saveOption(entry, optionId === "context_window" ? "contextWindow" : optionId, value);
     if (optionId === "mode") {
       entry.nativeMode = value;

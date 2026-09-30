@@ -233,6 +233,41 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
+  it("tracks OpenCode ACP context usage and clears it when the model or thread changes", async () => {
+    let emitUpdate;
+    let thread = 0;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id,
+        result: { sessionId: `thread-${++thread}`, configOptions } });
+      else if (message.method === "session/set_config_option") emit({ id: message.id, result: {
+        configOptions: configOptions.map(option => option.id === message.params.configId
+          ? { ...option, currentValue: message.params.value } : option)
+      } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    const update = (sessionId, used, size) => emitUpdate({ method: "session/update", params: { sessionId,
+      update: { sessionUpdate: "usage_update", used, size } } });
+    update("thread-1", 50000, 200000);
+    expect(service.snapshot("one").contextUsage).toMatchObject({ used: 50000, size: 200000, categories: {} });
+    update("thread-1", -1, 200000);
+    expect(service.snapshot("one").contextUsage.used).toBe(50000);
+    await service.setModel("one", "openai/gpt-5.5");
+    expect(service.snapshot("one").contextUsage).toBeNull();
+    update("thread-1", 75000, 200000);
+    expect(service.snapshot("one").contextUsage.used).toBe(75000);
+    await service.newThread("one");
+    expect(service.snapshot("one").contextUsage).toBeNull();
+    update("thread-1", 90000, 200000);
+    expect(service.snapshot("one").contextUsage).toBeNull();
+    update("thread-2", 100, 200000);
+    expect(service.snapshot("one").contextUsage.used).toBe(100);
+    service.shutdown();
+  });
+
   it("switches a completed OpenCode plan to Build and starts execution in the same thread", async () => {
     const requests = [];
     let mode = "build";

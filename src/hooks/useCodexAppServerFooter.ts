@@ -48,5 +48,5 @@ export function useCodexAppServerFooter(sessionId?: string) {
   }
 
   return { tokenState, canSubmit: Boolean(snapshot?.threadId && !snapshot.busy),
-    contextUsage: snapshot?.provider === "codebuddy" ? snapshot.contextUsage ?? null : undefined };
+    contextUsage: snapshot?.provider === "codebuddy" || snapshot?.provider === "opencode" ? snapshot.contextUsage ?? null : undefined };
 }

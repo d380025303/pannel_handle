@@ -43,6 +43,10 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
     effort: snapshot.effort || null,
     fastMode: Boolean(snapshot.fastMode),
     executionPermission: snapshot.executionPermission || null,
+    contextUsage: (snapshot.provider === "codebuddy" || snapshot.provider === "opencode")
+      && Number.isFinite(snapshot.contextUsage?.used) && snapshot.contextUsage.used >= 0
+      && Number.isFinite(snapshot.contextUsage?.size) && snapshot.contextUsage.size > 0
+      ? { used: snapshot.contextUsage.used, size: snapshot.contextUsage.size } : null,
     acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort")
       .map(option => ({ id: option.id, currentValue: option.currentValue,
         options: (option.id === "model" && modelOptions ? modelOptions : option.options || []).map(value => ({ value: value.value, name: value.name })) })),

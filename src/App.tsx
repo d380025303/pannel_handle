@@ -1053,7 +1053,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                       state={terminalSessions.activeSession?.agentProvider === "codebuddy" ? agentTokenLive : appServerFooter.tokenState}
                       source={terminalSessions.activeSession?.agentProvider === "codebuddy" ? "transcript" : "app-server"}
                     />
-                    {appServerFooter.contextUsage !== undefined && <CodeBuddyContextUsage usage={appServerFooter.contextUsage} />}
+                    {appServerFooter.contextUsage !== undefined && <CodeBuddyContextUsage usage={appServerFooter.contextUsage}
+                      provider={terminalSessions.activeSession?.agentProvider === "opencode" ? "opencode" : "codebuddy"} />}
                     <AgentUsageStatus
                       state={agentUsage.state}
                       onRefresh={agentUsage.refresh}

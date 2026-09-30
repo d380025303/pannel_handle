@@ -58,6 +58,16 @@ it("subscribes to the selected graphical session and sends text with its thread 
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
 });
 
+it("shows OpenCode context usage from live graphical snapshots", () => {
+  const { emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, provider: "opencode", contextUsage: { used: 250, size: 1000 } } });
+  expect(screen.getByLabelText("上下文用量").textContent).toContain("25.0%");
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
+    snapshot: { ...snapshot, provider: "opencode", contextUsage: null } });
+  expect(screen.queryByLabelText("上下文用量")).toBeNull();
+});
+
 it("updates the current message from a delta and resubscribes after a gap", () => {
   const { send, emit } = fixture();
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",

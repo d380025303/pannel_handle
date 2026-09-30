@@ -12,6 +12,8 @@ export function GraphicalView(props: GraphicalViewProps) {
   const controller = useGraphicalSession(props);
   const { snapshot, isSending, error, activeSheet, setActiveSheet, switchingTo, moreButtonRef, runQuickCommand } = controller;
   if (!snapshot) return <section className="graphical-shell graphical-loading">正在加载图形会话…</section>;
+  const context = snapshot.contextUsage;
+  const contextPercent = context && context.size > 0 ? Math.min(100, Math.max(0, context.used / context.size * 100)) : null;
   return <section className="graphical-shell">
     <header className="graphical-header">
       <div className="graphical-header-details">
@@ -23,6 +25,7 @@ export function GraphicalView(props: GraphicalViewProps) {
           {snapshot.provider === "codex" && permissionLabel(snapshot.executionPermission)
             && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
           {snapshot.fastMode && <span>快速模式</span>}
+          {context && contextPercent !== null && <span aria-label="上下文用量">上下文：{contextPercent.toFixed(1)}% · {context.used.toLocaleString()} / {context.size.toLocaleString()}</span>}
         </div>
       </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}

@@ -19,3 +19,10 @@ it("waits for ACP data, then shows the context ring and available categories", (
   view.rerender(<CodeBuddyContextUsage usage={null} />);
   expect(screen.queryByRole("dialog", { name: "CodeBuddy 上下文用量" })).toBeNull();
 });
+
+it("labels OpenCode usage without CodeBuddy-specific categories", () => {
+  render(<CodeBuddyContextUsage provider="opencode" usage={{ used: 100, size: 1000, categories: {}, updatedAt: 1 }} />);
+  fireEvent.click(screen.getByRole("button", { name: "上下文用量 10.0%" }));
+  expect(screen.getByRole("dialog", { name: "OpenCode 上下文用量" })).toBeTruthy();
+  expect(screen.queryByText("系统提示词")).toBeNull();
+});
