@@ -13,13 +13,16 @@ type DisplayItem = ToolDisplayItem
   | { kind: "diff"; diff: NonNullable<CodexAppServerSnapshot["turnDiffs"]>[number] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const isTool = (item: SessionItem) => toolTypes.has(item.type);
+function reasoningSummary(item: SessionItem) {
+  return item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n").trim() || "";
+}
 function groupTools(items: SessionItem[], showCodexEvents = false): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
   const isHidden = (item: SessionItem) => !showCodexEvents && !isTool(item)
     && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
   for (const item of items) {
-    if (isHidden(item)) continue;
+    if (isHidden(item) || item.type === "reasoning" && !reasoningSummary(item)) continue;
     const previous = result.at(-1);
     if (isTool(item)) {
       if (previous?.kind === "tools" && sameTurn(previous.items[0], item)) previous.items.push(item);
@@ -106,9 +109,10 @@ export function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { it
 const standardItemTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "contextCompaction"]);
 export function CodexEventCard({ item }: { item: SessionItem }) {
   if (item.type === "reasoning") {
-    const summary = item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n") || "";
+    const summary = reasoningSummary(item);
+    if (!summary) return null;
     return <article className="codex-app-server-message codexEvent" key={item.id}>
-      <strong>推理摘要</strong>{summary ? <MarkdownBlock className="codex-app-server-markdown" content={summary} /> : <p>正在思考…</p>}
+      <strong>推理摘要</strong><MarkdownBlock className="codex-app-server-markdown" content={summary} />
     </article>;
   }
   if (item.type === "collabToolCall") return <article className="codex-app-server-message codexEvent" key={item.id}>

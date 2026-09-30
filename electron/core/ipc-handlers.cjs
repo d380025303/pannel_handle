@@ -54,6 +54,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("project-assistant:codex-mode", (_event, sessionId) => codexSessionControl.switchMode(sessionId));
   }
   if (codexAppServerSessionService) {
+    ipcMain.handle("codex-app-server:windows-sandbox-setup", (_event, id, mode) => codexAppServerSessionService.setupWindowsSandbox(String(id || ""), mode));
     ipcMain.handle("codex-app-server:snapshot", (_event, id) => codexAppServerSessionService.snapshot(String(id || "")));
     ipcMain.handle("codex-app-server:model-metadata", (_event, id) => codexAppServerSessionService.listModelMetadata(String(id || "")));
     ipcMain.handle("codex-app-server:account-read", (_event, id) => codexAppServerSessionService.readAccount(String(id || "")));

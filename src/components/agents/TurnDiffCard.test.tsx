@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseTurnDiff, TurnDiffCard } from "./TurnDiffCard";
 
@@ -33,7 +33,7 @@ describe("TurnDiffCard", () => {
     expect(files[1].lines.map(line => line.text)).toContain("Binary files /dev/null and b/assets/logo.png differ");
   });
 
-  it("shows file sections inside a collapsed turn card and allows each file to collapse", () => {
+  it("defaults every file to collapsed and allows each file to expand and collapse", () => {
     const { container } = render(<TurnDiffCard diff={{ turnId: "turn-1", diff, updatedAt: 1 }} />);
     const card = container.querySelector<HTMLDetailsElement>(".codex-app-server-turn-diff")!;
     expect(card.open).toBe(false);
@@ -44,10 +44,34 @@ describe("TurnDiffCard", () => {
     expect(screen.getByText("a very long line of code that should wrap inside the card", { exact: false })).toBeTruthy();
     const sections = container.querySelectorAll<HTMLDetailsElement>(".codex-app-server-diff-file");
     expect(sections).toHaveLength(2);
-    expect(sections[0].open).toBe(true);
+    expect(Array.from(sections).every(section => !section.open)).toBe(true);
     expect(within(sections[1]).getByText("Binary files /dev/null and b/assets/logo.png differ")).toBeTruthy();
     fireEvent.click(within(sections[0]).getByText("src/old.ts → src/new.ts"));
+    expect(sections[0].open).toBe(true);
+    expect(sections[1].open).toBe(false);
+    fireEvent.click(within(sections[0]).getByText("src/old.ts → src/new.ts"));
     expect(sections[0].open).toBe(false);
+  });
+
+  it("preserves an expanded file on diff updates and collapses new files", async () => {
+    const { container, rerender } = render(<TurnDiffCard diff={{ turnId: "turn-1", diff, updatedAt: 1 }} />);
+    fireEvent.click(screen.getByText("本轮变更"));
+    const first = container.querySelector<HTMLDetailsElement>(".codex-app-server-diff-file")!;
+    fireEvent.click(within(first).getByText("src/old.ts → src/new.ts"));
+    await waitFor(() => expect(first.open).toBe(true));
+    fireEvent(first, new Event("toggle"));
+
+    const updatedDiff = diff.replace("+after", "+updated") + "\n" + [
+      "diff --git a/src/added.ts b/src/added.ts", "--- /dev/null", "+++ b/src/added.ts",
+      "@@ -0,0 +1 @@", "+new file"
+    ].join("\n");
+    rerender(<TurnDiffCard diff={{ turnId: "turn-1", diff: updatedDiff, updatedAt: 2 }} />);
+    const sections = container.querySelectorAll<HTMLDetailsElement>(".codex-app-server-diff-file");
+    expect(sections).toHaveLength(3);
+    expect(sections[0].open).toBe(true);
+    expect(within(sections[0]).getByText("updated")).toBeTruthy();
+    expect(sections[1].open).toBe(false);
+    expect(sections[2].open).toBe(false);
   });
 
   it("keeps empty and unrecognized diffs readable", () => {

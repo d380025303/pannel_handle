@@ -47,7 +47,7 @@ export function parseTurnDiff(value: string): DiffFile[] | null {
 }
 
 function DiffFileSection({ file }: { file: DiffFile }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return <details className="codex-app-server-diff-file" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <ChevronRight className="codex-app-server-diff-chevron" aria-hidden="true" />

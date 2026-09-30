@@ -1017,7 +1017,14 @@ export type CodexReviewTarget =
   | { type: "commit"; sha: string }
   | { type: "custom"; instructions: string };
 
+export type CodexWindowsSandboxSetup = {
+  available: boolean;
+  mode: "elevated" | "unelevated";
+  status: "idle" | "running" | "succeeded" | "failed";
+  error: string | null;
+};
 export type CodexAppServerSnapshot = {
+  windowsSandboxSetup?: CodexWindowsSandboxSetup;
   threadId: string | null;
   streamId?: string;
   revision?: number;
@@ -1180,6 +1187,7 @@ export type CodexAppServerApi = {
   unwatchJob: (id: string, jobId: string) => Promise<void>;
   onJobsEvent: (callback: (event: { cwd: string; type: string }) => void) => () => void;
   onJobTranscript: (callback: (event: { cwd: string; jobId: string; event?: Record<string, unknown>; error?: string; reset?: boolean }) => void) => () => void;
+  setupWindowsSandbox: (id: string, mode: "elevated" | "unelevated") => Promise<CodexAppServerSnapshot>;
   snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
   listModelMetadata: (id: string) => Promise<Array<{ id: string; creditMultiplier?: string; promotions: CodeBuddyPromotion[] }>>;
   readAccount: (id: string) => Promise<CodexAccountState>;

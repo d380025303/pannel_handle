@@ -20,6 +20,7 @@ describe("session IPC handlers", () => {
   it("forwards Codex account and MCP elicitation IPC through the graphical router", async () => {
     const handlers = new Map();
     const methods = [
+      ["codex-app-server:windows-sandbox-setup", "setupWindowsSandbox", ["unelevated"]],
       ["codex-app-server:review", "startReview", [{ type: "baseBranch", branch: "main" }]],
       ["codex-app-server:account-read", "readAccount", []],
       ["codex-app-server:account-login", "startLogin", ["chatgptDeviceCode"]],

@@ -136,12 +136,44 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     broadcastStatus(id, entry);
   }
 
+  function sandboxSetupAvailable(entry) {
+    return process.platform === "win32" && entry.session.type === "windows"
+      && (!entry.session.agentProvider || entry.session.agentProvider === "codex");
+  }
+  function guardSandboxSetup(entry) {
+    if (entry?.windowsSandboxSetup?.status === "running") throw new Error("Windows 沙箱正在初始化，请等待完成。");
+  }
+  async function setupWindowsSandbox(id, mode) {
+    const entry = sessions.get(id);
+    if (!entry || !sandboxSetupAvailable(entry)) throw new Error("仅本地 Windows Codex 会话支持沙箱初始化。");
+    if (!["elevated", "unelevated"].includes(mode)) throw new Error("无效的 Windows 沙箱初始化模式。");
+    guardSandboxSetup(entry);
+    if (entry.status === "exited" || entry.child.exitCode != null) throw new Error("Codex App Server 已退出。");
+    if (entry.busy || entry.uploading || entry.compacting || entry.review) throw new Error("请等待当前会话操作完成。");
+    const operation = { mode, status: "running", error: null };
+    entry.windowsSandboxSetup = operation;
+    publish(id);
+    try {
+      const result = await request(entry, "windowsSandbox/setupStart", { mode });
+      if (entry.windowsSandboxSetup === operation && operation.status === "running" && result?.started !== true)
+        throw new Error("Codex 未启动 Windows 沙箱初始化。");
+    } catch (error) {
+      if (entry.windowsSandboxSetup === operation && operation.status === "running") {
+        operation.status = "failed";
+        operation.error = /method.*not found|unknown method|未实现|不支持/i.test(error.message)
+          ? "当前 Codex 不支持 Windows 沙箱初始化，请升级 Codex。" : error.message;
+      }
+    }
+    if (sessions.get(id) === entry) publish(id);
+    return snapshot(id);
+  }
   function snapshot(id) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
       backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
       busy: entry.busy, reviewing: Boolean(entry.review), archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
+      windowsSandboxSetup: { available: sandboxSetupAvailable(entry), mode: "elevated", status: "idle", error: null, ...entry.windowsSandboxSetup },
       goal: entry.goal, goalLoading: entry.goalLoading, goalError: entry.goalError,
       error: entry.error, pendingPlan: entry.pendingPlan,
       threadStatus: entry.threadStatus, turnStatus: entry.turnStatus, effectiveModel: entry.effectiveModel,
@@ -381,6 +413,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       return;
     }
     const params = message.params || {};
+    if (message.method === "windowsSandbox/setupCompleted") {
+      const setup = entry.windowsSandboxSetup;
+      if (setup?.status !== "running" || setup.mode !== params.mode || typeof params.success !== "boolean") return;
+      setup.status = params.success ? "succeeded" : "failed";
+      setup.error = params.success ? null : String(params.error || "Windows 沙箱初始化失败。");
+      publish(id);
+      return;
+    }
     if (entry.accountController?.onNotification(message.method, params)) return;
     if (message.method === "mcpServer/startupStatus/updated") {
       if (params.threadId !== entry.threadId || !params.name || !params.status) return;
@@ -494,6 +534,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "item/started" || message.method === "item/completed") {
       const item = displayItem(params.item);
       if (item?.id) {
+        if (item.type === "reasoning") item.status = message.method === "item/completed" ? "completed" : "inProgress";
         if (item.type === "contextCompaction") {
           item.status = message.method === "item/completed" ? "completed" : "inProgress";
           if (message.method === "item/started") { entry.compacting = true; entry.compactionStatus = "running"; }
@@ -562,6 +603,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (message.method === "turn/completed") {
       entry.turnStatus = params.turn?.status || "failed";
       const completedTurnId = params.turn?.id || entry.turnId || null;
+      for (const item of entry.items) if (item.type === "reasoning" && item.status === "inProgress"
+        && item.turnId === completedTurnId) item.status = entry.turnStatus;
       if (params.turn?.error) {
         recordError(entry, params.turn.error, completedTurnId);
       } else if (entry.turnStatus === "failed" && !entry.diagnostics.some(event => event.kind === "error" && event.turnId === completedTurnId)) {
@@ -662,6 +705,10 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     });
     child.on("exit", code => {
       if (sessions.get(id) !== entry) return;
+      if (entry.windowsSandboxSetup?.status === "running") {
+        entry.windowsSandboxSetup.status = "failed";
+        entry.windowsSandboxSetup.error = "Codex App Server 已退出，沙箱初始化未完成。";
+      }
       entry.review = null;
       entry.busy = false;
       entry.accountController.reset();
@@ -731,6 +778,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function restart(id) {
     const entry = sessions.get(id);
     const session = terminalManager.getSession(id);
+    guardSandboxSetup(entry);
     if (!entry || !session || session.type !== "ssh") throw new Error("SSH App Server 会话不存在。");
     const threadId = entry.archived ? null : entry.threadId;
     terminalManager.setAppServerConnectionState?.(id, "reconnecting");
@@ -745,6 +793,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   function ready(id) {
     const entry = sessions.get(id);
+    guardSandboxSetup(entry);
     if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
     if (!entry?.threadId || entry.busy) throw new Error("Codex 会话未就绪或正在运行。");
     return entry;
@@ -1560,6 +1609,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function submit(id, text, filePaths = [], references = [], orderedContent) {
     const entry = sessions.get(id);
+    guardSandboxSetup(entry);
     const expectedThreadId = entry?.threadId;
     if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
     if (!entry?.threadId || entry.archived || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
@@ -1583,6 +1633,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw new Error("所选能力已不可用，请刷新列表后重新选择。");
     });
     if (sessions.get(id) !== entry || entry.threadId !== expectedThreadId) throw new Error("会话已切换，请重新发送消息。");
+    guardSandboxSetup(entry);
     if (entry.review) throw new Error("代码审查正在进行，请等待完成或停止审查。");
     entry.uploading = true;
     const uploaded = [];
@@ -1642,6 +1693,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
             ? { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } : permission.sandboxPolicy;
           result = await request(entry, "turn/start", { threadId: entry.threadId, input, model: entry.model,
+            summary: "auto",
             ...(entry.effort ? { effort: entry.effort } : {}),
             approvalPolicy: permission.approvalPolicy, sandboxPolicy,
             collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
@@ -1759,7 +1811,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

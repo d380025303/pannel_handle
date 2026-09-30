@@ -11,6 +11,7 @@ import { CodexVersionControl } from "./CodexVersionControl";
 import { CodexPluginDialog } from "./CodexPluginDialog";
 import { CodeBuddyPluginDialog } from "./CodeBuddyPluginDialog";
 import { CodexCapabilityDetail, type CapabilityDetailTarget } from "./CodexCapabilityDetail";
+import { CodexWindowsSandboxDialog } from "./CodexWindowsSandboxDialog";
 import { CodexBackgroundTerminalsDialog } from "./CodexBackgroundTerminalsDialog";
 import { CodeBuddyJobsDialog } from "./CodeBuddyJobsDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
@@ -164,6 +165,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [goalOpen, setGoalOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
+  const [sandboxSetupOpen, setSandboxSetupOpen] = useState(false);
   const [backgroundTerminalsOpen, setBackgroundTerminalsOpen] = useState(false);
   const [codeBuddyJobsOpen, setCodeBuddyJobsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -627,7 +629,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     const ordered = orderedDraft(draft, inlineImages);
     const text = ordered.text;
     const knownErrorIds = new Set(snapshot.items.filter(item => item.type === "turnError").map(item => item.id));
-    if (mainAgentPending || snapshot.archived || snapshot.reviewing || snapshot.compacting || forkingTurnId || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
+    if (snapshot.windowsSandboxSetup?.status === "running" || mainAgentPending || snapshot.archived || snapshot.reviewing || snapshot.compacting || forkingTurnId || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || pastingRef.current) return;
     setSending(true);
     closeFileMention();
@@ -1188,6 +1190,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     } finally { if (currentSessionRef.current === sessionId) setSelectionPending(false); }
   }
   const isCodex = !snapshot.provider || snapshot.provider === "codex";
+  const sandboxSettingUp = snapshot.windowsSandboxSetup?.status === "running";
   const canManageCodeBuddyPlugins = snapshot.provider === "codebuddy" && sessionType === "windows";
   const canManageCodeBuddyJobs = snapshot.provider === "codebuddy" && sessionType === "windows";
   const isOpenCode = snapshot.provider === "opencode";
@@ -1348,6 +1351,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </p>)}
           </div>)}
         </article>;
+        if (item.type === "contextCompaction" && isCodex) return null;
         if (item.type === "contextCompaction") return <article className="codex-app-server-message contextCompaction" key={item.id} role="status">
           {item.status === "failed" ? "上下文压缩失败" : item.status === "completed" ? "上下文压缩完成" : "正在压缩上下文…"}
         </article>;
@@ -1357,7 +1361,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {snapshot.compacting && <div className="codex-app-server-compaction-status" role="status">正在压缩当前会话，请等待完成…</div>}
       {snapshot.reviewing && <div className="codex-app-server-compaction-status" role="status">正在审查代码，可停止审查后继续发送消息。</div>}
       {!snapshot.compacting && snapshot.compactionStatus === "failed" && !snapshot.error &&
-        <div className="codex-app-server-compaction-status" role="alert">上下文压缩失败，请查看会话记录。</div>}
+        <div className="codex-app-server-compaction-status" role="alert">上下文压缩失败，请重试。</div>}
       {snapshot.approvals.map(approval => <article className="codex-app-server-approval" key={approval.requestId}>
         <strong>{approval.params.networkApprovalContext ? "网络访问确认" : approval.method.includes("fileChange") ? "文件修改确认" : "操作确认"}</strong>
         {approval.params.reason && <p>{approval.params.reason}</p>}
@@ -1547,6 +1551,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
               {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
               {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+              {isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setSandboxSetupOpen(true); }}>Windows 沙箱初始化</button>}
               {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
               {(isCodex || isOpenCode) && <button type="button" role="menuitem" onClick={() => openCapabilities(isOpenCode && capabilityTab === "apps" ? "skills" : capabilityTab)}><BookOpen aria-hidden="true" />{isCodex ? "Skills、Apps 和 MCP" : "Skills 和 MCP"}</button>}
               <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
@@ -1602,9 +1607,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {mainAgent && <button type="button" className="codex-app-server-goal-chip" disabled={mainAgentPending} onClick={() => openSelection("mainAgent")} title={mainAgent.sessionBlank ? "选择主 Agent" : "新建对话后可切换主 Agent"}>主 Agent：{mainAgentLabel}{!mainAgent.sessionBlank && !mainAgent.error ? " · 已锁定" : ""}</button>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : snapshot.provider === "opencode" ? " · Shift+Tab 切换 Build / Plan" : ""}</span>
           <div className="codex-app-server-input-primary">
-            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={!snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId)} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
+            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId)} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
-            {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId) || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
+            {(!snapshot.busy || canSendWhileBusy) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId) || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
           </div>
         </div>
       </div>
@@ -1685,6 +1690,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {pluginOpen && canManageCodeBuddyPlugins && <CodeBuddyPluginDialog key={sessionId} sessionId={sessionId} onClose={() => setPluginOpen(false)} />}
     {capabilityDetail && isCodex && <CodexCapabilityDetail key={`${sessionId}:${snapshot.threadId}:${capabilityDetail.kind}:${capabilityDetail.kind === "app" ? capabilityDetail.id : capabilityDetail.kind === "mcp" ? capabilityDetail.server.name : capabilityDetail.name}`}
       sessionId={sessionId} target={capabilityDetail} onClose={() => setCapabilityDetail(null)} />}
+    {sandboxSetupOpen && isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <CodexWindowsSandboxDialog
+      key={sessionId} sessionId={sessionId} setup={snapshot.windowsSandboxSetup} disabled={snapshot.busy || sending || pastingImage}
+      onClose={() => setSandboxSetupOpen(false)} />}
     {backgroundTerminalsOpen && isCodex && snapshot.threadId && <CodexBackgroundTerminalsDialog key={`${sessionId}:${snapshot.threadId}`}
       sessionId={sessionId} onClose={() => setBackgroundTerminalsOpen(false)} />}
     {codeBuddyJobsOpen && canManageCodeBuddyJobs && snapshot.threadId && <CodeBuddyJobsDialog key={sessionId}

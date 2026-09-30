@@ -37,6 +37,79 @@ function fakeProcess(received, respond) {
   return child;
 }
 
+describe("Windows sandbox setup", () => {
+  function fixture(respond) {
+    const received = [];
+    const child = fakeProcess(received, respond);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const emit = params => child.stdout.write(`${JSON.stringify({ method: "windowsSandbox/setupCompleted", params })}\n`);
+    return { service, child, received, emit };
+  }
+  const session = { id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" };
+  it.each(["elevated", "unelevated"])("starts %s and waits for completion while guarding conversation operations", async mode => {
+    const { service, received, emit } = fixture(request => request.method === "windowsSandbox/setupStart" ? { started: true } : undefined);
+    try {
+      await service.start(session);
+      expect((await service.setupWindowsSandbox("run-1", mode)).windowsSandboxSetup).toMatchObject({ mode, status: "running" });
+      expect(received.find(value => value.method === "windowsSandbox/setupStart").params).toEqual({ mode });
+      await expect(service.setupWindowsSandbox("run-1", mode)).rejects.toThrow("正在初始化");
+      await expect(service.submit("run-1", "hello")).rejects.toThrow("正在初始化");
+      await expect(service.newThread("run-1")).rejects.toThrow("正在初始化");
+      await expect(service.setFastMode("run-1", true)).rejects.toThrow("正在初始化");
+      emit({ mode: mode === "elevated" ? "unelevated" : "elevated", success: true });
+      expect(service.snapshot("run-1").windowsSandboxSetup.status).toBe("running");
+      emit({ mode, success: true });
+      expect(service.snapshot("run-1").windowsSandboxSetup).toMatchObject({ status: "succeeded", error: null });
+      await service.submit("run-1", "hello");
+      await expect(service.setupWindowsSandbox("run-1", mode)).rejects.toThrow("等待");
+    } finally { service.shutdown(); }
+  });
+  it("preserves completion arriving before the request response", async () => {
+    let reply;
+    const { service, emit } = fixture(request => request.method === "windowsSandbox/setupStart" ? new Promise(resolve => { reply = resolve; }) : undefined);
+    try {
+      await service.start(session);
+      const pending = service.setupWindowsSandbox("run-1", "elevated");
+      emit({ mode: "elevated", success: true });
+      reply({ started: true });
+      expect((await pending).windowsSandboxSetup.status).toBe("succeeded");
+    } finally { service.shutdown(); }
+  });
+  it("reports errors, retries failures, rejects invalid modes and exited processes", async () => {
+    let result = { __error: "Method not found" };
+    const { service, child, emit } = fixture(request => request.method === "windowsSandbox/setupStart" ? result : undefined);
+    try {
+      await service.start(session);
+      await expect(service.setupWindowsSandbox("run-1", "bad")).rejects.toThrow("无效");
+      expect((await service.setupWindowsSandbox("run-1", "elevated")).windowsSandboxSetup.error).toContain("升级 Codex");
+      result = { started: false };
+      expect((await service.setupWindowsSandbox("run-1", "elevated")).windowsSandboxSetup.error).toContain("未启动");
+      result = { started: true };
+      await service.setupWindowsSandbox("run-1", "unelevated");
+      emit({ mode: "unelevated", success: false, error: "授权失败" });
+      expect(service.snapshot("run-1").windowsSandboxSetup.error).toBe("授权失败");
+      await service.setupWindowsSandbox("run-1", "elevated");
+      child.emit("exit", 1);
+      expect(service.snapshot("run-1").windowsSandboxSetup).toMatchObject({ status: "failed", error: expect.stringContaining("已退出") });
+      await expect(service.setupWindowsSandbox("run-1", "elevated")).rejects.toThrow("已退出");
+    } finally { service.shutdown(); }
+  });
+  it("rejects non-Windows sessions and non-Codex providers", async () => {
+    const { service } = fixture();
+    try {
+      await service.start({ ...session, agentProvider: "other" });
+      expect(service.snapshot("run-1").windowsSandboxSetup.available).toBe(false);
+      await expect(service.setupWindowsSandbox("run-1", "elevated")).rejects.toThrow("仅本地 Windows");
+      await expect(service.setupWindowsSandbox("missing", "elevated")).rejects.toThrow("仅本地 Windows");
+      service.shutdown();
+      await service.start({ ...session, type: "wsl", wslDistro: "Ubuntu", cwd: "/tmp/project" });
+      expect(service.snapshot("run-1").windowsSandboxSetup.available).toBe(false);
+      await expect(service.setupWindowsSandbox("run-1", "elevated")).rejects.toThrow("仅本地 Windows");
+    } finally { service.shutdown(); }
+  });
+});
+
 describe("Codex App Server session", () => {
   it.each([
     { type: "uncommittedChanges" }, { type: "baseBranch", branch: "main" },
@@ -229,9 +302,26 @@ describe("Codex App Server session", () => {
       emit("item/reasoning/summaryPartAdded", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 1 });
       emit("item/reasoning/summaryTextDelta", { threadId: "thread-1", itemId: "reason-1", summaryIndex: 1, delta: "运行测试" });
       await vi.waitFor(() => expect(service.snapshot("run-1").items[0].summary).toEqual(["检查文件", "运行测试"]));
+      expect(service.snapshot("run-1").items[0].status).toBe("inProgress");
       emit("item/completed", { threadId: "thread-1", turnId: "turn-1",
         item: { id: "reason-1", type: "reasoning", summary: ["最终摘要"] } });
       await vi.waitFor(() => expect(service.snapshot("run-1").items[0].summary).toEqual(["最终摘要"]));
+      expect(service.snapshot("run-1").items[0].status).toBe("completed");
+    } finally { service.close("run-1"); }
+  });
+
+  it.each(["completed", "failed", "interrupted"])("settles empty reasoning when the turn is %s", async status => {
+    const child = fakeProcess([]);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      emit("item/started", { threadId: "thread-1", turnId: "turn-1", item: { id: "r", type: "reasoning", summary: [] } });
+      emit("item/started", { threadId: "thread-1", turnId: "other", item: { id: "other", type: "reasoning", summary: [] } });
+      emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status } });
+      await vi.waitFor(() => expect(service.snapshot("run-1").items[0].status).toBe(status));
+      expect(service.snapshot("run-1").items[1].status).toBe("inProgress");
     } finally { service.close("run-1"); }
   });
 
@@ -270,7 +360,7 @@ describe("Codex App Server session", () => {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
       await service.resume("run-1", "thread-2");
       expect(service.snapshot("run-1").items).toMatchObject([
-        { type: "reasoning", summary: ["历史摘要"], turnId: "turn-2" },
+        { type: "reasoning", summary: ["历史摘要"], turnId: "turn-2", status: "completed" },
         { type: "collabToolCall", tool: "spawn_agent", turnId: "turn-2" },
         { type: "imageView", path: "C:/project/image.png", turnId: "turn-2" },
         { id: "review-2:enteredReviewMode", type: "enteredReviewMode", review: "当前改动", turnId: "turn-2" },
@@ -752,6 +842,7 @@ describe("Codex App Server session", () => {
     expect(service.snapshot("run-1").threadId).toBe("thread-1");
     await service.submit("run-1", "Hello");
     expect(received.find(item => item.method === "turn/start").params.input[0].text).toBe("Hello");
+    expect(received.find(item => item.method === "turn/start").params.summary).toBe("auto");
     expect(received.find(item => item.method === "turn/start").params).not.toHaveProperty("effort");
     expect(received.find(item => item.method === "turn/start").params.collaborationMode).toEqual({ mode: "default", settings: { model: "test-model", developer_instructions: null } });
     child.stdout.write(`${JSON.stringify({ id: 42, method: "item/commandExecution/requestApproval", params: { command: "pnpm test" } })}\n`);

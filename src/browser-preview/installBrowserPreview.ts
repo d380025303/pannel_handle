@@ -448,6 +448,7 @@ export function installBrowserPreview() {
       onProgress: () => () => undefined
     } satisfies Window["projectAssistantApi"],
     codexAppServerApi: {
+      setupWindowsSandbox: async () => { throw new Error("浏览器预览不支持 Windows 沙箱初始化。"); },
       snapshot: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listModelMetadata: async () => [],
       readAccount: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),

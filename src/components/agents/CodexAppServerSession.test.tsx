@@ -182,6 +182,30 @@ describe("CodexAppServerSession", () => {
     expect(messages[1].scrollTop).toBe(200);
   });
 
+  it.each([
+    { sessionType: "windows" as const, provider: "codex", visible: true },
+    { sessionType: "wsl" as const, provider: "codex", visible: false },
+    { sessionType: "ssh" as const, provider: "codex", visible: false },
+    { sessionType: "windows" as const, provider: "codebuddy", visible: false }
+  ])("limits sandbox setup entry to local Windows Codex: $sessionType / $provider", async ({ sessionType, provider, visible }) => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval",
+      busy: false, error: null, pendingPlan: null, items: [], approvals: [], provider: provider as "codex" | "codebuddy",
+      windowsSandboxSetup: { available: true, mode: "elevated", status: "running", error: null } });
+    render(<SessionView sessionId="run-1" sessionType={sessionType} draft="hello" setDraft={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(Boolean(screen.queryByRole("menuitem", { name: "Windows 沙箱初始化" }))).toBe(visible);
+    if (visible) {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Windows 沙箱初始化" }));
+      expect(screen.getByRole("button", { name: "正在初始化…" })).toHaveProperty("disabled", true);
+      expect(screen.getByRole("button", { name: "发送" })).toHaveProperty("disabled", true);
+      fireEvent.click(screen.getByRole("button", { name: "关闭沙箱初始化" }));
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Windows 沙箱初始化" }));
+      expect(screen.getByRole("status").textContent).toContain("正在初始化");
+    }
+  });
+
   it("shows Codex updates in the empty state instead of the actions menu", async () => {
     const check = vi.mocked(window.codexVersionApi.check);
     const update = vi.mocked(window.codexVersionApi.update);
@@ -430,6 +454,24 @@ describe("CodexAppServerSession", () => {
       busy: true, compacting: true, compactionStatus: "running", error: null, items: [], approvals: [] } }));
     expect(screen.getByText("正在压缩当前会话，请等待完成…")).toBeTruthy();
     expect(screen.getByPlaceholderText("向 Codex 发送消息")).toHaveProperty("disabled", true);
+  });
+
+  it.each(["running", "completed", "failed"] as const)("shows Codex compaction %s only in the bottom status", async status => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", provider: "codex",
+      busy: status === "running", compacting: status === "running", compactionStatus: status, error: null,
+      items: [{ id: "compact-1", type: "contextCompaction", status: status === "running" ? "inProgress" : status }], approvals: [] } }));
+    const messages = document.querySelector(".codex-app-server-messages")!;
+    expect(messages.querySelector(".contextCompaction")).toBeNull();
+    expect(screen.queryByText("上下文压缩完成")).toBeNull();
+    const bottomStatus = messages.querySelector(".codex-app-server-compaction-status");
+    if (status === "completed") expect(bottomStatus).toBeNull();
+    else {
+      expect(bottomStatus?.textContent).toBe(status === "running" ? "正在压缩当前会话，请等待完成…" : "上下文压缩失败，请重试。");
+      expect(bottomStatus?.getAttribute("role")).toBe(status === "running" ? "status" : "alert");
+    }
+    expect(screen.getByPlaceholderText("向 Codex 发送消息")).toHaveProperty("disabled", status === "running");
   });
 
   it("creates, pauses, and clears a thread goal with server usage", async () => {
@@ -1965,7 +2007,7 @@ describe("CodexAppServerSession", () => {
     expect(Array.from(document.querySelectorAll(".codex-app-server-messages > article, .codex-app-server-messages > section"))
       .slice(0, 5).map(node => node.textContent)).toEqual([
         expect.stringContaining("回复 A"), expect.stringContaining("工具调用 · 4 项"),
-        expect.stringContaining("推理摘要"), expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
+        expect.stringContaining("回复 B"), expect.stringContaining("工具调用 · 5 项")
       ]);
     expect(screen.queryByText("a-0")).toBeNull();
     expect(screen.queryByText("b-0")).toBeNull();
@@ -2104,10 +2146,11 @@ describe("CodexAppServerSession", () => {
       expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("检查项目"),
       expect.stringContaining("工具调用 · 1 项"), expect.stringContaining("协作调用 · spawn_agent"),
       expect.stringContaining("C:/project/screenshot.png"), expect.stringContaining("开始代码审查"),
-      expect.stringContaining("发现一个问题"), expect.stringContaining("上下文压缩完成"),
+      expect.stringContaining("发现一个问题"),
       expect.stringContaining("未识别的事件类型：futureEvent")
     ]);
     expect(timeline.textContent).not.toContain("must not render");
+    expect(timeline.textContent).not.toContain("上下文压缩完成");
     expect(screen.getAllByRole("button", { name: /工具调用 · 1 项/ })).toHaveLength(2);
   });
 

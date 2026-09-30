@@ -171,6 +171,7 @@ contextBridge.exposeInMainWorld("projectAssistantApi", {
 });
 
 contextBridge.exposeInMainWorld("codexAppServerApi", {
+  setupWindowsSandbox: (id, mode) => ipcRenderer.invoke("codex-app-server:windows-sandbox-setup", id, mode),
   snapshot: id => ipcRenderer.invoke("codex-app-server:snapshot", id),
   listModelMetadata: id => ipcRenderer.invoke("codex-app-server:model-metadata", id),
   readAccount: id => ipcRenderer.invoke("codex-app-server:account-read", id),
