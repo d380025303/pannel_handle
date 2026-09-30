@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { ArrowUp, BookOpen, Cable, Check, ChevronRight, Ellipsis, File as FileIcon, Globe2, History, Minimize2, Package, Paperclip, Pin, Plus, RefreshCw, Sparkles, Square, Target, Terminal, Wrench, X } from "lucide-react";
 import type { AgentModelSource, CodexAppServerHistory, CodexAppServerSnapshot, CodexCapabilityReference, CodexSessionCapabilities, CodexExecutionPermission, QuickCommand, TerminalSession, WorkspaceEntrySearchResult } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
+import { CodexSubAgentPanel } from "./CodexSubAgentPanel";
 import { CodexAccountPanel } from "./CodexAccountPanel";
 import { CodexGoalDialog } from "./CodexGoalDialog";
 import { CodeBuddyGoalDialog } from "./CodeBuddyGoalDialog";
@@ -114,6 +115,7 @@ export type CodexAppServerSessionHandle = {
 type CodexAppServerSessionProps = {
   sessionId: string;
   isActive?: boolean;
+  minimalMode?: boolean;
   session?: TerminalSession;
   sessionType?: "windows" | "wsl" | "ssh";
   draft: string;
@@ -121,12 +123,13 @@ type CodexAppServerSessionProps = {
   draftReferences?: CodexCapabilityReference[];
   setDraftReferences?: Dispatch<SetStateAction<CodexCapabilityReference[]>>;
   onLinkClick?: (href: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   onReconnectModels?: (sessionId: string) => Promise<void>;
   onSwitchCodeBuddyModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
   onSwitchCodexModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
 };
 
-export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel }, ref) {
+export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, CodexAppServerSessionProps>(function CodexAppServerSession({ sessionId, isActive = true, minimalMode = false, session, sessionType = "windows", draft, setDraft, draftReferences = [], setDraftReferences = () => {}, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel }, ref) {
   const [snapshot, setSnapshot] = useState<CodexAppServerSnapshot>(empty);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState("");
@@ -745,12 +748,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     if (!threadId || !turnId || snapshot.busy || snapshot.archived || forkingTurnId || sending || pastingImage) return;
     setForkingTurnId(turnId); setMenuOpen(false); setError("");
     try {
-      const next = await window.codexAppServerApi.forkThread(sessionId, threadId, turnId);
-      if (currentSessionRef.current !== sessionId) return;
-      timelineRef.current = next; setExpandedGroupId(null); setSnapshot(next);
-      setDraft(""); setDraftReferences([]); setAttachments([]); setInlineImages([]); inlineImagesRef.current = []; pastedImagesRef.current.clear(); setPreviewFile(null);
-      setCapabilities(null); setCapabilityOpen(false);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setError(`分叉失败：${message(cause)}`); }
+      const next = await window.codexAppServerApi.forkTurnToNewSession(sessionId, threadId, turnId);
+      onSessionCreated?.(next.id);
+    } catch (cause) { if (currentSessionRef.current === sessionId) setError(`新建会话失败：${message(cause)}`); }
     finally { if (currentSessionRef.current === sessionId) setForkingTurnId(null); }
   }
   async function confirmRewind() {
@@ -1256,7 +1256,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const matchesCapability = (name: string, description: string) => `${name} ${description}`.toLocaleLowerCase().includes(capabilityQuery.trim().toLocaleLowerCase());
   const selectedMember = snapshot.team?.members.find(member => member.name === selectedMemberName) || snapshot.team?.members[0];
   const timeline = useMemo(() => {
-    const entries = isActive ? groupTimeline(snapshot) : [];
+    const entries = isActive ? groupTimeline(snapshot, minimalMode) : [];
     if (snapshot.provider && snapshot.provider !== "codex") return entries;
     const userTurns = new Set(snapshot.items.filter(item => item.type === "userMessage" && item.turnId).map(item => item.turnId));
     const activeTurnId = snapshot.busy ? [...snapshot.items].reverse().find(item => item.turnId)?.turnId : null;
@@ -1269,7 +1269,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       return turnId && turnId !== activeTurnId && userTurns.has(turnId) && lastIndex.get(turnId) === index
         ? [entry, { kind: "forkTurn" as const, turnId }] : [entry];
     });
-  }, [isActive, snapshot]);
+  }, [isActive, snapshot, minimalMode]);
   const openCodePlanItemId = openCodePlanReplyId(snapshot);
   const openCodeBuildMode = snapshot.nativeModes?.find(mode => normalizeModeKey(mode.id) === "build");
   return <section className="codex-app-server-session" aria-label={`${agentName} 图形会话`}>
@@ -1280,7 +1280,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       logout: () => window.codexAppServerApi.logout(sessionId),
       refreshAccountUsage: () => window.codexAppServerApi.refreshAccountUsage(sessionId)
     }} />}
-    <div className={`codex-app-server-conversation-layout${snapshot.provider === "codebuddy" && snapshot.team ? " has-team" : ""}`}>
+    <div className={`codex-app-server-conversation-layout${(snapshot.provider === "codebuddy" && snapshot.team || isCodex && snapshot.subAgents?.members.length && snapshot.subAgents.expanded) ? " has-team" : ""}`}>
       <div className="codex-app-server-main-pane">
     {snapshot.provider === "codebuddy" && snapshot.team && <div className="codex-app-server-pane-heading">团队领导 · {snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</div>}
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite" onScroll={event => {
@@ -1290,7 +1290,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {timeline.map(entry => {
         if (entry.kind === "forkTurn") return <div className="codex-app-server-turn-actions" key={`fork-${entry.turnId}`}>
           <button type="button" disabled={snapshot.busy || snapshot.archived || Boolean(forkingTurnId) || sending || pastingImage}
-            onClick={() => void forkFromTurn(entry.turnId)}>{forkingTurnId === entry.turnId ? "正在分叉…" : "从此回合分叉"}</button>
+            onClick={() => void forkFromTurn(entry.turnId)}>{forkingTurnId === entry.turnId ? "正在新建会话…" : "从此回合新建会话"}</button>
         </div>;
         if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
@@ -1615,6 +1615,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       </div>
     </form>
       </div>
+      {isCodex && snapshot.threadId && Boolean(snapshot.subAgents?.members.length) && snapshot.subAgents && <CodexSubAgentPanel
+        sessionId={sessionId} threadId={snapshot.threadId} state={snapshot.subAgents} minimalMode={minimalMode} onLinkClick={onLinkClick} />}
       {snapshot.provider === "codebuddy" && snapshot.team && <aside className="codex-app-server-team-pane" aria-label="Agent Teams">
         <div className="codex-app-server-team-heading"><strong>Agent Teams</strong><span>{snapshot.team.name || "团队加载中"}{snapshot.team.isAutoTeam ? " · 自动团队" : ""}</span></div>
         <div className="codex-app-server-team-members" role="tablist" aria-label="团队成员">
@@ -1633,7 +1635,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {selectedMember.toolCallCount != null ? ` · 工具 ${selectedMember.toolCallCount}` : ""}
             </small>}
           </div>
-          <TeamMemberTimeline key={`${snapshot.threadId}:${snapshot.team.name}:${selectedMember.name}`} member={selectedMember} onLinkClick={onLinkClick} />
+          <TeamMemberTimeline key={`${snapshot.threadId}:${snapshot.team.name}:${selectedMember.name}`} member={selectedMember} minimalMode={minimalMode} onLinkClick={onLinkClick} />
           <form className="codex-app-server-team-composer" onSubmit={event => { event.preventDefault(); void sendMemberMessage(); }}>
             <label htmlFor="codebuddy-team-message">发给 {selectedMember.name}</label>
             <textarea id="codebuddy-team-message" value={memberDraft} onChange={event => setMemberDraft(event.target.value)}

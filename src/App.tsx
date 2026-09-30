@@ -120,6 +120,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showIdea, setShowIdea] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [graphicalSessionMinimalMode, setGraphicalSessionMinimalMode] = useState(false);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
   const [screenshotShortcut, setScreenshotShortcut] = useState(DEFAULT_SCREENSHOT_SHORTCUT);
   const [titleBarActionOrder, setTitleBarActionOrder] = useState<TitleBarActionId[]>(DEFAULT_TITLE_BAR_ACTION_ORDER);
@@ -345,6 +346,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     window.terminalApi.getConfig().then((config) => {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
+        setGraphicalSessionMinimalMode(config.graphicalSessionMinimalMode === true);
         setScreenshotEnabled(config.screenshotEnabled);
         setScreenshotShortcut(config.screenshotShortcut);
         setTitleBarActionOrder(withSettingsAction(config.titleBarActionOrder));
@@ -995,11 +997,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   onClaimSize={terminalInstances.claimActiveSize}
                 />
                 {terminalSessions.sessions.filter(session => session.runtimeMode === "app-server").map(session =>
-                  <GraphicalSessionPanel key={session.id} session={session}
+                  <GraphicalSessionPanel key={session.id} session={session} minimalMode={graphicalSessionMinimalMode}
                     isActive={isAppServerSession && activeSessionId === session.id && workspaceTab === "terminal"}
                     draft={appServerDrafts[session.id] ?? ""} draftReferences={appServerDraftReferences[session.id] ?? emptyDraftReferences}
                     onDraftChange={handleAppServerDraftChange} onDraftReferencesChange={handleAppServerDraftReferencesChange}
-                    onLinkClick={handleAppServerLink} onReconnectModels={terminalSessions.reconnectOpenCodeModels} onSwitchCodeBuddyModel={terminalSessions.switchCodeBuddyModel} onSwitchCodexModel={terminalSessions.switchCodexGraphicalModel} sessionRefs={appServerSessionRefs.current} />)}
+                    onSessionCreated={terminalSessions.setActiveId} onLinkClick={handleAppServerLink} onReconnectModels={terminalSessions.reconnectOpenCodeModels} onSwitchCodeBuddyModel={terminalSessions.switchCodeBuddyModel} onSwitchCodexModel={terminalSessions.switchCodexGraphicalModel} sessionRefs={appServerSessionRefs.current} />)}
                 {isAppServerSession && appServerLinkError && <div role="alert" className="codex-app-server-error">
                   <span>{appServerLinkError}</span>
                   <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setAppServerLinkError(null)}><X aria-hidden="true" /></button>
@@ -1270,6 +1272,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onDefaultWindowsShellChange={terminalSessions.changeDefaultWindowsShell}
           autoRestore={terminalSessions.autoRestore}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
+          graphicalSessionMinimalMode={graphicalSessionMinimalMode}
+          onGraphicalSessionMinimalModeChange={async enabled => {
+            await window.terminalApi.setConfig({ graphicalSessionMinimalMode: enabled });
+            setGraphicalSessionMinimalMode(enabled);
+          }}
           debugMode={debugMode}
           screenshotEnabled={screenshotEnabled}
           screenshotShortcut={screenshotShortcut}

@@ -39,6 +39,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     restart: route("restart"), snapshot: route("snapshot"), getWorkspaceCwd: route("getWorkspaceCwd"),
     allowFiles: route("allowFiles"), previewAttachment: route("previewAttachment"),
     allowPastedImage: route("allowPastedImage"), discardPastedImage: route("discardPastedImage"),
+    setSubAgentView: routeCodex("setSubAgentView"), refreshSubAgents: routeCodex("refreshSubAgents"),
     setupWindowsSandbox: routeCodex("setupWindowsSandbox"),
     readAccount: codexRoute("readAccount"), startLogin: codexRoute("startLogin"), cancelLogin: codexRoute("cancelLogin"),
     logout: codexRoute("logout"), refreshAccountUsage: codexRoute("refreshAccountUsage"),

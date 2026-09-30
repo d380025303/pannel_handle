@@ -154,6 +154,7 @@ export type TranslationKey =
   | "session.openTerminalMode"
   | "session.openingOtherMode"
   | "settings.autoWorkBuddyCheckin"
+  | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
   | "settings.screenshotTitle"
   | "settings.titleBarActionsTitle"
@@ -1185,6 +1186,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openTerminalMode": "以终端打开",
     "session.openingOtherMode": "正在启动...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
+    "settings.graphicalSessionMinimalMode": "图形会话极简模式",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
     "settings.titleBarActionsTitle": "顶部图标",
@@ -2208,6 +2210,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openTerminalMode": "Open in terminal",
     "session.openingOtherMode": "Starting...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
+    "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",
     "settings.titleBarActionsTitle": "Title bar icons",

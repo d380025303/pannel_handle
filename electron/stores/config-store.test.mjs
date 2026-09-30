@@ -73,6 +73,7 @@ describe("config-store", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: false,
+      graphicalSessionMinimalMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
@@ -271,6 +272,7 @@ describe("config-store", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       autoRestore: false,
       debugMode: true,
+      graphicalSessionMinimalMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       themeId: "light",
@@ -292,6 +294,7 @@ describe("config-store", () => {
       autoWorkBuddyCheckin: true,
       autoCollapseFileChains: true,
       debugMode: true,
+      graphicalSessionMinimalMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
@@ -355,3 +358,19 @@ describe("default Windows shell", () => {
     expect(store.getConfig().defaultWindowsShell).toBe("cmd");
   });
 });
+
+ it("defaults minimal mode off for legacy config and persists only booleans", () => {
+   const configFile = createTempConfigPath();
+   fs.writeFileSync(configFile, JSON.stringify({ debugMode: true }));
+   const store = createConfigStore({ configFile });
+   store.loadConfig();
+   expect(store.getConfig().graphicalSessionMinimalMode).toBe(false);
+   store.updateConfig({ graphicalSessionMinimalMode: true });
+   store.updateConfig({ graphicalSessionMinimalMode: "false" });
+   const reloaded = createConfigStore({ configFile });
+   reloaded.loadConfig();
+   expect(reloaded.getConfig().graphicalSessionMinimalMode).toBe(true);
+   reloaded.updateConfig({ graphicalSessionMinimalMode: false });
+   store.loadConfig();
+   expect(store.getConfig().graphicalSessionMinimalMode).toBe(false);
+ });

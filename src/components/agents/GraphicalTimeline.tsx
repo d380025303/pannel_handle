@@ -16,13 +16,13 @@ const isTool = (item: SessionItem) => toolTypes.has(item.type);
 function reasoningSummary(item: SessionItem) {
   return item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n").trim() || "";
 }
-function groupTools(items: SessionItem[], showCodexEvents = false): ToolDisplayItem[] {
+function groupTools(items: SessionItem[], showCodexEvents = false, minimalMode = false): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
   const isHidden = (item: SessionItem) => !showCodexEvents && !isTool(item)
     && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
   for (const item of items) {
-    if (isHidden(item) || item.type === "reasoning" && !reasoningSummary(item)) continue;
+    if (isHidden(item) || item.type === "reasoning" && (minimalMode || !reasoningSummary(item))) continue;
     const previous = result.at(-1);
     if (isTool(item)) {
       if (previous?.kind === "tools" && sameTurn(previous.items[0], item)) previous.items.push(item);
@@ -115,7 +115,7 @@ export function CodexEventCard({ item }: { item: SessionItem }) {
       <strong>推理摘要</strong><MarkdownBlock className="codex-app-server-markdown" content={summary} />
     </article>;
   }
-  if (item.type === "collabToolCall") return <article className="codex-app-server-message codexEvent" key={item.id}>
+  if (item.type === "collabToolCall" || item.type === "collabAgentToolCall") return <article className="codex-app-server-message codexEvent" key={item.id}>
     <strong>协作调用 · {item.tool || "协作工具"}</strong>
     <p>{statusLabel(item.status)}{item.agentStatus ? ` · 成员${item.agentStatus}` : ""}</p>
     {item.senderThreadId && <p>发起线程：{item.senderThreadId}</p>}
@@ -141,14 +141,14 @@ export const teamStatusLabels: Record<string, string> = {
   cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
 };
 
-export function TeamMemberTimeline({ member, onLinkClick }: { member: TeamMember; onLinkClick?: (href: string) => void }) {
+export function TeamMemberTimeline({ member, onLinkClick, codeBuddy = true, minimalMode = false }: { member: TeamMember; onLinkClick?: (href: string) => void; codeBuddy?: boolean; minimalMode?: boolean }) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   return <div className="codex-app-server-team-timeline" aria-label={`${member.name} 的消息时间线`}>
     {!member.items.length && <p className="codex-app-server-team-empty">暂无成员消息。</p>}
-    {groupTools(member.items).map(entry => {
+    {groupTools(member.items, !codeBuddy, minimalMode).map(entry => {
       if (entry.kind === "tools") {
         const groupId = entry.items[0].id;
-        return <ToolGroup key={groupId} items={entry.items} codeBuddy expanded={expandedGroupId === groupId}
+        return <ToolGroup key={groupId} items={entry.items} codeBuddy={codeBuddy} expanded={expandedGroupId === groupId}
           onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
       }
       const item = entry.item;
@@ -159,7 +159,7 @@ export function TeamMemberTimeline({ member, onLinkClick }: { member: TeamMember
       if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
         <strong>计划进度</strong><ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
       </article>;
-      return null;
+      return codeBuddy ? null : <CodexEventCard key={item.id} item={item} />;
     })}
   </div>;
 }
@@ -202,8 +202,8 @@ export function DiagnosticCard({ event }: { event: Diagnostic }) {
     <pre>{JSON.stringify(data, null, 2)}</pre>
   </details>;
 }
-export function groupTimeline(snapshot: CodexAppServerSnapshot): DisplayItem[] {
-  const groups = groupTools(snapshot.items, !snapshot.provider || snapshot.provider === "codex");
+export function groupTimeline(snapshot: CodexAppServerSnapshot, minimalMode = false): DisplayItem[] {
+  const groups = groupTools(snapshot.items, !snapshot.provider || snapshot.provider === "codex", minimalMode);
   const events = (snapshot.diagnostics || []).filter(event => !event.kind.startsWith("hook/"));
   const diffs = snapshot.turnDiffs || [];
   const eventsByTurn = new Map<string, Diagnostic[]>();

@@ -8453,3 +8453,19 @@ button.agent-usage-status[aria-expanded="true"] {
   .codex-trust-overlay { padding: 8px; }
   .codex-trust-dialog { padding: 14px; }
 }
+.codex-sub-agent-pane.is-collapsed { flex: 0 0 auto; }
+.codex-sub-agent-pane .codex-app-server-team-heading button { display: flex; align-items: center; gap: 5px; border: 0; padding: 4px; color: var(--color-text); background: transparent; }
+.codex-sub-agent-pane .codex-app-server-team-heading button[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.codex-sub-agent-pane .codex-app-server-team-heading svg, .codex-sub-agent-branch svg { width: 14px; height: 14px; }
+.codex-sub-agent-tree { max-height: 180px; flex-shrink: 0; overflow: auto; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--color-border); list-style: none; }
+.codex-sub-agent-tree ul { padding-left: 16px; list-style: none; }
+.codex-sub-agent-row { display: flex; align-items: center; gap: 4px; margin: 3px 0; }
+.codex-sub-agent-row button { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text-secondary); background: var(--color-bg-app); font-size: 11px; }
+.codex-sub-agent-row button[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-text); }
+.codex-sub-agent-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codex-sub-agent-row small { white-space: nowrap; }
+.codex-sub-agent-row .codex-sub-agent-branch { padding: 4px; border: 0; background: transparent; }
+.codex-sub-agent-branch[aria-expanded="true"] svg { transform: rotate(90deg); }
+.codex-sub-agent-notice { margin: 6px 12px; color: var(--color-text-secondary); font-size: 12px; }
+.codex-sub-agent-pane .codex-app-server-team-member-detail details { flex-basis: 100%; overflow-wrap: anywhere; }
+.codex-sub-agent-pane .codex-app-server-team-member-detail small { overflow-wrap: anywhere; }

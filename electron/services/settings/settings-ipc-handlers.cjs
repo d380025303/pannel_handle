@@ -91,6 +91,9 @@ function registerSettingsIpcHandlers({
     if (partial && typeof partial.autoCollapseFileChains === "boolean") {
       updates.autoCollapseFileChains = partial.autoCollapseFileChains;
     }
+    if (partial && typeof partial.graphicalSessionMinimalMode === "boolean") {
+      updates.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
+    }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
     }
@@ -141,7 +144,7 @@ function registerSettingsIpcHandlers({
         || Object.hasOwn(updates, "terminalBackgroundPositionY");
       const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
         || Object.hasOwn(updates, "titleBarHiddenActions");
-      if (changesPosition || changesTitleBar) {
+      if (changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode")) {
         configStore.updateConfig(updates, { throwOnSaveError: true });
       } else {
         configStore.updateConfig(updates);

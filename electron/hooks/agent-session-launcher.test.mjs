@@ -120,6 +120,19 @@ function createMocks(overrides = {}) {
 }
 
 describe("agent-session-launcher", () => {
+  it.each([false, true])("forks into an independent runtime and cleans up on failure=%s", async (fails) => {
+    const service = { start: vi.fn(async () => {}), snapshot: vi.fn(() => ({ threadId: "thread-1", busy: false })),
+      forkThread: vi.fn(async () => { if (fails) throw new Error("fork failed"); }) };
+    const mocks = createMocks({ codexAppServerSessionService: service });
+    const source = await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codex", graphicalSessionEnabled: true });
+    const result = mocks.launcher.forkTurnToNewSession(source.id, "thread-1", "turn-1");
+    if (fails) await expect(result).rejects.toThrow("fork failed");
+    else expect((await result).id).toBe("run-2");
+    expect(service.forkThread).toHaveBeenCalledWith("run-2", "thread-1", "turn-1");
+    expect(mocks.terminalManager.getSession(source.id)).toBe(source);
+    expect(mocks.sessions).toHaveLength(fails ? 1 : 2);
+  });
+
   it("routes Claude graphical sessions through ACP on Windows, WSL, and SSH", async () => {
     const codexAppServerSessionService = { start: vi.fn(async () => {}) };
     const mocks = createMocks({ codexAppServerSessionService });

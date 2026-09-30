@@ -22,6 +22,8 @@ type SettingsModalProps = {
   onDefaultWindowsShellChange: (value: WindowsShell) => Promise<void>;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
+  graphicalSessionMinimalMode?: boolean;
+  onGraphicalSessionMinimalModeChange?: (enabled: boolean) => Promise<void>;
   debugMode: boolean;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
@@ -60,6 +62,8 @@ export function SettingsModal({
   onDefaultWindowsShellChange,
   autoRestore,
   autoWorkBuddyCheckin,
+  graphicalSessionMinimalMode = false,
+  onGraphicalSessionMinimalModeChange,
   debugMode,
   screenshotEnabled,
   screenshotShortcut,
@@ -103,6 +107,8 @@ export function SettingsModal({
   const [secret, setSecret] = useState("");
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [minimalModeBusy, setMinimalModeBusy] = useState(false);
+  const [minimalModeError, setMinimalModeError] = useState<string | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
   const [shellBusy, setShellBusy] = useState(false);
   const [recordingScreenshotShortcut, setRecordingScreenshotShortcut] = useState(false);
@@ -456,6 +462,21 @@ export function SettingsModal({
                         <span className="auto-restore-track" />
                       </span>
                     </label>
+                    <label className="settings-toggle-row">
+                      <span><strong>{t("settings.graphicalSessionMinimalMode")}</strong></span>
+                      <span className="auto-restore-label">
+                        <input type="checkbox" aria-label={t("settings.graphicalSessionMinimalMode")} className="auto-restore-checkbox" checked={graphicalSessionMinimalMode} disabled={minimalModeBusy} onChange={async event => {
+                          const enabled = event.target.checked;
+                          setMinimalModeBusy(true);
+                          setMinimalModeError(null);
+                          try { await onGraphicalSessionMinimalModeChange?.(enabled); }
+                          catch (error) { setMinimalModeError(error instanceof Error ? error.message : String(error)); }
+                          finally { setMinimalModeBusy(false); }
+                        }} />
+                        <span className="auto-restore-track" />
+                      </span>
+                    </label>
+                    {minimalModeError && <p role="alert">{minimalModeError}</p>}
                     <label className="settings-toggle-row">
                       <span><strong>{t("settings.debugMode")}</strong></span>
                       <span className="auto-restore-label">

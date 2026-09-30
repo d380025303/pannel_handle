@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexAppServerSession as SessionView, type CodexAppServerSessionHandle } from "./CodexAppServerSession";
 import { GraphicalSessionPanel } from "./GraphicalSessionPanel";
 
-function CodexAppServerSession({ sessionId, ref }: { sessionId: string | null; ref?: Ref<CodexAppServerSessionHandle> }) {
+function CodexAppServerSession({ sessionId, ref, minimalMode = false }: { sessionId: string | null; ref?: Ref<CodexAppServerSessionHandle>; minimalMode?: boolean }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [references, setReferences] = useState<Record<string, CodexCapabilityReference[]>>({});
   if (!sessionId) return null;
-  return <SessionView ref={ref} sessionId={sessionId} draft={drafts[sessionId] ?? ""} draftReferences={references[sessionId] ?? []}
+  return <SessionView ref={ref} sessionId={sessionId} minimalMode={minimalMode} draft={drafts[sessionId] ?? ""} draftReferences={references[sessionId] ?? []}
     setDraftReferences={value => setReferences(current => ({ ...current,
       [sessionId]: typeof value === "function" ? value(current[sessionId] ?? []) : value }))} setDraft={value => setDrafts(current => {
     const nextDraft = typeof value === "function" ? value(current[sessionId] ?? "") : value;
@@ -32,6 +32,7 @@ describe("CodexAppServerSession", () => {
   const renameThread = vi.fn().mockResolvedValue(undefined);
   const rewind = vi.fn();
   const pinThread = vi.fn().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned }));
+  const forkTurnToNewSession = vi.fn().mockResolvedValue({ id: "run-2" });
   const forkThread = vi.fn().mockResolvedValue({ threadId: "branch-1", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const archiveThread = vi.fn().mockResolvedValue(undefined);
   const unarchiveThread = vi.fn().mockResolvedValue(undefined);
@@ -74,7 +75,7 @@ describe("CodexAppServerSession", () => {
 
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
-    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
+    submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkTurnToNewSession.mockReset().mockResolvedValue({ id: "run-2" }); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     listBackgroundTerminals.mockReset().mockResolvedValue([]);
     terminateBackgroundTerminal.mockReset().mockResolvedValue({ terminated: true });
     cleanBackgroundTerminals.mockReset().mockResolvedValue(undefined);
@@ -97,7 +98,7 @@ describe("CodexAppServerSession", () => {
     } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
-      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkThread, archiveThread, unarchiveThread, listCapabilities,
+      submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkTurnToNewSession, forkThread, archiveThread, unarchiveThread, listCapabilities,
       resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
@@ -2093,7 +2094,11 @@ describe("CodexAppServerSession", () => {
   });
 
   it("forks the current Codex timeline through the selected turn", async () => {
-    render(<CodexAppServerSession sessionId="run-1" />);
+    let finish!: (value: any) => void;
+    forkTurnToNewSession.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const onSessionCreated = vi.fn();
+    const setDraft = vi.fn();
+    render(<SessionView sessionId="run-1" draft="保留草稿" setDraft={setDraft} onSessionCreated={onSessionCreated} />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codex", mode: "default",
       busy: false, error: null, approvals: [], items: [
         { id: "user-1", type: "userMessage", turnId: "turn-1", text: "第一个问题" },
@@ -2101,28 +2106,55 @@ describe("CodexAppServerSession", () => {
         { id: "user-2", type: "userMessage", turnId: "turn-2", text: "第二个问题" },
         { id: "answer-2", type: "agentMessage", turnId: "turn-2", text: "第二个回答" }
       ] } }));
-    const buttons = screen.getAllByRole("button", { name: "从此回合分叉" });
+    const buttons = screen.getAllByRole("button", { name: "从此回合新建会话" });
     expect(buttons).toHaveLength(2);
     expect(buttons[0].parentElement?.previousElementSibling).toHaveProperty("textContent", "第一个回答");
+    await screen.findByDisplayValue("保留草稿");
+    setDraft.mockClear();
     fireEvent.click(buttons[0]);
-    await waitFor(() => expect(forkThread).toHaveBeenCalledWith("run-1", "thread-1", "turn-1"));
-    await waitFor(() => expect(screen.queryByText("第二个回答")).toBeNull());
+    expect(screen.getByRole("button", { name: "正在新建会话…" })).toHaveProperty("disabled", true);
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(forkTurnToNewSession).toHaveBeenCalledWith("run-1", "thread-1", "turn-1"));
+    expect(forkTurnToNewSession).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ id: "run-2" }));
+    await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith("run-2"));
+    expect(screen.getByText("第二个回答")).toBeTruthy();
+    expect(setDraft).not.toHaveBeenCalled();
+    expect(forkThread).not.toHaveBeenCalled();
   });
 
   it("disables turn forking during a turn and preserves the source on failure", async () => {
-    forkThread.mockRejectedValueOnce(new Error("分叉不可用"));
+    forkTurnToNewSession.mockRejectedValueOnce(new Error("分叉不可用"));
     render(<CodexAppServerSession sessionId="run-1" />);
     const source = { threadId: "thread-1", provider: "codex", mode: "default", error: null, approvals: [],
       items: [{ id: "user-1", type: "userMessage", turnId: "turn-1", text: "问题" },
         { id: "answer-1", type: "agentMessage", turnId: "turn-1", text: "回答" },
         { id: "user-2", type: "userMessage", turnId: "turn-2", text: "运行中的问题" }] };
     act(() => changed({ id: "run-1", snapshot: { ...source, busy: true } }));
-    expect(screen.getAllByRole("button", { name: "从此回合分叉" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "从此回合分叉" })).toHaveProperty("disabled", true);
+    expect(screen.getAllByRole("button", { name: "从此回合新建会话" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "从此回合新建会话" })).toHaveProperty("disabled", true);
     act(() => changed({ id: "run-1", snapshot: { ...source, busy: false } }));
-    fireEvent.click(screen.getAllByRole("button", { name: "从此回合分叉" })[0]);
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "分叉失败：分叉不可用");
+    fireEvent.click(screen.getAllByRole("button", { name: "从此回合新建会话" })[0]);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "新建会话失败：分叉不可用");
     expect(screen.getByText("回答")).toBeTruthy();
+  });
+
+  it("toggles reasoning in a mounted session and restores streaming updates", async () => {
+    const { rerender } = render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByPlaceholderText("向 Codex 发送消息");
+    const snapshot = { threadId: "thread-1", mode: "default", busy: false, error: null, approvals: [], items: [
+      { id: "r", turnId: "turn-1", type: "reasoning", summary: ["visible reasoning"] },
+      { id: "reply", turnId: "turn-1", type: "agentMessage", text: "visible reply" }
+    ] };
+    changed({ id: "run-1", snapshot });
+    await screen.findByText("visible reasoning");
+    rerender(<CodexAppServerSession sessionId="run-1" minimalMode />);
+    expect(screen.queryByText("visible reasoning")).toBeNull();
+    expect(screen.getByText("visible reply")).toBeTruthy();
+    changed({ id: "run-1", snapshot: { ...snapshot, items: [{ ...snapshot.items[0], summary: ["new reasoning"] }, snapshot.items[1]] } });
+    await waitFor(() => expect(screen.queryByText("new reasoning")).toBeNull());
+    rerender(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByText("new reasoning");
   });
 
   it("shows Codex reasoning and lifecycle events in order between tool groups", async () => {

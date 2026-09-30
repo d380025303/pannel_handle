@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import type { CodexAppServerSnapshot } from "../../vite-env";
-import { CodexEventCard, groupTimeline } from "./GraphicalTimeline";
+import { CodexEventCard, groupTimeline, TeamMemberTimeline } from "./GraphicalTimeline";
 
 afterEach(cleanup);
 
@@ -61,4 +61,26 @@ it("shows summaries during streaming and after completion", () => {
   expect(screen.getByText("检查文件")).toBeTruthy();
   rerender(<CodexEventCard item={{ id: "r", type: "reasoning", status: "completed", summary: [{ text: "最终摘要" }] }} />);
   expect(screen.getByText("最终摘要")).toBeTruthy();
+});
+
+it("filters populated reasoning before grouping without mutating snapshots", () => {
+  const items: SessionItem[] = [tool("a"), { id: "r", turnId: "turn-1", type: "reasoning", summary: ["hidden"] }, tool("b"), tool("c", "turn-2")];
+  const snapshot = { provider: "codex" as const, threadId: "one", mode: "default" as const, executionPermission: "readOnly" as const, busy: true, error: null, approvals: [], pendingPlan: null, items };
+  expect(groupTimeline(snapshot, true)).toEqual([{ kind: "tools", items: [items[0], items[2]] }, { kind: "tools", items: [items[3]] }]);
+  expect(groupTimeline(snapshot, false)).toHaveLength(4);
+  expect(items[1].summary).toEqual(["hidden"]);
+});
+
+it("toggles child reasoning during streaming without hiding replies", () => {
+  const member = { name: "child", status: "running", items: [{ id: "r", type: "reasoning", status: "inProgress", summary: ["child reasoning"] }, { id: "reply", type: "agentMessage", text: "reply" }] };
+  const { rerender } = render(<TeamMemberTimeline member={member} codeBuddy={false} />);
+  expect(screen.getByText("child reasoning")).toBeTruthy();
+  rerender(<TeamMemberTimeline member={member} codeBuddy={false} minimalMode />);
+  expect(screen.queryByText("child reasoning")).toBeNull();
+  expect(screen.getByText("reply")).toBeTruthy();
+  member.items[0].summary = ["updated reasoning"];
+  rerender(<TeamMemberTimeline member={member} codeBuddy={false} minimalMode />);
+  expect(screen.queryByText("updated reasoning")).toBeNull();
+  rerender(<TeamMemberTimeline member={member} codeBuddy={false} />);
+  expect(screen.getByText("updated reasoning")).toBeTruthy();
 });

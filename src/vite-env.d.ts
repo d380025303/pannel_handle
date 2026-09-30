@@ -111,6 +111,7 @@ export type AppConfig = {
   autoWorkBuddyCheckin: boolean;
   autoCollapseFileChains: boolean;
   debugMode: boolean;
+  graphicalSessionMinimalMode: boolean;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
   titleBarActionOrder: TitleBarActionId[];
@@ -1023,7 +1024,14 @@ export type CodexWindowsSandboxSetup = {
   status: "idle" | "running" | "succeeded" | "failed";
   error: string | null;
 };
+export type CodexSubAgents = {
+  expanded: boolean; selectedThreadId: string | null; loading: boolean; error: string | null; warning: string | null;
+  members: Array<{ threadId: string; parentThreadId: string; name: string; role: string; task: string; status: string;
+    createdAt: number; loading: boolean; error: string | null; items: CodexAppServerSnapshot["items"] }>;
+};
+
 export type CodexAppServerSnapshot = {
+  subAgents?: CodexSubAgents;
   windowsSandboxSetup?: CodexWindowsSandboxSetup;
   threadId: string | null;
   streamId?: string;
@@ -1201,6 +1209,7 @@ export type CodexAppServerApi = {
   rewind: (id: string, messageId: string, scope: "Code" | "Conversation" | "CodeAndConversation") => Promise<{
     snapshot: CodexAppServerSnapshot; filesChanged: string[]; historyRewound: boolean; fileRewindError: string | null }>;
   pinThread: (id: string, threadId: string, isPinned: boolean) => Promise<{ isPinned: boolean }>;
+  forkTurnToNewSession: (id: string, threadId: string, turnId: string) => Promise<TerminalSession>;
   forkThread: (id: string, threadId: string, lastTurnId?: string) => Promise<CodexAppServerSnapshot>;
   deleteThread: (id: string, threadId: string) => Promise<void>;
   archiveThread: (id: string, threadId: string) => Promise<void>;
@@ -1232,6 +1241,8 @@ export type CodexAppServerApi = {
   setContextWindow: (id: string, value: string) => Promise<CodexAppServerSnapshot>;
   setEffort: (id: string, effort: string) => Promise<CodexAppServerSnapshot>;
   setMultitask: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
+  setSubAgentView: (id: string, expanded: boolean, threadId?: string | null, rootThreadId?: string) => Promise<void>;
+  refreshSubAgents: (id: string, rootThreadId?: string) => Promise<void>;
   sendTeamMessage: (id: string, teamName: string, memberName: string, text: string) => Promise<void>;
   setFastMode: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
   setExecutionPermission: (id: string, permission: CodexExecutionPermission) => Promise<CodexAppServerSnapshot>;

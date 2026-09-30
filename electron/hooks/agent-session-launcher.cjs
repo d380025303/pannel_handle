@@ -797,6 +797,28 @@ function createAgentSessionLauncher({
     });
   }
 
+  const pendingTurnForks = new Set();
+  async function forkTurnToNewSession(sessionId, threadId, turnId) {
+    const source = terminalManager.getSession(sessionId);
+    if (!source || source.runtimeMode !== "app-server" || source.agentProvider !== "codex")
+      throw new Error("仅 Codex 图形会话支持从回合新建会话。");
+    const snapshot = codexAppServerSessionService.snapshot(sessionId);
+    if (!threadId || snapshot.threadId !== threadId || snapshot.busy || snapshot.archived
+      || typeof turnId !== "string" || !turnId.trim() || pendingTurnForks.has(sessionId))
+      throw new Error("当前会话无法新建分支，请稍后重试。");
+    pendingTurnForks.add(sessionId);
+    let target;
+    try {
+      const template = sessionStore.normalizeTemplate({ ...source, id: source.id, createdAt: Date.now() });
+      target = await launchSession(template, { useProvidedTemplate: true, templateId: undefined });
+      await codexAppServerSessionService.forkThread(target.id, threadId, turnId);
+      return target;
+    } catch (error) {
+      if (target) terminalManager.closeSession(target.id);
+      throw error;
+    } finally { pendingTurnForks.delete(sessionId); }
+  }
+
   function createReplacementTemplate(session, provider) {
     return {
       id: session.templateId || session.id,
@@ -1001,7 +1023,7 @@ function createAgentSessionLauncher({
     finally { switchingSessions.delete(sessionId); }
   }
 
-  return { createSession, launchSession, launchSessions, duplicateRunningSession, openOtherSessionMode, switchAgent, switchModelSource };
+  return { createSession, launchSession, launchSessions, duplicateRunningSession, forkTurnToNewSession, openOtherSessionMode, switchAgent, switchModelSource };
 }
 
 module.exports = {

@@ -335,3 +335,19 @@ describe("settings IPC handlers", () => {
     expect(miniMaxFetch).not.toHaveBeenCalled();
   });
 });
+
+it("accepts only boolean graphical minimal mode through config IPC", () => {
+  const harness = createHarness();
+  const set = harness.ipcMain.handlers.get("config:set");
+  set({}, { graphicalSessionMinimalMode: true });
+  expect(harness.configStore.updateConfig).toHaveBeenLastCalledWith(expect.objectContaining({ graphicalSessionMinimalMode: true }), { throwOnSaveError: true });
+  harness.configStore.updateConfig.mockClear();
+  set({}, { graphicalSessionMinimalMode: "false" });
+  expect(harness.configStore.updateConfig).not.toHaveBeenCalled();
+});
+
+it("propagates graphical minimal mode persistence failures", () => {
+  const harness = createHarness();
+  harness.configStore.updateConfig.mockImplementation(() => { throw new Error("disk failure"); });
+  expect(() => harness.ipcMain.handlers.get("config:set")({}, { graphicalSessionMinimalMode: true })).toThrow("disk failure");
+});

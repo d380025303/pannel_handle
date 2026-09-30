@@ -5,6 +5,7 @@ const readline = require("node:readline");
 const { PassThrough } = require("node:stream");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createSubAgentObserver } = require("./sub-agent-observer.cjs");
 const { createAccountController } = require("./account-controller.cjs");
 const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, updateTokenUsage } = require("./snapshot-helpers.cjs");
 const { mergeEnvironment } = require("../environment/index.cjs");
@@ -170,7 +171,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function snapshot(id) {
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
-    return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
+    return { subAgents: entry.subAgentObserver?.snapshot(), threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
       backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
       busy: entry.busy, reviewing: Boolean(entry.review), archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
       windowsSandboxSetup: { available: sandboxSetupAvailable(entry), mode: "elevated", status: "idle", error: null, ...entry.windowsSandboxSetup },
@@ -340,6 +341,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   function close(id) {
     const entry = sessions.get(id);
     if (!entry) return;
+    entry.subAgentObserver?.dispose();
     sessions.delete(id);
     const publishTimer = publishTimers.get(id);
     if (publishTimer) { clearTimeout(publishTimer); publishTimers.delete(id); }
@@ -413,6 +415,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       return;
     }
     const params = message.params || {};
+    entry.subAgentObserver?.observe(message.method, params);
     if (message.method === "windowsSandbox/setupCompleted") {
       const setup = entry.windowsSandboxSetup;
       if (setup?.status !== "running" || setup.mode !== params.mode || typeof params.success !== "boolean") return;
@@ -681,6 +684,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0,
       streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map() };
+    entry.subAgentObserver = createSubAgentObserver({ request: (method, params) => request(entry, method, params),
+      changed: () => { if (sessions.get(id) === entry) publish(id); } });
     entry.accountController = createAccountController({ request: (method, params) => request(entry, method, params),
       changed: () => { if (sessions.get(id) === entry) publish(id); },
       authenticated: async () => { if (sessions.get(id) === entry && !entry.threadId) await initializeThread(id, entry); } });
@@ -697,6 +702,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       catch { if (sessions.get(id) === entry) { entry.error = "App Server 返回了无效协议消息。"; publish(id); } }
     });
     child.on("error", error => {
+      entry.subAgentObserver.dispose();
       if (sessions.get(id) !== entry) return;
       entry.error = error.message;
       entry.accountController.reset();
@@ -704,6 +710,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.pending.clear(); publish(id);
     });
     child.on("exit", code => {
+      entry.subAgentObserver.dispose();
       if (sessions.get(id) !== entry) return;
       if (entry.windowsSandboxSetup?.status === "running") {
         entry.windowsSandboxSetup.status = "failed";
@@ -770,6 +777,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.turnStatus = lastTurn?.status || null;
       entry.status = entry.busy ? "running" : "completed";
     }
+    entry.subAgentObserver.reset(entry.threadId, entry.items);
     void refreshGoal(id, entry);
     publish(id);
     })();
@@ -1120,7 +1128,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     }
     const result = await request(entry, "thread/fork", { threadId, ...(lastTurnId === null ? {} : { lastTurnId }) });
     if (!result.thread?.id) throw new Error("App Server 未返回分支会话 ID。");
-    return resume(id, result.thread.id);
+    try { return await resume(id, result.thread.id); }
+    catch (error) { throw new Error(`${error.message} 已创建的分支 ${result.thread.id} 可在历史列表中查看。`); }
   }
   async function archiveThread(id, threadId) {
     const entry = sessions.get(id);
@@ -1392,6 +1401,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (entry.pendingTokenUsage && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
     entry.pendingThreadId = null; entry.pendingTokenUsage = null;
     entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
+    entry.subAgentObserver.reset(entry.threadId, entry.items);
     const lastTurn = result.thread.turns?.at(-1);
     entry.busy = lastTurn?.status === "inProgress";
     entry.turnId = entry.busy ? lastTurn.id : null;
@@ -1437,6 +1447,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.mode = "default";
     entry.pendingPlan = null;
     entry.items = [];
+    entry.subAgentObserver.reset(entry.threadId);
     entry.error = null;
     entry.errorDetails = null;
     entry.turnStatus = null;
@@ -1795,6 +1806,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     catch (error) { elicitation.submitting = false; throw error; }
     publish(id);
   }
+  function setSubAgentView(id, expanded, threadId, rootThreadId) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    if (rootThreadId && rootThreadId !== entry.threadId) throw new Error("子 Agent 面板所属会话已切换。");
+    entry.subAgentObserver.setView(expanded, threadId);
+  }
+  async function refreshSubAgents(id, rootThreadId) {
+    const entry = sessions.get(id);
+    if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    if (rootThreadId && rootThreadId !== entry.threadId) throw new Error("子 Agent 面板所属会话已切换。");
+    await entry.subAgentObserver.refresh();
+  }
   function shutdown() { for (const id of sessions.keys()) close(id); }
   function accountEntry(id) {
     const entry = sessions.get(id);
@@ -1811,7 +1834,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { setSubAgentView, refreshSubAgents, start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

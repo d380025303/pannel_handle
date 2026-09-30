@@ -55,6 +55,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   }
   if (codexAppServerSessionService) {
     ipcMain.handle("codex-app-server:windows-sandbox-setup", (_event, id, mode) => codexAppServerSessionService.setupWindowsSandbox(String(id || ""), mode));
+    ipcMain.handle("codex-app-server:sub-agent-view", (_event, id, expanded, threadId, rootThreadId) => codexAppServerSessionService.setSubAgentView(String(id || ""), expanded, threadId, rootThreadId));
+    ipcMain.handle("codex-app-server:sub-agents-refresh", (_event, id, rootThreadId) => codexAppServerSessionService.refreshSubAgents(String(id || ""), rootThreadId));
     ipcMain.handle("codex-app-server:snapshot", (_event, id) => codexAppServerSessionService.snapshot(String(id || "")));
     ipcMain.handle("codex-app-server:model-metadata", (_event, id) => codexAppServerSessionService.listModelMetadata(String(id || "")));
     ipcMain.handle("codex-app-server:account-read", (_event, id) => codexAppServerSessionService.readAccount(String(id || "")));
@@ -67,6 +69,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
     ipcMain.handle("codex-app-server:rewind", (_event, id, messageId, scope) => codexAppServerSessionService.rewind(String(id || ""), messageId, scope));
     ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));
+    ipcMain.handle("codex-app-server:fork-turn-new-session", (_event, id, threadId, turnId) => agentSessionLauncher.forkTurnToNewSession(String(id || ""), threadId, turnId));
     ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId, lastTurnId) => codexAppServerSessionService.forkThread(String(id || ""), threadId, lastTurnId));
     ipcMain.handle("codex-app-server:delete-thread", (_event, id, threadId) => codexAppServerSessionService.deleteThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:archive-thread", (_event, id, threadId) => codexAppServerSessionService.archiveThread(String(id || ""), threadId));

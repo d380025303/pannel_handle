@@ -20,6 +20,8 @@ describe("session IPC handlers", () => {
   it("forwards Codex account and MCP elicitation IPC through the graphical router", async () => {
     const handlers = new Map();
     const methods = [
+      ["codex-app-server:sub-agent-view", "setSubAgentView", [true, "child", "root"]],
+      ["codex-app-server:sub-agents-refresh", "refreshSubAgents", ["root"]],
       ["codex-app-server:windows-sandbox-setup", "setupWindowsSandbox", ["unelevated"]],
       ["codex-app-server:review", "startReview", [{ type: "baseBranch", branch: "main" }]],
       ["codex-app-server:account-read", "readAccount", []],
@@ -67,6 +69,16 @@ describe("session IPC handlers", () => {
     expect(() => handlers.get("codex-app-server:fast-mode")({}, "buddy-1", true)).toThrow("仅 Codex");
     expect(() => handlers.get("codex-app-server:native-mode")({}, "codex-1", "plan")).toThrow("不支持此操作");
     expect(() => handlers.get("codex-app-server:snapshot")({}, "unknown-1")).toThrow("不支持的图形会话 Agent");
+  });
+
+  it("routes new turn conversations through the launcher", async () => {
+    const handlers = new Map();
+    const launcher = { forkTurnToNewSession: vi.fn(async () => ({ id: "run-2" })) };
+    registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager: {}, codexAppServerSessionService: {}, agentSessionLauncher: launcher });
+    await expect(handlers.get("codex-app-server:fork-turn-new-session")({}, "run-1", "thread-1", "turn-1"))
+      .resolves.toEqual({ id: "run-2" });
+    expect(launcher.forkTurnToNewSession).toHaveBeenCalledWith("run-1", "thread-1", "turn-1");
   });
 
   it("forwards a selected turn id through the Codex fork IPC", () => {

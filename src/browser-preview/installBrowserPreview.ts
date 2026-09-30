@@ -81,6 +81,7 @@ const initialConfig: AppConfig = {
   autoWorkBuddyCheckin: true,
   autoCollapseFileChains: true,
   debugMode: false,
+  graphicalSessionMinimalMode: false,
   screenshotEnabled: true,
   screenshotShortcut: "Ctrl+Shift+A",
   titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
@@ -448,6 +449,8 @@ export function installBrowserPreview() {
       onProgress: () => () => undefined
     } satisfies Window["projectAssistantApi"],
     codexAppServerApi: {
+      setSubAgentView: async () => undefined,
+      refreshSubAgents: async () => undefined,
       setupWindowsSandbox: async () => { throw new Error("浏览器预览不支持 Windows 沙箱初始化。"); },
       snapshot: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listModelMetadata: async () => [],
@@ -474,6 +477,7 @@ export function installBrowserPreview() {
       renameThread: async () => undefined,
       pinThread: async (_id, _threadId, isPinned) => ({ isPinned }),
       deleteThread: async () => { throw new Error("预览模式不支持删除会话。"); },
+      forkTurnToNewSession: async () => { throw new Error("预览模式不支持从此回合新建会话。"); },
       forkThread: async () => ({ threadId: `preview-thread-${nextId++}`, mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       archiveThread: async () => undefined,
       unarchiveThread: async () => undefined,

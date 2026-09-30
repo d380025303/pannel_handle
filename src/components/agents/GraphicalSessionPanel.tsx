@@ -6,18 +6,20 @@ import { CodexAppServerSession, type CodexAppServerSessionHandle } from "./Codex
 type Props = {
   session: TerminalSession;
   isActive: boolean;
+  minimalMode?: boolean;
   draft: string;
   draftReferences: CodexCapabilityReference[];
   onDraftChange: (sessionId: string, value: SetStateAction<string>) => void;
   onDraftReferencesChange: (sessionId: string, value: SetStateAction<CodexCapabilityReference[]>) => void;
   onLinkClick: (session: TerminalSession, href: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   onReconnectModels?: (sessionId: string) => Promise<void>;
   onSwitchCodeBuddyModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
   onSwitchCodexModel?: (sessionId: string, source: AgentModelSource, modelId?: string) => Promise<void>;
   sessionRefs: Map<string, CodexAppServerSessionHandle>;
 };
 
-export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ session, isActive, draft, draftReferences, onDraftChange, onDraftReferencesChange, onLinkClick, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel, sessionRefs }: Props) {
+export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ session, isActive, minimalMode = false, draft, draftReferences, onDraftChange, onDraftReferencesChange, onLinkClick, onSessionCreated, onReconnectModels, onSwitchCodeBuddyModel, onSwitchCodexModel, sessionRefs }: Props) {
   const sessionId = session.id;
   const setDraft: Dispatch<SetStateAction<string>> = useCallback(value => onDraftChange(sessionId, value), [onDraftChange, sessionId]);
   const setDraftReferences: Dispatch<SetStateAction<CodexCapabilityReference[]>> = useCallback(value => onDraftReferencesChange(sessionId, value), [onDraftReferencesChange, sessionId]);
@@ -29,8 +31,8 @@ export const GraphicalSessionPanel = memo(function GraphicalSessionPanel({ sessi
 
   return <div className="graphical-session-panel" style={{ display: isActive ? undefined : "none" }} aria-hidden={!isActive}>
     <CodexAppServerSession ref={setSessionRef} sessionId={sessionId} session={session} sessionType={session.type}
-      onReconnectModels={onReconnectModels} onSwitchCodeBuddyModel={onSwitchCodeBuddyModel} onSwitchCodexModel={onSwitchCodexModel}
-      isActive={isActive} onLinkClick={handleLinkClick} draft={draft} draftReferences={draftReferences}
+      onSessionCreated={onSessionCreated} onReconnectModels={onReconnectModels} onSwitchCodeBuddyModel={onSwitchCodeBuddyModel} onSwitchCodexModel={onSwitchCodexModel}
+      isActive={isActive} minimalMode={minimalMode} onLinkClick={handleLinkClick} draft={draft} draftReferences={draftReferences}
       setDraft={setDraft} setDraftReferences={setDraftReferences} />
   </div>;
 });

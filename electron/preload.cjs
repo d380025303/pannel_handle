@@ -172,6 +172,8 @@ contextBridge.exposeInMainWorld("projectAssistantApi", {
 
 contextBridge.exposeInMainWorld("codexAppServerApi", {
   setupWindowsSandbox: (id, mode) => ipcRenderer.invoke("codex-app-server:windows-sandbox-setup", id, mode),
+  setSubAgentView: (id, expanded, threadId, rootThreadId) => ipcRenderer.invoke("codex-app-server:sub-agent-view", id, expanded, threadId, rootThreadId),
+  refreshSubAgents: (id, rootThreadId) => ipcRenderer.invoke("codex-app-server:sub-agents-refresh", id, rootThreadId),
   snapshot: id => ipcRenderer.invoke("codex-app-server:snapshot", id),
   listModelMetadata: id => ipcRenderer.invoke("codex-app-server:model-metadata", id),
   readAccount: id => ipcRenderer.invoke("codex-app-server:account-read", id),
@@ -184,6 +186,7 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   renameThread: (id, threadId, name) => ipcRenderer.invoke("codex-app-server:rename-thread", id, threadId, name),
   rewind: (id, messageId, scope) => ipcRenderer.invoke("codex-app-server:rewind", id, messageId, scope),
   pinThread: (id, threadId, isPinned) => ipcRenderer.invoke("codex-app-server:pin-thread", id, threadId, isPinned),
+  forkTurnToNewSession: (id, threadId, turnId) => ipcRenderer.invoke("codex-app-server:fork-turn-new-session", id, threadId, turnId),
   forkThread: (id, threadId, lastTurnId) => ipcRenderer.invoke("codex-app-server:fork-thread", id, threadId, lastTurnId),
   deleteThread: (id, threadId) => ipcRenderer.invoke("codex-app-server:delete-thread", id, threadId),
   archiveThread: (id, threadId) => ipcRenderer.invoke("codex-app-server:archive-thread", id, threadId),

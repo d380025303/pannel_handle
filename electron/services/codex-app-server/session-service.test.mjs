@@ -653,7 +653,7 @@ describe("Codex App Server session", () => {
       expect(received.find(request => request.method === "thread/start").params.cwd).toBe("C:\\bridge");
       expect(service.getWorkspaceCwd("bridge")).toBe("C:\\bridge");
       await service.listHistory("bridge");
-      expect(received.find(request => request.method === "thread/list").params.cwd).toBe("C:\\bridge");
+      expect(received.find(request => request.method === "thread/list" && !request.params.ancestorThreadId).params.cwd).toBe("C:\\bridge");
       await service.resume("bridge", "old-thread");
       await service.submit("bridge", "Inspect the remote workspace");
       expect(received.find(request => request.method === "turn/start").params.sandboxPolicy.writableRoots).toEqual(["C:\\bridge"]);
@@ -1197,7 +1197,7 @@ describe("Codex App Server session", () => {
       terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     expect(await service.listHistory("run-1")).toMatchObject({ data: [{ id: "old-thread", title: "旧对话", updatedAt: 123, source: "cli", status: "notLoaded" }], nextCursor: expect.any(String) });
-    expect(received.find(item => item.method === "thread/list").params).toMatchObject({ cwd: "C:\\project", sourceKinds: ["cli", "vscode", "appServer"] });
+    expect(received.find(item => item.method === "thread/list" && !item.params.ancestorThreadId).params).toMatchObject({ cwd: "C:\\project", sourceKinds: ["cli", "vscode", "appServer"] });
     const restored = await service.resume("run-1", "old-thread");
     expect(restored.threadId).toBe("old-thread");
     expect(restored.items.map(item => item.text)).toEqual(["之前的问题", "之前的回答", "# 历史计划"]);
@@ -1237,6 +1237,7 @@ describe("Codex App Server session", () => {
     const received = [];
     const child = fakeProcess(received, request => {
       if (request.method !== "thread/list") return undefined;
+      if (request.params.ancestorThreadId) return { data: [], nextCursor: null };
       if (request.params.isPinned) return request.params.cursor
         ? { data: [{ id: "pinned-2", name: "置顶二", isPinned: true }], nextCursor: null }
         : { data: [{ id: "pinned-1", name: "置顶一", isPinned: true }], nextCursor: "pin-next" };
@@ -1250,7 +1251,7 @@ describe("Codex App Server session", () => {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
       const first = await service.listHistory("run-1");
       expect(first.data.map(item => item.id)).toEqual(["pinned-1"]);
-      expect(received.filter(item => item.method === "thread/list")).toHaveLength(2);
+      expect(received.filter(item => item.method === "thread/list" && !item.params.ancestorThreadId)).toHaveLength(2);
       const second = await service.listHistory("run-1", first.nextCursor);
       expect(second.data.map(item => item.id)).toEqual(["pinned-2", "ordinary-1"]);
       const third = await service.listHistory("run-1", second.nextCursor);
@@ -1266,6 +1267,7 @@ describe("Codex App Server session", () => {
     const pinned = new Promise(resolve => { releasePinned = resolve; });
     const child = fakeProcess(received, request => {
       if (request.method !== "thread/list") return undefined;
+      if (request.params.ancestorThreadId) return { data: [], nextCursor: null };
       if (request.params.isPinned) return pinned;
       releasePinned({ data: [], nextCursor: null });
       return { data: [{ id: "game4-thread", name: "game4 历史" }], nextCursor: null };
@@ -1275,7 +1277,7 @@ describe("Codex App Server session", () => {
     try {
       await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
       const history = await service.listHistory("run-1");
-      expect(received.filter(item => item.method === "thread/list").map(item => item.params.isPinned)).toEqual([true, false]);
+      expect(received.filter(item => item.method === "thread/list" && !item.params.ancestorThreadId).map(item => item.params.isPinned)).toEqual([true, false]);
       expect(history.data.map(item => item.id)).toEqual(["game4-thread"]);
     } finally { service.close("run-1"); }
   });
@@ -1304,7 +1306,7 @@ describe("Codex App Server session", () => {
       expect(received.find(item => item.method === "thread/name/set").params).toEqual({ threadId: "thread-1", name: "新名称" });
       expect(received.find(item => item.method === "thread/metadata/update").params).toEqual({ threadId: "thread-1", isPinned: true });
       expect((await service.listHistory("run-1", null, true)).data[0]).toMatchObject({ archived: true, isPinned: true });
-      expect(received.find(item => item.method === "thread/list").params.archived).toBe(true);
+      expect(received.find(item => item.method === "thread/list" && !item.params.ancestorThreadId).params.archived).toBe(true);
       expect((await service.forkThread("run-1", "thread-1")).threadId).toBe("branch-1");
       expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1" });
       await expect(service.archiveThread("run-1", "branch-1")).rejects.toThrow("归档失败");
@@ -1849,5 +1851,35 @@ describe("Codex App Server session", () => {
         "connected", "reconnecting", "connected"
       ]);
     } finally { service.close("ssh-1"); }
+  });
+});
+
+
+describe("Codex sub-agent observation integration", () => {
+  it("routes child notifications before root filtering and resets observers on thread switches", async () => {
+    const received = [];
+    const child = fakeProcess(received, message => {
+      if (message.method === "thread/list") return { data: [], nextCursor: null };
+      if (message.method === "thread/read") return { thread: { id: message.params.threadId, cwd: "C:\\project", turns: [] } };
+      return undefined;
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      emit("item/completed", { threadId: "thread-1", item: { id: "spawn", type: "collabAgentToolCall", tool: "spawnAgent", receiverThreadIds: ["child"], agentsStates: {}, prompt: "inspect" } });
+      emit("item/started", { threadId: "child", turnId: "child-turn", item: { id: "answer", type: "agentMessage", text: "" } });
+      emit("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "child reply" });
+      await vi.waitFor(() => expect(service.snapshot("run-1").subAgents.members[0].items[0].text).toBe("child reply"));
+      expect(service.snapshot("run-1").items.some(item => item.id === "answer")).toBe(false);
+      expect(() => service.setSubAgentView("run-1", false, undefined, "old-root")).toThrow("已切换");
+      await expect(service.refreshSubAgents("run-1", "old-root")).rejects.toThrow("已切换");
+      service.setSubAgentView("run-1", false);
+      expect(service.snapshot("run-1").subAgents.expanded).toBe(false);
+      await service.newThread("run-1");
+      expect(service.snapshot("run-1").subAgents.members).toEqual([]);
+      expect(received.filter(message => message.method === "thread/resume")).toEqual([]);
+    } finally { service.shutdown(); }
   });
 });

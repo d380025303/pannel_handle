@@ -73,6 +73,7 @@ function createConfigStore({ configFile, dataStore }) {
     autoWorkBuddyCheckin: true,
     autoCollapseFileChains: true,
     debugMode: false,
+    graphicalSessionMinimalMode: false,
     screenshotEnabled: true,
     screenshotShortcut: DEFAULT_SCREENSHOT_SHORTCUT,
     titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
@@ -96,6 +97,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
+      graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: config.titleBarActionOrder,
@@ -124,6 +126,7 @@ function createConfigStore({ configFile, dataStore }) {
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
+          graphicalSessionMinimalMode: typeof parsed.graphicalSessionMinimalMode === "boolean" ? parsed.graphicalSessionMinimalMode : false,
           screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
           screenshotShortcut: normalizeScreenshotShortcut(parsed.screenshotShortcut) || DEFAULT_SCREENSHOT_SHORTCUT,
           titleBarActionOrder: normalizeTitleBarActionOrder(parsed.titleBarActionOrder),
@@ -168,6 +171,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
+      graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: [...config.titleBarActionOrder],
@@ -199,6 +203,9 @@ function createConfigStore({ configFile, dataStore }) {
       }
       if (typeof partial.autoCollapseFileChains === "boolean") {
         config.autoCollapseFileChains = partial.autoCollapseFileChains;
+      }
+      if (typeof partial.graphicalSessionMinimalMode === "boolean") {
+        config.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;

@@ -55,6 +55,17 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
 }
 
 describe("SettingsModal navigation", () => {
+  it("saves the graphical minimal mode toggle and shows save failures", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("save failed"));
+    renderSettingsModal({ onGraphicalSessionMinimalModeChange: save });
+    const toggle = screen.getByRole("checkbox", { name: "图形会话极简模式" });
+    expect(toggle).toHaveProperty("checked", false);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(save).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "save failed");
+    expect(toggle).toHaveProperty("checked", false);
+  });
+
   beforeEach(() => {
     Object.defineProperty(window, "dingTalkApi", {
       configurable: true,
