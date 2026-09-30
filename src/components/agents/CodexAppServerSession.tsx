@@ -73,7 +73,7 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
 }
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask";
-type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "qoder" | "gemini" | "grok" };
+type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "opencode" | "qoder" | "gemini" | "grok" };
 const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 type InlineImage = { token: string; path: string | null };
@@ -1149,16 +1149,16 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     { id: "files", label: "附加文件", disabled: !canAttach }
   ];
   const localCommandNames = new Set(localSlashCommands.map(command => command.id.toLocaleLowerCase()));
-  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
+  const slashCommands: SlashCommand[] = snapshot.provider === "codebuddy" || snapshot.provider === "opencode" || snapshot.provider === "qoder" || snapshot.provider === "gemini" || snapshot.provider === "grok"
     ? [...localSlashCommands, ...(snapshot.availableCommands || [])
       .filter(command => !localCommandNames.has(command.name.toLocaleLowerCase()))
-      .map(command => ({ id: command.name, label: command.description || `${agentName} 命令`, source: snapshot.provider === "qoder" ? "qoder" as const : snapshot.provider === "gemini" ? "gemini" as const : snapshot.provider === "grok" ? "grok" as const : "codebuddy" as const }))]
+      .map(command => ({ id: command.name, label: command.description || `${agentName} 命令`, source: snapshot.provider === "opencode" ? "opencode" as const : snapshot.provider === "qoder" ? "qoder" as const : snapshot.provider === "gemini" ? "gemini" as const : snapshot.provider === "grok" ? "grok" as const : "codebuddy" as const }))]
     : localSlashCommands;
   const slashQuery = !slashDismissed && /^\/[^\s]*$/.test(draft) ? draft.slice(1).toLocaleLowerCase() : null;
   const visibleSlashCommands = slashQuery === null ? [] : slashCommands.filter(command => `${command.id} ${command.label}`.toLocaleLowerCase().includes(slashQuery));
   function executeSlashCommand(command: SlashCommand) {
     if (command.disabled) return;
-    if (command.source === "codebuddy" || command.source === "qoder" || command.source === "gemini" || command.source === "grok") {
+    if (command.source === "codebuddy" || command.source === "opencode" || command.source === "qoder" || command.source === "gemini" || command.source === "grok") {
       setSlashDismissed(true); setSelectedSlashIndex(0);
       setDraft(`/${command.id} `);
       window.requestAnimationFrame(() => textareaRef.current?.focus());

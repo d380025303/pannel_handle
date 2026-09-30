@@ -95,7 +95,8 @@ describe("CodexAppServerSession", () => {
       resume, newThread, compactThread, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
-      onChanged: (callback: typeof changed) => { changed = callback; return () => {}; }
+      onChanged: (callback: typeof changed) => { changed = callback; return () => {}; },
+      onDelta: () => () => {}
     } });
   });
 
@@ -584,6 +585,24 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("option", { name: "/new 新对话" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "/history 历史会话" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /Skills|Apps|MCP|压缩对话|插件管理/ })).toBeNull();
+  });
+
+  it("suggests OpenCode ACP commands and sends a selected compact command", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "open-1", provider: "opencode",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null,
+      items: [], approvals: [], capabilities: { history: true, plan: true, attachments: true, permissions: true },
+      availableCommands: [{ name: "compact", description: "Compact conversation" },
+        { name: "review", description: "Review code" }, { name: "mode", description: "Agent mode" }] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 OpenCode 发送消息") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "/compact" } });
+    fireEvent.click(screen.getByRole("option", { name: "/compact Compact conversation" }));
+    expect(input.value).toBe("/compact ");
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "/compact", [], []));
+    fireEvent.change(input, { target: { value: "/mode" } });
+    expect(screen.getAllByRole("option", { name: /\/mode/ })).toHaveLength(1);
   });
 
   it("shows OpenCode session skills and MCP tools and inserts hints", async () => {

@@ -35,6 +35,52 @@ const configOptions = [
 ];
 
 describe("OpenCode ACP sessions", () => {
+  it("publishes advertised slash commands for the current thread and replaces them across updates", async () => {
+    let emitUpdate;
+    let threadNumber = 0;
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new") {
+        const sessionId = `thread-${++threadNumber}`;
+        emit({ method: "session/update", params: { sessionId, update: {
+          sessionUpdate: "available_commands_update", availableCommands: [
+            { name: "/compact", description: "Compact conversation" }, { name: "review", description: "Review code" }
+          ] } } });
+        emit({ id: message.id, result: { sessionId } });
+      } else if (message.method === "session/list") emit({ id: message.id, result: { sessions: [
+        { sessionId: "history", cwd: "C:\\work" }
+      ] } });
+      else if (message.method === "session/load") {
+        emit({ method: "session/update", params: { sessionId: "history", update: {
+          sessionUpdate: "available_commands_update", availableCommands: [{ name: "history-command" }]
+        } } });
+        emit({ id: message.id, result: { sessionId: "history" } });
+      }
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+    expect(service.snapshot("one").availableCommands).toEqual([
+      { name: "compact", description: "Compact conversation" }, { name: "review", description: "Review code" }
+    ]);
+    emitUpdate({ method: "session/update", params: { sessionId: "thread-1", update: {
+      sessionUpdate: "available_commands_update", availableCommands: [{ name: "fix", description: "Fix issue" }]
+    } } });
+    expect(service.snapshot("one").availableCommands).toEqual([{ name: "fix", description: "Fix issue" }]);
+    await service.newThread("one");
+    expect(service.snapshot("one").availableCommands.map(command => command.name)).toEqual(["compact", "review"]);
+    emitUpdate({ method: "session/update", params: { sessionId: "thread-1", update: {
+      sessionUpdate: "available_commands_update", availableCommands: [{ name: "stale" }]
+    } } });
+    expect(service.snapshot("one").availableCommands.some(command => command.name === "stale")).toBe(false);
+    await service.listHistory("one");
+    expect((await service.resume("one", "history")).availableCommands).toEqual([
+      { name: "history-command", description: "" }
+    ]);
+    service.shutdown();
+  });
+
   it("stops only the owned Windows OpenCode process tree", () => {
     const child = { pid: 12345, exitCode: null, kill: vi.fn() };
     const killer = new EventEmitter();

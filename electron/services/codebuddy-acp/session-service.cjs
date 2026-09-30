@@ -280,7 +280,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       nativeMode: entry.nativeMode, nativeModes: entry.runtime.requiredMode
         ? entry.modes.filter(mode => mode.id === entry.runtime.requiredMode) : entry.modes,
       acpOptions: entry.configOptions.filter(option => !entry.runtime.requiredMode || option.id !== "mode"),
-      ...(provider === "codebuddy" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
+      ...(provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
       contextUsage: entry.contextUsage,
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
@@ -386,7 +386,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   function onUpdate(id, entry, value) {
     const update = value?.update || {};
-    if ((provider === "codebuddy" || provider === "qoder" || provider === "gemini" || provider === "grok") && update.sessionUpdate === "available_commands_update") {
+    if ((provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok") && update.sessionUpdate === "available_commands_update") {
       const commands = readAvailableCommands(update.availableCommands);
       if (entry.awaitingSession && value.sessionId) entry.earlyCommands.set(value.sessionId, commands);
       else if (value.sessionId === entry.threadId) { entry.availableCommands = commands; schedulePublish(id); }
