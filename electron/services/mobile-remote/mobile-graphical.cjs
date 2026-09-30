@@ -101,6 +101,22 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       send(socket, { type: "graphical.history", sessionId, threadId: current.threadId,
         requestId: message.requestId, history });
       return;
+    } else if (message.type === "graphical.fork" || message.type === "graphical.delete") {
+      const fork = message.type === "graphical.fork";
+      if (current.provider !== "opencode" || !current.capabilities?.[fork ? "forkHistory" : "deleteHistory"])
+        throw new Error("当前图形会话不支持此历史操作。");
+      if (current.busy || current.pendingPlan || current.approvals?.length || current.questions?.length)
+        throw new Error("当前会话正在执行或有待处理操作。");
+      const threadId = message.targetThreadId;
+      if (typeof threadId !== "string" || !threadId || threadId.length > 200) throw new Error("历史会话无效。");
+      let resultThreadId = current.threadId;
+      if (fork) {
+        const result = await graphicalService.forkThread(sessionId, threadId);
+        resultThreadId = result.threadId;
+        if (graphicalService.snapshot(sessionId).threadId === resultThreadId) sendSnapshot(socket, sessionId, result);
+      } else await graphicalService.deleteThread(sessionId, threadId);
+      send(socket, { type: "command.ok", requestId: message.requestId, sessionId, threadId: resultThreadId });
+      return;
     } else if (message.type === "graphical.resume") {
       const threadId = String(message.targetThreadId || "");
       if (!threadId || threadId.length > 200) throw new Error("历史会话无效。");

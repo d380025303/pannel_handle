@@ -30,6 +30,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider | null>(null);
   const [history, setHistory] = useState<GraphicalHistory | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMutation, setHistoryMutation] = useState<string | null>(null);
+  const historyMutationRef = useRef<{ requestId: string; kind: "fork" | "delete"; threadId: string | null } | null>(null);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
   const submitIdRef = useRef<string | null>(null);
@@ -60,6 +62,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     snapshotRef.current = null;
     setSnapshot(null);
     setHistory(null);
+    setHistoryMutation(null);
+    historyMutationRef.current = null;
     setActiveSheet(null);
     setSelectedProvider(null);
     setError("");
@@ -129,6 +133,25 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
         const pending = uploadRequests.current.get(message.requestId);
         if (pending) { uploadRequests.current.delete(message.requestId); pending.resolve({ fileId: message.fileId, url: message.url }); }
       } else if (message.type === "command.ok" && pendingRef.current.delete(message.requestId)) {
+        const mutation = historyMutationRef.current;
+        if (mutation?.requestId === message.requestId) {
+          historyMutationRef.current = null;
+          setHistoryMutation(null);
+          if (message.sessionId !== session.id || message.threadId !== threadRef.current) return;
+          if (mutation.kind === "fork") { setDraftRef.current(""); setActiveSheet(null); }
+          else {
+            setHistory(null); setHistoryLoading(true);
+            const requestId = createRequestId();
+            historyIdRef.current = requestId;
+            pendingRef.current.add(requestId);
+            if (!send({ v: PROTOCOL_VERSION, type: "graphical.history", sessionId: session.id,
+              threadId: threadRef.current, requestId })) {
+              pendingRef.current.delete(requestId); setHistoryLoading(false);
+              setError("删除已成功，连接中断，请重新加载历史。");
+              return;
+            }
+          }
+        }
         if (submitIdRef.current === message.requestId) { setAttachments([]); setSending(false); submitIdRef.current = null; }
         if (quickIdRef.current === message.requestId) {
           const quickDraft = quickDraftRef.current;
@@ -144,6 +167,11 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
         if (modelIdRef.current === message.requestId) { setChangingModel(false); modelIdRef.current = null; }
         setError("");
       } else if (message.type === "error" && message.requestId && pendingRef.current.delete(message.requestId)) {
+        const mutation = historyMutationRef.current;
+        if (mutation?.requestId === message.requestId) {
+          historyMutationRef.current = null; setHistoryMutation(null);
+          if (mutation.threadId !== threadRef.current) return;
+        }
         const upload = uploadRequests.current.get(message.requestId);
         if (upload) { uploadRequests.current.delete(message.requestId); upload.reject(new Error(message.message)); }
         setError(message.message);
@@ -178,6 +206,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       modelIdRef.current = null;
       switchIdRef.current = null;
       historyIdRef.current = null;
+      historyMutationRef.current = null;
+      setHistoryMutation(null);
       setSending(false);
       setChangingMode(false);
       setChangingModel(false);
@@ -216,6 +246,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
 
   const action = (payload: { type: `graphical.${string}`; [key: string]: unknown }) => {
     if (!snapshot) return;
+    if (historyMutationRef.current && ["graphical.submit", "graphical.new-thread", "graphical.resume",
+      "graphical.model", "graphical.mode", "graphical.native-mode", "graphical.plan"].includes(payload.type)) return;
     const id = createRequestId();
     const message = { v: PROTOCOL_VERSION, sessionId: session.id, threadId: snapshot.threadId,
       requestId: id, ...payload } as ClientMessage;
@@ -227,14 +259,14 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const submit = () => {
     const text = draft.trim();
     const ready = attachments.filter(item => item.status === "ready" && item.fileId);
-    if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending) return;
+    if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending || historyMutationRef.current) return;
     submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId) }) || null;
     if (submitIdRef.current) { onSubmitRequest(submitIdRef.current); setSending(true); }
   };
   const runQuickCommand = (command: QuickCommand) => {
     if (!snapshot?.threadId || snapshot.archived) return false;
     if ((command.mode || "write") === "write") { setDraft(current => current + command.command); return true; }
-    if (isSending || quickIdRef.current) return false;
+    if (isSending || quickIdRef.current || historyMutationRef.current) return false;
     const id = createRequestId();
     if (!send({ v: PROTOCOL_VERSION, type: "quick-command.invoke", sessionId: session.id,
       commandId: command.id, threadId: snapshot.threadId, requestId: id })) {
@@ -330,6 +362,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     if (modeIdRef.current) setChangingMode(true);
   };
   const switchAgent = (provider: AgentProvider) => {
+    if (historyMutationRef.current) return;
     if (!snapshot || snapshot.busy || snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo
       || provider === snapshot.provider) return;
     const id = createRequestId();
@@ -354,9 +387,23 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   };
 
   const openHistory = () => { setActiveSheet("history"); loadHistory(); };
+  const mutateHistory = (targetThreadId: string, kind: "fork" | "delete") => {
+    if (!snapshot || snapshot.provider !== "opencode" || snapshot.busy || isSending || historyMutationRef.current
+      || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length || attachments.some(item => item.status === "uploading")) return;
+    const thread = history?.data.find(value => value.id === targetThreadId);
+    if (!thread || !snapshot.capabilities?.[kind === "fork" ? "forkHistory" : "deleteHistory"]) return;
+    if (kind === "delete" && (targetThreadId === snapshot.threadId
+      || !window.confirm(`删除“${thread.title}”的历史记录？删除后无法在本工具中恢复。`))) return;
+    setError("");
+    const requestId = action({ type: kind === "fork" ? "graphical.fork" : "graphical.delete", targetThreadId });
+    if (requestId) {
+      historyMutationRef.current = { requestId, kind, threadId: snapshot.threadId };
+      setHistoryMutation(targetThreadId);
+    }
+  };
 
-  return { snapshot, isSending, error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
-    history, historyLoading, expandedGroupId, setExpandedGroupId, changingMode, changingModel,
+  return { snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
+    history, historyLoading, historyMutation, mutateHistory, expandedGroupId, setExpandedGroupId, changingMode, changingModel,
     attachments, setAttachments, switchingTo, scrollRef, moreButtonRef, sheetRef, action, submit,
     runQuickCommand, changeModel, uploadFile, addFiles, removeAttachment, changeMode, changePermission,
     changeNativeMode, executeOpenCodePlan, switchAgent, loadHistory, openHistory };

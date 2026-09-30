@@ -134,7 +134,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
       ...(connectionId ? { "acp-connection-id": connectionId } : {}),
       ...(sessionToken ? { "acp-session-token": sessionToken } : {}), ...extra };
   }
-  function request(method, route, body, { subscribe = false, rawJson = false } = {}) {
+  function request(method, route, body, { subscribe = false, rawJson = false, timeoutMs = 0, responseLimit = RESPONSE_LIMIT } = {}) {
     return new Promise((resolve, reject) => {
       if (closed) { reject(new Error("CodeBuddy HTTP ACP 已关闭。")); return; }
       const payload = body == null ? null : JSON.stringify(body);
@@ -159,7 +159,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
             if (type.includes("text/event-stream")) parser.push(chunk);
             else {
               json += chunk.toString("utf8");
-              if (json.length > RESPONSE_LIMIT) throw new Error("CodeBuddy HTTP ACP 响应过大。");
+              if (json.length > responseLimit) throw new Error("CodeBuddy HTTP 响应过大。");
             }
           } catch (error) { req.destroy(error); }
         });
@@ -179,6 +179,7 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
         });
       });
       requests.add(req);
+      if (timeoutMs) req.setTimeout(timeoutMs, () => req.destroy(new Error("CodeBuddy HTTP 请求超时。")));
       req.on("error", error => {
         requests.delete(req);
         if (subscribe && subscription === req) { if (!closed) events.emit("error", error); }
@@ -199,8 +200,52 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
       await request("GET", path, null, { subscribe: true });
     },
     send(message) { return request("POST", path, message); },
+    rest(method, route, body) { return request(method, route, body, { rawJson: true }); },
+    subscribeRest(route, onEvent, onError) {
+      if (closed) throw new Error("CodeBuddy HTTP 服务已关闭。");
+      let cancelled = false;
+      let failed = false;
+      const fail = error => { if (!cancelled && !failed) { failed = true; onError(error); } };
+      let currentEvent = "message";
+      let data = [];
+      let buffer = "";
+      const decoder = new StringDecoder("utf8");
+      const emit = () => {
+        if (!data.length) { currentEvent = "message"; return; }
+        try { onEvent({ type: currentEvent, data: JSON.parse(data.join("\n")) }); }
+        catch (error) { fail(error); }
+        currentEvent = "message"; data = [];
+      };
+      const req = http.request({ hostname: base.hostname, port: base.port, path: route, method: "GET", agent,
+        headers: headers({ Accept: "text/event-stream" }) }, res => {
+        if (res.statusCode !== 200 || !String(res.headers["content-type"] || "").includes("text/event-stream")) {
+          requests.delete(req); res.resume(); fail(new Error(`CodeBuddy 事件流返回 HTTP ${res.statusCode}。`)); return;
+        }
+        res.on("data", chunk => {
+          buffer += decoder.write(chunk);
+          if (buffer.length > RESPONSE_LIMIT) { req.destroy(new Error("CodeBuddy 事件帧过大。")); return; }
+          let index;
+          while ((index = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, index).replace(/\r$/, ""); buffer = buffer.slice(index + 1);
+            if (!line) emit();
+            else if (line.startsWith("event:")) currentEvent = line.slice(6).trim();
+            else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+          }
+        });
+        res.on("end", () => { requests.delete(req); if (!closed) fail(new Error("CodeBuddy 事件流已断开。")); });
+      });
+      requests.add(req);
+      req.on("error", error => { requests.delete(req); if (!closed) fail(error); });
+      req.end();
+      return () => { cancelled = true; requests.delete(req); req.destroy(); };
+    },
     sendTeamMessage(message) { return request("POST", "/api/v1/team/messages/send", message, { rawJson: true }); },
     renameSession(sessionId, name) { return request("POST", `/api/v1/sessions/${encodeURIComponent(sessionId)}/rename`, { name }, { rawJson: true }); },
+    pluginRequest(method, route, body) {
+      if (!/^(GET|POST|DELETE)$/.test(method) || !/^\/api\/v1\/plugins(?:\/(?:reload|marketplaces(?:\/(?:browse|update|auto-update|[a-zA-Z0-9._-]+))?))?$/.test(route))
+        throw new Error("不支持的 CodeBuddy 插件接口。");
+      return request(method, route, body, { rawJson: true, timeoutMs: 120000, responseLimit: 8 * 1024 * 1024 });
+    },
     close() {
       if (closed) return Promise.resolve();
       const deleteHeaders = headers();

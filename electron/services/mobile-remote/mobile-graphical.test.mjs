@@ -26,6 +26,25 @@ function fixture() {
   return { handlers, socket, send, session, snapshot, graphicalService, terminalManager };
 }
 
+it("routes OpenCode fork/delete with capability, pending request, and stale thread checks", async () => {
+  const f = fixture();
+  Object.assign(f.snapshot, { provider: "opencode", capabilities: { history: true, forkHistory: true, deleteHistory: true }, approvals: [], questions: [] });
+  f.session.agentProvider = "opencode";
+  f.graphicalService.forkThread = vi.fn(async () => { f.snapshot.threadId = "branch"; return { ...f.snapshot }; });
+  f.graphicalService.deleteThread = vi.fn(async () => {});
+  await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+  await f.handlers.handle(f.socket, { type: "graphical.fork", sessionId: "graph-1", threadId: "thread-1", targetThreadId: "old", requestId: "fork" });
+  expect(f.graphicalService.forkThread).toHaveBeenCalledWith("graph-1", "old");
+  expect(f.send).toHaveBeenCalledWith(f.socket, { type: "command.ok", requestId: "fork", sessionId: "graph-1", threadId: "branch" });
+  await expect(f.handlers.handle(f.socket, { type: "graphical.delete", sessionId: "graph-1", threadId: "thread-1", targetThreadId: "old" })).rejects.toThrow("已切换");
+  await f.handlers.handle(f.socket, { type: "graphical.delete", sessionId: "graph-1", threadId: "branch", targetThreadId: "old", requestId: "delete" });
+  expect(f.graphicalService.deleteThread).toHaveBeenCalledWith("graph-1", "old");
+  f.snapshot.capabilities.deleteHistory = false;
+  await expect(f.handlers.handle(f.socket, { type: "graphical.delete", sessionId: "graph-1", threadId: "branch", targetThreadId: "old" })).rejects.toThrow("不支持");
+  f.snapshot.questions = [{ requestId: 1 }];
+  await expect(f.handlers.handle(f.socket, { type: "graphical.fork", sessionId: "graph-1", threadId: "branch", targetThreadId: "old" })).rejects.toThrow("待处理");
+});
+
 describe("mobile graphical session route", () => {
   it("sends streaming deltas to capable clients and full snapshots to legacy clients", async () => {
     const f = fixture();

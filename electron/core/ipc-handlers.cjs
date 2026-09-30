@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService, codeBuddyPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -66,25 +66,42 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:rename-thread", (_event, id, threadId, name) => codexAppServerSessionService.renameThread(String(id || ""), threadId, name));
     ipcMain.handle("codex-app-server:rewind", (_event, id, messageId, scope) => codexAppServerSessionService.rewind(String(id || ""), messageId, scope));
     ipcMain.handle("codex-app-server:pin-thread", (_event, id, threadId, isPinned) => codexAppServerSessionService.pinThread(String(id || ""), threadId, isPinned));
-    ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId) => codexAppServerSessionService.forkThread(String(id || ""), threadId));
+    ipcMain.handle("codex-app-server:fork-thread", (_event, id, threadId, lastTurnId) => codexAppServerSessionService.forkThread(String(id || ""), threadId, lastTurnId));
+    ipcMain.handle("codex-app-server:delete-thread", (_event, id, threadId) => codexAppServerSessionService.deleteThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:archive-thread", (_event, id, threadId) => codexAppServerSessionService.archiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:unarchive-thread", (_event, id, threadId) => codexAppServerSessionService.unarchiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:capabilities", (_event, id, refresh) => codexAppServerSessionService.listCapabilities(String(id || ""), refresh === true));
+    ipcMain.handle("codex-app-server:plugin-detail", (_event, id, plugin, marketplace) => codexAppServerSessionService.readPluginDetail(String(id || ""), plugin, marketplace));
+    ipcMain.handle("codex-app-server:plugin-skill", (_event, id, plugin, marketplace, skill) => codexAppServerSessionService.readPluginSkill(String(id || ""), plugin, marketplace, skill));
+    ipcMain.handle("codex-app-server:app-detail", (_event, id, appId) => codexAppServerSessionService.readAppDetail(String(id || ""), appId));
+    ipcMain.handle("codex-app-server:mcp-resource", (_event, id, server, uri) => codexAppServerSessionService.readMcpResource(String(id || ""), server, uri));
     ipcMain.handle("codex-app-server:mcp-login", (_event, id, name) => codexAppServerSessionService.loginMcpServer(String(id || ""), name));
     ipcMain.handle("codex-app-server:mcp-reload", (_event, id) => codexAppServerSessionService.reloadMcpServers(String(id || "")));
     ipcMain.handle("codex-app-server:resume", (_event, id, threadId) => codexAppServerSessionService.resume(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:new-thread", (_event, id) => codexAppServerSessionService.newThread(String(id || "")));
+    ipcMain.handle("codex-app-server:review", (_event, id, target) => codexAppServerSessionService.startReview(String(id || ""), target));
     ipcMain.handle("codex-app-server:compact", (_event, id) => codexAppServerSessionService.compactThread(String(id || "")));
     ipcMain.handle("codex-app-server:background-terminals-list", (_event, id) => codexAppServerSessionService.listBackgroundTerminals(String(id || "")));
     ipcMain.handle("codex-app-server:background-terminal-terminate", (_event, id, processId) =>
       codexAppServerSessionService.terminateBackgroundTerminal(String(id || ""), processId));
     ipcMain.handle("codex-app-server:background-terminals-clean", (_event, id) => codexAppServerSessionService.cleanBackgroundTerminals(String(id || "")));
+    for (const [channel, method] of [["list", "listJobs"], ["dispatch-context", "jobDispatchContext"], ["resumable", "listResumableJobs"]])
+      ipcMain.handle(`codebuddy-jobs:${channel}`, (_event, id) => codexAppServerSessionService[method](String(id || "")));
+    ipcMain.handle("codebuddy-jobs:dispatch", (_event, id, input) => codexAppServerSessionService.dispatchJob(String(id || ""), input));
+    ipcMain.handle("codebuddy-jobs:resume", (_event, id, sessionId) => codexAppServerSessionService.resumeJob(String(id || ""), sessionId));
+    ipcMain.handle("codebuddy-jobs:transcript-read", (_event, id, jobId) => codexAppServerSessionService.jobTranscript(String(id || ""), jobId));
+    ipcMain.handle("codebuddy-jobs:action", (_event, id, jobId, action, input) => codexAppServerSessionService.jobAction(String(id || ""), jobId, action, input));
+    ipcMain.handle("codebuddy-jobs:watch", (_event, id, jobId) => codexAppServerSessionService.watchJob(String(id || ""), jobId));
+    ipcMain.handle("codebuddy-jobs:unwatch", (_event, id, jobId) => codexAppServerSessionService.unwatchJob(String(id || ""), jobId));
     ipcMain.handle("codex-app-server:goal-get", (_event, id) => codexAppServerSessionService.getGoal(String(id || "")));
     ipcMain.handle("codex-app-server:goal-set", (_event, id, changes) => codexAppServerSessionService.setGoal(String(id || ""), changes));
     ipcMain.handle("codex-app-server:goal-clear", (_event, id) => codexAppServerSessionService.clearGoal(String(id || "")));
+    ipcMain.handle("codex-app-server:goal-refresh", (_event, id) => codexAppServerSessionService.refreshGoal(String(id || "")));
     ipcMain.handle("codex-app-server:mode", (_event, id, mode) => codexAppServerSessionService.setMode(String(id || ""), mode));
     ipcMain.handle("codex-app-server:native-mode", (_event, id, modeId) => codexAppServerSessionService.setNativeMode(String(id || ""), modeId));
     ipcMain.handle("codex-app-server:model", (_event, id, modelId) => codexAppServerSessionService.setModel(String(id || ""), modelId));
+    ipcMain.handle("codex-app-server:main-agents", (_event, id) => codexAppServerSessionService.listMainAgents(String(id || "")));
+    ipcMain.handle("codex-app-server:main-agent", (_event, id, agentName) => codexAppServerSessionService.setMainAgent(String(id || ""), agentName));
     ipcMain.handle("codex-app-server:context-window", (_event, id, value) => codexAppServerSessionService.setContextWindow(String(id || ""), value));
     ipcMain.handle("codex-app-server:effort", (_event, id, effort) => codexAppServerSessionService.setEffort(String(id || ""), effort));
     ipcMain.handle("codex-app-server:multitask", (_event, id, enabled) => codexAppServerSessionService.setMultitask(String(id || ""), enabled));
@@ -150,6 +167,10 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-plugin:marketplace-remove", (_event, id, name) => codexPluginService.removeMarketplace(id, name));
     ipcMain.handle("codex-plugin:config", (_event, id, scope) => codexPluginService.readConfig(id, scope));
     ipcMain.handle("codex-plugin:enable", (_event, id, scope, input) => codexPluginService.setEnabled(id, scope, input));
+  }
+  if (codeBuddyPluginService) {
+    for (const method of ["list", "reload", "install", "uninstall", "enable", "disable", "update", "addMarketplace", "refreshMarketplace", "removeMarketplace", "setAutoUpdate"])
+      ipcMain.handle(`codebuddy-plugin:${method}`, (_event, id, ...args) => codeBuddyPluginService[method](id, ...args));
   }
   if (postgresBackupService) {
     ipcMain.handle("postgres-backup:get-config", () => postgresBackupService.publicState());

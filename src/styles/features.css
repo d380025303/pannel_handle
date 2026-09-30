@@ -7976,6 +7976,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-goal-content label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 .codex-app-server-goal-content textarea, .codex-app-server-goal-content input { box-sizing: border-box; width: 100%; padding: 9px 11px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); font: inherit; font-weight: 400; }
 .codex-app-server-goal-content textarea { resize: vertical; }
+.codex-app-server-goal-content select { width: 100%; padding: 9px 11px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-bg-control); font: inherit; font-weight: 400; }
 .codex-app-server-goal-content small { align-self: flex-end; color: var(--color-text-muted); }
 .codex-app-server-goal-summary { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-control); }
 .codex-app-server-goal-summary span { color: var(--color-text-secondary); }
@@ -7989,7 +7990,39 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-goal-chip svg { width: 13px; height: 13px; }
 .codex-app-server-compaction-status { align-self: center; color: var(--color-text-secondary); font-size: 12px; }
 .codex-app-server-message.contextCompaction { color: var(--color-text-secondary); font-size: 12px; }
+.codex-app-server-turn-actions { display: flex; justify-content: flex-end; max-width: min(88%, 900px); }
+.codex-app-server-turn-actions button { border: 0; border-radius: 6px; padding: 4px 8px; color: var(--color-text-muted); background: transparent; font-size: 11px; cursor: pointer; }
+.codex-app-server-turn-actions button:hover:not(:disabled) { color: var(--color-text); background: var(--color-bg-control-hover); }
+.codex-app-server-turn-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .codex-app-server-background-turn { align-self: flex-start; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
+.codebuddy-jobs-dialog { width: min(1050px, calc(100vw - 24px)); height: min(790px, calc(100vh - 24px)); display: flex; flex-direction: column; }
+.codebuddy-jobs-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 20px; color: var(--color-text-secondary); font-size: 12px; }
+.codebuddy-jobs-toolbar span { min-width: 0; overflow-wrap: anywhere; }
+.codebuddy-jobs-toolbar button, .codebuddy-jobs-actions button, .codebuddy-jobs-form button, .codebuddy-jobs-history button { border: 1px solid var(--color-border); border-radius: 7px; padding: 6px 10px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
+.codebuddy-jobs-toolbar button:disabled, .codebuddy-jobs-actions button:disabled, .codebuddy-jobs-form button:disabled, .codebuddy-jobs-history button:disabled { opacity: .5; cursor: default; }
+.codebuddy-jobs-toolbar svg { width: 14px; height: 14px; vertical-align: middle; }
+.codebuddy-jobs-body { display: grid; grid-template-columns: minmax(210px, 30%) minmax(0, 1fr); min-height: 0; flex: 1; border-top: 1px solid var(--color-border); }
+.codebuddy-jobs-list { overflow: auto; border-right: 1px solid var(--color-border); padding: 12px; }
+.codebuddy-jobs-list > button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; margin-bottom: 6px; padding: 9px; border: 1px solid var(--color-border); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); text-align: left; cursor: pointer; }
+.codebuddy-jobs-list > button.selected { border-color: var(--color-accent); }
+.codebuddy-jobs-list strong, .codebuddy-jobs-list span { overflow-wrap: anywhere; }
+.codebuddy-jobs-list span { color: var(--color-text-secondary); font-size: 11px; }
+.codebuddy-jobs-detail { overflow: auto; padding: 14px 20px 20px; min-width: 0; }
+.codebuddy-jobs-detail h3 { margin: 0 0 10px; }
+.codebuddy-jobs-detail > p { color: var(--color-text-secondary); font-size: 12px; }
+.codebuddy-jobs-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+.codebuddy-jobs-actions form { display: flex; gap: 6px; flex: 1 1 280px; }
+.codebuddy-jobs-actions input { min-width: 0; flex: 1; }
+.codebuddy-jobs-form { display: grid; gap: 9px; }
+.codebuddy-jobs-form textarea { min-height: 100px; resize: vertical; }
+.codebuddy-jobs-form input, .codebuddy-jobs-form textarea, .codebuddy-jobs-form select, .codebuddy-jobs-actions input { border: 1px solid var(--color-border); border-radius: 7px; padding: 8px; color: var(--color-text); background: var(--color-bg-control); }
+.codebuddy-jobs-form label { display: grid; gap: 4px; font-size: 12px; }
+.codebuddy-jobs-transcript { display: flex; flex-direction: column; gap: 8px; max-height: 430px; overflow: auto; }
+.codebuddy-jobs-message { padding: 9px; border: 1px solid var(--color-border); border-radius: 7px; overflow-wrap: anywhere; }
+.codebuddy-jobs-message strong { font-size: 11px; color: var(--color-text-secondary); }
+.codebuddy-jobs-history { display: grid; gap: 8px; margin-top: 16px; }
+.codebuddy-jobs-history > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+@media (max-width: 650px) { .codebuddy-jobs-body { grid-template-columns: 1fr; grid-template-rows: minmax(100px, 25%) minmax(0, 1fr); } .codebuddy-jobs-list { border-right: 0; border-bottom: 1px solid var(--color-border); } }
 .codex-app-server-messages { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; scrollbar-width: none; }
 .codex-app-server-messages::-webkit-scrollbar { display: none; }
 .codex-app-server-messages > :not(.codex-app-server-empty) { flex-shrink: 0; }
@@ -8190,6 +8223,26 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-capability-server > strong { display: flex; align-items: center; gap: 7px; padding: 4px 8px; font-size: 12px; }
 .codex-app-server-capability-server > strong small { margin-left: auto; color: var(--color-text-secondary); font-weight: 400; }
 .codex-app-server-capability-server button { padding-left: 28px; }
+.codex-capability-app-row { display: flex; align-items: center; }
+.codex-capability-app-row > button:first-child { min-width: 0; flex: 1; }
+.codex-app-server-capability-list .codex-capability-detail-button { width: auto; flex: none; padding: 5px 7px; font-size: 11px; }
+.codex-app-server-capability-server > strong .codex-capability-detail-button { margin-left: 5px; }
+.codex-capability-detail-backdrop { position: fixed; inset: 0; z-index: 130; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .55); }
+.codex-capability-detail { width: min(680px, 100%); max-height: min(760px, 90vh); display: flex; flex-direction: column; border: 1px solid var(--color-border-strong); border-radius: 12px; color: var(--color-text); background: var(--color-bg-panel); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+.codex-capability-detail > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
+.codex-capability-detail > header button { display: grid; place-items: center; border: 0; color: var(--color-text); background: transparent; cursor: pointer; }
+.codex-capability-detail > header svg { width: 18px; height: 18px; }
+.codex-capability-detail-body { overflow: auto; padding: 14px 18px 20px; overflow-wrap: anywhere; font-size: 12px; }
+.codex-capability-detail-body h4 { margin: 18px 0 8px; font-size: 13px; }
+.codex-capability-detail-body dl { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 7px 12px; }
+.codex-capability-detail-body dt { color: var(--color-text-secondary); }
+.codex-capability-detail-body dd { margin: 0; }
+.codex-capability-detail-body ul { margin: 0; padding-left: 20px; }
+.codex-capability-detail-body li { margin: 7px 0; }
+.codex-capability-detail-body li span { display: block; color: var(--color-text-secondary); }
+.codex-capability-detail-body button { border: 1px solid var(--color-border); border-radius: 5px; padding: 3px 7px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
+.codex-capability-detail-body pre { max-height: 260px; overflow: auto; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.codex-capability-detail-body [role="alert"] { color: var(--color-danger-text); }
 .codex-plugin-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .55); }
 .codex-plugin-dialog { display: flex; flex-direction: column; width: min(960px, 100%); max-height: min(900px, 92vh); border: 1px solid var(--color-border-strong); border-radius: 12px; color: var(--color-text); background: var(--color-bg-panel); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
 .codex-plugin-dialog > header, .codex-plugin-dialog > header > div, .codex-plugin-toolbar, .codex-plugin-scope, .codex-plugin-row-actions, .codex-plugin-marketplace, .codex-plugin-marketplace form { display: flex; align-items: center; gap: 10px; }
@@ -8199,6 +8252,9 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-plugin-dialog button { border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 5px 9px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }
 .codex-plugin-dialog button:disabled { opacity: .5; cursor: default; }
 .codex-plugin-dialog input[type="search"], .codex-plugin-dialog input[aria-label="插件来源地址"] { min-width: 0; flex: 1; border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 7px 9px; color: var(--color-text); background: var(--color-bg-control); }
+.codebuddy-marketplace-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; }
+.codebuddy-marketplace-form input[aria-label="市场名称"] { min-width: 140px; flex: 1; border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 7px 9px; color: var(--color-text); background: var(--color-bg-control); }
+.codebuddy-marketplace-form label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .codex-plugin-toolbar, .codex-plugin-scope { padding: 10px 18px; }
 .codex-plugin-scope { flex-wrap: wrap; font-size: 12px; }
 .codex-plugin-scope label { display: inline-flex; align-items: center; gap: 4px; }

@@ -10,13 +10,15 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
   const { activeSheet, setActiveSheet, selectedProvider, setSelectedProvider, error, setError,
     history, historyLoading, changingMode, changingModel, attachments, switchingTo, sheetRef,
     action, changeModel, addFiles, changeMode, changePermission, changeNativeMode, switchAgent,
-    loadHistory, openHistory, isSending } = controller;
+    loadHistory, openHistory, isSending, historyMutation, mutateHistory } = controller;
   if (!activeSheet) return null;
   const effectivePlan = snapshot.mode === "plan";
   const addFileDisabled = !snapshot.threadId || snapshot.archived || isSending || attachments.length >= 10
     || (snapshot.busy && snapshot.provider !== "codex");
-  const modelDisabled = !modelOptions(snapshot).length || snapshot.busy || snapshot.archived || changingModel || attachments.length > 0;
-  const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo);
+  const modelDisabled = !modelOptions(snapshot).length || snapshot.busy || snapshot.archived || changingModel || attachments.length > 0 || Boolean(historyMutation);
+  const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo || historyMutation);
+  const historyDisabled = snapshot.busy || isSending || Boolean(historyMutation || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length)
+    || attachments.some(item => item.status === "uploading");
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
     : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
   return (<div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
@@ -50,7 +52,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span><GraphicalIcon name="agent" />切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span><GraphicalIcon name="history" />历史记录</span><small>查看并恢复对话</small></button>
-          <button type="button" disabled={snapshot.busy} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span><GraphicalIcon name="new" />新对话</span></button>
+          <button type="button" disabled={snapshot.busy || Boolean(historyMutation)} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span><GraphicalIcon name="new" />新对话</span></button>
           <label className={`graphical-file-picker${addFileDisabled ? " is-disabled" : ""}`}>
             <span><GraphicalIcon name="file" />添加文件</span><small>{attachments.length}/10</small>
             <input aria-label="添加文件" type="file" multiple disabled={addFileDisabled}
@@ -92,10 +94,18 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             onClick={() => changeNativeMode(mode.id)}><span>{mode.name || mode.id}</span>{snapshot.nativeMode === mode.id && <small>当前使用</small>}</button>)}
         </div>}
         {activeSheet === "history" && <div className="graphical-sheet-list graphical-history-list">
-          {history?.data.map(thread => <button type="button" key={thread.id} disabled={snapshot.busy || thread.archived || thread.id === snapshot.threadId}
+          {history?.data.map(thread => <div className="graphical-history-row" key={thread.id}><button type="button" disabled={historyDisabled || thread.archived || thread.id === snapshot.threadId}
             onClick={() => { if (action({ type: "graphical.resume", targetThreadId: thread.id })) setActiveSheet(null); }}>
             <span>{thread.title}</span><small>{new Date(thread.updatedAt * 1000).toLocaleString()}{thread.archived ? " · 已归档" : ""}</small>
-          </button>)}
+          </button>
+            {snapshot.provider === "opencode" && <div className="graphical-history-actions">
+              {snapshot.capabilities?.forkHistory && <button type="button" disabled={historyDisabled} onClick={() => mutateHistory(thread.id, "fork")}>分叉</button>}
+              {snapshot.capabilities?.deleteHistory && <button type="button" disabled={historyDisabled || thread.id === snapshot.threadId}
+                title={thread.id === snapshot.threadId ? "请先切换到其他对话再删除" : undefined}
+                onClick={() => mutateHistory(thread.id, "delete")}>删除</button>}
+              {historyMutation === thread.id && <span role="status">正在处理…</span>}
+            </div>}
+          </div>)}
           {historyLoading && <p role="status">正在加载…</p>}
           {!historyLoading && history?.data.length === 0 && <p>暂无历史对话</p>}
           {history?.nextCursor && <button type="button" disabled={historyLoading} onClick={() => loadHistory(history.nextCursor)}>加载更多</button>}

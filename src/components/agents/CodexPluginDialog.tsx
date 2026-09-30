@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Package, Plus, RefreshCw, X } from "lucide-react";
 import type { CodexAppServerSnapshot, CodexPluginCatalog, CodexPluginScope, CodexSessionCapabilities, TerminalSession } from "../../vite-env";
 import { McpManager } from "../mcp/McpManager";
+import { CodexCapabilityDetail, type CapabilityDetailTarget } from "./CodexCapabilityDetail";
 
 type Plugin = Record<string, unknown>;
 const value = (item: Plugin, ...keys: string[]) => keys.map(key => item[key]).find(entry => typeof entry === "string" && entry) as string | undefined;
@@ -29,6 +30,7 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<CapabilityDetailTarget | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
@@ -130,6 +132,7 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
     return <article className="codex-plugin-row" key={key}>
       <div className="codex-plugin-identity"><span className="codex-plugin-icon"><Package aria-hidden="true" /></span><span><strong>{displayName || "未知插件"}</strong><small>{descriptionOf(item) || marketplace || "未知来源"}</small>{remote && <small>官方远程插件请在 Codex 官方插件面板启停</small>}{typeof override === "boolean" && override !== effective && <small>所选范围的配置与 Codex 实际状态不一致</small>}</span></div>
       <div className="codex-plugin-row-actions">
+        <button type="button" onClick={() => setDetailTarget({ kind: "plugin", name, marketplace })}>详情</button>
         {isInstalled && <button className="codex-plugin-toggle" type="button" role="switch" aria-label={`${displayName} ${effective ? "停用" : "启用"}`} aria-checked={effective} disabled={busy || !name || !marketplace || Boolean(unavailable) || managed || remote} title={remote ? "官方远程插件请在 Codex 官方插件面板启停" : managed ? "由 Codex 管理的默认插件" : unavailable ? String(item.disabledReason || "当前账号或工作区不可用") : undefined}
           onClick={() => void act(() => window.codexPluginApi.setEnabled(sessionId, scope, { plugin: name, marketplace, enabled: !effective }))}>
           <span /></button>}
@@ -196,6 +199,7 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
                   {login?.status === "pending" && <span>等待浏览器授权…</span>}
                   {login?.status === "refreshing" && <span>授权完成，正在刷新连接…</span>}</div>
                   <div className="codex-plugin-mcp-runtime-actions">
+                  <button type="button" onClick={() => setDetailTarget({ kind: "mcp", server: item })}>详情</button>
                   {(item.failureReason === "reauthenticationRequired" || item.status === "authenticationRequired"
                     || (item.authStatus === "notLoggedIn" && item.status !== "connected" && item.status !== "ready") || login?.status === "failed")
                     && <button type="button" disabled={login?.status === "pending" || login?.status === "refreshing"}
@@ -210,5 +214,7 @@ export function CodexPluginDialog({ sessionId, session, onClose, onChanged }: { 
           onDirtyChange={setMcpDirty} onRegisterSave={() => undefined} onCommitted={() => void reloadMcp(true)} /> : <p>当前会话信息不可用。</p>}
       </div>}
     </section>
+    {detailTarget && <CodexCapabilityDetail key={`${sessionId}:${detailTarget.kind}:${detailTarget.kind === "plugin" ? detailTarget.name : detailTarget.kind === "app" ? detailTarget.id : detailTarget.server.name}`}
+      sessionId={sessionId} target={detailTarget} onClose={() => setDetailTarget(null)} />}
   </div>;
 }

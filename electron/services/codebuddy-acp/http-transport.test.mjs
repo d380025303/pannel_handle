@@ -12,6 +12,21 @@ afterEach(async () => {
 });
 
 describe("CodeBuddy HTTP ACP transport", () => {
+  it("limits plugin requests to the authenticated plugin API", async () => {
+    const seen = [];
+    const server = http.createServer((req, res) => {
+      seen.push({ method: req.method, path: req.url, authorization: req.headers.authorization, guard: req.headers["x-codebuddy-request"] });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ name: "example" }] }));
+    });
+    servers.push(server);
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = createCodeBuddyHttpTransport({ endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret" });
+    await expect(transport.pluginRequest("GET", "/api/v1/plugins/marketplaces")).resolves.toEqual({ data: [{ name: "example" }] });
+    expect(() => transport.pluginRequest("GET", "/internal/file-changes/diff")).toThrow("不支持");
+    expect(seen).toEqual([{ method: "GET", path: "/api/v1/plugins/marketplaces", authorization: "Bearer secret", guard: "1" }]);
+    await transport.close();
+  });
   it("reads only loopback startup endpoints and the in-memory password", async () => {
     const child = new EventEmitter();
     child.stdout = new EventEmitter(); child.stderr = new EventEmitter();

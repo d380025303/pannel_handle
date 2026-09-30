@@ -266,6 +266,10 @@ button { color: inherit; }
 .graphical-sheet-list button small, .graphical-sheet-list .graphical-file-picker small { flex: none; color: #9fb5ce; font-size: 11px; }
 .graphical-history-list button { align-items: flex-start; flex-direction: column; gap: 4px; }
 .graphical-history-list p { padding: 10px; color: #9fb5ce; text-align: center; }
+.graphical-history-row { margin-bottom: 12px; }
+.graphical-history-actions { display: flex; align-items: center; gap: 8px; }
+.graphical-history-actions button { width: auto; min-height: 44px; justify-content: center; margin-bottom: 0; }
+.graphical-history-actions span { color: #9fb5ce; font-size: 12px; }
 .graphical-sheet-confirm { padding: 16px; }
 .graphical-sheet-confirm p { margin: 0 0 18px; color: #c9d8e9; line-height: 1.6; }
 .graphical-sheet-confirm div { display: flex; justify-content: flex-end; gap: 8px; }

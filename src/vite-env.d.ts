@@ -1002,6 +1002,21 @@ export type CodexThreadGoal = {
   timeUsedSeconds?: number;
 };
 
+export type CodeBuddyGoalState = {
+  available: boolean;
+  active: { condition: string; paused: boolean; durationMs: number; turnCount: number; tokenDelta: number; reason: string } | null;
+  latest: { condition: string; ok: boolean; reason: string; durationMs: number; turnCount: number; tokenDelta: number } | null;
+  pendingAction: "set" | "clear" | "inspect" | null;
+  error: string | null;
+  updatedAt: number;
+};
+
+export type CodexReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string }
+  | { type: "custom"; instructions: string };
+
 export type CodexAppServerSnapshot = {
   threadId: string | null;
   streamId?: string;
@@ -1021,12 +1036,14 @@ export type CodexAppServerSnapshot = {
     tokenUsage?: { inputTokens?: number; outputTokens?: number; lastContextWindow?: number }; toolCallCount?: number;
     items: CodexAppServerSnapshot["items"];
   }> } | null;
+  mainAgent?: { currentAgentName: string | null; sessionBlank: boolean; changing?: boolean; error: string | null;
+    agents: Array<{ name: string; displayName: string; description?: string; source?: string; broken?: string }> } | null;
   nativeMode?: string | null;
   nativeModes?: Array<{ id: string; name: string; description?: string }>;
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
-  capabilities?: { history: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
+  capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
   account?: CodexAccountState | null;
@@ -1046,8 +1063,10 @@ export type CodexAppServerSnapshot = {
   executionPermission: CodexExecutionPermission;
   busy: boolean;
   compacting?: boolean;
+  reviewing?: boolean;
   compactionStatus?: "running" | "completed" | "failed" | null;
   goal?: CodexThreadGoal | null;
+  codeBuddyGoal?: CodeBuddyGoalState;
   goalLoading?: boolean;
   goalError?: string | null;
   error: string | null;
@@ -1106,17 +1125,61 @@ export type CodexPluginApi = {
   setEnabled: (id: string, scope: CodexPluginScope, input: { plugin: string; marketplace: string; enabled: boolean }) => Promise<{
     overrides: Record<string, { enabled?: boolean }>; pluginId: string; enabled: boolean }>;
 };
+export type CodeBuddyPluginScope = "user" | "project" | "local";
+export type CodeBuddyPluginCatalog = {
+  installed: Array<{ id: string; name: string; marketplaceName: string; scope: CodeBuddyPluginScope | "managed";
+    enabled: boolean; version: string; dependencyErrors: string[] }>;
+  available: Array<{ name: string; marketplaceName: string; description?: string; version?: string }>;
+  marketplaces: Array<{ name: string; source?: string | Record<string, unknown>; description?: string;
+    isBuiltIn?: boolean; autoUpdate?: boolean }>;
+  errors: string[]; environment: string; reloadError?: string;
+};
+export type CodeBuddyPluginApi = {
+  list: (id: string) => Promise<CodeBuddyPluginCatalog>;
+  reload: (id: string) => Promise<CodeBuddyPluginCatalog>;
+  install: (id: string, name: string, marketplace: string, scope: CodeBuddyPluginScope) => Promise<CodeBuddyPluginCatalog>;
+  uninstall: (id: string, name: string, marketplace: string, scope: CodeBuddyPluginScope) => Promise<CodeBuddyPluginCatalog>;
+  enable: (id: string, name: string, marketplace: string, scope: CodeBuddyPluginScope) => Promise<CodeBuddyPluginCatalog>;
+  disable: (id: string, name: string, marketplace: string, scope: CodeBuddyPluginScope) => Promise<CodeBuddyPluginCatalog>;
+  update: (id: string, name: string, marketplace: string, scope: CodeBuddyPluginScope) => Promise<CodeBuddyPluginCatalog>;
+  addMarketplace: (id: string, source: string, name: string, autoUpdate: boolean) => Promise<CodeBuddyPluginCatalog>;
+  refreshMarketplace: (id: string, name: string) => Promise<CodeBuddyPluginCatalog>;
+  removeMarketplace: (id: string, name: string) => Promise<CodeBuddyPluginCatalog>;
+  setAutoUpdate: (id: string, name: string, enabled: boolean) => Promise<CodeBuddyPluginCatalog>;
+};
 export type CodexCapabilityReference = { kind: "skill" | "app"; name: string; path: string; token: string };
+export type CodexPluginDetail = { name: string; marketplaceName: string; description: string; version: string | null;
+  source: { type?: string } | null; installed: boolean; enabled: boolean; shareUrl: string | null; remotePluginId: string | null;
+  skills: Array<{ name: string; description: string; enabled: boolean }>;
+  apps: Array<{ name: string }>; mcpServers: string[] };
+export type CodexAppDetail = { id: string; name: string; description: string; accessible: boolean; enabled: boolean; callable: boolean;
+  distributionChannel: string | null; installUrl: string | null; pluginDisplayNames: string[];
+  tools: Array<{ name: string; title: string; description: string; enabled: boolean; disabledReason: string | null; readOnly: boolean }> };
+export type CodexMcpResourceResult = { contents: Array<{ uri: string; mimeType: string | null; text: string | null; binary: boolean; truncated: boolean }>; truncated: boolean };
 export type CodexSessionCapabilities = {
   skills: Array<{ id?: string; name: string; path: string; description: string; enabled: boolean; scope: string }>;
   apps: Array<{ id: string; name: string; description: string; accessible: boolean; enabled: boolean; callable: boolean }>;
   mcp: Array<{ name: string; status: string; authStatus: string; toolsError: string | null;
     error?: string | null; failureReason?: string | null;
+    pluginId?: string | null; httpOrigin?: string | null; serverInfo?: { name?: string; version?: string } | null;
+    resources: Array<{ uri: string; name: string; description: string; mimeType: string | null }>;
+    resourceTemplates: Array<{ uriTemplate: string; name: string; description: string }>;
     tools: Array<{ name: string; description: string }> }>;
   errors: { skills?: string; apps?: string; mcp?: string };
 };
 
 export type CodexAppServerApi = {
+  listJobs: (id: string) => Promise<CodeBuddyJob[]>;
+  jobDispatchContext: (id: string) => Promise<CodeBuddyJobDispatchContext>;
+  listResumableJobs: (id: string) => Promise<CodeBuddyResumableJob[]>;
+  dispatchJob: (id: string, input: CodeBuddyJobDispatch) => Promise<unknown>;
+  resumeJob: (id: string, sessionId: string) => Promise<unknown>;
+  jobTranscript: (id: string, jobId: string) => Promise<{ sessionId: string | null; updates: Array<Record<string, unknown>> }>;
+  jobAction: (id: string, jobId: string, action: "reply" | "stop" | "respawn" | "rename" | "delete", input?: { text?: string; name?: string }) => Promise<unknown>;
+  watchJob: (id: string, jobId: string) => Promise<void>;
+  unwatchJob: (id: string, jobId: string) => Promise<void>;
+  onJobsEvent: (callback: (event: { cwd: string; type: string }) => void) => () => void;
+  onJobTranscript: (callback: (event: { cwd: string; jobId: string; event?: Record<string, unknown>; error?: string; reset?: boolean }) => void) => () => void;
   snapshot: (id: string) => Promise<CodexAppServerSnapshot>;
   listModelMetadata: (id: string) => Promise<Array<{ id: string; creditMultiplier?: string; promotions: CodeBuddyPromotion[] }>>;
   readAccount: (id: string) => Promise<CodexAccountState>;
@@ -1130,15 +1193,21 @@ export type CodexAppServerApi = {
   rewind: (id: string, messageId: string, scope: "Code" | "Conversation" | "CodeAndConversation") => Promise<{
     snapshot: CodexAppServerSnapshot; filesChanged: string[]; historyRewound: boolean; fileRewindError: string | null }>;
   pinThread: (id: string, threadId: string, isPinned: boolean) => Promise<{ isPinned: boolean }>;
-  forkThread: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
+  forkThread: (id: string, threadId: string, lastTurnId?: string) => Promise<CodexAppServerSnapshot>;
+  deleteThread: (id: string, threadId: string) => Promise<void>;
   archiveThread: (id: string, threadId: string) => Promise<void>;
   unarchiveThread: (id: string, threadId: string) => Promise<void>;
   listCapabilities: (id: string, refresh?: boolean) => Promise<CodexSessionCapabilities>;
+  readPluginDetail: (id: string, plugin: string, marketplace: string) => Promise<CodexPluginDetail>;
+  readPluginSkill: (id: string, plugin: string, marketplace: string, skill: string) => Promise<{ contents: string | null; truncated: boolean }>;
+  readAppDetail: (id: string, appId: string) => Promise<CodexAppDetail>;
+  readMcpResource: (id: string, server: string, uri: string) => Promise<CodexMcpResourceResult>;
   loginMcpServer: (id: string, name: string) => Promise<{ authorizationUrl: string }>;
   reloadMcpServers: (id: string) => Promise<void>;
   resume: (id: string, threadId: string) => Promise<CodexAppServerSnapshot>;
   newThread: (id: string) => Promise<CodexAppServerSnapshot>;
   compactThread: (id: string) => Promise<CodexAppServerSnapshot>;
+  startReview: (id: string, target: CodexReviewTarget) => Promise<void>;
   listBackgroundTerminals: (id: string) => Promise<Array<{ itemId: string; processId: string; command: string; cwd: string;
     osPid: number | null; cpuPercent: number | null; rssKb: number | null }>>;
   terminateBackgroundTerminal: (id: string, processId: string) => Promise<{ terminated: boolean }>;
@@ -1146,9 +1215,12 @@ export type CodexAppServerApi = {
   getGoal: (id: string) => Promise<CodexAppServerSnapshot>;
   setGoal: (id: string, changes: { objective?: string; status?: "active" | "paused"; tokenBudget?: number | null }) => Promise<CodexAppServerSnapshot>;
   clearGoal: (id: string) => Promise<CodexAppServerSnapshot>;
+  refreshGoal: (id: string) => Promise<CodexAppServerSnapshot>;
   setMode: (id: string, mode: "default" | "plan") => Promise<CodexAppServerSnapshot>;
   setNativeMode: (id: string, modeId: string) => Promise<CodexAppServerSnapshot>;
   setModel: (id: string, modelId: string) => Promise<CodexAppServerSnapshot>;
+  listMainAgents: (id: string) => Promise<CodexAppServerSnapshot>;
+  setMainAgent: (id: string, agentName: string) => Promise<CodexAppServerSnapshot>;
   setContextWindow: (id: string, value: string) => Promise<CodexAppServerSnapshot>;
   setEffort: (id: string, effort: string) => Promise<CodexAppServerSnapshot>;
   setMultitask: (id: string, enabled: boolean) => Promise<CodexAppServerSnapshot>;
@@ -1172,6 +1244,15 @@ export type CodexAppServerApi = {
   onChanged: (callback: (payload: { id: string; snapshot: CodexAppServerSnapshot }) => void) => () => void;
   onDelta: (callback: (delta: CodexAppServerDelta) => void) => () => void;
 };
+export type CodeBuddyJob = { id: string; cwd: string; name?: string; prompt?: string; state?: string; status?: string;
+  tempo?: string; alive?: boolean; settled?: boolean; sessionId?: string; firstTerminalAt?: number; createdAt?: number };
+export type CodeBuddyResumableJob = { sessionId: string; cwd: string; title?: string; updatedAt?: number };
+export type CodeBuddyJobDispatchContext = { cwd?: string; defaultAgentName?: string; permissionMode?: string;
+  agents?: Array<{ name?: string; id?: string; description?: string }>; repoTargets?: Array<{ path?: string; cwd?: string; name?: string }> };
+export type CodeBuddyJobDispatch = { prompt: string; name?: string; agent?: string; model?: string;
+  effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  permissionMode?: "default" | "acceptEdits" | "plan" | "auto" | "dontAsk" | "bypassPermissions";
+  bgIsolation?: "none" | "worktree" };
 export type ProjectAssistantCodexSession = { id: string; title: string; type: "windows" | "wsl" | "ssh"; cwd: string; status: string };
 export type ProjectAssistantCodexScreen = { sessionId: string; ansi: string; seq: number; cols: number; rows: number; owner: string };
 export type ProjectAssistantCodexDelta = { seq: number; data: string };
@@ -1570,6 +1651,7 @@ declare global {
   interface Window {
     projectAssistantApi: ProjectAssistantApi;
     codexPluginApi: CodexPluginApi;
+    codeBuddyPluginApi: CodeBuddyPluginApi;
     codexAppServerApi: CodexAppServerApi;
     codexVersionApi: CodexVersionApi;
     codeBuddyVersionApi: CodeBuddyVersionApi;

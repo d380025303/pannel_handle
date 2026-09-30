@@ -45,6 +45,80 @@ function modeButton(name: "Plan" | "Exec" | "Full Access") {
   return within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name });
 }
 
+function openOpenCodeHistory() {
+  const f = fixture({ ...session, agentProvider: "opencode" });
+  const current = { ...snapshot, provider: "opencode" as const, capabilities: { history: true, forkHistory: true, deleteHistory: true } };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: current });
+  fireEvent.change(screen.getByPlaceholderText("输入消息"), { target: { value: "草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: /历史记录/ }));
+  const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.history")!;
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.history", sessionId: session.id, threadId: current.threadId,
+    requestId: request.requestId, history: { data: [
+      { id: "thread-1", title: "当前会话", updatedAt: 1 }, { id: "old-1", title: "旧会话", updatedAt: 1 }
+    ], nextCursor: null } });
+  const row = (title: string) => within(screen.getByText(title).closest(".graphical-history-row") as HTMLElement);
+  return { ...f, current, row };
+}
+
+it("confirms mobile history deletion and refreshes only after success without clearing drafts", () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  try {
+    const f = openOpenCodeHistory();
+    expect(f.row("当前会话").getByRole("button", { name: "删除" })).toHaveProperty("disabled", true);
+    fireEvent.click(f.row("旧会话").getByRole("button", { name: "删除" }));
+    expect(f.send.mock.calls.some(([message]) => message.type === "graphical.delete")).toBe(false);
+    confirm.mockReturnValue(true);
+    fireEvent.click(f.row("旧会话").getByRole("button", { name: "删除" }));
+    const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.delete")!;
+    expect(request).toMatchObject({ targetThreadId: "old-1", threadId: "thread-1" });
+    expect(f.row("旧会话").getByRole("button", { name: "删除" })).toHaveProperty("disabled", true);
+    f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: request.requestId, sessionId: session.id, threadId: "thread-1" });
+    expect(f.send.mock.calls.filter(([message]) => message.type === "graphical.history")).toHaveLength(2);
+    expect(screen.getByPlaceholderText("输入消息")).toHaveProperty("value", "草稿");
+  } finally { confirm.mockRestore(); }
+});
+
+it("keeps history and draft on a failed mobile fork then clears the draft on confirmed success", () => {
+  const f = openOpenCodeHistory();
+  fireEvent.click(f.row("旧会话").getByRole("button", { name: "分叉" }));
+  const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.fork")!;
+  expect(request).toMatchObject({ targetThreadId: "old-1", threadId: "thread-1" });
+  f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: request.requestId, code: "FAILED", message: "分叉失败" });
+  expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
+  expect(screen.getByPlaceholderText("输入消息")).toHaveProperty("value", "草稿");
+  fireEvent.click(f.row("旧会话").getByRole("button", { name: "分叉" }));
+  const retry = f.send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.fork").at(-1)!;
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...f.current, threadId: "branch" } });
+  f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: retry.requestId, sessionId: session.id, threadId: "branch" });
+  expect(screen.queryByRole("dialog", { name: "历史对话" })).toBeNull();
+  expect(screen.getByPlaceholderText("输入消息")).toHaveProperty("value", "");
+});
+
+it("ignores history mutation acknowledgements after a different conversation is opened", () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  try {
+    const f = openOpenCodeHistory();
+    fireEvent.click(f.row("旧会话").getByRole("button", { name: "删除" }));
+    const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.delete")!;
+    f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...f.current, threadId: "other" } });
+    f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: request.requestId, sessionId: session.id, threadId: "thread-1" });
+    expect(f.send.mock.calls.filter(([message]) => message.type === "graphical.history")).toHaveLength(1);
+    expect(screen.getByPlaceholderText("输入消息")).toHaveProperty("value", "草稿");
+  } finally { confirm.mockRestore(); }
+});
+
+it("hides unsupported mobile history actions and releases pending history operations on reconnect", () => {
+  const f = openOpenCodeHistory();
+  fireEvent.click(f.row("旧会话").getByRole("button", { name: "分叉" }));
+  f.reconnect();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...f.current, capabilities: { history: true } } });
+  expect(screen.queryByRole("button", { name: "分叉" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+  expect(screen.getByPlaceholderText("输入消息")).toHaveProperty("disabled", false);
+});
+
 it("subscribes to the selected graphical session and sends text with its thread identity", () => {
   const { send, emit } = fixture();
   expect(send).toHaveBeenCalledWith({ v: PROTOCOL_VERSION, type: "graphical.subscribe", sessionId: "graph-1", delta: true });

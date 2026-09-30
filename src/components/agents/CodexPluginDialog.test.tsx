@@ -7,6 +7,22 @@ import type { TerminalSession } from "../../vite-env";
 
 afterEach(cleanup);
 
+it("opens an installed plugin detail from its existing list", async () => {
+  const readPluginDetail = vi.fn().mockResolvedValue({ name: "design", marketplaceName: "official",
+    description: "Design tools", version: "1.0", source: { type: "remote" }, installed: true, enabled: true,
+    shareUrl: null, remotePluginId: null, skills: [], apps: [], mcpServers: ["files"] });
+  Object.assign(window, {
+    codexPluginApi: { list: vi.fn().mockResolvedValue({ environment: "Windows", installed: [
+      { name: "design", marketplaceName: "official", enabled: true }], available: [], marketplaces: [] }),
+      readConfig: vi.fn().mockResolvedValue({ overrides: {} }) },
+    codexAppServerApi: { listCapabilities: vi.fn().mockResolvedValue({ mcp: [], errors: {} }), readPluginDetail }
+  });
+  render(<CodexPluginDialog sessionId="run-1" onClose={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "详情" }));
+  expect(await screen.findByRole("dialog", { name: "design 详情" })).toBeTruthy();
+  expect(readPluginDetail).toHaveBeenCalledWith("run-1", "design", "official");
+});
+
 it("shows MCP startup failures and opens OAuth in the external browser", async () => {
   let changed: ((payload: { id: string; snapshot: unknown }) => void) | undefined;
   const loginMcpServer = vi.fn().mockResolvedValue({ authorizationUrl: "https://auth.example.com/connect" });

@@ -33,6 +33,92 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("uses public goal prompts and keeps goal events within the current session", async () => {
+    const sent = [];
+    let emitMessage;
+    const child = fakeChild((message, emit) => {
+      sent.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "goal-thread" } });
+      else if (message.method === "session/prompt") emit({ id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    expect(sent.find(message => message.method === "initialize").params.clientCapabilities._meta["codebuddy.ai"].goalSnapshotReplay).toBe(true);
+    service.setGoal("one", { objective: "  测试通过  ", status: "active" });
+    await vi.waitFor(() => expect(sent.some(message => message.method === "session/prompt"
+      && message.params.prompt[0].text === "/goal 测试通过")).toBe(true));
+    emitMessage({ method: "session/update", params: { sessionId: "other-thread", update: {
+      sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/goalRecap": { active: { condition: "别的目标" } } } } } });
+    expect(service.snapshot("one").codeBuddyGoal.active).toBeNull();
+    emitMessage({ method: "session/update", params: { sessionId: "goal-thread", update: {
+      sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/goalRecap": { active: {
+        condition: "测试通过", durationMs: 5000, turnCount: 2, tokenDelta: 125 } } } } } });
+    await vi.waitFor(() => expect(service.snapshot("one").codeBuddyGoal.active).toMatchObject({
+      condition: "测试通过", turnCount: 2, tokenDelta: 125 }));
+    service.refreshGoal("one");
+    await vi.waitFor(() => expect(sent.some(message => message.method === "session/prompt"
+      && message.params.prompt[0].text === "/goal")).toBe(true));
+    await service.clearGoal("one");
+    await vi.waitFor(() => expect(sent.some(message => message.method === "session/prompt"
+      && message.params.prompt[0].text === "/goal clear")).toBe(true));
+    await expect(() => service.setGoal("one", { objective: "", status: "active" })).toThrow("目标内容");
+    service.shutdown();
+  });
+
+  it("cancels an active goal turn before sending the public clear command", async () => {
+    const sent = [];
+    let emitMessage;
+    let runningPrompt;
+    const child = fakeChild((message, emit) => {
+      sent.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "goal-thread" } });
+      else if (message.method === "session/prompt" && message.params.prompt[0].text === "/goal work") runningPrompt = message;
+      else if (message.method === "session/prompt") emit({ id: message.id, result: { stopReason: "end_turn" } });
+      else if (message.method === "session/cancel" && runningPrompt)
+        emit({ id: runningPrompt.id, result: { stopReason: "cancelled" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    service.setGoal("one", { objective: "work", status: "active" });
+    await vi.waitFor(() => expect(service.snapshot("one").busy).toBe(true));
+    emitMessage({ method: "session/update", params: { sessionId: "goal-thread", update: {
+      sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/goalRecap": { active: { condition: "work" } } } } } });
+    await service.clearGoal("one");
+    expect(sent.findIndex(message => message.method === "session/cancel")).toBeLessThan(
+      sent.findIndex(message => message.method === "session/prompt" && message.params.prompt[0].text === "/goal clear"));
+    service.shutdown();
+  });
+
+  it("cancels an active goal turn before replacing its condition", async () => {
+    const sent = [];
+    let emitMessage;
+    let runningPrompt;
+    const child = fakeChild((message, emit) => {
+      sent.push(message); emitMessage = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "goal-thread" } });
+      else if (message.method === "session/prompt" && message.params.prompt[0].text === "/goal work") runningPrompt = message;
+      else if (message.method === "session/prompt") emit({ id: message.id, result: { stopReason: "end_turn" } });
+      else if (message.method === "session/cancel" && runningPrompt)
+        emit({ id: runningPrompt.id, result: { stopReason: "cancelled" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    service.setGoal("one", { objective: "work", status: "active" });
+    await vi.waitFor(() => expect(service.snapshot("one").busy).toBe(true));
+    emitMessage({ method: "session/update", params: { sessionId: "goal-thread", update: {
+      sessionUpdate: "session_info_update", _meta: { "codebuddy.ai/goalRecap": { active: { condition: "work" } } } } } });
+    await service.setGoal("one", { objective: "new work", status: "active" });
+    expect(sent.findIndex(message => message.method === "session/cancel")).toBeLessThan(
+      sent.findIndex(message => message.method === "session/prompt" && message.params.prompt[0].text === "/goal new work"));
+    service.shutdown();
+  });
+
   it("clears only the new conversation's completed status after a successful switch", async () => {
     const statuses = [];
     let childCount = 0;
@@ -185,7 +271,7 @@ describe("CodeBuddy ACP sessions", () => {
       terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
     await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
     expect(messages.find(message => message.method === "initialize").params.clientCapabilities._meta)
-      .toEqual({ "codebuddy.ai": { question: true } });
+      .toMatchObject({ "codebuddy.ai": { question: true, mainAgentSupport: true } });
     emitMessage({ jsonrpc: "2.0", id: 901, method: "_codebuddy.ai/question", params: { sessionId: "thread", toolCallId: "ask-1",
       schema: { questions: [
         { id: "q_0", header: "方案", question: "选择方案", options: [{ label: "A", description: "说明" }], multiSelect: false },

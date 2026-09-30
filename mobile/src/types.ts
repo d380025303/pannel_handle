@@ -75,7 +75,7 @@ export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvid
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
   contextUsage?: { used: number; size: number } | null;
   acpOptions?: Array<{ id: string; currentValue?: string | boolean; options: Array<{ value: string; name: string }> }>;
-  capabilities: { history?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
+  capabilities: { history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
     message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
   approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
@@ -111,7 +111,7 @@ export type ServerMessage =
   | { v: 8; type: "graphical.upload.ready"; requestId: string; fileId: string; url: string }
   | { v: 8; type: "files.list.result"; requestId: string; path: string | null; entries: ComputerFileEntry[] }
   | { v: 8; type: "files.download.ready"; requestId: string; url: string }
-  | { v: 8; type: "command.ok"; requestId: string }
+  | { v: 8; type: "command.ok"; requestId: string; sessionId?: string; threadId?: string | null }
   | { v: 8; type: "pong"; at: number }
   | { v: 8; type: "error"; code: string; message: string; requestId?: string };
 
@@ -137,6 +137,8 @@ export type ClientMessage =
   | { v: 8; type: "graphical.interrupt" | "graphical.new-thread"; sessionId: string; threadId: string | null; requestId: string }
   | { v: 8; type: "graphical.history"; sessionId: string; threadId: string | null; cursor?: string | null; requestId: string }
   | { v: 8; type: "graphical.resume"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
+  | { v: 8; type: "graphical.fork"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
+  | { v: 8; type: "graphical.delete"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
   | { v: 8; type: "graphical.approval"; sessionId: string; threadId: string | null; approvalId: number | string; decision: boolean | string; requestId: string }
   | { v: 8; type: "graphical.answer"; sessionId: string; threadId: string | null; questionId: number | string;
     answers: Record<string, { answers: string[] }>; requestId: string }

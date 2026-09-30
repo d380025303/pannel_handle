@@ -38,6 +38,88 @@ function fakeProcess(received, respond) {
 }
 
 describe("Codex App Server session", () => {
+  it.each([
+    { type: "uncommittedChanges" }, { type: "baseBranch", branch: "main" },
+    { type: "commit", sha: "abcdef1" }, { type: "custom", instructions: "检查异常处理" }
+  ])("starts an inline review of $type and allows normal conversation after interruption", async target => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "review/start"
+      ? { reviewThreadId: "thread-1", turn: { id: "review-turn", status: "inProgress", items: [
+        { id: "review-input", type: "userMessage", content: [{ type: "text", text: "Review" }] }
+      ] } } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      service.setMode("run-1", "plan");
+      await service.startReview("run-1", target);
+      expect(received.find(value => value.method === "review/start").params).toEqual({ threadId: "thread-1", delivery: "inline", target });
+      expect(service.snapshot("run-1")).toMatchObject({ reviewing: true, busy: true, mode: "plan" });
+      await expect(service.startReview("run-1", target)).rejects.toThrow("正在运行");
+      await expect(service.submit("run-1", "continue")).rejects.toThrow("审查正在进行");
+      child.stdout.write(`${JSON.stringify({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "review-turn", status: "inProgress" } } })}\n`);
+      await service.interrupt("run-1");
+      expect(received.find(value => value.method === "turn/interrupt").params.turnId).toBe("review-turn");
+      child.stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "review-turn", status: "interrupted" } } })}\n`);
+      expect(service.snapshot("run-1")).toMatchObject({ reviewing: false, busy: false, mode: "plan", pendingPlan: null });
+      await service.submit("run-1", "continue");
+      expect(received.some(value => value.method === "turn/start")).toBe(true);
+    } finally { service.close("run-1"); }
+  });
+
+  it("does not resurrect a review that completed before its response or duplicate streamed items", async () => {
+    let reply;
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "review/start" ? new Promise(resolve => { reply = resolve; }) : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    const emit = (method, params) => child.stdout.write(`${JSON.stringify({ method, params: { threadId: "thread-1", ...params } })}\n`);
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const pending = service.startReview("run-1", { type: "uncommittedChanges" });
+      expect(service.snapshot("run-1").reviewing).toBe(true);
+      emit("turn/started", { turn: { id: "r", status: "inProgress" } });
+      emit("item/started", { turnId: "r", item: { id: "r", type: "enteredReviewMode", review: "改动" } });
+      emit("item/completed", { turnId: "r", item: { id: "r", type: "exitedReviewMode", review: "审查完成" } });
+      emit("turn/completed", { turn: { id: "r", status: "completed" } });
+      reply({ reviewThreadId: "thread-1", turn: { id: "r", status: "inProgress", items: [] } });
+      await pending;
+      expect(service.snapshot("run-1")).toMatchObject({ busy: false, reviewing: false });
+      expect(service.snapshot("run-1").items.map(item => item.type)).toEqual(["enteredReviewMode", "exitedReviewMode"]);
+    } finally { service.close("run-1"); }
+  });
+
+  it("queues an early review interruption until the authoritative active turn id arrives", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "review/start"
+      ? { reviewThreadId: "thread-1", turn: { id: "submission-id", status: "inProgress", items: [] } } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await service.startReview("run-1", { type: "uncommittedChanges" });
+      await service.interrupt("run-1");
+      expect(received.some(value => value.method === "turn/interrupt")).toBe(false);
+      child.stdout.write(`${JSON.stringify({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "actual-id", status: "inProgress" } } })}\n`);
+      await vi.waitFor(() => expect(received.find(value => value.method === "turn/interrupt")?.params).toEqual({ threadId: "thread-1", turnId: "actual-id" }));
+    } finally { service.close("run-1"); }
+  });
+
+  it("validates review targets before sending and unlocks after unsupported-method errors", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "review/start" ? { __error: "Method not found: review/start" } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      for (const target of [null, [], {}, { type: "unknown" }, { type: "custom", instructions: " " }, { type: "baseBranch", branch: 1 }, { type: "commit" }])
+        await expect(service.startReview("run-1", target)).rejects.toThrow(/审查目标/);
+      expect(received.some(value => value.method === "review/start")).toBe(false);
+      await expect(service.startReview("run-1", { type: "uncommittedChanges" })).rejects.toThrow("Method not found");
+      expect(service.snapshot("run-1")).toMatchObject({ busy: false, reviewing: false });
+      await service.submit("run-1", "continue");
+    } finally { service.close("run-1"); }
+  });
   it("lists all background terminals and terminates only listed process ids", async () => {
     const received = [];
     const child = fakeProcess(received, request => {
@@ -1144,6 +1226,62 @@ describe("Codex App Server session", () => {
       expect(service.snapshot("run-1").archived).toBe(false);
       expect(received.some(item => item.method === "thread/unarchive")).toBe(true);
       expect(received.filter(item => item.method === "thread/resume" && item.params.threadId === "branch-1")).toHaveLength(2);
+    } finally { service.close("run-1"); }
+  });
+  it("reads plugin and App details and only reads a listed MCP resource", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method === "plugin/list") return { marketplaces: [{ name: "official", path: null,
+        plugins: [{ id: "design@official", name: "design", installed: true, enabled: true,
+          source: { type: "remote" }, interface: { shortDescription: "Design tools" } }] }] };
+      if (request.method === "plugin/read") return { plugin: { marketplaceName: "official", summary: {
+        name: "design", remotePluginId: "remote-1", source: { type: "remote" }, installed: true, enabled: true,
+        version: "1.2.0" }, description: "Design tools", skills: [{ name: "draw", description: "Draw", enabled: true }],
+        apps: [{ id: "app-1", name: "Design App" }], mcpServers: ["files"] } };
+      if (request.method === "plugin/skill/read") return { contents: "# Draw" };
+      if (request.method === "app/installed") return { apps: [{ id: "app-1", enabled: true, callable: true }] };
+      if (request.method === "app/list") return { data: [{ id: "app-1", name: "Design App", description: "Create designs", isAccessible: true, isEnabled: true }] };
+      if (request.method === "app/read") return { apps: [{ id: "app-1", name: "Design App", description: "Create designs",
+        toolSummaries: [{ name: "draw", title: "Draw", description: "Draw shapes", isEnabled: true, isReadOnly: false }] }] };
+      if (request.method === "mcpServerStatus/list") return { data: [{ name: "files", runtimeStatus: "connected", authStatus: "unsupported",
+        tools: { read: { name: "read", description: "Read" } }, resources: [{ uri: "file:///a", name: "A" }],
+        resourceTemplates: [{ uriTemplate: "file:///{name}", name: "Files" }] }] };
+      if (request.method === "mcpServer/resource/read") return { contents: [{ uri: "file:///a", text: "hello" }] };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      expect(await service.readPluginDetail("run-1", "design", "official")).toMatchObject({ version: "1.2.0", skills: [{ name: "draw" }] });
+      expect(received.find(item => item.method === "plugin/read").params).toEqual({ pluginName: "design", remoteMarketplaceName: "official" });
+      expect(await service.readPluginSkill("run-1", "design", "official", "draw")).toEqual({ contents: "# Draw", truncated: false });
+      expect(await service.readAppDetail("run-1", "app-1")).toMatchObject({ callable: true, tools: [{ name: "draw" }] });
+      expect(received.find(item => item.method === "app/read").params).toEqual({ appIds: ["app-1"], threadId: "thread-1", includeTools: true });
+      expect(await service.readMcpResource("run-1", "files", "file:///a")).toEqual({ contents: [{ uri: "file:///a", mimeType: null, text: "hello", binary: false, truncated: false }], truncated: false });
+      expect(received.find(item => item.method === "mcpServerStatus/list").params.detail).toBe("full");
+      await expect(service.readMcpResource("run-1", "files", "file:///other")).rejects.toThrow("不在当前会话目录");
+      expect(received.filter(item => item.method === "mcpServer/resource/read")).toHaveLength(1);
+    } finally { service.close("run-1"); }
+  });
+
+  it("forks through a selected finished turn and rejects unknown or running turns", async () => {
+    const received = [];
+    const child = fakeProcess(received, request => {
+      if (request.method === "thread/read") return { thread: { id: request.params.threadId, cwd: "C:\\project",
+        turns: request.params.includeTurns ? [{ id: "turn-1", status: "completed" }, { id: "turn-2", status: "inProgress" }] : undefined } };
+      if (request.method === "thread/fork") return { thread: { id: "branch-1" } };
+      if (request.method === "thread/resume") return { thread: { id: request.params.threadId, turns: [] } };
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      await expect(service.forkThread("run-1", "thread-1", "missing")).rejects.toThrow("所选回合");
+      await expect(service.forkThread("run-1", "thread-1", "turn-2")).rejects.toThrow("所选回合");
+      expect(received.some(item => item.method === "thread/fork")).toBe(false);
+      expect((await service.forkThread("run-1", "thread-1", "turn-1")).threadId).toBe("branch-1");
+      expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1", lastTurnId: "turn-1" });
+      expect(received.some(item => item.method === "thread/read" && item.params.includeTurns === true)).toBe(true);
     } finally { service.close("run-1"); }
   });
 

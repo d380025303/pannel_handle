@@ -5,9 +5,22 @@ const { registerIpcHandlers, updateSessionFromIpc } = await import("./ipc-handle
 const { createGraphicalSessionRouter } = createRequire(import.meta.url)("../services/codebuddy-acp/session-router.cjs");
 
 describe("session IPC handlers", () => {
+  it("forwards OpenCode fork and delete IPC through the graphical router", async () => {
+    const handlers = new Map();
+    const openCode = { forkThread: vi.fn(async () => ({ threadId: "branch" })), deleteThread: vi.fn(async () => {}) };
+    const terminalManager = { getSession: () => ({ agentProvider: "opencode" }) };
+    const router = createGraphicalSessionRouter({}, {}, terminalManager, openCode);
+    registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager, codexAppServerSessionService: router });
+    await expect(handlers.get("codex-app-server:fork-thread")({}, "open-1", "history")).resolves.toEqual({ threadId: "branch" });
+    await handlers.get("codex-app-server:delete-thread")({}, "open-1", "history");
+    expect(openCode.forkThread).toHaveBeenCalledWith("open-1", "history", undefined);
+    expect(openCode.deleteThread).toHaveBeenCalledWith("open-1", "history");
+  });
   it("forwards Codex account and MCP elicitation IPC through the graphical router", async () => {
     const handlers = new Map();
     const methods = [
+      ["codex-app-server:review", "startReview", [{ type: "baseBranch", branch: "main" }]],
       ["codex-app-server:account-read", "readAccount", []],
       ["codex-app-server:account-login", "startLogin", ["chatgptDeviceCode"]],
       ["codex-app-server:account-cancel", "cancelLogin", []],
@@ -49,10 +62,24 @@ describe("session IPC handlers", () => {
     expect(() => handlers.get("codex-app-server:cancel-question")({}, "codex-1", 7)).toThrow("不支持取消提问");
     expect(handlers.get("codex-app-server:cancel-question")({}, "open-1", 7)).toBe("open-cancelled");
     expect(openCode.cancelQuestion).toHaveBeenCalledWith("open-1", 7);
-    expect(() => handlers.get("codex-app-server:capabilities")({}, "buddy-1", true)).toThrow("仅 Codex");
+    expect(() => handlers.get("codex-app-server:capabilities")({}, "buddy-1", true)).toThrow("当前图形会话不支持此操作");
     expect(() => handlers.get("codex-app-server:fast-mode")({}, "buddy-1", true)).toThrow("仅 Codex");
     expect(() => handlers.get("codex-app-server:native-mode")({}, "codex-1", "plan")).toThrow("不支持此操作");
     expect(() => handlers.get("codex-app-server:snapshot")({}, "unknown-1")).toThrow("不支持的图形会话 Agent");
+  });
+
+  it("forwards a selected turn id through the Codex fork IPC", () => {
+    const handlers = new Map();
+    const codex = { forkThread: vi.fn((...args) => args) };
+    const terminalManager = { getSession: id => ({ agentProvider: id === "codex-1" ? "codex" : "codebuddy" }) };
+    const router = createGraphicalSessionRouter(codex, {}, terminalManager);
+    registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+      terminalManager, codexAppServerSessionService: router });
+    expect(handlers.get("codex-app-server:fork-thread")({}, "codex-1", "thread-1", "turn-1"))
+      .toEqual(["codex-1", "thread-1", "turn-1"]);
+    expect(codex.forkThread).toHaveBeenCalledWith("codex-1", "thread-1", "turn-1");
+    expect(() => handlers.get("codex-app-server:fork-thread")({}, "buddy-1", "thread-1", "turn-1"))
+      .toThrow("当前图形会话不支持分叉");
   });
 
   it("reconnects SSH App Server sessions through the App Server service", async () => {

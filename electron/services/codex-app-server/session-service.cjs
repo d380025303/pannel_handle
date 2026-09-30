@@ -141,7 +141,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return { threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
       backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
-      busy: entry.busy, archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
+      busy: entry.busy, reviewing: Boolean(entry.review), archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
       goal: entry.goal, goalLoading: entry.goalLoading, goalError: entry.goalError,
       error: entry.error, pendingPlan: entry.pendingPlan,
       threadStatus: entry.threadStatus, turnStatus: entry.turnStatus, effectiveModel: entry.effectiveModel,
@@ -472,6 +472,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       }
     }
     if (message.method === "turn/started") {
+      if (entry.review) { entry.review.started = true; entry.review.turnId = params.turn?.id; }
       entry.turnId = params.turn?.id; entry.busy = true;
       entry.turnStatus = "inProgress"; entry.effectiveModel = entry.model;
       entry.status = "running";
@@ -481,6 +482,14 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         item.turnId = entry.turnId;
       entry.turnOutputBaseline = entry.tokenUsage?.total.outputTokens || 0;
       entry.turnOutputTokens = 0; entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
+      if (entry.review?.interruptRequested) {
+        const review = entry.review;
+        void Promise.resolve().then(() => {
+          if (sessions.get(id) === entry && entry.review === review && entry.busy) return interrupt(id);
+        }).catch(error => {
+          if (sessions.get(id) === entry && entry.review === review) { entry.error = `停止审查失败：${error.message}`; publish(id); }
+        });
+      }
     }
     if (message.method === "item/started" || message.method === "item/completed") {
       const item = displayItem(params.item);
@@ -578,6 +587,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
           || (item.type === "agentMessage" && /<proposed_plan>[\s\S]*?<\/proposed_plan>/i.test(item.text || ""))).at(-1);
         if (plan) entry.pendingPlan = { itemId: plan.id };
       }
+      entry.review = null;
       entry.activeTurnMode = null;
       entry.busy = false; entry.turnId = null;
       entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
@@ -652,6 +662,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     });
     child.on("exit", code => {
       if (sessions.get(id) !== entry) return;
+      entry.review = null;
       entry.busy = false;
       entry.accountController.reset();
       entry.questions.clear();
@@ -795,6 +806,48 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       entry.goal = null; entry.goalError = null; publish(id);
     }
     return snapshot(id);
+  }
+  async function startReview(id, target) {
+    const entry = ready(id);
+    if (entry.archived || entry.uploading) throw new Error("Codex 会话未就绪或正在运行。");
+    if (!target || typeof target !== "object" || Array.isArray(target)) throw new Error("无效的审查目标。");
+    const fields = { baseBranch: "branch", commit: "sha", custom: "instructions" };
+    const normalized = { type: target.type };
+    if (target.type !== "uncommittedChanges") {
+      const field = Object.hasOwn(fields, target.type) ? fields[target.type] : null;
+      if (!field || typeof target[field] !== "string" || !target[field].trim()) throw new Error("请填写有效的审查目标。");
+      normalized[field] = target[field].trim();
+    }
+    const operation = { threadId: entry.threadId, started: false, turnId: null };
+    entry.review = operation; entry.busy = true; entry.turnId = null;
+    entry.activeTurnMode = null; entry.activeTurnStartIndex = entry.items.length;
+    entry.error = null; entry.errorDetails = null; entry.status = "running";
+    entry.turnStatus = "inProgress";
+    entry.turnOutputBaseline = entry.tokenUsage?.total.outputTokens || 0;
+    entry.turnOutputTokens = 0; entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
+    updateSummary(id, entry, "正在审查代码");
+    broadcastStatus(id, entry, true); publish(id);
+    try {
+      const result = await request(entry, "review/start", { threadId: operation.threadId, delivery: "inline", target: normalized });
+      // Notifications may complete the review before its request resolves.
+      if (sessions.get(id) !== entry || entry.threadId !== operation.threadId || entry.review !== operation) return;
+      if (!result?.turn?.id || result.reviewThreadId !== operation.threadId) throw new Error("Codex 返回了无效的审查会话。");
+      // Some CLI versions return a review submission id here, then emit a
+      // different active turn id. Only turn/started supplies the interrupt id.
+      for (const item of result.turn.items || []) {
+        if (!entry.items.some(value => value.id === item.id && value.type === item.type))
+          onMessage(id, entry, { method: "item/started", params: { threadId: operation.threadId, turnId: result.turn.id, item } });
+      }
+      if (["completed", "failed", "interrupted"].includes(result.turn.status))
+        onMessage(id, entry, { method: "turn/completed", params: { threadId: operation.threadId, turn: result.turn } });
+    } catch (error) {
+      if (sessions.get(id) === entry && entry.threadId === operation.threadId && entry.review === operation) {
+        if (!operation.started) { entry.review = null; entry.busy = false; entry.turnId = null; entry.status = "failed"; entry.turnStatus = "failed"; }
+        entry.error = `无法启动代码审查：${error.message}`;
+        broadcastStatus(id, entry, true); publish(id);
+      }
+      throw error;
+    }
   }
   async function compactThread(id) {
     const entry = ready(id);
@@ -1003,11 +1056,20 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw new Error("App Server 未确认会话置顶状态，请重试。");
     return { isPinned: result.thread.isPinned };
   }
-  async function forkThread(id, threadId) {
+  async function forkThread(id, threadId, lastTurnId = null) {
     const entry = ready(id);
     await checkedThread(entry, threadId);
     assertThreadIdle(threadId);
-    const result = await request(entry, "thread/fork", { threadId });
+    if (lastTurnId !== null) {
+      if (typeof lastTurnId !== "string" || !lastTurnId.trim()) throw new Error("无效的分叉回合。");
+      const detail = await request(entry, "thread/read", { threadId, includeTurns: true });
+      if (detail.thread?.id !== threadId || detail.thread.cwd !== projectCwd(entry))
+        throw new Error("只能从当前项目的会话分叉。");
+      const turn = detail.thread.turns?.find(value => value.id === lastTurnId);
+      if (!turn || turn.status === "inProgress") throw new Error("所选回合不存在或仍在运行。");
+      assertThreadIdle(threadId);
+    }
+    const result = await request(entry, "thread/fork", { threadId, ...(lastTurnId === null ? {} : { lastTurnId }) });
     if (!result.thread?.id) throw new Error("App Server 未返回分支会话 ID。");
     return resume(id, result.thread.id);
   }
@@ -1071,10 +1133,15 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       let cursor = null;
       const seen = new Set();
       do {
-        const response = await request(entry, "mcpServerStatus/list", { threadId: entry.threadId, cursor, limit: 100, detail: "toolsAndAuthOnly" });
+        const response = await request(entry, "mcpServerStatus/list", { threadId: entry.threadId, cursor, limit: 100, detail: "full" });
         result.mcp.push(...(response.data || []).filter(value => value?.name).map(value => ({
           name: value.name, status: value.runtimeStatus || "notStarted", authStatus: value.authStatus || "unknown",
-          toolsError: value.toolsError || null,
+          toolsError: value.toolsError || null, pluginId: value.pluginId || null,
+          httpOrigin: value.httpOrigin || null, serverInfo: value.serverInfo || null,
+          resources: (value.resources || []).filter(resource => resource?.uri && resource?.name)
+            .map(resource => ({ uri: resource.uri, name: resource.name, description: resource.description || "", mimeType: resource.mimeType || null })),
+          resourceTemplates: (value.resourceTemplates || []).filter(resource => resource?.uriTemplate && resource?.name)
+            .map(resource => ({ uriTemplate: resource.uriTemplate, name: resource.name, description: resource.description || "" })),
           tools: Object.entries(value.tools || {}).map(([key, tool]) => ({ name: tool?.name || key,
             description: tool?.description || "" }))
         })));
@@ -1159,6 +1226,70 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       }))
     }));
     return { marketplaces, errors: (response.marketplaceLoadErrors || []).map(error => error.message || String(error)) };
+  }
+  async function readPluginDetail(id, pluginName, marketplaceName) {
+    const entry = pluginEntry(id);
+    const catalog = await listPlugins(id);
+    const plugin = catalog.marketplaces.flatMap(value => value.plugins)
+      .find(value => value.name === pluginName && value.marketplaceName === marketplaceName);
+    if (!plugin) throw new Error("插件不在当前目录中，请刷新列表。");
+    const threadId = entry.threadId;
+    const response = await request(entry, "plugin/read", { pluginName,
+      ...(plugin.marketplacePath ? { marketplacePath: plugin.marketplacePath } : { remoteMarketplaceName: marketplaceName }) });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换。");
+    const detail = response?.plugin;
+    if (!detail || detail.summary?.name !== pluginName) throw new Error("Codex 未返回所选插件的详情。");
+    return { name: pluginName, marketplaceName, description: detail.description || plugin.description || "",
+      version: detail.summary.version || detail.summary.localVersion || null,
+      source: detail.summary.source || null, installed: detail.summary.installed === true,
+      enabled: detail.summary.enabled === true, shareUrl: detail.shareUrl || null,
+      remotePluginId: detail.summary.remotePluginId || null,
+      skills: (detail.skills || []).map(skill => ({ name: skill.name, description: skill.description || "", enabled: skill.enabled !== false })),
+      apps: (detail.apps || []).map(app => ({ name: app.name || app.id || "App" })),
+      mcpServers: (detail.mcpServers || []).filter(value => typeof value === "string") };
+  }
+  async function readPluginSkill(id, pluginName, marketplaceName, skillName) {
+    const entry = pluginEntry(id);
+    const detail = await readPluginDetail(id, pluginName, marketplaceName);
+    if (!detail.remotePluginId || !detail.skills.some(skill => skill.name === skillName)) throw new Error("此插件技能不支持远程正文读取。");
+    const threadId = entry.threadId;
+    const response = await request(entry, "plugin/skill/read", { remoteMarketplaceName: marketplaceName,
+      remotePluginId: detail.remotePluginId, skillName });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换。");
+    return { contents: typeof response?.contents === "string" ? response.contents.slice(0, 65536) : null,
+      truncated: typeof response?.contents === "string" && response.contents.length > 65536 };
+  }
+  async function readAppDetail(id, appId) {
+    const entry = pluginEntry(id);
+    const capabilities = await listCapabilities(id);
+    const app = capabilities.apps.find(value => value.id === appId);
+    if (!app) throw new Error("App 不在当前会话目录中，请刷新列表。");
+    const threadId = entry.threadId;
+    const response = await request(entry, "app/read", { appIds: [appId], threadId, includeTools: true });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换。");
+    const detail = response?.apps?.find(value => value.id === appId);
+    if (!detail) throw new Error("此 App 当前不可访问。");
+    return { id: appId, name: detail.name, description: detail.description || app.description,
+      accessible: app.accessible, enabled: app.enabled, callable: app.callable,
+      distributionChannel: detail.distributionChannel || null, installUrl: detail.installUrl || null,
+      pluginDisplayNames: detail.pluginDisplayNames || [],
+      tools: (detail.toolSummaries || []).map(tool => ({ name: tool.name, title: tool.title || tool.name,
+        description: tool.description || "", enabled: tool.isEnabled === true,
+        disabledReason: tool.disabledReason || null, readOnly: tool.isReadOnly === true })) };
+  }
+  async function readMcpResource(id, serverName, uri) {
+    const entry = pluginEntry(id);
+    const capabilities = await listCapabilities(id);
+    const server = capabilities.mcp.find(value => value.name === serverName);
+    if (!server || !server.resources.some(value => value.uri === uri)) throw new Error("MCP 资源不在当前会话目录中，请刷新列表。");
+    if (server.status !== "connected" && server.status !== "ready") throw new Error("MCP 服务尚未连接。");
+    const threadId = entry.threadId;
+    const response = await request(entry, "mcpServer/resource/read", { threadId, server: serverName, uri });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("Codex 会话已切换。");
+    return { contents: (response?.contents || []).slice(0, 20).map(item => ({ uri: item.uri,
+      mimeType: item.mimeType || null, text: typeof item.text === "string" ? item.text.slice(0, 65536) : null,
+      binary: typeof item.blob === "string", truncated: typeof item.text === "string" && item.text.length > 65536 })),
+      truncated: Array.isArray(response?.contents) && response.contents.length > 20 };
   }
   async function installPlugin(id, plugin) {
     const entry = pluginEntry(id);
@@ -1434,6 +1565,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (!entry?.threadId || entry.archived || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
       || (!text.trim() && filePaths.length === 0) || !Array.isArray(references) || references.length > 10)
       throw new Error("Codex 会话未就绪或正在运行。");
+    if (entry.review) throw new Error("代码审查正在进行，请等待完成或停止审查。");
     if (entry.compacting) throw new Error("会话正在压缩，请等待完成。");
     if (entry.busy && !entry.turnId) throw new Error("当前回合尚未就绪，请稍后重试。");
     if (filePaths.some(filePath => !entry.allowedFiles.has(filePath))) throw new Error("只能发送通过文件选择器附加的文件。");
@@ -1451,6 +1583,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw new Error("所选能力已不可用，请刷新列表后重新选择。");
     });
     if (sessions.get(id) !== entry || entry.threadId !== expectedThreadId) throw new Error("会话已切换，请重新发送消息。");
+    if (entry.review) throw new Error("代码审查正在进行，请等待完成或停止审查。");
     entry.uploading = true;
     const uploaded = [];
     let files;
@@ -1535,6 +1668,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function interrupt(id) {
     const entry = sessions.get(id);
+    if (entry?.review && !entry.review.started) { entry.review.interruptRequested = true; return; }
     if (entry?.turnId) await request(entry, "turn/interrupt", { threadId: entry.threadId, turnId: entry.turnId });
   }
   function resolveApproval(id, requestId, decision) {
@@ -1625,8 +1759,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
-    readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
+  return { start, restart, snapshot, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+    startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 
 module.exports = { createCodexAppServerSessionService, buildInvocation };

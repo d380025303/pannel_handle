@@ -40,6 +40,7 @@ const { createCodexVersionService } = require("./services/codex-app-server/versi
 const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/version-service.cjs");
 const { createOpenCodeVersionService } = require("./services/opencode-acp/version-service.cjs");
 const { createCodexPluginService } = require("./services/codex-app-server/plugin-service.cjs");
+const { createCodeBuddyPluginService } = require("./services/codebuddy-acp/plugin-service.cjs");
 const { createCodeBuddyAcpSessionService } = require("./services/codebuddy-acp/session-service.cjs");
 const { createOpenCodeAcpSessionService } = require("./services/opencode-acp/session-service.cjs");
 const { createClaudeAcpSessionService } = require("./services/claude-acp/session-service.cjs");
@@ -345,6 +346,7 @@ if (!gotSingleInstanceLock) {
     const openCodeVersionService = createOpenCodeVersionService({ terminalManager, sshAgentTransport });
     const codexPluginService = createCodexPluginService({ terminalManager, graphicalService: codexGraphicalService,
       environmentService, sshAgentTransport });
+    const codeBuddyPluginService = createCodeBuddyPluginService({ terminalManager, graphicalService: codeBuddyGraphicalService });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
     workBuddyCheckinService = createWorkBuddyCheckinService();
     workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
@@ -606,7 +608,8 @@ if (!gotSingleInstanceLock) {
       codexVersionService,
       codeBuddyVersionService,
       openCodeVersionService,
-      codexPluginService
+      codexPluginService,
+      codeBuddyPluginService
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);

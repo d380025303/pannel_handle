@@ -24,6 +24,11 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     if (!session || session.agentProvider !== "codex") throw new Error("仅 Codex 图形会话支持此操作。");
     return codex[method](id, ...args);
   };
+  const routeCodeBuddy = method => (id, ...args) => {
+    const session = terminalManager.getSession(id);
+    if (!session || session.agentProvider !== "codebuddy") throw new Error("仅 CodeBuddy 图形会话支持此操作。");
+    return codeBuddy[method](id, ...args);
+  };
   const routeCodex = method => (id, ...args) => {
     const session = terminalManager.getSession(id);
     if (!session || (session.agentProvider && session.agentProvider !== "codex")) throw new Error("仅 Codex 图形会话支持此操作。");
@@ -41,11 +46,30 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     listPlugins: codexRoute("listPlugins"), installPlugin: codexRoute("installPlugin"), uninstallPlugin: codexRoute("uninstallPlugin"),
     addPluginMarketplace: codexRoute("addPluginMarketplace"), refreshPluginMarketplace: codexRoute("refreshPluginMarketplace"), removePluginMarketplace: codexRoute("removePluginMarketplace"),
     resume: route("resume"), newThread: route("newThread"),
-    renameThread: route("renameThread"), pinThread: routeCodex("pinThread"), forkThread: routeCodex("forkThread"),
+    renameThread: route("renameThread"), pinThread: routeCodex("pinThread"),
+    forkThread(id, threadId, ...args) {
+      const service = serviceFor(id);
+      if (service !== codex && service !== openCode) throw new Error("当前图形会话不支持分叉。");
+      return service.forkThread(id, threadId, ...args);
+    },
+    deleteThread(id, threadId) {
+      if (serviceFor(id) !== openCode) throw new Error("当前图形会话不支持删除历史。");
+      return openCode.deleteThread(id, threadId);
+    },
     archiveThread: routeCodex("archiveThread"), unarchiveThread: routeCodex("unarchiveThread"),
-    compactThread: codexRoute("compactThread"), getGoal: codexRoute("getGoal"), setGoal: codexRoute("setGoal"), clearGoal: codexRoute("clearGoal"),
+    startReview: codexRoute("startReview"),
+    compactThread: codexRoute("compactThread"),
     listBackgroundTerminals: codexRoute("listBackgroundTerminals"), terminateBackgroundTerminal: codexRoute("terminateBackgroundTerminal"),
     cleanBackgroundTerminals: codexRoute("cleanBackgroundTerminals"),
+    listJobs: routeCodeBuddy("listJobs"), jobDispatchContext: routeCodeBuddy("jobDispatchContext"),
+    listResumableJobs: routeCodeBuddy("listResumableJobs"), dispatchJob: routeCodeBuddy("dispatchJob"),
+    resumeJob: routeCodeBuddy("resumeJob"), jobTranscript: routeCodeBuddy("jobTranscript"),
+    jobAction: routeCodeBuddy("jobAction"), watchJob: routeCodeBuddy("watchJob"), unwatchJob: routeCodeBuddy("unwatchJob"),
+    getGoal: route("getGoal"), setGoal: route("setGoal"), clearGoal: route("clearGoal"),
+    refreshGoal(id) {
+      if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持目标状态刷新。");
+      return codeBuddy.refreshGoal(id);
+    },
     setMode: route("setMode"), setModel: route("setModel"), setEffort: route("setEffort"), setFastMode: codexRoute("setFastMode"),
     listModelMetadata(id) {
       if (serviceFor(id) !== codeBuddy) return [];
@@ -63,6 +87,7 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持团队消息。");
       return codeBuddy.sendTeamMessage(id, teamName, memberName, text);
     },
+    listMainAgents: route("listMainAgents"), setMainAgent: route("setMainAgent"),
     setNativeMode: route("setNativeMode"),
     resetUsageBaselines: (...args) => codex.resetUsageBaselines?.(...args),
     setExecutionPermission: route("setExecutionPermission"),

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, useState } from "react";
 import type { Ref } from "react";
 import type { CodexCapabilityReference, TerminalSession } from "../../vite-env";
@@ -380,6 +380,46 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByText("类别：用量限制 · HTTP 429")).toBeTruthy();
   });
 
+  it("opens review from the menu without losing the draft or attachments and blocks sending during review", async () => {
+    window.codexAppServerApi.startReview = vi.fn().mockResolvedValue(undefined);
+    chooseFiles.mockResolvedValueOnce(["C:\\project\\notes.txt"]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    const composer = screen.getByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(composer, { target: { value: "保留草稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "附加文件" }));
+    await screen.findByRole("button", { name: "预览 notes.txt" });
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "代码审查" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(composer).toHaveProperty("value", "保留草稿");
+    expect(screen.getByRole("button", { name: "预览 notes.txt" })).toBeTruthy();
+    expect(window.codexAppServerApi.startReview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "代码审查" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始审查" }));
+    await waitFor(() => expect(window.codexAppServerApi.startReview).toHaveBeenCalledWith("run-1", { type: "uncommittedChanges" }));
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, reviewing: true, error: null, items: [], approvals: [] } }));
+    expect(composer).toHaveProperty("disabled", true);
+    expect(composer).toHaveProperty("value", "保留草稿");
+    expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: false, reviewing: false, error: null,
+      items: [{ id: "r", type: "exitedReviewMode", review: "没有发现问题" }], approvals: [] } }));
+    expect(composer).toHaveProperty("disabled", false);
+    expect(screen.getByText("没有发现问题")).toBeTruthy();
+  });
+
+  it("opens review through the local slash command", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const composer = await screen.findByPlaceholderText("向 Codex 发送消息");
+    await waitFor(() => expect(composer).toHaveProperty("disabled", false));
+    fireEvent.change(composer, { target: { value: "/review" } });
+    fireEvent.click(screen.getByRole("option", { name: "/review 代码审查" }));
+    expect(screen.getByRole("dialog", { name: "代码审查" })).toBeTruthy();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it("starts compaction from the Codex menu and prevents another submission while it runs", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
@@ -445,7 +485,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.queryByRole("menuitem", { name: "Skills、Apps 和 MCP" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "压缩对话" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "目标管理" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "目标管理" })).toBeTruthy();
   });
 
   it("inserts capabilities into the draft and sends only retained structured references", async () => {
@@ -552,7 +592,8 @@ describe("CodexAppServerSession", () => {
     fireEvent.change(input, { target: { value: "/" } });
     expect(screen.getByRole("option", { name: "/new 新对话" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "/mode 模式" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /Skills|MCP|压缩对话|目标管理/ })).toBeNull();
+    expect(screen.getByRole("option", { name: "/goal 目标管理" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Skills|MCP|压缩对话/ })).toBeNull();
     expect(screen.getByRole("option", { name: "/history 历史会话" })).toHaveProperty("disabled", true);
   });
 
@@ -672,6 +713,62 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByText("Act without asking")).toBeNull();
     expect(screen.queryByText("Never prompt")).toBeNull();
     expect(screen.queryByText("Hand off to subagents")).toBeNull();
+  });
+
+  it("selects CodeBuddy main agents, preserves drafts, and locks existing conversations", async () => {
+    const base = { threadId: "buddy-1", provider: "codebuddy" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, approvals: [], items: [],
+      mainAgent: { currentAgentName: "cli", sessionBlank: true, error: null, agents: [
+        { name: "cli", displayName: "标准", source: "built-in" },
+        { name: "reviewer", displayName: "审查员", source: "project", description: "审查代码" },
+        { name: "broken", displayName: "损坏", broken: "配置错误" }] } };
+    const listMainAgents = vi.fn().mockResolvedValue(base);
+    let finishSwitch!: (value: typeof base) => void;
+    const setMainAgent = vi.fn().mockImplementation(() => new Promise(resolve => { finishSwitch = resolve; }));
+    Object.assign(window.codexAppServerApi, { listMainAgents, setMainAgent });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: base }));
+    fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "保留草稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "主 Agent：标准" }));
+    await waitFor(() => expect(listMainAgents).toHaveBeenCalledWith("run-1"));
+    await waitFor(() => expect((screen.getByRole("radio", { name: /审查员/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByRole("radio", { name: /损坏/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: /审查员/ }));
+    await waitFor(() => expect(setMainAgent).toHaveBeenCalledWith("run-1", "reviewer"));
+    expect((screen.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "新对话" }) as HTMLButtonElement).disabled).toBe(true);
+    const priorSubmits = submit.mock.calls.length;
+    fireEvent.submit(screen.getByRole("textbox", { name: "图形对话输入" }).closest("form")!);
+    expect(submit.mock.calls.length).toBe(priorSubmits);
+    await act(async () => finishSwitch({ ...base, mainAgent: { ...base.mainAgent, currentAgentName: "reviewer" } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "主 Agent" })).toBeNull());
+    expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("保留草稿");
+    const locked = { ...base, mainAgent: { ...base.mainAgent, currentAgentName: "reviewer", sessionBlank: false } };
+    listMainAgents.mockResolvedValue(locked);
+    act(() => changed({ id: "run-1", snapshot: locked }));
+    fireEvent.click(screen.getByRole("button", { name: /主 Agent：审查员/ }));
+    await waitFor(() => expect(screen.getByText("新建对话后可切换主 Agent。")).toBeTruthy());
+    expect((screen.getByRole("radio", { name: /标准/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("retries CodeBuddy main agent discovery and hides the selector for other providers", async () => {
+    const base = { threadId: "buddy-1", provider: "codebuddy" as const, mode: "default" as const,
+      executionPermission: "askApproval" as const, busy: false, error: null, pendingPlan: null, approvals: [], items: [],
+      mainAgent: { currentAgentName: null, sessionBlank: false, error: "目录读取失败", agents: [] } };
+    const listMainAgents = vi.fn().mockResolvedValue(base);
+    Object.assign(window.codexAppServerApi, { listMainAgents });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: base }));
+    fireEvent.click(screen.getByRole("button", { name: "主 Agent：未读取" }));
+    await waitFor(() => expect(screen.getByText("目录读取失败")).toBeTruthy());
+    await waitFor(() => expect((screen.getByRole("button", { name: "刷新主 Agent" }) as HTMLButtonElement).disabled).toBe(false));
+    listMainAgents.mockResolvedValue({ ...base, mainAgent: { currentAgentName: "cli", sessionBlank: true, error: null,
+      agents: [{ name: "cli", displayName: "标准" }] } });
+    fireEvent.click(screen.getByRole("button", { name: "刷新主 Agent" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: /标准/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "关闭主 Agent" }));
+    act(() => changed({ id: "run-1", snapshot: { ...base, provider: "opencode" } }));
+    expect(screen.queryByRole("button", { name: /主 Agent：/ })).toBeNull();
   });
 
   it("shows Multitask only when CodeBuddy advertises it and renders background summaries", async () => {
@@ -1093,6 +1190,8 @@ describe("CodexAppServerSession", () => {
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "后台终端" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "压缩对话" }));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "代码审查" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "目标管理" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
@@ -1891,6 +1990,97 @@ describe("CodexAppServerSession", () => {
     expect(firstSummary.getAttribute("aria-expanded")).toBe("false");
     expect(secondSummary.getAttribute("aria-expanded")).toBe("true");
     expect(secondSummary.closest(".codex-app-server-event")!.querySelector(".codex-app-server-tool-heading")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("confirms OpenCode history deletion, protects the active thread, and preserves drafts on failure", async () => {
+    const base = { threadId: "thread-1", provider: "opencode" as const, mode: "default" as const, executionPermission: "askApproval" as const,
+      busy: false, error: null, pendingPlan: null, items: [], approvals: [], questions: [], capabilities: {
+        history: true, forkHistory: true, deleteHistory: true, plan: false, attachments: true, permissions: false } };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce(base);
+    const deleteThread = vi.fn().mockRejectedValueOnce(new Error("删除失败")).mockResolvedValue(undefined);
+    window.codexAppServerApi.deleteThread = deleteThread;
+    listHistory.mockResolvedValue({ data: [
+      { id: "thread-1", title: "当前任务", updatedAt: 1, source: "OpenCode", status: "saved" },
+      { id: "old-1", title: "旧任务", updatedAt: 1, source: "OpenCode", status: "saved" }
+    ], nextCursor: null });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      render(<CodexAppServerSession sessionId="run-1" />);
+      await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+      fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "保留草稿" } });
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+      await screen.findByText("会话 ID：old-1");
+      const row = (id: string) => within(screen.getByText(`会话 ID：${id}`).closest(".codex-app-server-history-row") as HTMLElement);
+      expect(row("thread-1").getByRole("button", { name: "删除" })).toHaveProperty("disabled", true);
+      fireEvent.click(row("old-1").getByRole("button", { name: "删除" }));
+      expect(deleteThread).not.toHaveBeenCalled();
+      confirm.mockReturnValue(true);
+      fireEvent.click(row("old-1").getByRole("button", { name: "删除" }));
+      await screen.findByText("删除失败");
+      expect(screen.getByRole("textbox", { name: "图形对话输入" })).toHaveProperty("value", "保留草稿");
+      listHistory.mockResolvedValueOnce({ data: [], nextCursor: null });
+      fireEvent.click(row("old-1").getByRole("button", { name: "删除" }));
+      await waitFor(() => expect(screen.queryByText("会话 ID：old-1")).toBeNull());
+      expect(deleteThread).toHaveBeenCalledWith("run-1", "old-1");
+      expect(screen.getByRole("textbox", { name: "图形对话输入" })).toHaveProperty("value", "保留草稿");
+    } finally { confirm.mockRestore(); }
+  });
+
+  it("shows only advertised OpenCode history actions and switches after a successful fork", async () => {
+    const base = { threadId: "thread-1", provider: "opencode" as const, mode: "default" as const, executionPermission: "askApproval" as const,
+      busy: false, error: null, pendingPlan: null, items: [], approvals: [], capabilities: { history: true, plan: false, attachments: true, permissions: false } };
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce(base);
+    listHistory.mockResolvedValue({ data: [{ id: "old-1", title: "旧任务", updatedAt: 1, source: "OpenCode", status: "saved" }], nextCursor: null });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
+    await screen.findByText("会话 ID：old-1");
+    expect(screen.queryByRole("button", { name: "分叉" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    act(() => changed({ id: "run-1", snapshot: { ...base, capabilities: { ...base.capabilities, forkHistory: true } } }));
+    let finish: (value: any) => void = () => {};
+    forkThread.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "分叉" }));
+    expect(screen.getByRole("button", { name: "分叉" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "分叉" }));
+    expect(forkThread).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ ...base, threadId: "branch" }));
+    expect(screen.queryByRole("dialog", { name: "历史会话" })).toBeNull();
+  });
+
+  it("forks the current Codex timeline through the selected turn", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", provider: "codex", mode: "default",
+      busy: false, error: null, approvals: [], items: [
+        { id: "user-1", type: "userMessage", turnId: "turn-1", text: "第一个问题" },
+        { id: "answer-1", type: "agentMessage", turnId: "turn-1", text: "第一个回答" },
+        { id: "user-2", type: "userMessage", turnId: "turn-2", text: "第二个问题" },
+        { id: "answer-2", type: "agentMessage", turnId: "turn-2", text: "第二个回答" }
+      ] } }));
+    const buttons = screen.getAllByRole("button", { name: "从此回合分叉" });
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].parentElement?.previousElementSibling).toHaveProperty("textContent", "第一个回答");
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(forkThread).toHaveBeenCalledWith("run-1", "thread-1", "turn-1"));
+    await waitFor(() => expect(screen.queryByText("第二个回答")).toBeNull());
+  });
+
+  it("disables turn forking during a turn and preserves the source on failure", async () => {
+    forkThread.mockRejectedValueOnce(new Error("分叉不可用"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const source = { threadId: "thread-1", provider: "codex", mode: "default", error: null, approvals: [],
+      items: [{ id: "user-1", type: "userMessage", turnId: "turn-1", text: "问题" },
+        { id: "answer-1", type: "agentMessage", turnId: "turn-1", text: "回答" },
+        { id: "user-2", type: "userMessage", turnId: "turn-2", text: "运行中的问题" }] };
+    act(() => changed({ id: "run-1", snapshot: { ...source, busy: true } }));
+    expect(screen.getAllByRole("button", { name: "从此回合分叉" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "从此回合分叉" })).toHaveProperty("disabled", true);
+    act(() => changed({ id: "run-1", snapshot: { ...source, busy: false } }));
+    fireEvent.click(screen.getAllByRole("button", { name: "从此回合分叉" })[0]);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "分叉失败：分叉不可用");
+    expect(screen.getByText("回答")).toBeTruthy();
   });
 
   it("shows Codex reasoning and lifecycle events in order between tool groups", async () => {
