@@ -1,3 +1,4 @@
+import { graphicalInputPolicy } from "./GraphicalInputPolicy";
 import { GraphicalUsage } from "./GraphicalUsage";
 import { GraphicalIcon } from "./GraphicalIcon";
 import { effortLabel, modelLabel, permissionLabel, providerLabel } from "./GraphicalPresentation";
@@ -12,6 +13,7 @@ export function GraphicalView(props: GraphicalViewProps) {
   const controller = useGraphicalSession(props);
   const { snapshot, isSending, error, activeSheet, setActiveSheet, switchingTo, moreButtonRef, runQuickCommand } = controller;
   if (!snapshot) return <section className="graphical-shell graphical-loading">正在加载图形会话…</section>;
+  const inputPolicy = graphicalInputPolicy(snapshot, Boolean(controller.historyMutation));
   const context = snapshot.contextUsage;
   const contextPercent = context && context.size > 0 ? Math.min(100, Math.max(0, context.used / context.size * 100)) : null;
   return <section className="graphical-shell">
@@ -37,8 +39,7 @@ export function GraphicalView(props: GraphicalViewProps) {
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
     <GraphicalTimeline snapshot={snapshot} controller={controller} />
     <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand}
-      disabled={command => !snapshot?.threadId || !!snapshot.archived || (command.mode !== "write" && isSending)
-        || (command.mode === "auto-enter" && !!snapshot.busy && snapshot.provider !== "codex")} />
+      disabled={command => !inputPolicy.canInput || (command.mode !== "write" && (!inputPolicy.canSubmit || isSending))} />
     <GraphicalComposer snapshot={snapshot} controller={controller} draft={draft} setDraft={setDraft} />
     <GraphicalActionSheet snapshot={snapshot} session={session} controller={controller} />
   </section>;

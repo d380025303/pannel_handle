@@ -67,14 +67,15 @@ export type GraphicalQuestion = { requestId: number | string; submitting: boolea
   threadId: string; turnId: string; questions: Array<{ id: string; header: string; question: string;
     isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
 export type GraphicalSnapshot = { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
+  signedOut?: boolean; compacting?: boolean; reviewing?: boolean; sandboxSettingUp?: boolean; mainAgentChanging?: boolean;
   streamId?: string; revision?: number;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
-  nativeModes?: Array<{ id: string; name?: string }>;
+  nativeModes?: Array<{ id: string; name?: string; description?: string }>;
   model?: string | null; effectiveModel?: string | null; backend?: string | null;
   models?: Array<{ id: string; displayName: string }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
   contextUsage?: { used: number; size: number } | null;
-  acpOptions?: Array<{ id: string; currentValue?: string | boolean; options: Array<{ value: string; name: string }> }>;
+  acpOptions?: Array<{ id: string; type?: string; currentValue?: string | boolean; options: Array<{ value: string; name: string; description?: string }> }>;
   capabilities: { history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
     message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
@@ -133,6 +134,7 @@ export type ClientMessage =
   | { v: 8; type: "graphical.upload.discard"; sessionId: string; threadId: string | null; fileIds: string[]; requestId: string }
   | { v: 8; type: "files.list"; path: string | null; requestId: string }
   | { v: 8; type: "files.download.prepare"; path: string; requestId: string }
+  | { v: 8; type: "graphical.effort"; sessionId: string; threadId: string | null; effort: string; requestId: string }
   | { v: 8; type: "graphical.model"; sessionId: string; threadId: string | null; modelId: string; requestId: string }
   | { v: 8; type: "graphical.interrupt" | "graphical.new-thread"; sessionId: string; threadId: string | null; requestId: string }
   | { v: 8; type: "graphical.history"; sessionId: string; threadId: string | null; cursor?: string | null; requestId: string }

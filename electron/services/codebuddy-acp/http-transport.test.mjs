@@ -12,6 +12,26 @@ afterEach(async () => {
 });
 
 describe("CodeBuddy HTTP ACP transport", () => {
+  it("binds scheduled task routes to the authenticated session", async () => {
+    const seen = [];
+    const server = http.createServer(async (req, res) => {
+      const chunks = []; for await (const chunk of req) chunks.push(chunk);
+      seen.push({ method: req.method, path: req.url, auth: req.headers.authorization, guard: req.headers["x-codebuddy-request"], body: chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null });
+      if (req.method === "DELETE") { res.writeHead(204); res.end(); }
+      else { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: { tasks: [] } })); }
+    });
+    servers.push(server); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const transport = createCodeBuddyHttpTransport({ endpoint: `http://127.0.0.1:${server.address().port}`, password: "secret" });
+    await transport.scheduledTasksRequest("GET", "thread /?");
+    await transport.scheduledTasksRequest("POST", "thread", null, { sessionId: "foreign", prompt: "Check" });
+    await transport.scheduledTasksRequest("DELETE", "thread", "task /?");
+    expect(seen[0].path).toBe("/api/v1/scheduled-tasks?sessionId=thread%20%2F%3F");
+    expect(seen[1].body.sessionId).toBe("thread");
+    expect(seen[2].path).toBe("/api/v1/scheduled-tasks/task%20%2F%3F?sessionId=thread");
+    expect(seen.every(item => item.auth === "Bearer secret" && item.guard === "1")).toBe(true);
+    expect(() => transport.scheduledTasksRequest("PATCH", "thread", "task")).toThrow("不支持");
+    await transport.close();
+  });
   it("limits plugin requests to the authenticated plugin API", async () => {
     const seen = [];
     const server = http.createServer((req, res) => {

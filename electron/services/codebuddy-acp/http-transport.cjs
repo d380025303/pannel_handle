@@ -241,6 +241,14 @@ function createCodeBuddyHttpTransport({ endpoint, password, agent = new http.Age
     },
     sendTeamMessage(message) { return request("POST", "/api/v1/team/messages/send", message, { rawJson: true }); },
     renameSession(sessionId, name) { return request("POST", `/api/v1/sessions/${encodeURIComponent(sessionId)}/rename`, { name }, { rawJson: true }); },
+    scheduledTasksRequest(method, sessionId, taskId, body) {
+      if (!sessionId || !["GET", "POST", "DELETE"].includes(method)
+        || (method === "DELETE" ? typeof taskId !== "string" || !taskId : taskId != null))
+        throw new Error("不支持的 CodeBuddy 定时任务接口。");
+      const route = `/api/v1/scheduled-tasks${method === "DELETE" ? `/${encodeURIComponent(taskId)}` : ""}`;
+      return request(method, method === "POST" ? route : `${route}?sessionId=${encodeURIComponent(sessionId)}`,
+        method === "POST" ? { ...body, sessionId } : undefined, { rawJson: true, timeoutMs: 30000 });
+    },
     pluginRequest(method, route, body) {
       if (!/^(GET|POST|DELETE)$/.test(method) || !/^\/api\/v1\/plugins(?:\/(?:reload|marketplaces(?:\/(?:browse|update|auto-update|[a-zA-Z0-9._-]+))?))?$/.test(route))
         throw new Error("不支持的 CodeBuddy 插件接口。");

@@ -50,6 +50,11 @@ export function modelOptions(snapshot: GraphicalSnapshot) {
     ? (snapshot.models || []).map(model => ({ value: model.id, name: model.displayName })) : [];
   return snapshot.acpOptions?.find(option => option.id === "model")?.options || [];
 }
+export function openCodeEffortOption(snapshot: GraphicalSnapshot) {
+  return snapshot.provider === "opencode"
+    ? snapshot.acpOptions?.find(option => option.id === "effort" && option.type === "select" && option.options.length > 0)
+    : undefined;
+}
 export function effortLabel(snapshot: GraphicalSnapshot) {
   const effort = configLabel(snapshot, "effort") || snapshot.effort;
   const labels: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" };

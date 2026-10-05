@@ -1,3 +1,4 @@
+import { CodeBuddyMcpApp } from "./CodeBuddyMcpApp";
 import { useId, useState } from "react";
 import { ChevronRight, CircleCheck, CircleX, Code2, FileDiff, FileSearch, FileText, Globe2, Search, Terminal, Wrench } from "lucide-react";
 import type { CodexAppServerSnapshot } from "../../vite-env";
@@ -104,6 +105,7 @@ export function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { it
       <strong>工具调用 · {items.length} 项</strong><span className="codex-app-server-event-status">{status}</span>
     </button>
     {expanded && items.map(item => <ToolCard item={item} codeBuddy={codeBuddy} key={item.id} />)}
+    {codeBuddy && items.filter(item => item.mcpApp).map(item => <CodeBuddyMcpApp key={item.id} itemId={item.id} revision={item.mcpApp?.revision} />)}
   </section>;
 }
 

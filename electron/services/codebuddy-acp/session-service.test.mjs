@@ -33,6 +33,43 @@ function fakeChild(onMessage) {
 }
 
 describe("CodeBuddy ACP sessions", () => {
+  it("keeps an ACP turn running while its independent side question completes and cancels the worker on close", async () => {
+    let prompt; let emitResponse;
+    const sent = [];
+    const mainChild = fakeChild((message, emit) => {
+      sent.push(message); emitResponse = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "main-thread", configOptions: [
+        { id: "model", type: "select", currentValue: "selected-model", options: [{ value: "selected-model", name: "Model" }] }] } });
+      else if (message.method === "session/prompt") prompt = message;
+    });
+    const workers = [];
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => {
+        if (!workers.length) { workers.push(mainChild); return mainChild; }
+        const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+        workers.push(child); return child;
+      } });
+    await service.start({ id: "one", type: "windows", cwd: process.cwd() });
+    const turn = service.submit("one", "Continue the main task");
+    await vi.waitFor(() => expect(prompt).toBeTruthy());
+    service.askSideQuestion("one", "How is it going?");
+    workers[1].stdout.end(JSON.stringify([{ type: "result", result: "Still running" }]));
+    workers[1].emit("close", 0);
+    expect(service.snapshot("one")).toMatchObject({ busy: true, sideQuestion: { status: "completed", answer: "Still running" } });
+    expect(service.snapshot("one").items.filter(item => item.type === "userMessage").map(item => item.text)).toEqual(["Continue the main task"]);
+    expect(sent.filter(message => message.method === "session/prompt")).toHaveLength(1);
+    expect(sent.some(message => message.method === "session/cancel")).toBe(false);
+    emitResponse({ id: prompt.id, result: { stopReason: "end_turn" } });
+    await turn;
+    expect(service.snapshot("one").busy).toBe(false);
+    service.askSideQuestion("one", "Another question");
+    await service.close("one");
+    expect(workers[2].kill).toHaveBeenCalled();
+    workers[2].emit("close", 0);
+    service.shutdown();
+  });
+
   it("uses public goal prompts and keeps goal events within the current session", async () => {
     const sent = [];
     let emitMessage;

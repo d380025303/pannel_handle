@@ -17,6 +17,9 @@ const { emptyGoalState, applyGoalUpdate } = require("./goal-state.cjs");
 const { createOpenCodeQuestionBridge } = require("../opencode-acp/question-bridge.cjs");
 const { readAuthMethods, createOpenCodeAuthService } = require("../opencode-acp/auth-service.cjs");
 const { fileResourceLink, applyStructuredToolUpdate, resourceAttachment } = require("../opencode-acp/content-values.cjs");
+const { createScheduledTasksService } = require("./scheduled-tasks-service.cjs");
+const { createMcpApps } = require("./mcp-apps.cjs");
+const { createCodeBuddySideQuestionService } = require("./side-question-service.cjs");
 const { createCodeBuddyJobsService } = require("./jobs-service.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
@@ -163,6 +166,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }) : null;
   const jobs = provider === "codebuddy" ? createCodeBuddyJobsService({ spawnProcess, resolveHttpEndpoint,
     httpTransportFactory, buildInvocation, stopAgentChild, broadcast }) : null;
+  const sideQuestions = provider === "codebuddy" ? createCodeBuddySideQuestionService({
+    getEntry: id => sessions.get(id), changed: publish, spawnProcess,
+    stopChild: child => stopAgentChild(child, "codebuddy") }) : null;
   function savedOptions(entry) {
     const key = provider === "codebuddy" ? "codeBuddyGraphicalOptions" : provider === "opencode" ? "openCodeGraphicalOptions" : null;
     if (!key) return {};
@@ -316,13 +322,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       ...(provider === "codebuddy" ? { codeBuddyGoal: { ...entry.codeBuddyGoal } } : {}),
       ...(provider === "codebuddy" ? { mainAgent: entry.mainAgent ? { ...entry.mainAgent, changing: Boolean(entry.mainAgentChanging) } : null } : {}),
       ...(provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
+      ...(sideQuestions ? { sideQuestion: sideQuestions.snapshot(id) } : {}),
       contextUsage: entry.contextUsage,
       ...(provider === "opencode" ? { openCodeRevert: entry.openCodeRevert || null, historyActionsError: entry.historyActionsError || null } : {}),
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
       approvals: [...entry.approvals.values()].map(value => value.display),
       questions: [...entry.questions.values()].map(({ requestId, params, submitting }) => ({ requestId, params, submitting })),
-      capabilities: { ...entry.capabilities, rewind: provider === "codebuddy" && entry.session.type === "windows"
+      capabilities: { ...entry.capabilities, sideQuestion: provider === "codebuddy" && entry.session.type === "windows" && !entry.runtime.localBridge, rewind: provider === "codebuddy" && entry.session.type === "windows"
         && !entry.runtime.localBridge && isRewindMessageId(entry.threadId) }, provider };
   }
   async function listModelMetadata(id) {
@@ -434,6 +441,26 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     if (value.sessionId !== entry.threadId && value.sessionId !== entry.loadingThreadId) return;
     const kind = update.sessionUpdate;
+    if (provider === "codebuddy" && kind === "session_info_update") {
+      const interruption = update._meta?.["codebuddy.ai/interruptionRequest"];
+      if (interruption?.mcpUiIntercept === true && typeof interruption.toolCallId === "string") {
+        void entry.mcpApps.interruption(value.sessionId, interruption).then(handled => {
+          if (handled || sessions.get(id) !== entry || entry.threadId !== value.sessionId) return;
+          const key = `mcp-app:${interruption.toolCallId}`;
+          entry.approvals.set(key, { interruption: interruption.toolCallId, threadId: value.sessionId,
+            allowed: "allow", declined: "deny", options: new Set(["allow", "deny"]),
+            display: { requestId: key, method: "MCP App", params: { itemId: interruption.toolCallId,
+              command: interruption.toolName, reason: interruption.toolTitle || "MCP App 工具请求授权", changes: interruption.toolInput,
+              choices: [{ id: "allow", label: "允许本次" }, { id: "deny", label: "拒绝" }] } } });
+          publish(id);
+        }).catch(error => { if (sessions.get(id) === entry) { entry.error = error.message; publish(id); } });
+      }
+      const event = update._meta?.["codebuddy.ai/mcpFirstRunStatus"];
+      if (event?.event === "server" && typeof event.name === "string" && ["connecting", "ready", "failed", "timeout"].includes(event.state)) {
+        entry.mcpStatuses.set(event.name, { name: event.name, status: event.state,
+          error: typeof event.error === "string" ? sanitizeDiagnostic(event.error).slice(0, 4096) : null, updatedAt: Date.now() });
+      }
+    }
     if (provider === "codebuddy" && kind === "session_info_update")
       applyGoalUpdate(entry.codeBuddyGoal, update._meta);
     if (provider === "codebuddy" && kind === "session_info_update")
@@ -483,7 +510,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         if (!item) { item = { id: toolId, type: "toolCall", turnId }; items.push(item); }
         item.toolName = update.title || item.toolName || "工具调用";
         item.toolKind = update.kind || item.toolKind || "other";
+        const nativeTool = update._meta?.["codebuddy.ai/toolName"];
+        if (provider === "codebuddy" && typeof nativeTool === "string" && nativeTool.startsWith("mcp__")) item.tool = nativeTool;
         item.status = update.status || item.status;
+        if (provider === "codebuddy" && entry.session.type === "windows" && !entry.runtime.localBridge) {
+          try { entry.mcpApps.update(value.sessionId, item, update._meta?.["codebuddy.ai"]?.toolMetaData?.mcpUi, update); }
+          catch (error) { item.output = error.message; }
+        }
         if (provider === "opencode") applyStructuredToolUpdate(item, update);
         else {
           const output = update.content?.map(block => block.content?.text || block.content?.uri || block.text || "").filter(Boolean).join("\n");
@@ -721,6 +754,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.uploadedFiles = new Set(runtime.retainedTimeline.uploadedFiles);
     }
     entry.listedThreadIds = new Set();
+    entry.mcpStatuses = new Map();
+    entry.mcpApps = createMcpApps({ current: () => {
+      if (entryFor(session.id) !== entry) throw new Error("MCP App 所属进程已失效。");
+      return entry;
+    }, request });
     sessions.set(session.id, entry);
     let stderr = "";
     child.stderr.on("data", chunk => { stderr = (stderr + chunk.toString()).slice(-2000); });
@@ -837,6 +875,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const entry = sessions.get(id);
     if (!entry) return closingSessions.get(id);
     clearPendingPublish(id);
+    entry.mcpApps?.clear();
+    sideQuestions?.clear(id);
     sessions.delete(id);
     if (provider !== "opencode" || !entry.supportsClose || !entry.threadId || !entry.child.stdin.writable
       || entry.child.exitCode != null || entry.child.signalCode != null) { disposeEntry(entry); return; }
@@ -1044,6 +1084,17 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const result = await entry.httpTransport.renameSession(threadId, title);
     if (result?.error) throw new Error(result.error.message || "CodeBuddy 重命名失败。");
   }
+  const scheduledTasks = createScheduledTasksService((id, threadId) => {
+    const entry = entryFor(id);
+    if (provider !== "codebuddy" || entry.session.type !== "windows" || entry.runtime.localBridge || !entry.httpTransport?.scheduledTasksRequest)
+      throw new Error("仅 Windows 本机 CodeBuddy 图形会话支持定时任务管理。");
+    const assertCurrent = () => {
+      if (!threadId || sessions.get(id) !== entry || entry.threadId !== threadId || entry.loadingThreadId || activeOperations.has(id))
+        throw new Error("对话已切换或正在重建，请重新打开定时任务管理。");
+    };
+    assertCurrent();
+    return { threadId, transport: entry.httpTransport, assertCurrent };
+  });
   function pluginRuntime(id) {
     const entry = entryFor(id);
     if (provider !== "codebuddy" || entry.session.type !== "windows" || entry.runtime.localBridge || !entry.httpTransport?.pluginRequest)
@@ -1244,6 +1295,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       publish(id);
       throw error;
     } finally { entry.loadingThreadId = null; }
+    sideQuestions?.clear(id);
     entry.threadId = result.sessionId || threadId; entry.error = null; entry.pendingPlan = null;
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
     entry.earlyCommands.clear(); entry.awaitingSession = false;
@@ -1275,6 +1327,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       publish(id);
       throw error;
     }
+    sideQuestions?.clear(id);
     entry.threadId = result.sessionId;
     entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.contextUsage = null;
     if (provider === "opencode") {
@@ -1630,6 +1683,11 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const selected = typeof approved === "string" ? approved : approved ? approval.allowed : approval.declined;
     if (selected && !approval.options.has(selected)) throw new Error("无效的选择。");
     entry.approvals.delete(requestId);
+    if (approval.interruption) {
+      if (approval.threadId !== entry.threadId) throw new Error("工具确认请求已失效。");
+      publish(id);
+      return request(entry, "_codebuddy.ai/resolveInterruption", { sessionId: entry.threadId, toolCallId: approval.interruption, decision: selected === "allow" ? "allow" : "deny" });
+    }
     send(entry, { id: requestId, result: { outcome: selected ? { outcome: "selected", optionId: selected } : { outcome: "cancelled" } } });
     publish(id); status(id, entry, "running");
   }
@@ -1773,10 +1831,36 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   return { start: startWithHistoryReservation, restart: guardHistoryOperation(restart), close, shutdown, snapshot, listModelMetadata, pluginRuntime, pluginRequest, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, renameThread: provider === "opencode" ? (id, threadId, name) => withHistoryOperation(id, threadId, () => renameThread(id, threadId, name)) : renameThread,
     revertThread: (id, messageId) => withHistoryOperation(id, null, () => changeOpenCodeRevert(id, messageId)),
     restoreThread: id => withHistoryOperation(id, null, () => changeOpenCodeRevert(id, null, true)), rewind: guardHistoryOperation(rewind),
+    async mcpRestart(id) {
+      const entry = entryFor(id);
+      if (entry.session.type !== "windows" || entry.runtime.localBridge || entry.busy || entry.approvals.size || entry.questions.size || entry.pendingPlan)
+        throw new Error("请等待当前会话操作结束后再重启。");
+      await restart(id); return snapshot(id);
+    },
+    mcpAppImages: (id, threadId, itemId, images) => entryFor(id).mcpApps.images(threadId, itemId, images),
+    mcpAppLoad: (id, threadId, itemId) => entryFor(id).mcpApps.load(threadId, itemId),
+    mcpAppRead: (id, threadId, itemId, uri) => entryFor(id).mcpApps.read(threadId, itemId, uri),
+    mcpAppPrepare: (id, threadId, itemId, name, args) => entryFor(id).mcpApps.prepare(threadId, itemId, name, args),
+    mcpAppResolve: (id, token, approved) => entryFor(id).mcpApps.resolve(token, approved),
+    mcpAppDispose: (id, threadId, itemId) => entryFor(id).mcpApps.dispose(threadId, itemId),
+    mcpRuntime(id) { const entry = entryFor(id);
+      if (entry.session.type !== "windows" || entry.runtime.localBridge) throw new Error("仅 Windows 本机 CodeBuddy 支持 MCP 管理。");
+      return { threadId: entry.threadId,
+      statuses: [...entry.mcpStatuses.values()], supported: false,
+      reason: "当前公开接口未提供完整连接查询、热重载、重连和 OAuth 管理；状态仅为 CLI 已推送的首轮记录。" }; },
+    askSideQuestion(id, question) {
+      if (!sideQuestions || historyOperations.has(id)) throw new Error("当前会话不支持旁问或正在切换对话。");
+      sideQuestions.ask(id, question); return snapshot(id);
+    },
+    cancelSideQuestion(id, requestId) {
+      if (!sideQuestions) throw new Error("当前会话不支持旁问。");
+      sideQuestions.cancel(id, requestId); return snapshot(id);
+    },
     startAcpLogin(id, methodId) { if (!auth) throw new Error("仅 OpenCode 支持此登录入口。"); return auth.start(id, methodId); },
     cancelAcpLogin: (id, generation) => auth?.cancel(id, generation),
     writeAcpLogin: (id, generation, data) => auth?.write(id, generation, data),
     resizeAcpLogin: (id, generation, cols, rows) => auth?.resize(id, generation, cols, rows),
+    listScheduledTasks: scheduledTasks.list, createScheduledTask: scheduledTasks.create, deleteScheduledTask: scheduledTasks.delete,
     listJobs: id => withJobs(id, "list"), jobDispatchContext: id => withJobs(id, "dispatchContext"),
     listResumableJobs: id => withJobs(id, "resumable"), dispatchJob: (id, input) => withJobs(id, "dispatch", input),
     resumeJob: (id, sessionId) => withJobs(id, "resume", sessionId), jobTranscript: (id, jobId) => withJobs(id, "transcript", jobId),

@@ -1,6 +1,8 @@
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
 const { availableModelIds, visibleOpenCodeOptions, nativeModeFor } = require("./graphical-command-policy.cjs");
 
+const { graphicalSubmitError } = require("./graphical-input-policy.cjs");
+
 const MAX_TEXT_BYTES = 16 * 1024;
 
 function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, uploads, send }) {
@@ -72,6 +74,15 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       const upload = uploads.prepare(socket, sessionId, current.threadId, message.name, message.size);
       send(socket, { type: "graphical.upload.ready", requestId: message.requestId, ...upload });
       return;
+    } else if (message.type === "graphical.effort") {
+      if (session.agentProvider !== "opencode" || current.provider !== "opencode") throw new Error("当前 Agent 不支持此思考强度操作。");
+      if (!current.threadId || current.busy || current.archived || current.pendingPlan
+        || current.approvals?.length || current.questions?.length) throw new Error("当前会话不可切换思考强度。");
+      const option = current.acpOptions?.find(value => value.id === "effort" && value.type === "select");
+      if (typeof message.effort !== "string" || !option?.options?.some(value => value.value === message.effort))
+        throw new Error("请选择当前会话可用的思考强度。");
+      if (message.effort !== option.currentValue) await graphicalService.setEffort(sessionId, message.effort);
+      sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.model") {
       if (!current.threadId || current.busy || current.archived) throw new Error("当前会话不可切换模型。");
       const modelId = message.modelId;
@@ -81,6 +92,8 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       await graphicalService.setModel(sessionId, modelId);
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.submit") {
+      const blocked = graphicalSubmitError(current);
+      if (blocked) throw new Error(blocked);
       const text = typeof message.text === "string" ? message.text.trim() : "";
       const fileIds = message.fileIds === undefined ? [] : message.fileIds;
       const filePaths = uploads ? uploads.paths(socket, sessionId, current.threadId, fileIds) : [];
@@ -149,10 +162,10 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       }
       sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
     } else if (message.type === "graphical.permission") {
-      if (current.provider !== "codex" || !current.threadId || current.busy || current.archived)
+      if (current.provider !== "codex" || !current.threadId || current.busy)
         throw new Error("当前会话不可切换执行权限。");
       const allowed = ["readOnly", "askApproval", "fullAccess"];
-      if (!allowed.includes(message.permission) || current.capabilities?.permissions === false
+      if (!allowed.includes(message.permission)
         || current.capabilities?.supportedPermissions && !current.capabilities.supportedPermissions.includes(message.permission))
         throw new Error("当前会话不支持此执行权限。");
       await graphicalService.setExecutionPermission(sessionId, message.permission);

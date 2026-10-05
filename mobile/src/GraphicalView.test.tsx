@@ -54,7 +54,8 @@ function fixture(viewSession = session) {
   render(<TestView />);
   const emit = (message: GraphicalMessage) => act(() => { for (const listener of listeners) listener(message); });
   const reconnect = () => act(() => changeEpoch(2));
-  return { send, emit, reconnect };
+  const disconnect = () => act(() => changeEpoch(0));
+  return { send, emit, reconnect, disconnect };
 }
 
 function openSheet(name: string) {
@@ -741,4 +742,185 @@ it("separates groups at messages and turns, and preserves expansion through upda
   expect(screen.getAllByRole("button", { name: /工具调用 · 1 项/ })).toHaveLength(2);
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, threadId: "thread-2", items } });
   expect(screen.getByRole("button", { name: /工具调用 · 2 项/ }).getAttribute("aria-expanded")).toBe("false");
+});
+
+const effortSnapshot: GraphicalSnapshot = { ...snapshot, provider: "opencode", acpOptions: [
+  { id: "effort", type: "select", currentValue: "low", options: [
+    { value: "low", name: "Low" }, { value: "custom", name: "Custom effort", description: "Provider variant" }
+  ] }
+] };
+
+it("switches OpenCode effort with live choices and recovers from failure and reconnect", () => {
+  const { emit, send, reconnect } = fixture();
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: effortSnapshot });
+  let sheet = openSheet("思考强度");
+  expect(within(sheet).getByRole("button", { name: /Low.*当前使用/ }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(sheet).getByRole("button", { name: /Custom effort/ }));
+  const request = send.mock.calls.map(([value]) => value).find(value => value.type === "graphical.effort")!;
+  expect(request).toEqual(expect.objectContaining({ v: 8, sessionId: "graph-1", threadId: "thread-1", effort: "custom" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect((within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }) as HTMLButtonElement).disabled).toBe(true);
+  emit({ v: 8, type: "error", code: "GRAPHICAL_COMMAND_FAILED", message: "强度切换失败", requestId: request.requestId });
+  expect(screen.getByRole("alert").textContent).toContain("强度切换失败");
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }));
+  sheet = screen.getByRole("dialog", { name: "思考强度" });
+  expect(within(sheet).getByRole("button", { name: /Low.*当前使用/ })).toBeTruthy();
+  fireEvent.click(within(sheet).getByRole("button", { name: /Custom effort/ }));
+  reconnect();
+  sheet = openSheet("思考强度");
+  fireEvent.click(within(sheet).getByRole("button", { name: /Custom effort/ }));
+  const latest = send.mock.calls.map(([value]) => value).filter(value => value.type === "graphical.effort").at(-1)!;
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...effortSnapshot,
+    acpOptions: [{ ...effortSnapshot.acpOptions![0], currentValue: "custom" }] } });
+  emit({ v: 8, type: "command.ok", requestId: latest.requestId });
+  sheet = openSheet("思考强度");
+  expect(within(sheet).getByRole("button", { name: /Custom effort.*当前使用/ }).getAttribute("aria-pressed")).toBe("true");
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...effortSnapshot, acpOptions: [] } });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(within(screen.getByRole("dialog")).queryByRole("button", { name: /思考强度/ })).toBeNull();
+});
+
+it.each([
+  { busy: true }, { archived: true }, { approvals: [{ requestId: 1, method: "approval", params: {} }] },
+  { questions: [{ requestId: 1, submitting: false, params: { threadId: "thread-1", turnId: "turn-1", questions: [] } }] }
+])("disables effort changes while the session is unavailable: %j", state => {
+  const { emit, send } = fixture();
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...effortSnapshot, ...state } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect((within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(send.mock.calls.some(([value]) => value.type === "graphical.effort")).toBe(false);
+});
+
+it("keeps effort and model mutations exclusive and clears effort state on thread changes", () => {
+  const { emit, send } = fixture();
+  const value: GraphicalSnapshot = { ...effortSnapshot, acpOptions: [...effortSnapshot.acpOptions!,
+    { id: "model", type: "select", currentValue: "a", options: [{ value: "a", name: "A" }, { value: "b", name: "B" }] }] };
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: value });
+  const models = openSheet("切换模型");
+  fireEvent.click(within(models).getByRole("button", { name: "B" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect((within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }) as HTMLButtonElement).disabled).toBe(true);
+  const model = send.mock.calls.map(([m]) => m).find(m => m.type === "graphical.model")!;
+  emit({ v: 8, type: "command.ok", requestId: model.requestId });
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Custom effort/ }));
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect((within(screen.getByRole("dialog")).getByRole("button", { name: /切换模型/ }) as HTMLButtonElement).disabled).toBe(true);
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...value, threadId: "thread-2" } });
+  const effort = openSheet("思考强度");
+  expect((within(effort).getByRole("button", { name: /Custom effort/ }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("disables effort while a phone attachment is pending", () => {
+  const { emit } = fixture();
+  emit({ v: 8, type: "graphical.snapshot", sessionId: "graph-1", snapshot: effortSnapshot });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.change(within(screen.getByRole("dialog")).getByLabelText("添加文件"), {
+    target: { files: [new File(["hello"], "note.txt")] }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect((within(screen.getByRole("dialog")).getByRole("button", { name: /思考强度/ }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+
+it("matches desktop permission entry and no-op behavior for busy or unready conversations", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, busy: true } });
+  let sheet = openSheet("执行权限");
+  expect(within(sheet).getByRole("button", { name: /完全访问/ })).toHaveProperty("disabled", true);
+  fireEvent.click(within(sheet).getByRole("button", { name: "关闭弹层" }));
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, threadId: null, executionPermission: "askApproval"
+  } });
+  sheet = openSheet("执行权限");
+  fireEvent.click(within(sheet).getByRole("button", { name: /完全访问/ }));
+  fireEvent.click(within(sheet).getByRole("button", { name: /需要确认/ }));
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.permission")).toBe(false);
+});
+
+it("allows archived permission changes regardless of the permissions capability and keeps current choice a no-op", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, archived: true, executionPermission: "askApproval", capabilities: { permissions: false }
+  } });
+  const sheet = openSheet("执行权限");
+  const current = within(sheet).getByRole("button", { name: /需要确认/ });
+  expect(current).toHaveProperty("disabled", false);
+  fireEvent.click(current);
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.permission")).toBe(false);
+  fireEvent.click(within(sheet).getByRole("button", { name: /完全访问/ }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.permission", permission: "fullAccess" }));
+});
+
+it("tracks mode and permission requests independently and does not close a different sheet", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, executionPermission: "askApproval" } });
+  fireEvent.click(modeButton("Plan"));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: /执行权限/ }));
+  const sheet = screen.getByRole("dialog", { name: "执行权限" });
+  const choice = within(sheet).getByRole("button", { name: /完全访问/ });
+  fireEvent.click(choice);
+  fireEvent.click(choice);
+  const permissions = f.send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.permission");
+  expect(permissions).toHaveLength(1);
+  const mode = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.mode")!;
+  f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: mode.requestId });
+  expect(screen.getByRole("dialog", { name: "执行权限" })).toBeTruthy();
+  expect(choice).toHaveProperty("disabled", true);
+  fireEvent.click(within(sheet).getByRole("button", { name: "关闭弹层" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(modeButton("Plan")).toHaveProperty("disabled", false);
+  f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: permissions[0].requestId });
+  expect(screen.getByRole("dialog", { name: "更多操作" })).toBeTruthy();
+});
+
+it("clears pending permissions on conversation changes and reconnect and ignores stale replies", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot });
+  let sheet = openSheet("执行权限");
+  fireEvent.click(within(sheet).getByRole("button", { name: /完全访问/ }));
+  const first = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.permission")!;
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: { ...snapshot, threadId: "thread-2" } });
+  sheet = openSheet("执行权限");
+  const choice = within(sheet).getByRole("button", { name: /完全访问/ });
+  expect(choice).toHaveProperty("disabled", false);
+  fireEvent.click(choice);
+  const second = f.send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.permission").at(-1)!;
+  f.emit({ v: PROTOCOL_VERSION, type: "command.ok", requestId: first.requestId });
+  expect(choice).toHaveProperty("disabled", true);
+  f.disconnect();
+  expect(choice).toHaveProperty("disabled", false);
+  f.reconnect();
+  expect(choice).toHaveProperty("disabled", false);
+  f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: second.requestId, code: "COMMAND_FAILED", message: "旧权限错误" });
+  expect(screen.queryByText("旧权限错误")).toBeNull();
+  expect(screen.getByRole("dialog", { name: "执行权限" })).toBeTruthy();
+});
+
+
+it.each([
+  { signedOut: true }, { archived: true }, { compacting: true, busy: true },
+  { reviewing: true, busy: true }, { sandboxSettingUp: true }, { mainAgentChanging: true },
+  { provider: "opencode" as const, busy: true }
+])("blocks ordinary sends for desktop restricted state %j and preserves the draft", state => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留草稿" } });
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, ...state } });
+  expect((screen.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.submit")).toBe(false);
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("保留草稿");
+});
+
+it("allows Codex messages while busy and shows current permission beside the composer", () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, busy: true, executionPermission: "readOnly" } });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "继续" } });
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).disabled).toBe(false);
+  expect(screen.getByText("执行权限：只读", { selector: ".graphical-composer-permission" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.submit")).toBe(true);
 });

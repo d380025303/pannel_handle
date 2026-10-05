@@ -84,6 +84,8 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
           if (socket.graphicalSessionId !== sessionId || !graphicalService) throw new Error("请先打开此图形会话。");
           const current = graphicalService.snapshot(sessionId);
           if (!current.threadId || current.threadId !== message.threadId || current.archived) throw new Error("对话已切换或已归档，请刷新后重试。");
+          const blocked = require("./graphical-input-policy.cjs").graphicalSubmitError(current);
+          if (blocked) throw new Error(blocked);
           if (mode === "auto-enter") await graphicalService.submit(sessionId, command.command, []);
         } else {
           if (typeof session.term?.write !== "function" || session.type === "ssh"

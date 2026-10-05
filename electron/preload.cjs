@@ -207,6 +207,9 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   listBackgroundTerminals: id => ipcRenderer.invoke("codex-app-server:background-terminals-list", id),
   terminateBackgroundTerminal: (id, processId) => ipcRenderer.invoke("codex-app-server:background-terminal-terminate", id, processId),
   cleanBackgroundTerminals: id => ipcRenderer.invoke("codex-app-server:background-terminals-clean", id),
+  listScheduledTasks: (id, threadId) => ipcRenderer.invoke("codebuddy-scheduled-tasks:list", id, threadId),
+  createScheduledTask: (id, threadId, input) => ipcRenderer.invoke("codebuddy-scheduled-tasks:create", id, threadId, input),
+  deleteScheduledTask: (id, threadId, taskId) => ipcRenderer.invoke("codebuddy-scheduled-tasks:delete", id, threadId, taskId),
   listJobs: id => ipcRenderer.invoke("codebuddy-jobs:list", id),
   jobDispatchContext: id => ipcRenderer.invoke("codebuddy-jobs:dispatch-context", id),
   listResumableJobs: id => ipcRenderer.invoke("codebuddy-jobs:resumable", id),
@@ -239,6 +242,8 @@ contextBridge.exposeInMainWorld("codexAppServerApi", {
   previewAttachment: (id, filePath) => ipcRenderer.invoke("codex-app-server:preview-attachment", id, filePath),
   pasteImage: id => ipcRenderer.invoke("codex-app-server:paste-image", id),
   discardImage: (id, filePath) => ipcRenderer.invoke("codex-app-server:discard-image", id, filePath),
+  askSideQuestion: (id, question) => ipcRenderer.invoke("codex-app-server:ask-side-question", id, question),
+  cancelSideQuestion: (id, requestId) => ipcRenderer.invoke("codex-app-server:cancel-side-question", id, requestId),
   submit: (id, text, filePaths, references, orderedContent) => ipcRenderer.invoke("codex-app-server:submit", id, text, filePaths, references, orderedContent),
   interrupt: id => ipcRenderer.invoke("codex-app-server:interrupt", id),
   resolveApproval: (id, requestId, decision) => ipcRenderer.invoke("codex-app-server:approval", id, requestId, decision),
@@ -281,6 +286,16 @@ contextBridge.exposeInMainWorld("codexPluginApi", {
   removeMarketplace: (id, name) => ipcRenderer.invoke("codex-plugin:marketplace-remove", id, name),
   readConfig: (id, scope) => ipcRenderer.invoke("codex-plugin:config", id, scope),
   setEnabled: (id, scope, input) => ipcRenderer.invoke("codex-plugin:enable", id, scope, input)
+});
+contextBridge.exposeInMainWorld("codeBuddyMcpApi", {
+  restart: id => ipcRenderer.invoke("codebuddy-mcp:restart", id),
+  images: (id, threadId, itemId, images) => ipcRenderer.invoke("codebuddy-mcp:images", id, threadId, itemId, images),
+  runtime: id => ipcRenderer.invoke("codebuddy-mcp:runtime", id),
+  load: (id, threadId, itemId) => ipcRenderer.invoke("codebuddy-mcp:load", id, threadId, itemId),
+  read: (id, threadId, itemId, uri) => ipcRenderer.invoke("codebuddy-mcp:read", id, threadId, itemId, uri),
+  prepare: (id, threadId, itemId, name, args) => ipcRenderer.invoke("codebuddy-mcp:prepare", id, threadId, itemId, name, args),
+  resolve: (id, token, approved) => ipcRenderer.invoke("codebuddy-mcp:resolve", id, token, approved),
+  dispose: (id, threadId, itemId) => ipcRenderer.invoke("codebuddy-mcp:dispose", id, threadId, itemId)
 });
 contextBridge.exposeInMainWorld("codeBuddyPluginApi", {
   list: id => ipcRenderer.invoke("codebuddy-plugin:list", id),

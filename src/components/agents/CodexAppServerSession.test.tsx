@@ -1818,13 +1818,47 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
   });
 
-  it("keeps the existing ACP composer disabled while its turn is running", async () => {
+  it("allows editing for CodeBuddy side questions while blocking normal in-flight messages", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", mode: "default",
       executionPermission: "askApproval", busy: true, error: null, items: [], approvals: [] } }));
-    expect(screen.getByPlaceholderText("向 CodeBuddy 发送消息")).toHaveProperty("disabled", true);
+    const input = screen.getByPlaceholderText("向 CodeBuddy 发送消息");
+    expect(input).toHaveProperty("disabled", false);
+    fireEvent.change(input, { target: { value: "普通草稿" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(submit).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "发送" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "旁问" }));
+    expect(screen.getByRole("dialog", { name: "CodeBuddy 旁问" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭旁问" }));
+    expect(input).toHaveProperty("value", "普通草稿");
     expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+  });
+
+  it("routes /btw with a question separately and does not match /btwxxx", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", mode: "default",
+      executionPermission: "askApproval", busy: true, error: null, items: [], approvals: [] } }));
+    const askSideQuestion = vi.fn().mockResolvedValue({ threadId: "buddy-1", sideQuestion: null });
+    window.codexAppServerApi.askSideQuestion = askSideQuestion;
+    const input = screen.getByPlaceholderText("向 CodeBuddy 发送消息");
+    fireEvent.change(input, { target: { value: "/btwxxx 问题" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.queryByRole("dialog", { name: "CodeBuddy 旁问" })).toBeNull();
+    expect(askSideQuestion).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "/btw 目前进展？" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(askSideQuestion).toHaveBeenCalledWith("run-1", "目前进展？"));
+    expect(submit).not.toHaveBeenCalled();
+    expect(input).toHaveProperty("value", "");
+  });
+
+  it("keeps other ACP providers disabled while busy", () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "open-1", provider: "opencode", mode: "default",
+      executionPermission: "askApproval", busy: true, error: null, items: [], approvals: [] } }));
+    expect(screen.getByPlaceholderText("向 OpenCode 发送消息")).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "旁问" })).toBeNull();
   });
 
   it("restores a rejected in-flight message and its attachment", async () => {

@@ -311,6 +311,28 @@ describe("mobile graphical session route", () => {
       .rejects.toThrow("不可切换");
   });
 
+  it("matches desktop permission gates while retaining remote request validation", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    const message = { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "fullAccess", requestId: "permission" };
+    f.snapshot.archived = true;
+    f.snapshot.capabilities = { permissions: false };
+    await f.handlers.handle(f.socket, message);
+    expect(f.graphicalService.setExecutionPermission).toHaveBeenCalledWith("graph-1", "fullAccess");
+    f.graphicalService.setExecutionPermission.mockClear();
+    await expect(f.handlers.handle(f.socket, { ...message, permission: "invalid" })).rejects.toThrow("不支持此执行权限");
+    await expect(f.handlers.handle(f.socket, { ...message, threadId: "old-thread" })).rejects.toThrow("对话已切换");
+    f.snapshot.busy = true;
+    await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("不可切换执行权限");
+    f.snapshot.busy = false;
+    f.snapshot.threadId = null;
+    await expect(f.handlers.handle(f.socket, { ...message, threadId: null })).rejects.toThrow("不可切换执行权限");
+    f.snapshot.threadId = "thread-1";
+    f.snapshot.provider = "opencode";
+    await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("不可切换执行权限");
+    expect(f.graphicalService.setExecutionPermission).not.toHaveBeenCalled();
+  });
+
   it("routes Codex permissions and advertised ACP native modes", async () => {
     const f = fixture();
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
@@ -379,4 +401,56 @@ describe("mobile graphical session route", () => {
       Object.assign(f.snapshot, { busy: false, approvals: [], questions: [], pendingPlan: null });
     }
   });
+});
+
+it("validates OpenCode effort against live options and returns updated state", async () => {
+  const f = fixture();
+  f.session.agentProvider = "opencode";
+  Object.assign(f.snapshot, { provider: "opencode", approvals: [], questions: [], acpOptions: [
+    { id: "effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High", description: "More reasoning" }] }
+  ] });
+  f.graphicalService.setEffort = vi.fn(async (_, value) => { f.snapshot.acpOptions[0].currentValue = value; });
+  const message = { type: "graphical.effort", sessionId: "graph-1", threadId: "thread-1", effort: "high", requestId: "effort" };
+  await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("先打开");
+  await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+  await expect(f.handlers.handle(f.socket, { ...message, threadId: "old" })).rejects.toThrow("已切换");
+  await expect(f.handlers.handle(f.socket, { ...message, effort: "invented" })).rejects.toThrow("可用的思考强度");
+  for (const state of [{ busy: true }, { archived: true }, { approvals: [{}] }, { questions: [{}] }, { pendingPlan: {} }]) {
+    Object.assign(f.snapshot, state);
+    await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("不可切换");
+    Object.assign(f.snapshot, { busy: false, archived: false, approvals: [], questions: [], pendingPlan: null });
+  }
+  f.session.agentProvider = "codex";
+  await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("不支持");
+  f.session.agentProvider = "opencode";
+  expect(f.graphicalService.setEffort).not.toHaveBeenCalled();
+  await f.handlers.handle(f.socket, message);
+  expect(f.graphicalService.setEffort).toHaveBeenCalledWith("graph-1", "high");
+  expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.snapshot", snapshot: expect.objectContaining({
+    acpOptions: [expect.objectContaining({ type: "select", currentValue: "high", options: expect.arrayContaining([expect.objectContaining({ description: "More reasoning" })]) })]
+  }) }));
+  expect(f.send).toHaveBeenCalledWith(f.socket, { type: "command.ok", requestId: "effort" });
+  await f.handlers.handle(f.socket, message);
+  expect(f.graphicalService.setEffort).toHaveBeenCalledTimes(1);
+  f.snapshot.acpOptions = [];
+  await expect(f.handlers.handle(f.socket, message)).rejects.toThrow("可用的思考强度");
+});
+
+
+it.each([
+  { account: { status: "signedOut" } }, { archived: true }, { compacting: true },
+  { reviewing: true }, { windowsSandboxSetup: { status: "running" } },
+  { mainAgent: { changing: true } }, { provider: "opencode", busy: true }
+])("rejects restricted mobile submits before dispatch %j", async state => {
+  const f = fixture(); Object.assign(f.snapshot, state);
+  await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+  await expect(f.handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" })).rejects.toThrow();
+  expect(f.graphicalService.submit).not.toHaveBeenCalled();
+});
+
+it("projects only input status flags without leaking account details", () => {
+  const value = toMobileGraphicalSnapshot({ account: { status: "signedOut", token: "secret" },
+    compacting: true, reviewing: true, windowsSandboxSetup: { status: "running", secret: "secret" }, mainAgent: { changing: true } });
+  expect(value).toMatchObject({ signedOut: true, compacting: true, reviewing: true, sandboxSettingUp: true, mainAgentChanging: true });
+  expect(JSON.stringify(value)).not.toContain("secret");
 });

@@ -9,10 +9,16 @@ describe("CodeBuddy Jobs IPC", () => {
   it("passes only CodeBuddy session requests to the Jobs service", async () => {
     const handlers = new Map();
     const terminalManager = { getSession: id => ({ agentProvider: id === "buddy" ? "codebuddy" : "codex" }) };
-    const codeBuddy = { listJobs: vi.fn(() => [{ id: "one" }]), dispatchJob: vi.fn(() => ({ id: "one" })) };
+    const codeBuddy = { listScheduledTasks: vi.fn(() => []), createScheduledTask: vi.fn(), deleteScheduledTask: vi.fn(), listJobs: vi.fn(() => [{ id: "one" }]), dispatchJob: vi.fn(() => ({ id: "one" })) };
     const router = createGraphicalSessionRouter({}, codeBuddy, terminalManager);
     registerIpcHandlers({ ipcMain: { handle: (name, fn) => handlers.set(name, fn), on: vi.fn() },
       terminalManager, codexAppServerSessionService: router });
+    expect(await handlers.get("codebuddy-scheduled-tasks:list")({}, "buddy", "thread")).toEqual([]);
+    await handlers.get("codebuddy-scheduled-tasks:create")({}, "buddy", "thread", { prompt: "Check" });
+    expect(codeBuddy.createScheduledTask).toHaveBeenCalledWith("buddy", "thread", { prompt: "Check" });
+    await handlers.get("codebuddy-scheduled-tasks:delete")({}, "buddy", "thread", "task");
+    expect(codeBuddy.deleteScheduledTask).toHaveBeenCalledWith("buddy", "thread", "task");
+    expect(() => handlers.get("codebuddy-scheduled-tasks:list")({}, "codex", "thread")).toThrow("仅 CodeBuddy");
     expect(await handlers.get("codebuddy-jobs:list")({}, "buddy")).toEqual([{ id: "one" }]);
     expect(await handlers.get("codebuddy-jobs:dispatch")({}, "buddy", { prompt: "Check" })).toEqual({ id: "one" });
     expect(codeBuddy.dispatchJob).toHaveBeenCalledWith("buddy", { prompt: "Check" });

@@ -97,6 +97,9 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:background-terminals-clean", (_event, id) => codexAppServerSessionService.cleanBackgroundTerminals(String(id || "")));
     for (const [channel, method] of [["list", "listJobs"], ["dispatch-context", "jobDispatchContext"], ["resumable", "listResumableJobs"]])
       ipcMain.handle(`codebuddy-jobs:${channel}`, (_event, id) => codexAppServerSessionService[method](String(id || "")));
+    ipcMain.handle("codebuddy-scheduled-tasks:list", (_event, id, threadId) => codexAppServerSessionService.listScheduledTasks(String(id || ""), threadId));
+    ipcMain.handle("codebuddy-scheduled-tasks:create", (_event, id, threadId, input) => codexAppServerSessionService.createScheduledTask(String(id || ""), threadId, input));
+    ipcMain.handle("codebuddy-scheduled-tasks:delete", (_event, id, threadId, taskId) => codexAppServerSessionService.deleteScheduledTask(String(id || ""), threadId, taskId));
     ipcMain.handle("codebuddy-jobs:dispatch", (_event, id, input) => codexAppServerSessionService.dispatchJob(String(id || ""), input));
     ipcMain.handle("codebuddy-jobs:resume", (_event, id, sessionId) => codexAppServerSessionService.resumeJob(String(id || ""), sessionId));
     ipcMain.handle("codebuddy-jobs:transcript-read", (_event, id, jobId) => codexAppServerSessionService.jobTranscript(String(id || ""), jobId));
@@ -143,6 +146,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     });
     ipcMain.handle("codex-app-server:discard-image", (_event, id, filePath) =>
       codexAppServerSessionService.discardPastedImage(String(id || ""), filePath));
+    ipcMain.handle("codex-app-server:ask-side-question", (_event, id, question) => codexAppServerSessionService.askSideQuestion(String(id || ""), question));
+    ipcMain.handle("codex-app-server:cancel-side-question", (_event, id, requestId) => codexAppServerSessionService.cancelSideQuestion(String(id || ""), requestId));
     ipcMain.handle("codex-app-server:submit", (_event, id, text, filePaths, references, orderedContent) => codexAppServerSessionService.submit(String(id || ""), text, filePaths, references, orderedContent));
     ipcMain.handle("codex-app-server:interrupt", (_event, id) => codexAppServerSessionService.interrupt(String(id || "")));
     ipcMain.handle("codex-app-server:approval", (_event, id, requestId, decision) => {
@@ -177,6 +182,11 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-plugin:marketplace-remove", (_event, id, name) => codexPluginService.removeMarketplace(id, name));
     ipcMain.handle("codex-plugin:config", (_event, id, scope) => codexPluginService.readConfig(id, scope));
     ipcMain.handle("codex-plugin:enable", (_event, id, scope, input) => codexPluginService.setEnabled(id, scope, input));
+  }
+  if (codexAppServerSessionService) {
+    for (const [action, method] of Object.entries({ restart: "mcpRestart", images: "mcpAppImages", runtime: "mcpRuntime", load: "mcpAppLoad", read: "mcpAppRead",
+      prepare: "mcpAppPrepare", resolve: "mcpAppResolve", dispose: "mcpAppDispose" }))
+      ipcMain.handle(`codebuddy-mcp:${action}`, (_event, id, ...args) => codexAppServerSessionService[method](id, ...args));
   }
   if (codeBuddyPluginService) {
     for (const method of ["list", "reload", "install", "uninstall", "enable", "disable", "update", "addMarketplace", "refreshMarketplace", "removeMarketplace", "setAutoUpdate"])

@@ -15,6 +15,7 @@ import type {
 type McpManagerProps = {
   session?: TerminalSession;
   embeddedCodex?: boolean;
+  embeddedCodeBuddy?: boolean;
   runtimeStatuses?: Array<{ name: string; status: string }>;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (handler: (() => Promise<boolean>) | null) => void;
@@ -104,9 +105,9 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   );
 }
 
-export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [], onDirtyChange, onRegisterSave, onCommitted }: McpManagerProps) {
+export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy = false, runtimeStatuses = [], onDirtyChange, onRegisterSave, onCommitted }: McpManagerProps) {
   const { t } = useI18n();
-  const [provider, setProvider] = useState<McpProvider>("codex");
+  const [provider, setProvider] = useState<McpProvider>(embeddedCodeBuddy ? "codebuddy" : "codex");
   const [scope, setScope] = useState<McpScope>("user");
   const [document, setDocument] = useState<McpDocument | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -169,7 +170,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
     }
   }, [selectServer, targetFor]);
 
-  useEffect(() => { void load("codex", "user"); }, [load]);
+  useEffect(() => { void load(embeddedCodeBuddy ? "codebuddy" : "codex", "user"); }, [load, embeddedCodeBuddy]);
 
   const confirmDiscard = useCallback(() => !dirty || window.confirm(t("mcp.discardChanges")), [dirty, t]);
 
@@ -319,7 +320,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
           <div><h1>{t("mcp.title")}</h1><p>{t("mcp.description")}</p></div>
         </div>
         <div className="mcp-header-actions">
-          {!embeddedCodex && originalName && (provider === "codex" || provider === "opencode") &&
+          {!embeddedCodex && !embeddedCodeBuddy && originalName && (provider === "codex" || provider === "opencode") &&
             <button className="mcp-copy" type="button" disabled={saving || dirty || loading} onClick={() => void copyServer()}>
               <Copy aria-hidden="true" />{t("mcp.copyTo", { provider: provider === "codex" ? "OpenCode" : "Codex" })}
             </button>}
@@ -328,8 +329,8 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
         </div>
       </header>
 
-      {!embeddedCodex && <SessionStatusMcpPanel />}
-      {!embeddedCodex && <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
+      {!embeddedCodex && !embeddedCodeBuddy && <SessionStatusMcpPanel />}
+      {!embeddedCodex && !embeddedCodeBuddy && <div className="mcp-provider-tabs" role="tablist" aria-label={t("mcp.provider")}>
         <button type="button" role="tab" aria-selected={provider === "codex"} className={provider === "codex" ? "active" : ""} onClick={() => switchTarget("codex", "user")}>Codex</button>
         <button type="button" role="tab" aria-selected={provider === "opencode"} className={provider === "opencode" ? "active" : ""} onClick={() => switchTarget("opencode", "user")}>OpenCode</button>
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchTarget("codebuddy", "user")}>CodeBuddy</button>
@@ -367,7 +368,7 @@ export function McpManager({ session, embeddedCodex = false, runtimeStatuses = [
           {!draft ? <div className="mcp-editor-state">{loading ? t("common.loading") : t("mcp.selectHint")}</div> : (
             <div className="mcp-form">
               <div className="mcp-form-heading">
-                <div><h2>{originalName || t("mcp.newServer")}{dirty && <span> *</span>}</h2><p>{embeddedCodex ? "保存后会请求当前 Codex 会话重载 MCP。" : t("mcp.restartHint")}</p></div>
+                <div><h2>{originalName || t("mcp.newServer")}{dirty && <span> *</span>}</h2><p>{embeddedCodeBuddy ? "配置保存后需重启当前 CodeBuddy 会话生效。" : embeddedCodex ? "保存后会请求当前 Codex 会话重载 MCP。" : t("mcp.restartHint")}</p></div>
                 <label className="mcp-enabled-toggle"><input type="checkbox" checked={draft.enabled} disabled={saving} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span>{t("mcp.enabled")}</span></label>
               </div>
               <div className="mcp-form-grid">

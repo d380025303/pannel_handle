@@ -32,10 +32,15 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
     provider: snapshot.provider || "codex",
     busy: Boolean(snapshot.busy),
     archived: Boolean(snapshot.archived),
+    signedOut: snapshot.account?.status === "signedOut",
+    compacting: Boolean(snapshot.compacting),
+    reviewing: Boolean(snapshot.reviewing),
+    sandboxSettingUp: snapshot.windowsSandboxSetup?.status === "running",
+    mainAgentChanging: Boolean(snapshot.mainAgent?.changing),
     error: snapshot.error || null,
     mode: snapshot.mode || "default",
     nativeMode: snapshot.nativeMode || null,
-    nativeModes: (snapshot.nativeModes || []).map(mode => ({ id: mode.id, name: mode.name })),
+    nativeModes: (snapshot.nativeModes || []).map(mode => ({ id: mode.id, name: mode.name, description: mode.description })),
     model: snapshot.model || null,
     backend: snapshot.backend || null,
     effectiveModel: snapshot.effectiveModel || null,
@@ -48,8 +53,8 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
       && Number.isFinite(snapshot.contextUsage?.size) && snapshot.contextUsage.size > 0
       ? { used: snapshot.contextUsage.used, size: snapshot.contextUsage.size } : null,
     acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort")
-      .map(option => ({ id: option.id, currentValue: option.currentValue,
-        options: (option.id === "model" && modelOptions ? modelOptions : option.options || []).map(value => ({ value: value.value, name: value.name })) })),
+      .map(option => ({ id: option.id, type: option.type, currentValue: option.currentValue,
+        options: (option.id === "model" && modelOptions ? modelOptions : option.options || []).map(value => ({ value: value.value, name: value.name, description: value.description })) })),
     capabilities: snapshot.capabilities || null,
     pendingPlan: snapshot.pendingPlan || null,
     items: (snapshot.items || []).map(item => ({

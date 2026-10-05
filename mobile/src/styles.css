@@ -239,6 +239,7 @@ button { color: inherit; }
 .graphical-input-row { display: flex; align-items: flex-end; gap: 7px; padding: 4px; border-radius: 8px; background: #080d16; }
 .graphical-composer textarea { min-width: 0; flex: 1; min-height: 42px; max-height: 145px; padding: 7px 5px; resize: vertical; border: 0; border-radius: 6px; outline: none; color: #d8e2f0; background: #080d16; }
 .graphical-input-row .graphical-icon-button { flex: none; }
+.graphical-composer-permission { width: 100%; color: #9baac0; font-size: 12px; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .graphical-input-border.is-running { background: linear-gradient(120deg, var(--graphical-mode-border), var(--graphical-mode-highlight) 50%, var(--graphical-mode-trail)); animation: none; } }
 .graphical-sheet-backdrop { position: fixed; inset: 0; z-index: 25; display: flex; align-items: flex-end; justify-content: center; background: #020617bb; backdrop-filter: blur(3px); }
 .graphical-sheet { width: min(100%, 520px); max-height: min(82dvh, 720px); display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); border: 1px solid #334155; border-bottom: 0; border-radius: 20px 20px 0 0; outline: none; color: #d8e2f0; background: #111c2c; box-shadow: 0 -18px 54px #0009; }

@@ -70,6 +70,9 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
     compactThread: codexRoute("compactThread"),
     listBackgroundTerminals: codexRoute("listBackgroundTerminals"), terminateBackgroundTerminal: codexRoute("terminateBackgroundTerminal"),
     cleanBackgroundTerminals: codexRoute("cleanBackgroundTerminals"),
+    listScheduledTasks: routeCodeBuddy("listScheduledTasks"), createScheduledTask: routeCodeBuddy("createScheduledTask"),
+    deleteScheduledTask: routeCodeBuddy("deleteScheduledTask"),
+    askSideQuestion: routeCodeBuddy("askSideQuestion"), cancelSideQuestion: routeCodeBuddy("cancelSideQuestion"),
     listJobs: routeCodeBuddy("listJobs"), jobDispatchContext: routeCodeBuddy("jobDispatchContext"),
     listResumableJobs: routeCodeBuddy("listResumableJobs"), dispatchJob: routeCodeBuddy("dispatchJob"),
     resumeJob: routeCodeBuddy("resumeJob"), jobTranscript: routeCodeBuddy("jobTranscript"),
@@ -88,6 +91,10 @@ function createGraphicalSessionRouter(codex, codeBuddy, terminalManager, openCod
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持上下文窗口档位。");
       return codeBuddy.setContextWindow(id, value);
     },
+    mcpRestart: routeCodeBuddy("mcpRestart"), mcpAppImages: routeCodeBuddy("mcpAppImages"),
+    mcpRuntime: routeCodeBuddy("mcpRuntime"), mcpAppLoad: routeCodeBuddy("mcpAppLoad"),
+    mcpAppRead: routeCodeBuddy("mcpAppRead"), mcpAppPrepare: routeCodeBuddy("mcpAppPrepare"),
+    mcpAppResolve: routeCodeBuddy("mcpAppResolve"), mcpAppDispose: routeCodeBuddy("mcpAppDispose"),
     setMultitask(id, enabled) {
       if (serviceFor(id) !== codeBuddy) throw new Error("只有 CodeBuddy 图形会话支持 Multitask。");
       return codeBuddy.setMultitask(id, enabled);

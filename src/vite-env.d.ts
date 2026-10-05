@@ -1045,7 +1045,11 @@ export type OpenCodeAuthApi = {
   onState: (callback: (payload: OpenCodeAuthState & { id: string }) => void) => () => void;
 };
 
+export type CodeBuddySideQuestion = { requestId: string; threadId: string; question: string;
+  status: "running" | "completed" | "failed" | "cancelled"; answer: string; error: string | null; truncated: boolean };
+
 export type CodexAppServerSnapshot = {
+  sideQuestion?: CodeBuddySideQuestion | null;
   acpAuth?: OpenCodeAuthState & { required: boolean; methods: Array<{ id: string; name: string; description: string }> };
   subAgents?: CodexSubAgents;
   windowsSandboxSetup?: CodexWindowsSandboxSetup;
@@ -1076,7 +1080,7 @@ export type CodexAppServerSnapshot = {
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
   openCodeRevert?: { messageID: string; files?: unknown[] } | null;
   historyActionsError?: string | null;
-  capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; renameHistory?: boolean; revertHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
+  capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; renameHistory?: boolean; revertHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; sideQuestion?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
   model?: string | null;
   backend?: CodexBackend;
   account?: CodexAccountState | null;
@@ -1109,6 +1113,7 @@ export type CodexAppServerSnapshot = {
     summary?: Array<string | { text?: string }>;
     review?: string; path?: string; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
     prompt?: string; agentStatus?: string;
+    mcpApp?: { serverName: string; resourceUri: string; revision?: number };
     result?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;
     attachments?: Array<{ path: string; name: string }>;
     parts?: Array<{ type: "text"; text: string } | { type: "image"; path: string; name: string }>;
@@ -1167,6 +1172,29 @@ export type CodeBuddyPluginCatalog = {
     isBuiltIn?: boolean; autoUpdate?: boolean }>;
   errors: string[]; environment: string; reloadError?: string;
 };
+export interface CodeBuddyMcpRuntime {
+  threadId: string | null;
+  statuses: Array<{ name: string; status: string; error: string | null; updatedAt: number }>;
+  supported: boolean;
+  reason: string;
+}
+export interface CodeBuddyMcpAppData {
+  toolName?: string; toolResourceUri?: string; html?: string;
+  toolInput?: Record<string, unknown>;
+  toolResult?: { content: unknown[]; structuredContent?: Record<string, unknown>; isError?: boolean };
+  csp?: { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[]; baseUriDomains?: string[] };
+}
+export interface CodeBuddyMcpApi {
+  restart(id: string): Promise<CodexAppServerSnapshot>;
+  images(id: string, threadId: string, itemId: string, images: Array<{ data: string; mimeType: string }>): Promise<string[]>;
+  runtime(id: string): Promise<CodeBuddyMcpRuntime>;
+  load(id: string, threadId: string, itemId: string): Promise<CodeBuddyMcpAppData>;
+  read(id: string, threadId: string, itemId: string, uri: string): Promise<{ contents: Array<{ uri: string; text?: string; blob?: string; mimeType?: string; _meta?: { ui?: { csp?: CodeBuddyMcpAppData["csp"] } } }> }>;
+  prepare(id: string, threadId: string, itemId: string, name: string, args: Record<string, unknown>): Promise<{ token: string; serverName: string; toolName: string; arguments: Record<string, unknown> }>;
+  resolve(id: string, token: string, approved: boolean): Promise<{ content: unknown[]; structuredContent?: Record<string, unknown>; isError?: boolean }>;
+  dispose(id: string, threadId: string, itemId: string): Promise<void>;
+}
+
 export type CodeBuddyPluginApi = {
   list: (id: string) => Promise<CodeBuddyPluginCatalog>;
   reload: (id: string) => Promise<CodeBuddyPluginCatalog>;
@@ -1202,6 +1230,9 @@ export type CodexSessionCapabilities = {
 };
 
 export type CodexAppServerApi = {
+  listScheduledTasks: (id: string, threadId: string) => Promise<CodeBuddyScheduledTask[]>;
+  createScheduledTask: (id: string, threadId: string, input: CodeBuddyScheduledTaskInput) => Promise<void>;
+  deleteScheduledTask: (id: string, threadId: string, taskId: string) => Promise<void>;
   listJobs: (id: string) => Promise<CodeBuddyJob[]>;
   jobDispatchContext: (id: string) => Promise<CodeBuddyJobDispatchContext>;
   listResumableJobs: (id: string) => Promise<CodeBuddyResumableJob[]>;
@@ -1273,6 +1304,8 @@ export type CodexAppServerApi = {
     | { kind: "unsupported" } | { kind: "too_large"; size: number; limit: number }>;
   pasteImage: (id: string) => Promise<{ status: "no_image" } | { status: "saved"; path: string; size: number }>;
   discardImage: (id: string, filePath: string) => Promise<void>;
+  askSideQuestion: (id: string, question: string) => Promise<CodexAppServerSnapshot>;
+  cancelSideQuestion: (id: string, requestId: string) => Promise<CodexAppServerSnapshot>;
   submit: (id: string, text: string, filePaths?: string[], references?: CodexCapabilityReference[],
     orderedContent?: Array<{ type: "text"; text: string } | { type: "image"; path: string }>) => Promise<void>;
   interrupt: (id: string) => Promise<void>;
@@ -1691,6 +1724,7 @@ declare global {
     projectAssistantApi: ProjectAssistantApi;
     codexPluginApi: CodexPluginApi;
     codeBuddyPluginApi: CodeBuddyPluginApi;
+    codeBuddyMcpApi: CodeBuddyMcpApi;
     codexAppServerApi: CodexAppServerApi;
     codexVersionApi: CodexVersionApi;
     codeBuddyVersionApi: CodeBuddyVersionApi;
@@ -1728,3 +1762,6 @@ declare global {
     windowApi: WindowApi;
   }
 }
+
+export interface CodeBuddyScheduledTaskInput { cron: string; prompt: string; recurring: boolean; durable: boolean }
+export interface CodeBuddyScheduledTask extends CodeBuddyScheduledTaskInput { id: string; enabled: boolean; createdAt?: number; lastFiredAt?: number }
