@@ -11,7 +11,7 @@ vi.mock("./TerminalView", () => ({ TerminalView: ({ pasteText, setPasteText, pas
   onChange={event => setPasteText(event.target.value)} />}</div> }));
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
 const first: RuntimeSession = { id: "graph-1", title: "图形一", type: "windows", runtimeMode: "app-server", agentProvider: "codex" };
 const second: RuntimeSession = { ...first, id: "graph-2", title: "图形二" };
 const terminal: RuntimeSession = { id: "terminal-1", title: "终端", type: "windows", runtimeMode: "terminal" };

@@ -107,7 +107,10 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
   </article>;
 }
 
-export function McpElicitationCard({ sessionId, request }: { sessionId: string; request: CodexMcpElicitation }) {
+export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }: { sessionId: string; request: CodexMcpElicitation;
+  onRespond?: (action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => Promise<void>;
+  onOpenUrl?: (url: string) => Promise<void>;
+}) {
   const { params } = request;
   const [values, setValues] = useState<Record<string, string>>({});
   const [rawJson, setRawJson] = useState("{}");
@@ -162,13 +165,13 @@ export function McpElicitationCard({ sessionId, request }: { sessionId: string; 
     try { if (action === "accept" && isForm) content = formContent(); }
     catch (cause) { setError(message(cause)); return; }
     setSending(true); setError("");
-    try { await window.codexAppServerApi.resolveElicitation(sessionId, request.requestId, action, content); }
+    try { if (onRespond) await onRespond(action, content || undefined); else await window.codexAppServerApi.resolveElicitation(sessionId, request.requestId, action, content); }
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
   async function openUrl() {
     if (!params.url) return;
-    await window.externalLinkApi.open(params.url);
+    if (onOpenUrl) await onOpenUrl(params.url); else await window.externalLinkApi.open(params.url);
     setOpened(true); setError("");
   }
   return <article className="codex-app-server-elicitation" aria-label="MCP 交互请求">

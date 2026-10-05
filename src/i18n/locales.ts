@@ -154,6 +154,10 @@ export type TranslationKey =
   | "session.openTerminalMode"
   | "session.openingOtherMode"
   | "settings.autoWorkBuddyCheckin"
+  | "settings.autoQoderCheckin"
+  | "usage.qoderCheckinTitle"
+  | "usage.qoderCheckinAccount"
+  | "usage.qoderCheckinClaimed"
   | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -1186,6 +1190,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openTerminalMode": "以终端打开",
     "session.openingOtherMode": "正在启动...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy 自动签到",
+    "settings.autoQoderCheckin": "Qoder 自动签到（本机桌面 App 账号，每日 10:00）",
+    "usage.qoderCheckinTitle": "Qoder 每日签到",
+    "usage.qoderCheckinAccount": "桌面 App 账号：{account}（可能与会话账号不同）",
+    "usage.qoderCheckinClaimed": "本轮已领取 {credit} Credits",
     "settings.graphicalSessionMinimalMode": "图形会话极简模式",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2210,6 +2218,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.openTerminalMode": "Open in terminal",
     "session.openingOtherMode": "Starting...",
     "settings.autoWorkBuddyCheckin": "CodeBuddy automatic check-in",
+    "settings.autoQoderCheckin": "Qoder automatic check-in (local desktop App account, 10:00 UTC+8)",
+    "usage.qoderCheckinTitle": "Qoder daily check-in",
+    "usage.qoderCheckinAccount": "Desktop App account: {account} (may differ from session account)",
+    "usage.qoderCheckinClaimed": "Claimed {credit} Credits this window",
     "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

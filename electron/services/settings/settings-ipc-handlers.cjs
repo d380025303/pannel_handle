@@ -66,6 +66,7 @@ function registerSettingsIpcHandlers({
   dingTalkConfigStore,
   dingTalkNotificationManager,
   workBuddyAutoCheckinService,
+  qoderAutoCheckinService,
   openRouterService,
   naraRouterService,
   miniMaxService,
@@ -87,6 +88,9 @@ function registerSettingsIpcHandlers({
     }
     if (partial && typeof partial.autoWorkBuddyCheckin === "boolean") {
       updates.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
+    }
+    if (partial && typeof partial.autoQoderCheckin === "boolean") {
+      updates.autoQoderCheckin = partial.autoQoderCheckin;
     }
     if (partial && typeof partial.autoCollapseFileChains === "boolean") {
       updates.autoCollapseFileChains = partial.autoCollapseFileChains;
@@ -153,6 +157,9 @@ function registerSettingsIpcHandlers({
     const config = configStore.getConfig();
     if (Object.prototype.hasOwnProperty.call(updates, "autoWorkBuddyCheckin")) {
       workBuddyAutoCheckinService?.setEnabled(config.autoWorkBuddyCheckin);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, "autoQoderCheckin")) {
+      qoderAutoCheckinService?.setEnabled(config.autoQoderCheckin);
     }
     return config;
   });

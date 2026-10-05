@@ -635,3 +635,8 @@ contextBridge.exposeInMainWorld("windowApi", {
     return () => ipcRenderer.removeListener("window:maximized-changed", listener);
   }
 });
+
+contextBridge.exposeInMainWorld("qoderCheckinApi", {
+  getStatus: () => ipcRenderer.invoke("qoder-checkin:get-status"),
+  claim: () => ipcRenderer.invoke("qoder-checkin:claim")
+});

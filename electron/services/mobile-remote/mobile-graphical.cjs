@@ -1,3 +1,4 @@
+const { createMobileCodexHandlers } = require("./mobile-codex.cjs");
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
 const { availableModelIds, visibleOpenCodeOptions, nativeModeFor } = require("./graphical-command-policy.cjs");
 
@@ -5,7 +6,8 @@ const { graphicalSubmitError } = require("./graphical-input-policy.cjs");
 
 const MAX_TEXT_BYTES = 16 * 1024;
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, uploads, send }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
+  const codex = createMobileCodexHandlers({ graphicalService, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService, getCodexVerifiedModels });
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -68,6 +70,16 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       return;
     }
     if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
+    if (message.type.startsWith("graphical.codex.")) {
+      let result = await codex.handle(message, session, current);
+      if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result);
+      send(socket, { type: "graphical.result", requestId: message.requestId, sessionId, threadId: message.threadId, result: result ?? null });
+      if (socket.graphicalSessionId === sessionId && terminalManager.getSession(sessionId)) {
+        sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
+      }
+      if (message.type === "graphical.codex.model-source" && result?.id) send(socket, { type: "session.launched", sessionId: result.id });
+      return;
+    }
     if (message.type === "graphical.upload.prepare") {
       if (!uploads || !current.threadId || current.archived || current.busy && current.provider !== "codex")
         throw new Error("当前会话不可上传附件。");
@@ -75,10 +87,11 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       send(socket, { type: "graphical.upload.ready", requestId: message.requestId, ...upload });
       return;
     } else if (message.type === "graphical.effort") {
-      if (session.agentProvider !== "opencode" || current.provider !== "opencode") throw new Error("当前 Agent 不支持此思考强度操作。");
+      if (!["codex", "opencode"].includes(session.agentProvider) || session.agentProvider !== (current.provider || "codex")) throw new Error("当前 Agent 不支持此思考强度操作。");
       if (!current.threadId || current.busy || current.archived || current.pendingPlan
         || current.approvals?.length || current.questions?.length) throw new Error("当前会话不可切换思考强度。");
-      const option = current.acpOptions?.find(value => value.id === "effort" && value.type === "select");
+      const option = current.provider === "opencode" ? current.acpOptions?.find(value => value.id === "effort" && value.type === "select")
+        : current.backend === "openai" ? { options: current.models?.find(model => model.id === (current.model || current.effectiveModel))?.supportedReasoningEfforts?.map(value => ({ value: value.reasoningEffort })), currentValue: current.effort } : null;
       if (typeof message.effort !== "string" || !option?.options?.some(value => value.value === message.effort))
         throw new Error("请选择当前会话可用的思考强度。");
       if (message.effort !== option.currentValue) await graphicalService.setEffort(sessionId, message.effort);
@@ -100,7 +113,11 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       if ((!text && !filePaths.length) || Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES)
         throw new Error("消息为空或过长。");
       if (filePaths.length) graphicalService.allowFiles(sessionId, filePaths);
-      await graphicalService.submit(sessionId, text, filePaths);
+      const references = message.references || [];
+      if (!Array.isArray(references) || references.length > 50 || references.some(value => !value || !["skill", "app"].includes(value.kind)
+        || typeof value.name !== "string" || typeof value.path !== "string" || value.path.length > 4000 || typeof value.token !== "string")) throw new Error("能力引用无效。");
+      if (references.length) await graphicalService.submit(sessionId, text, filePaths, references);
+      else await graphicalService.submit(sessionId, text, filePaths);
       uploads?.consume(fileIds);
     } else if (message.type === "graphical.interrupt") {
       await graphicalService.interrupt(sessionId);
@@ -110,7 +127,11 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       if (current.capabilities?.history === false) throw new Error("当前图形会话不支持历史记录。");
       const cursor = message.cursor == null ? null : String(message.cursor);
       if (cursor && cursor.length > 512) throw new Error("历史记录游标无效。");
-      const history = await graphicalService.listHistory(sessionId, cursor);
+      if (message.archived !== undefined && typeof message.archived !== "boolean") throw new Error("历史筛选无效。");
+      const history = current.provider === "codex" && !cursor && !message.archived
+        ? await Promise.all([graphicalService.listHistory(sessionId, null, false, true), graphicalService.listHistory(sessionId, null, false, false)])
+          .then(([pinned, normal]) => ({ data: [...pinned.data, ...normal.data], nextCursor: normal.nextCursor }))
+        : await graphicalService.listHistory(sessionId, cursor, message.archived === true, current.provider === "codex" && !message.archived ? false : undefined);
       send(socket, { type: "graphical.history", sessionId, threadId: current.threadId,
         requestId: message.requestId, history });
       return;
@@ -210,7 +231,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
         && socket.graphicalRevision === payload.baseRevision) {
         send(socket, { type: "graphical.delta", sessionId: payload.id, streamId: payload.streamId,
           threadId: payload.threadId, baseRevision: payload.baseRevision, revision: payload.revision,
-          items: toMobileGraphicalSnapshot({ items: payload.items }).items, textDeltas: payload.textDeltas });
+          items: toMobileGraphicalSnapshot({ items: payload.items }).items, turnDiffs: toMobileGraphicalSnapshot({ turnDiffs: payload.turnDiffs }).turnDiffs, textDeltas: payload.textDeltas });
         socket.graphicalRevision = payload.revision;
       } else sendSnapshot(socket, payload.id, graphicalService.snapshot(payload.id));
     } catch { /* The session ended while a change was queued. */ }

@@ -310,3 +310,37 @@ button { color: inherit; }
 .computer-files-error, .computer-files-notice { margin: 0; padding: 8px 12px; font-size: 12px; }
 .computer-files-error { color: #fecdd3; background: #4c0519; }
 .computer-files-notice { color: #a5f3fc; background: #083344; }
+
+/* Codex controls remain reachable above mobile keyboards. */
+.graphical-composer { flex-wrap: wrap; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+.graphical-input-border, .graphical-attachments { width: 100%; }
+.graphical-composer-toolbar { display: flex; width: 100%; align-items: center; gap: 6px; min-width: 0; }
+.graphical-composer-toolbar button { min-height: 40px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphical-composer-toolbar button:last-child { margin-left: auto; }
+.graphical-goal-chip { margin: 4px 10px; flex-shrink: 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.graphical-message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.graphical-message-actions button { min-height: 36px; font-size: 12px; }
+.graphical-history-actions { flex-wrap: wrap; }
+.graphical-preview-image { display: block; max-width: 100%; max-height: 45dvh; object-fit: contain; }
+.codex-mobile-advanced { min-height: 0; overflow: auto; padding: 12px 16px; overscroll-behavior: contain; }
+.codex-mobile-advanced article { margin: 12px 0; padding: 12px; border: 1px solid #344459; border-radius: 12px; overflow-wrap: anywhere; }
+.codex-mobile-advanced label, .codex-app-server-elicitation label { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.codex-mobile-advanced input:not([type="checkbox"]), .codex-mobile-advanced textarea, .codex-mobile-advanced select, .graphical-history-list > input, .codex-app-server-elicitation input, .codex-app-server-elicitation textarea, .codex-app-server-elicitation select { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px; border: 1px solid #50627b; border-radius: 8px; color: #e2e8f0; background: #080d16; font-size: 16px; }
+.codex-mobile-advanced textarea { min-height: 100px; }
+.codex-mobile-advanced button, .codex-app-server-elicitation button { min-height: 44px; margin: 4px; }
+.codex-mobile-advanced pre, .graphical-card pre, .codex-mobile-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.codex-mobile-advanced [role="alert"] { color: #fecdd3; }
+.codex-mobile-advanced a { color: #67e8f9; display: inline-block; padding: 12px 0; }
+.codex-mobile-detail { border-top: 1px solid #50627b; margin-top: 12px; }
+.codex-app-server-elicitation { padding: 12px; margin: 12px 0; background: #111c2c; border: 1px solid #344459; border-radius: 12px; }
+.codex-app-server-elicitation-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.graphical-slash-commands { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+@media (orientation: landscape) and (max-height: 500px) { .graphical-sheet { max-height: 95dvh; } .graphical-header-details .graphical-current-config { display: none; } }
+
+.graphical-markdown .hljs-keyword, .graphical-markdown .hljs-selector-tag { color: #c792ea; }
+.graphical-markdown .hljs-string, .graphical-markdown .hljs-attr { color: #c3e88d; }
+.graphical-markdown .hljs-number, .graphical-markdown .hljs-literal { color: #f78c6c; }
+.graphical-markdown .hljs-comment { color: #8b9bb4; }
+.graphical-markdown .hljs-title { color: #82aaff; }
+.markdown-code-block { min-width: 0; overflow: hidden; }
+.markdown-code-block > button { min-height: 36px; float: right; }

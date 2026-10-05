@@ -65,6 +65,7 @@ function createHarness(overrides = {}) {
     clearCredentials: vi.fn(() => ({ enabled: false })),
     testConnection: vi.fn(() => ({ ok: true }))
   };
+  const qoderAutoCheckinService = { setEnabled: vi.fn() };
   const workBuddyAutoCheckinService = { setEnabled: vi.fn() };
   const openRouterService = createRouterService("openrouter");
   const naraRouterService = createRouterService("nararouter");
@@ -90,6 +91,7 @@ function createHarness(overrides = {}) {
     dingTalkConfigStore,
     dingTalkNotificationManager,
     workBuddyAutoCheckinService,
+    qoderAutoCheckinService,
     openRouterService,
     naraRouterService,
     miniMaxService,
@@ -105,6 +107,7 @@ function createHarness(overrides = {}) {
     configStore,
     dingTalkNotificationManager,
     workBuddyAutoCheckinService,
+    qoderAutoCheckinService,
     openRouterService,
     naraRouterService,
     miniMaxService,
@@ -142,6 +145,15 @@ const BALANCE_PAYLOAD = {
 };
 
 describe("settings IPC handlers", () => {
+  it("updates the Qoder scheduler only when its persisted flag changes", async () => {
+    const fixture = createHarness();
+    const handler = fixture.ipcMain.handlers.get("config:set");
+    await handler({}, { autoQoderCheckin: true });
+    expect(fixture.qoderAutoCheckinService.setEnabled).toHaveBeenCalledWith(true);
+    await handler({}, { autoQoderCheckin: false });
+    expect(fixture.qoderAutoCheckinService.setEnabled).toHaveBeenLastCalledWith(false);
+  });
+
   it("normalizes title bar preferences and requires durable saving", () => {
     const harness = createHarness();
     const result = harness.ipcMain.handlers.get("config:set")({}, {

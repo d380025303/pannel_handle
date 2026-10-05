@@ -71,6 +71,7 @@ function createConfigStore({ configFile, dataStore }) {
     defaultWindowsShell: "cmd",
     autoRestore: true,
     autoWorkBuddyCheckin: true,
+    autoQoderCheckin: false,
     autoCollapseFileChains: true,
     debugMode: false,
     graphicalSessionMinimalMode: false,
@@ -95,6 +96,7 @@ function createConfigStore({ configFile, dataStore }) {
       defaultWindowsShell: config.defaultWindowsShell,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
+      autoQoderCheckin: config.autoQoderCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
@@ -124,6 +126,7 @@ function createConfigStore({ configFile, dataStore }) {
           defaultWindowsShell: normalizeWindowsShell(parsed.defaultWindowsShell),
           autoRestore: typeof parsed.autoRestore === "boolean" ? parsed.autoRestore : true,
           autoWorkBuddyCheckin: typeof parsed.autoWorkBuddyCheckin === "boolean" ? parsed.autoWorkBuddyCheckin : true,
+          autoQoderCheckin: parsed.autoQoderCheckin === true,
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           graphicalSessionMinimalMode: typeof parsed.graphicalSessionMinimalMode === "boolean" ? parsed.graphicalSessionMinimalMode : false,
@@ -169,6 +172,7 @@ function createConfigStore({ configFile, dataStore }) {
       defaultWindowsShell: config.defaultWindowsShell,
       autoRestore: config.autoRestore,
       autoWorkBuddyCheckin: config.autoWorkBuddyCheckin,
+      autoQoderCheckin: config.autoQoderCheckin,
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
@@ -200,6 +204,9 @@ function createConfigStore({ configFile, dataStore }) {
       }
       if (typeof partial.autoWorkBuddyCheckin === "boolean") {
         config.autoWorkBuddyCheckin = partial.autoWorkBuddyCheckin;
+      }
+      if (typeof partial.autoQoderCheckin === "boolean") {
+        config.autoQoderCheckin = partial.autoQoderCheckin;
       }
       if (typeof partial.autoCollapseFileChains === "boolean") {
         config.autoCollapseFileChains = partial.autoCollapseFileChains;

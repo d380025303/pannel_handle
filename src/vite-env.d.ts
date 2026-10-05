@@ -109,6 +109,7 @@ export type AppConfig = {
   defaultWindowsShell: WindowsShell;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
+  autoQoderCheckin: boolean;
   autoCollapseFileChains: boolean;
   debugMode: boolean;
   graphicalSessionMinimalMode: boolean;
@@ -810,6 +811,22 @@ export type AgentUsageApi = {
   cancel: (sessionId: string) => void;
   cancelCodeBuddyUsage: () => void;
   cancelCodexUsage: () => void;
+};
+
+export type QoderCheckinStatus = {
+  accountId: string;
+  accountLabel: string;
+  active: boolean;
+  claimable: boolean;
+  todayCheckedIn: boolean;
+  dailyCredit: number;
+  windowStart: number;
+  nextClaimAt: number;
+  campaignId?: string;
+};
+export type QoderCheckinApi = {
+  getStatus: () => Promise<QoderCheckinStatus>;
+  claim: () => Promise<{ alreadyCheckedIn: boolean; status: QoderCheckinStatus }>;
 };
 
 export type WorkBuddyCheckinStatus = {
@@ -1746,6 +1763,7 @@ declare global {
     sessionStatusMcpApi: SessionStatusMcpApi;
     agentUsageApi: AgentUsageApi;
     workBuddyCheckinApi: WorkBuddyCheckinApi;
+    qoderCheckinApi: QoderCheckinApi;
     agentTokenStatsApi: AgentTokenStatsApi;
     postgresBackupApi: PostgresBackupApi;
     remoteAgentApi: RemoteAgentApi;

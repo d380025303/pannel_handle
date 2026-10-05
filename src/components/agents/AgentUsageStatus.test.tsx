@@ -399,7 +399,8 @@ describe("AgentUsageStatus", () => {
     expect(screen.getByText("剩余 800 Credits")).not.toBeNull();
     expect(screen.getByText("0 / 800 Credits")).not.toBeNull();
     expect(screen.getByText("当前不可使用")).not.toBeNull();
-    expect(document.querySelector(".workbuddy-checkin")).toBeNull();
+    expect(screen.getByLabelText("Qoder 每日签到")).toBeTruthy();
+    expect(window.workBuddyCheckinApi.getStatus).not.toHaveBeenCalled();
   });
 
   it("keeps Qoder Credits visible when promotional quota is unavailable", () => {

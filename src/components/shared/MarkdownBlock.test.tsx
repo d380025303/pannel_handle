@@ -78,3 +78,11 @@ describe("MarkdownBlock", () => {
     expect(writeText).toHaveBeenCalledWith("src/App.tsx:42");
   });
 });
+
+
+it("copies highlighted code as plain source text", () => {
+  const copy = vi.fn();
+  render(<MarkdownBlock content={'```ts\nconst answer = 42;\n```'} onCopyCode={copy} />);
+  fireEvent.click(screen.getByRole("button", { name: "复制代码" }));
+  expect(copy).toHaveBeenCalledWith("const answer = 42;");
+});

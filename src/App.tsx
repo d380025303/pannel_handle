@@ -127,6 +127,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [titleBarHiddenActions, setTitleBarHiddenActions] = useState<TitleBarActionId[]>([]);
   const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [autoWorkBuddyCheckin, setAutoWorkBuddyCheckin] = useState(true);
+  const [autoQoderCheckin, setAutoQoderCheckin] = useState(false);
   const [autoCollapseFileChains, setAutoCollapseFileChains] = useState(true);
   const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_THEME_ID);
   const [savedSidebarWidth, setSavedSidebarWidth] = useState(290);
@@ -352,6 +353,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         setTitleBarActionOrder(withSettingsAction(config.titleBarActionOrder));
         setTitleBarHiddenActions(config.titleBarHiddenActions);
         setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
+        setAutoQoderCheckin(config.autoQoderCheckin);
         setAutoCollapseFileChains(config.autoCollapseFileChains);
         setThemeId(config.themeId);
         onLocaleChange(normalizeLocale(config.locale));
@@ -643,6 +645,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     const config = await window.terminalApi.setConfig({ autoWorkBuddyCheckin: !autoWorkBuddyCheckin });
     setAutoWorkBuddyCheckin(config.autoWorkBuddyCheckin);
   }, [autoWorkBuddyCheckin]);
+
+  const handleToggleAutoQoderCheckin = useCallback(async () => {
+    const config = await window.terminalApi.setConfig({ autoQoderCheckin: !autoQoderCheckin });
+    setAutoQoderCheckin(config.autoQoderCheckin);
+  }, [autoQoderCheckin]);
 
   const handleScreenshotEnabledChange = useCallback(async (enabled: boolean) => {
     const config = await window.terminalApi.setConfig({ screenshotEnabled: enabled });
@@ -1272,6 +1279,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           onDefaultWindowsShellChange={terminalSessions.changeDefaultWindowsShell}
           autoRestore={terminalSessions.autoRestore}
           autoWorkBuddyCheckin={autoWorkBuddyCheckin}
+          autoQoderCheckin={autoQoderCheckin}
           graphicalSessionMinimalMode={graphicalSessionMinimalMode}
           onGraphicalSessionMinimalModeChange={async enabled => {
             await window.terminalApi.setConfig({ graphicalSessionMinimalMode: enabled });
@@ -1288,6 +1296,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           themes={APP_THEMES}
           onToggleAutoRestore={terminalSessions.toggleAutoRestore}
           onToggleAutoWorkBuddyCheckin={handleToggleAutoWorkBuddyCheckin}
+          onToggleAutoQoderCheckin={handleToggleAutoQoderCheckin}
           onToggleDebugMode={handleToggleDebugMode}
           onScreenshotEnabledChange={handleScreenshotEnabledChange}
           onScreenshotShortcutChange={handleScreenshotShortcutChange}

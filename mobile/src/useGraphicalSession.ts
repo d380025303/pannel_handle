@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import type { CodexCapabilityReference } from "../../src/vite-env";
 import { createRequestId } from "./protocol";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
 import { canSwitchMode, modelOptions, openCodeEffortOption, openCodePlanReplyId, permissions } from "./GraphicalPresentation";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalSnapshot,
-  type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
+  type CodexCommand, type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
 export type GraphicalViewProps = {
   session: RuntimeSession;
   connectionEpoch: number;
@@ -18,8 +19,22 @@ export type GraphicalViewProps = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-type ActionSheet = "menu" | "agent" | "agent-confirm" | "model" | "effort" | "history" | "permission" | "native-mode" | null;
+export type CodexSheet = "version" | "capabilities" | "plugins" | "goal" | "review" | "terminals" | "account" | "sandbox" | "workspace" | "mcp-config";
+type ActionSheet = CodexSheet | "menu" | "agent" | "agent-confirm" | "model" | "effort" | "history" | "permission" | "native-mode" | null;
 export function useGraphicalSession({ session, connectionEpoch, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: GraphicalViewProps) {
+  const [serviceModels, setServiceModels] = useState<Array<{ source: string; id: string; name: string }>>([]);
+  const [codexPending, setCodexPending] = useState(false);
+  const [references, setReferences] = useState<CodexCapabilityReference[]>([]);
+  const [capabilityTab, setCapabilityTab] = useState<"skills" | "apps" | "mcp">("skills");
+  const [historyArchived, setHistoryArchived] = useState(false);
+  const historyArchivedRef = useRef(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const historyAppending = useRef(false);
+  const rpcRef = useRef(new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; threadId: string | null; allowThreadChange: boolean }>());
+  const rejectRequests = (reason: string, preserveTransitions = false) => {
+    for (const [id, pending] of rpcRef.current) { if (preserveTransitions && pending.allowThreadChange) continue; clearTimeout(pending.timer); pending.reject(new Error(reason)); rpcRef.current.delete(id); }
+    setCodexPending(rpcRef.current.size > 0);
+  };
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const snapshotRef = useRef<GraphicalSnapshot | null>(null);
   const [sending, setSending] = useState(false);
@@ -64,6 +79,8 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   }, [attachments]);
 
   useEffect(() => {
+    rejectRequests("会话已切换。");
+    setServiceModels([]); setReferences([]); setHistoryArchived(false); historyArchivedRef.current = false; setHistoryQuery("");
     snapshotRef.current = null;
     setSnapshot(null);
     setHistory(null);
@@ -90,8 +107,21 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     switchIdRef.current = null;
     threadRef.current = null;
     const unsubscribe = onGraphicalMessage(message => {
+      if (message.type === "graphical.result") {
+        const pending = rpcRef.current.get(message.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(rpcRef.current.size > 0);
+        if (message.sessionId !== session.id || pending.threadId !== message.threadId || !pending.allowThreadChange && message.threadId !== threadRef.current) pending.reject(new Error("对话已切换。"));
+        else pending.resolve(message.result);
+        return;
+      }
+      if (message.type === "error" && message.requestId && rpcRef.current.has(message.requestId)) {
+        const pending = rpcRef.current.get(message.requestId)!;
+        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(rpcRef.current.size > 0); pending.reject(new Error(message.message)); return;
+      }
       if (message.type === "graphical.snapshot" && message.sessionId === session.id) {
         if (threadRef.current !== message.snapshot.threadId) {
+          rejectRequests("对话已切换。", true); setReferences([]);
           if (quickIdRef.current) pendingRef.current.delete(quickIdRef.current);
           quickIdRef.current = null;
           quickDraftRef.current = "";
@@ -131,14 +161,16 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
             const index = items.findIndex(value => value.id === item.id);
             if (index < 0) items.push(item); else items[index] = item;
           }
-          const next = { ...current, revision: message.revision, items };
+          const turnDiffs = [...(current.turnDiffs || [])];
+          for (const diff of message.turnDiffs || []) { const index = turnDiffs.findIndex(value => value.turnId === diff.turnId); if (index < 0) turnDiffs.push(diff); else turnDiffs[index] = diff; }
+          const next = { ...current, revision: message.revision, items, turnDiffs };
           snapshotRef.current = next;
           setSnapshot(next);
         }
       } else if (message.type === "graphical.history" && message.sessionId === session.id
         && message.requestId === historyIdRef.current && message.threadId === threadRef.current) {
         pendingRef.current.delete(message.requestId);
-        setHistory(current => current && current.nextCursor && current.nextCursor !== message.history.nextCursor
+        setHistory(current => current && historyAppending.current
           ? { data: [...current.data, ...message.history.data], nextCursor: message.history.nextCursor }
           : message.history);
         setHistoryLoading(false);
@@ -165,7 +197,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
             }
           }
         }
-        if (submitIdRef.current === message.requestId) { setAttachments([]); setSending(false); submitIdRef.current = null; }
+        if (submitIdRef.current === message.requestId) { setReferences([]); setAttachments([]); setSending(false); submitIdRef.current = null; }
         if (quickIdRef.current === message.requestId) {
           const quickDraft = quickDraftRef.current;
           if (quickDraft) setDraftRef.current(current => current + quickDraft);
@@ -204,6 +236,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       }
     });
     return () => {
+      rejectRequests("会话已关闭。");
       unsubscribe();
       for (const item of attachmentsRef.current) cancelledUploads.current.add(item.key);
       const fileIds = attachmentsRef.current.flatMap(item => item.fileId ? [item.fileId] : []);
@@ -216,6 +249,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
 
   useEffect(() => {
     if (!connectionEpoch) {
+      rejectRequests("连接中断，操作结果未确认，请重新连接后核对。");
       if (permissionIdRef.current) {
         pendingRef.current.delete(permissionIdRef.current);
         permissionIdRef.current = null;
@@ -267,7 +301,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setActiveSheet(null);
       if (event.key !== "Tab" || !sheetRef.current) return;
-      const elements = [...sheetRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
+      const elements = [...sheetRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]")];
       const first = elements[0], last = elements.at(-1);
       if (!first || !last) return;
       if (event.shiftKey && (document.activeElement === first || document.activeElement === sheetRef.current)) {
@@ -292,11 +326,49 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     return id;
   };
 
+  const codexRequest = <T = unknown,>(command: CodexCommand, input: Record<string, unknown> = {}): Promise<T> => {
+    const current = snapshotRef.current;
+    if (!current || current.provider !== "codex") return Promise.reject(new Error("Codex 会话不可用。"));
+    if (rpcRef.current.size && !["models", "version", "capabilities", "workspace-search", "attachment-preview", "app-detail", "plugin-detail", "plugin-skill", "mcp-resource", "history.initial"].includes(command)) return Promise.reject(new Error("操作正在处理，请稍候。"));
+    const requestId = createRequestId();
+    setCodexPending(true); setError("");
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => { rpcRef.current.delete(requestId); setCodexPending(false); reject(new Error("请求超时，操作结果未确认，请刷新后核对。")); }, 120000);
+      rpcRef.current.set(requestId, { resolve: value => resolve(value as T), reject, timer, threadId: current.threadId, allowThreadChange: ["history.fork", "fast-mode", "model-source"].includes(command) });
+      if (!send({ v: PROTOCOL_VERSION, type: `graphical.codex.${command}`, sessionId: session.id, threadId: current.threadId, requestId, input })) {
+        clearTimeout(timer); rpcRef.current.delete(requestId); setCodexPending(false); reject(new Error("连接已断开，请重试。"));
+      }
+    });
+  };
+  const insertReference = (text: string, reference?: CodexCapabilityReference) => {
+    setDraft(current => `${current}${current && !/\s$/.test(current) ? " " : ""}${text} `);
+    if (reference) setReferences(current => [...current.filter(value => value.path !== reference.path), reference]);
+    setActiveSheet(null);
+  };
+  const slashCommands = [
+    ["new", "新对话"], ["history", "历史会话"], ["skills", "Skills 列表"], ["apps", "Apps 列表"], ["mcp", "MCP 列表"],
+    ["background", "后台终端"], ["compact", "压缩对话"], ["review", "代码审查"], ["goal", "目标管理"], ["plugins", "插件管理"],
+    ["mode", "模式"], ["model", "模型"], ["effort", "思考强度"], ["fastMode", "快速模式"], ["permission", "执行权限"], ["files", "附加文件"]
+  ].filter(([id]) => !["effort", "fastMode"].includes(id) || snapshot?.backend === "openai");
+  const invokeSlash = (command: string) => {
+    if (!snapshot || snapshot.provider !== "codex" || !slashCommands.some(([id]) => id.toLowerCase() === command.toLowerCase())) return false;
+    if (["new", "compact", "review", "mode", "model", "effort", "fastMode", "permission"].includes(command) && (snapshot.busy || snapshot.archived || isSending)) return false;
+    if (command === "new") action({ type: "graphical.new-thread" });
+    else if (command === "history") openHistory();
+    else if (["skills", "apps", "mcp"].includes(command)) { setCapabilityTab(command as typeof capabilityTab); setActiveSheet("capabilities"); }
+    else if (command === "background") setActiveSheet("terminals");
+    else if (command === "mode" || command === "files") setActiveSheet("menu");
+    else if (command === "compact") void codexRequest("compact").catch(cause => setError(String(cause)));
+    else if (command === "fastMode") void codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause)));
+    else setActiveSheet(command as ActionSheet);
+    setDraft(""); return true;
+  };
   const submit = () => {
     const text = draft.trim();
+    if (text.startsWith("/") && slashCommands.some(([id]) => id.toLowerCase() === text.slice(1).toLowerCase())) { invokeSlash(text.slice(1)); return; }
     const ready = attachments.filter(item => item.status === "ready" && item.fileId);
     if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending || historyMutationRef.current || !graphicalInputPolicy(snapshot).canSubmit) return;
-    submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId) }) || null;
+    submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId), references }) || null;
     if (submitIdRef.current) { onSubmitRequest(submitIdRef.current); setSending(true); }
   };
   const runQuickCommand = (command: QuickCommand) => {
@@ -422,11 +494,13 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     setActiveSheet(null);
     setSelectedProvider(null);
   };
-  const loadHistory = (cursor: string | null = null) => {
+  const loadHistory = (cursor: string | null = null, archived = historyArchivedRef.current) => {
     if (!snapshot) return;
+    historyAppending.current = Boolean(cursor);
+    historyArchivedRef.current = archived; setHistoryArchived(archived);
     setHistoryLoading(true);
     if (!cursor) setHistory(null);
-    historyIdRef.current = action({ type: "graphical.history", cursor }) || null;
+    historyIdRef.current = action({ type: "graphical.history", cursor, archived }) || null;
     if (!historyIdRef.current) setHistoryLoading(false);
   };
 
@@ -446,7 +520,16 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     }
   };
 
-  return { snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
+  useEffect(() => {
+    if (activeSheet !== "model" || snapshot?.provider !== "codex" || session.type === "ssh") return;
+    let active = true;
+    void codexRequest<typeof serviceModels>("models").then(value => { if (active) setServiceModels(value); }).catch(cause => { if (active) setError(String(cause)); });
+    return () => { active = false; };
+  }, [activeSheet, snapshot?.threadId]);
+  useEffect(() => {
+    if (snapshot?.provider === "codex" && activeSheet === "history" && historyQuery.trim() && history?.nextCursor && !historyLoading) loadHistory(history.nextCursor);
+  }, [activeSheet, historyQuery, history, historyLoading]);
+  return { capabilityTab, setCapabilityTab, slashCommands, invokeSlash, serviceModels, codexPending, references, setReferences, codexRequest, insertReference, historyArchived, historyQuery, setHistoryQuery, snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
     history, historyLoading, historyMutation, mutateHistory, expandedGroupId, setExpandedGroupId, changingMode, changingPermission, changingModel, changingEffort,
     attachments, setAttachments, switchingTo, scrollRef, moreButtonRef, sheetRef, action, submit,
     runQuickCommand, changeModel, changeEffort, uploadFile, addFiles, removeAttachment, changeMode, changePermission,

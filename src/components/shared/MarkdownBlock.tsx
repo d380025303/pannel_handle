@@ -1,4 +1,4 @@
-import { memo, useId, useState } from "react";
+import { Children, isValidElement, memo, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -9,6 +9,7 @@ type MarkdownBlockProps = {
   externalLinks?: boolean;
   onLinkClick?: (href: string) => void;
   linkActions?: boolean;
+  onCopyCode?: (text: string) => void;
 };
 
 function MarkdownLink({ href, children, onLinkClick, linkActions, ...props }: {
@@ -55,7 +56,11 @@ function MarkdownLink({ href, children, onLinkClick, linkActions, ...props }: {
   </span>;
 }
 
-export const MarkdownBlock = memo(function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false }: MarkdownBlockProps) {
+function plainCodeText(node: React.ReactNode): string {
+  return Children.toArray(node).map(child => isValidElement(child) ? plainCodeText((child.props as { children?: React.ReactNode }).children) : String(child)).join("");
+}
+
+export const MarkdownBlock = memo(function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false, onCopyCode }: MarkdownBlockProps) {
   if (!content || content === "-") {
     return <div className={className}>{content || "-"}</div>;
   }
@@ -65,8 +70,13 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, className, e
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
         urlTransform={(url) => /^(?:https?:\/\/|file:\/\/|mailto:)/i.test(url) || !/^[a-z][a-z\d+.-]*:/i.test(url) || /^[a-z]:[\\/]/i.test(url) ? url : ""}
-        components={externalLinks || onLinkClick || linkActions ? {
-          a: ({ href, children, ...props }) => <MarkdownLink {...props} href={href} onLinkClick={onLinkClick} linkActions={linkActions}>{children}</MarkdownLink>
+        components={externalLinks || onLinkClick || linkActions || onCopyCode ? {
+          ...(onCopyCode ? { pre: ({ children }: { children?: React.ReactNode }) => {
+            const code = Children.toArray(children).find(isValidElement);
+            const text = code ? plainCodeText((code.props as { children?: React.ReactNode }).children).replace(/\n$/, "") : "";
+            return <div className="markdown-code-block"><button type="button" onClick={() => onCopyCode(text)}>复制代码</button><pre>{children}</pre></div>;
+          } } : {}),
+          ...(externalLinks || onLinkClick || linkActions ? { a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <MarkdownLink {...props} href={href} onLinkClick={onLinkClick} linkActions={linkActions}>{children}</MarkdownLink> } : {})
         } : undefined}
       >
         {content}

@@ -44,7 +44,14 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
     model: snapshot.model || null,
     backend: snapshot.backend || null,
     effectiveModel: snapshot.effectiveModel || null,
-    models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName })),
+    models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName, fastAvailable: model.fastAvailable, defaultReasoningEffort: model.defaultReasoningEffort, supportedReasoningEfforts: model.supportedReasoningEfforts })),
+    goal: snapshot.goal || null, goalLoading: Boolean(snapshot.goalLoading), goalError: snapshot.goalError || null,
+    account: snapshot.account ? { status: snapshot.account.status, requiresOpenaiAuth: snapshot.account.requiresOpenaiAuth, account: snapshot.account.account ? { type: snapshot.account.account.type, email: snapshot.account.account.email, planType: snapshot.account.account.planType } : null, login: snapshot.account.login ? { type: snapshot.account.login.type, loginId: snapshot.account.login.loginId, url: snapshot.account.login.url, userCode: snapshot.account.login.userCode } : null, error: snapshot.account.error, rateLimitsError: snapshot.account.rateLimitsError, usageError: snapshot.account.usageError } : null, windowsSandboxSetup: snapshot.windowsSandboxSetup ? { available: snapshot.windowsSandboxSetup.available, mode: snapshot.windowsSandboxSetup.mode, status: snapshot.windowsSandboxSetup.status, error: snapshot.windowsSandboxSetup.error } : null,
+    subAgents: snapshot.subAgents ? { expanded: snapshot.subAgents.expanded, selectedThreadId: snapshot.subAgents.selectedThreadId, loading: snapshot.subAgents.loading, error: snapshot.subAgents.error, warning: snapshot.subAgents.warning,
+      members: (snapshot.subAgents.members || []).map(thread => ({ threadId: thread.threadId, parentThreadId: thread.parentThreadId, name: thread.name, role: thread.role, task: thread.task, status: thread.status, createdAt: thread.createdAt, loading: thread.loading, error: thread.error, items: toMobileGraphicalSnapshot({ items: thread.items }).items })) } : null,
+    turnDiffs: (snapshot.turnDiffs || []).map(value => ({ turnId: value.turnId, diff: value.diff, updatedAt: value.updatedAt })), tokenUsage: snapshot.tokenUsage || null, turnOutputTokens: snapshot.turnOutputTokens, outputTokensPerSecond: snapshot.outputTokensPerSecond, outputRateAvailable: snapshot.outputRateAvailable,
+    mcpRuntime: (snapshot.mcpRuntime || []).map(value => ({ name: value.name, status: value.status, error: value.error, failureReason: value.failureReason })), mcpLogins: (snapshot.mcpLogins || []).map(value => ({ name: value.name, status: value.status, error: value.error })), mcpReload: snapshot.mcpReload ? { status: snapshot.mcpReload.status, error: snapshot.mcpReload.error } : null,
+    elicitations: snapshot.elicitations || [],
     effort: snapshot.effort || null,
     fastMode: Boolean(snapshot.fastMode),
     executionPermission: snapshot.executionPermission || null,
@@ -59,12 +66,13 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
     pendingPlan: snapshot.pendingPlan || null,
     items: (snapshot.items || []).map(item => ({
       id: item.id, type: item.type, turnId: item.turnId, text: item.text,
+      summary: item.summary, senderThreadId: item.senderThreadId, receiverThreadId: item.receiverThreadId, prompt: item.prompt, agentStatus: item.agentStatus,
       command: item.command, output: item.output, status: item.status,
       toolName: item.toolName, toolKind: item.toolKind, explanation: item.explanation,
       tool: item.tool, server: item.server, query: item.query,
       arguments: item.arguments, result: item.result, changes: item.changes, locations: item.locations, toolContent: item.toolContent,
       plan: item.plan, questions: item.questions,
-      attachments: (item.attachments || []).map(file => ({ name: file.name || "附件" }))
+      attachments: (item.attachments || []).map(file => ({ name: file.name || "附件", path: file.path }))
     })),
     diagnostics: snapshot.provider === "codex" ? (snapshot.diagnostics || [])
       .filter(event => event.kind === "error")
@@ -78,7 +86,7 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
         itemId: value.params?.itemId, reason: value.params?.reason,
         command: value.params?.command, cwd: value.params?.cwd,
         changes: value.params?.changes, choices: value.params?.choices,
-        networkApprovalContext: value.params?.networkApprovalContext
+        networkApprovalContext: value.params?.networkApprovalContext, permissions: value.params?.permissions, grantRoot: value.params?.grantRoot, availableDecisions: value.params?.availableDecisions, proposedExecpolicyAmendment: value.params?.proposedExecpolicyAmendment
       }
     })),
     questions: (snapshot.questions || []).map(value => ({

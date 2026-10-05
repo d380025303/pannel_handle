@@ -79,6 +79,7 @@ const initialConfig: AppConfig = {
   defaultWindowsShell: "pwsh",
   autoRestore: true,
   autoWorkBuddyCheckin: true,
+  autoQoderCheckin: false,
   autoCollapseFileChains: true,
   debugMode: false,
   graphicalSessionMinimalMode: false,
@@ -603,6 +604,10 @@ export function installBrowserPreview() {
       cancelCodeBuddyUsage: () => undefined,
       cancelCodexUsage: () => undefined
     } satisfies Window["agentUsageApi"],
+    qoderCheckinApi: {
+      getStatus: async () => ({ accountId: "preview", accountLabel: "Preview desktop account", active: true, claimable: false, todayCheckedIn: true, dailyCredit: 100, windowStart: Date.now(), nextClaimAt: Date.now() + 86400000 }),
+      claim: async () => ({ alreadyCheckedIn: true, status: { accountId: "preview", accountLabel: "Preview desktop account", active: true, claimable: false, todayCheckedIn: true, dailyCredit: 100, windowStart: Date.now(), nextClaimAt: Date.now() + 86400000 } })
+    } satisfies Window["qoderCheckinApi"],
     workBuddyCheckinApi: {
       getStatus: async () => ({ active: true, todayCheckedIn: true, streakDays: 6, dailyCredit: 10, todayCredit: 10, totalCredits: 280, weekProgress: [true, true, true, true, true, true, false] }),
       claim: async () => ({ alreadyCheckedIn: true, status: { active: true, todayCheckedIn: true, streakDays: 6, dailyCredit: 10, todayCredit: 10, totalCredits: 280, weekProgress: [true, true, true, true, true, true, false] } })
@@ -677,7 +682,7 @@ export function installBrowserPreview() {
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
     "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
-    "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
+    "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"
   >;
 

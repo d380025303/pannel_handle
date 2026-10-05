@@ -1,7 +1,7 @@
 const { createEnvironmentService } = require("./services/environment/index.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, protocol, safeStorage, shell, powerMonitor } = require("electron");
 
 if (process.argv.includes("--pannel-handle-qoder-activity-helper")) {
   void require("./services/token-usage/index.cjs").runQoderActivityHelper();
@@ -51,6 +51,8 @@ const { createGrokAcpSessionService } = require("./services/grok-acp/session-ser
 const { createQuestionAnswerStore } = require("./services/codex-app-server/question-answer-store.cjs");
 const { createDiagnosticsStore } = require("./services/codex-app-server/diagnostics-store.cjs");
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
+const { createQoderAutoCheckinService } = require("./services/qoder-checkin/auto-checkin.cjs");
+const { createQoderCheckinService } = require("./services/qoder-checkin/service.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
 const { createScreenshotModule } = require("./services/screenshot/index.cjs");
@@ -110,6 +112,9 @@ let remoteAgentBridgeService = null;
 let codexWorkspaceTrustService = null;
 let tokenUsageModule = null;
 let postgresBackupService = null;
+let qoderCheckinService = null;
+let qoderAutoCheckinService = null;
+let qoderResumeHandler = null;
 let workBuddyCheckinService = null;
 let workBuddyAutoCheckinService = null;
 let sshHookTunnelService = null;
@@ -348,6 +353,21 @@ if (!gotSingleInstanceLock) {
       environmentService, sshAgentTransport });
     const codeBuddyPluginService = createCodeBuddyPluginService({ terminalManager, graphicalService: codeBuddyGraphicalService });
     const sshGitExecutor = createSshGitExecutor({ sshSessionRuntime });
+    qoderCheckinService = createQoderCheckinService();
+    qoderAutoCheckinService = createQoderAutoCheckinService({
+      checkinService: qoderCheckinService,
+      notifyFailure: error => {
+        const isEnglish = configStore.getConfig().locale === "en-US";
+        if (Notification.isSupported()) new Notification({
+          title: isEnglish ? "Qoder auto check-in failed" : "Qoder 自动签到失败",
+          body: error.message, silent: true
+        }).show();
+      }
+    });
+    ipcMain.handle("qoder-checkin:get-status", () => qoderCheckinService.getStatus());
+    ipcMain.handle("qoder-checkin:claim", () => qoderCheckinService.claim());
+    qoderResumeHandler = () => qoderAutoCheckinService.resume();
+    powerMonitor.on("resume", qoderResumeHandler);
     workBuddyCheckinService = createWorkBuddyCheckinService();
     workBuddyAutoCheckinService = createWorkBuddyAutoCheckinService({
       checkinService: workBuddyCheckinService,
@@ -416,6 +436,7 @@ if (!gotSingleInstanceLock) {
       dingTalkConfigStore,
       dingTalkNotificationManager,
       workBuddyAutoCheckinService,
+    qoderAutoCheckinService,
       getMobileRemoteService: () => mobileRemoteService,
       openRouterConfigStore,
       naraRouterConfigStore,
@@ -515,7 +536,13 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher,
       sessionStore,
       graphicalService: codexAppServerSessionService,
+      codexPluginService, codexVersionService, projectSearchService: { searchWorkspaceEntries: (...args) => projectSearchService.searchWorkspaceEntries(...args) }, mcpConfigService,
       getAgentUsage: (sessionId, options) => tokenUsageModule.getUsage(sessionId, options),
+      getCodexVerifiedModels: () => [
+        ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
+      ].flatMap(([source, store]) => store.getApiKey() ? store.getCachedModels()
+        .filter(model => store.getAgentModelVerifications("codex")[model.id]?.status === "passed")
+        .map(model => ({ source, id: model.id, name: model.name || model.id })) : []),
       getOpenCodeVerifiedModels: () => Object.fromEntries([
         ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
       ].map(([source, store]) => {
@@ -613,6 +640,7 @@ if (!gotSingleInstanceLock) {
     });
     windowManager.createWindow();
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
+    qoderAutoCheckinService.start(configStore.getConfig().autoQoderCheckin);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -671,6 +699,8 @@ app.on("window-all-closed", async () => {
   tokenUsageModule?.shutdown();
   projectAssistantService?.shutdown();
   if (postgresBackupService) void postgresBackupService.shutdown();
+  qoderAutoCheckinService?.shutdown();
+  if (qoderResumeHandler) powerMonitor.removeListener("resume", qoderResumeHandler);
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();
   }

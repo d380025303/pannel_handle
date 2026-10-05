@@ -22,6 +22,7 @@ type SettingsModalProps = {
   onDefaultWindowsShellChange: (value: WindowsShell) => Promise<void>;
   autoRestore: boolean;
   autoWorkBuddyCheckin: boolean;
+  autoQoderCheckin?: boolean;
   graphicalSessionMinimalMode?: boolean;
   onGraphicalSessionMinimalModeChange?: (enabled: boolean) => Promise<void>;
   debugMode: boolean;
@@ -35,6 +36,7 @@ type SettingsModalProps = {
   themes: AppTheme[];
   onToggleAutoRestore: () => void;
   onToggleAutoWorkBuddyCheckin: () => void;
+  onToggleAutoQoderCheckin?: () => void;
   onToggleDebugMode: () => void;
   onScreenshotEnabledChange: (enabled: boolean) => Promise<void>;
   onScreenshotShortcutChange: (shortcut: string) => Promise<void>;
@@ -62,6 +64,7 @@ export function SettingsModal({
   onDefaultWindowsShellChange,
   autoRestore,
   autoWorkBuddyCheckin,
+  autoQoderCheckin = false,
   graphicalSessionMinimalMode = false,
   onGraphicalSessionMinimalModeChange,
   debugMode,
@@ -75,6 +78,7 @@ export function SettingsModal({
   themes,
   onToggleAutoRestore,
   onToggleAutoWorkBuddyCheckin,
+  onToggleAutoQoderCheckin,
   onToggleDebugMode,
   onScreenshotEnabledChange,
   onScreenshotShortcutChange,
@@ -461,6 +465,10 @@ export function SettingsModal({
                         <input type="checkbox" className="auto-restore-checkbox" checked={autoWorkBuddyCheckin} onChange={onToggleAutoWorkBuddyCheckin} />
                         <span className="auto-restore-track" />
                       </span>
+                    </label>
+                    <label className="settings-toggle-row">
+                      <span><strong>{t("settings.autoQoderCheckin")}</strong></span>
+                      <span className="auto-restore-label"><input type="checkbox" aria-label={t("settings.autoQoderCheckin")} className="auto-restore-checkbox" checked={autoQoderCheckin} onChange={onToggleAutoQoderCheckin} /><span className="auto-restore-track" /></span>
                     </label>
                     <label className="settings-toggle-row">
                       <span><strong>{t("settings.graphicalSessionMinimalMode")}</strong></span>

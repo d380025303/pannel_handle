@@ -69,7 +69,7 @@ describe("mobile graphical session route", () => {
 
   it("projects only mobile state and sends updates to the subscribed session", async () => {
     const f = fixture();
-    expect(toMobileGraphicalSnapshot(f.snapshot)).not.toHaveProperty("account");
+    expect(JSON.stringify(toMobileGraphicalSnapshot(f.snapshot))).not.toContain("secret");
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     expect(f.socket.graphicalSessionId).toBe("graph-1");
     expect(f.socket.subscriptions.size).toBe(0);
@@ -453,4 +453,83 @@ it("projects only input status flags without leaking account details", () => {
     compacting: true, reviewing: true, windowsSandboxSetup: { status: "running", secret: "secret" }, mainAgent: { changing: true } });
   expect(value).toMatchObject({ signedOut: true, compacting: true, reviewing: true, sandboxSettingUp: true, mainAgentChanging: true });
   expect(JSON.stringify(value)).not.toContain("secret");
+});
+
+
+describe("Codex mobile parity", () => {
+  it("uses the current model reasoning catalog and rejects invented efforts", async () => {
+    const f = fixture();
+    Object.assign(f.snapshot, { backend: "openai", model: "gpt", approvals: [], questions: [], models: [{ id: "gpt", supportedReasoningEfforts: [{ reasoningEffort: "high" }] }] });
+    f.graphicalService.setEffort = vi.fn();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await f.handlers.handle(f.socket, { type: "graphical.effort", sessionId: "graph-1", threadId: "thread-1", effort: "high" });
+    expect(f.graphicalService.setEffort).toHaveBeenCalledWith("graph-1", "high");
+    await expect(f.handlers.handle(f.socket, { type: "graphical.effort", sessionId: "graph-1", threadId: "thread-1", effort: "invented" })).rejects.toThrow("可用");
+  });
+  it("dispatches explicit advanced commands and rejects stale threads and other providers", async () => {
+    const f = fixture();
+    f.graphicalService.setGoal = vi.fn(() => ({ ...f.snapshot, goal: { objective: "done" } }));
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    const command = { type: "graphical.codex.goal.set", sessionId: "graph-1", threadId: "thread-1", requestId: "goal", input: { changes: { objective: "done", tokenBudget: 100 } } };
+    await f.handlers.handle(f.socket, command);
+    expect(f.graphicalService.setGoal).toHaveBeenCalledWith("graph-1", { objective: "done", tokenBudget: 100 });
+    const response = f.send.mock.calls.map(([, value]) => value).find(value => value.type === "graphical.result");
+    expect(response).toMatchObject({ requestId: "goal", threadId: "thread-1" });
+    expect(JSON.stringify(response)).not.toContain("secret");
+    await expect(f.handlers.handle(f.socket, { ...command, threadId: "old" })).rejects.toThrow("切换");
+    f.session.agentProvider = "opencode";
+    await expect(f.handlers.handle(f.socket, command)).rejects.toThrow("仅 Codex");
+  });
+  it("rejects unknown command names and invalid goal budgets without calling a service", async () => {
+    const f = fixture();
+    f.graphicalService.setGoal = vi.fn();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await expect(f.handlers.handle(f.socket, { type: "graphical.codex.shutdown", sessionId: "graph-1", threadId: "thread-1" })).rejects.toThrow("不被允许");
+    await expect(f.handlers.handle(f.socket, { type: "graphical.codex.goal.set", sessionId: "graph-1", threadId: "thread-1", input: { changes: { objective: "x", tokenBudget: -1 } } })).rejects.toThrow("预算");
+    expect(f.graphicalService.setGoal).not.toHaveBeenCalled();
+  });
+  it("loads pinned and ordinary history separately and forwards archived pagination", async () => {
+    const f = fixture();
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    await f.handlers.handle(f.socket, { type: "graphical.history", sessionId: "graph-1", threadId: "thread-1" });
+    expect(f.graphicalService.listHistory).toHaveBeenCalledWith("graph-1", null, false, true);
+    expect(f.graphicalService.listHistory).toHaveBeenCalledWith("graph-1", null, false, false);
+    await f.handlers.handle(f.socket, { type: "graphical.history", sessionId: "graph-1", threadId: "thread-1", archived: true, cursor: "next" });
+    expect(f.graphicalService.listHistory).toHaveBeenCalledWith("graph-1", "next", true, undefined);
+  });
+  it("forwards valid capability references and rejects malformed references", async () => {
+    const f = fixture(); Object.assign(f.snapshot, { approvals: [], questions: [] });
+    await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+    const reference = { kind: "skill", name: "test", path: "/work/SKILL.md", token: "$test" };
+    await f.handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "$test", references: [reference] });
+    expect(f.graphicalService.submit).toHaveBeenCalledWith("graph-1", "$test", [], [reference]);
+    await expect(f.handlers.handle(f.socket, { type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "x", references: [{ kind: "arbitrary" }] })).rejects.toThrow("引用无效");
+  });
+});
+
+
+it("only restarts into a Codex-verified external model and announces the replacement", async () => {
+  const f = fixture(); Object.assign(f.snapshot, { approvals: [], questions: [] }); f.session.type = "windows";
+  const launcher = { switchModelSource: vi.fn(async () => ({ id: "replacement", sshConfig: { password: "secret" } })) };
+  const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager, graphicalService: f.graphicalService,
+    send: f.send, agentSessionLauncher: launcher, getCodexVerifiedModels: () => [{ source: "openrouter", id: "verified", name: "model" }] });
+  await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+  const command = { type: "graphical.codex.model-source", sessionId: "graph-1", threadId: "thread-1", input: { source: "openrouter", modelId: "unverified" } };
+  await expect(handlers.handle(f.socket, command)).rejects.toThrow("Codex 验证");
+  expect(launcher.switchModelSource).not.toHaveBeenCalled();
+  await handlers.handle(f.socket, { ...command, input: { source: "openrouter", modelId: "verified" } });
+  expect(launcher.switchModelSource).toHaveBeenCalledWith("graph-1", "openrouter", true, "verified");
+  expect(f.send).toHaveBeenCalledWith(f.socket, { type: "session.launched", sessionId: "replacement" });
+  expect(JSON.stringify(f.send.mock.calls)).not.toContain("password");
+});
+
+it("keeps MCP configuration scoped to the host session and carries version conflicts", async () => {
+  const f = fixture(); f.graphicalService.getWorkspaceCwd = () => "C:\\work";
+  const mcp = { save: vi.fn(() => ({ status: "conflict" })) };
+  const handlers = createMobileGraphicalHandlers({ terminalManager: f.terminalManager, graphicalService: f.graphicalService, send: f.send, mcpConfigService: mcp });
+  await handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
+  const draft = { name: "example", command: "node" };
+  await handlers.handle(f.socket, { type: "graphical.codex.mcp-save", sessionId: "graph-1", threadId: "thread-1", input: { scope: "project", expectedVersion: "v1", draft, projectPath: "C:\\outside" } });
+  expect(mcp.save).toHaveBeenCalledWith(expect.objectContaining({ provider: "codex", scope: "project", sessionId: "graph-1", projectPath: "C:\\work", expectedVersion: "v1", draft }));
+  expect(f.send).toHaveBeenCalledWith(f.socket, expect.objectContaining({ type: "graphical.result", result: { status: "conflict" } }));
 });

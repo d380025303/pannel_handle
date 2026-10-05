@@ -3,6 +3,7 @@ import { CheckCircle2, Gauge, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentUsageLimit, AgentUsageResetResult, WorkBuddyCheckinStatus } from "../../vite-env";
 import type { AgentUsageViewState } from "../../hooks/useAgentUsage";
+import { QoderCheckin } from "./QoderCheckin";
 import { CodeBuddyQuotaDetails } from "./CodeBuddyQuotaDetails";
 
 type AgentUsageStatusProps = {
@@ -482,7 +483,8 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                 </div>
               </div>
             )))}
-            {isQoder && (
+            {isQoder && (<>
+              <QoderCheckin onRefresh={onRefresh} />
               <section className="agent-usage-limit-group qoder-activity-quota" aria-label={t("usage.qoderActivities")}>
                 <h4>{t("usage.qoderActivities")}</h4>
                 {activityError ? (
@@ -529,7 +531,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                   </div>
                 ))}
               </section>
-            )}
+            </>)}
           </div>
           <small>{t("usage.updatedAt", { time: formatTimestamp(locale, state.snapshot.fetchedAt) })}</small>
         </div>

@@ -6,7 +6,14 @@
       "Bash(find \"C:/mine/crm/personal/pannel_handle\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.cjs\" -o -name \"*.js\" \\\\\\) -not -path \"*/node_modules/*\" -not -path \"*/dist/*\" -not -path \"*/out/*\" -not -path \"*/release/*\" -not -path \"*/build/*\" 2>/dev/null | head -300)",
       "Bash(ls -la | head -30)",
       "Bash(pnpm:*)",
-      "Bash(ls -lh release/ | grep -E \"\\\\.exe$|Pannel Handle\")"
+      "Bash(ls -lh release/ | grep -E \"\\\\.exe$|Pannel Handle\")",
+      "Bash(for d in claude-acp codebuddy-acp gemini-acp grok-acp opencode-acp qoder-acp codex-app-server mobile-remote mcp skills idea workbuddy project-assistant model-sources conversation-history token-usage environment postgres-backup screenshot clipboard remote-files git project-search settings launch-templates; do echo \"=== $d ===\"; ls electron/services/$d 2>/dev/null | head -14; done)",
+      "Bash(echo \"=== src/components/agents ===\"; ls src/components/agents | head -60; echo \"=== src/hooks ===\"; ls src/hooks; echo \"=== src/components count ===\"; ls src/components/*/ | wc -l; echo \"=== counts by dir ===\"; for d in src/components/*/; do echo -n \"$d: \"; ls \"$d\" | wc -l; done; echo \"=== LOC ===\"; find src electron mobile/src idea-plugin -type f \\\\\\( -name '*.ts' -o -name '*.tsx' -o -name '*.cjs' -o -name '*.kt' -o -name '*.java' \\\\\\) | wc -l)",
+      "Bash(echo \"=== mobile/README ===\"; head -40 mobile/README.md; echo \"=== electron/hooks ===\"; ls electron/hooks; echo \"=== idea-plugin ===\"; find idea-plugin -maxdepth 3 -type d | head -20; echo \"=== workspace ===\"; cat pnpm-workspace.yaml; echo \"=== agents dir in electron ===\"; ls electron/agents 2>/dev/null)",
+      "Bash(head -60 src/App.tsx; echo \"=== git log count ===\"; git log --oneline | wc -l; echo \"=== recent 20 ===\"; git log --oneline -20)",
+      "Bash(echo \"=== environment svc ===\"; head -30 electron/services/environment/index.cjs; echo \"=== src/components/environment ===\"; ls src/components/environment; echo \"=== project-assistant head ===\"; head -25 electron/services/project-assistant/project-assistant-service.cjs; echo \"=== idea-bridge doc ===\"; head -20 docs/idea-bridge.md)",
+      "Bash(ls electron/services/codex-model-bridge; echo \"=== qoder-acp require ===\"; grep -n \"require\\(\" electron/services/qoder-acp/session-service.cjs | head -12; echo \"=== acp pkg ===\"; grep -rn \"agentclientprotocol\" package.json electron/services/*/session-service.cjs 2>/dev/null | head -8; echo \"=== mobile-remote port/bonjour ===\"; grep -rn \"bonjour\" electron/services/mobile-remote/*.cjs | head -3)",
+      "Bash(grep -rln \"codebuddy-acp/session-service\" electron/services/ | head; echo \"=== acp spawn cmd ===\"; grep -rn \"acp\\\\b\" electron/services/codebuddy-acp/session-router.cjs | head -20)"
     ]
   }
 }

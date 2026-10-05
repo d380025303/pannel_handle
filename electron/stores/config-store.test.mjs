@@ -22,6 +22,17 @@ afterEach(() => {
 });
 
 describe("config-store", () => {
+  it("defaults Qoder check-in off in old configs and persists opt-in", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: true }));
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig().autoQoderCheckin).toBe(false);
+    store.updateConfig({ autoQoderCheckin: true });
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().autoQoderCheckin).toBe(true);
+  });
   it("normalizes, persists, and reloads title bar icon preferences", () => {
     const configFile = createTempConfigPath();
     const store = createConfigStore({ configFile });
@@ -71,6 +82,7 @@ describe("config-store", () => {
       defaultWindowsShell: "cmd",
       autoRestore: true,
       autoWorkBuddyCheckin: true,
+      autoQoderCheckin: false,
       autoCollapseFileChains: true,
       debugMode: false,
       graphicalSessionMinimalMode: false,
@@ -292,6 +304,7 @@ describe("config-store", () => {
       defaultWindowsShell: "cmd",
       autoRestore: false,
       autoWorkBuddyCheckin: true,
+      autoQoderCheckin: false,
       autoCollapseFileChains: true,
       debugMode: true,
       graphicalSessionMinimalMode: false,

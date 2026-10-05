@@ -26,13 +26,15 @@ export function GraphicalView(props: GraphicalViewProps) {
           <span>强度：{effortLabel(snapshot)}</span>
           {snapshot.provider === "codex" && permissionLabel(snapshot.executionPermission)
             && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
+          {snapshot.provider === "codex" && snapshot.tokenUsage && <span>Token：{snapshot.tokenUsage.total.totalTokens.toLocaleString()}{snapshot.tokenUsage.modelContextWindow ? ` · 上下文 ${Math.min(100, snapshot.tokenUsage.last.totalTokens / snapshot.tokenUsage.modelContextWindow * 100).toFixed(1)}%` : ""}</span>}
+          {snapshot.provider === "codex" && snapshot.outputRateAvailable && <span>本轮输出：{snapshot.turnOutputTokens || 0} Token · {(snapshot.outputTokensPerSecond || 0).toFixed(1)} Token/s</span>}
           {snapshot.fastMode && <span>快速模式</span>}
           {context && contextPercent !== null && <span aria-label="上下文用量">上下文：{contextPercent.toFixed(1)}% · {context.used.toLocaleString()} / {context.size.toLocaleString()}</span>}
         </div>
       </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}
-      <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
-        aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}><GraphicalIcon name="more" /></button>
+      {snapshot.provider !== "codex" && <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
+        aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}><GraphicalIcon name="more" /></button>}
     </header>
     <GraphicalUsage sessionId={session.id} sessionType={session.type} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
@@ -40,6 +42,7 @@ export function GraphicalView(props: GraphicalViewProps) {
     <GraphicalTimeline snapshot={snapshot} controller={controller} />
     <QuickCommandPicker commands={session.quickCommands || []} onSelect={runQuickCommand}
       disabled={command => !inputPolicy.canInput || (command.mode !== "write" && (!inputPolicy.canSubmit || isSending))} />
+    {snapshot.provider === "codex" && snapshot.goal && <button className="graphical-goal-chip" title={snapshot.goal.objective} onClick={() => setActiveSheet("goal")}>目标：{snapshot.goal.objective} · {snapshot.goal.status}</button>}
     <GraphicalComposer snapshot={snapshot} controller={controller} draft={draft} setDraft={setDraft} />
     <GraphicalActionSheet snapshot={snapshot} session={session} controller={controller} />
   </section>;

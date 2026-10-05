@@ -1,3 +1,6 @@
+import { copyMobileText } from "./clipboard";
+import { CodexAdvancedSheet, codexSheetTitles } from "./CodexAdvancedSheet";
+import type { CodexSheet } from "./useGraphicalSession";
 import { GraphicalIcon } from "./GraphicalIcon";
 import { canSwitchMode, effortLabel, openCodeEffortOption, graphicalProviders, modelLabel, modelOptions, permissionLabel, permissions, providerLabel } from "./GraphicalPresentation";
 import { type useGraphicalSession } from "./useGraphicalSession";
@@ -12,29 +15,32 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
     action, changeModel, changeEffort, addFiles, changeMode, changePermission, changeNativeMode, switchAgent,
     loadHistory, openHistory, isSending, historyMutation, mutateHistory } = controller;
   if (!activeSheet) return null;
+  const advanced = activeSheet in codexSheetTitles ? activeSheet as CodexSheet : null;
+  const title = advanced ? codexSheetTitles[advanced] : null;
   const effectivePlan = snapshot.mode === "plan";
   const addFileDisabled = !snapshot.threadId || snapshot.archived || isSending || attachments.length >= 10
     || (snapshot.busy && snapshot.provider !== "codex");
-  const modelDisabled = !modelOptions(snapshot).length || snapshot.busy || snapshot.archived || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation);
+  const modelDisabled = (!modelOptions(snapshot).length && !(snapshot.provider === "codex" && session.type !== "ssh")) || snapshot.busy || snapshot.archived || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation);
   const effortOption = openCodeEffortOption(snapshot);
   const effortDisabled = !snapshot.threadId || !effortOption || snapshot.busy || snapshot.archived || isSending
     || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation || snapshot.pendingPlan)
     || snapshot.approvals.length > 0 || snapshot.questions.length > 0;
   const agentDisabled = snapshot.busy || Boolean(snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo || historyMutation);
-  const historyDisabled = snapshot.busy || isSending || Boolean(historyMutation || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length)
+  const historyDisabled = controller.codexPending || snapshot.busy || isSending || Boolean(historyMutation || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length)
     || attachments.some(item => item.status === "uploading");
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
     : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
   return (<div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
       <div ref={sheetRef} className="graphical-sheet" role="dialog" aria-modal="true"
-        aria-label={activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
+        aria-label={title || (activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
           : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型"
-            : activeSheet === "effort" ? "思考强度" : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话"}
+            : activeSheet === "effort" ? "思考强度" : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话")}
         tabIndex={-1} onClick={event => event.stopPropagation()}>
-        <header><strong>{activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
+        <header><strong>{title || (activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
           : activeSheet === "agent-confirm" ? "确认切换 Agent" : activeSheet === "model" ? "切换模型"
-            : activeSheet === "effort" ? "思考强度" : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话"}</strong>
+            : activeSheet === "effort" ? "思考强度" : activeSheet === "permission" ? "执行权限" : activeSheet === "native-mode" ? "切换模式" : "历史对话")}</strong>
           <button type="button" className="graphical-sheet-close" aria-label="关闭弹层" onClick={() => setActiveSheet(null)}><GraphicalIcon name="close" /></button></header>
+        {advanced && <CodexAdvancedSheet key={`${advanced}:${snapshot.threadId}`} sheet={advanced} snapshot={snapshot} controller={controller} />}
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
         {activeSheet === "menu" && <div className="graphical-sheet-list">
           {(snapshot.provider === "codex" || snapshot.provider === "codebuddy" || snapshot.provider === "claude") && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
@@ -54,6 +60,11 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             : snapshot.nativeModes?.length ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
               onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span><GraphicalIcon name="mode" />切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
+          {snapshot.provider === "codex" && <>
+            {snapshot.backend === "openai" && <button type="button" disabled={controller.codexPending || !snapshot.threadId || snapshot.busy || snapshot.archived} onClick={() => { void controller.codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause))); }}><span>快速模式</span><small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+            {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button type="button" key={key} disabled={!snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
+            <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || isSending || snapshot.compacting} onClick={() => { void controller.codexRequest("compact").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>压缩对话</button>
+          </>}
           {effortOption && <button type="button" disabled={effortDisabled} onClick={() => setActiveSheet("effort")}><span><GraphicalIcon name="mode" />思考强度</span><small>{effortLabel(snapshot)}</small></button>}
           <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span><GraphicalIcon name="agent" />切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
           <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span><GraphicalIcon name="history" />历史记录</span><small>查看并恢复对话</small></button>
@@ -82,6 +93,10 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             <button type="button" className="primary" disabled={agentDisabled} onClick={() => switchAgent(selectedProvider)}><GraphicalIcon name="check" />确认切换</button></div>
         </div>}
         {activeSheet === "model" && <div className="graphical-sheet-list">
+          {snapshot.provider === "codex" && session.type !== "ssh" && <>
+            {snapshot.backend !== "openai" && <button disabled={snapshot.busy || snapshot.archived || controller.codexPending} onClick={() => { if (window.confirm("切换到 OpenAI 原生模型将重启图形会话，是否继续？")) void controller.codexRequest("model-source", { source: "native" }).catch(cause => setError(String(cause))); }}>OpenAI · 原生模型</button>}
+            {controller.serviceModels.map(model => <button key={`${model.source}:${model.id}`} disabled={snapshot.busy || snapshot.archived || controller.codexPending || attachments.length > 0} onClick={() => { if (window.confirm(`切换到 ${model.name} 将重启图形会话，是否继续？`)) void controller.codexRequest("model-source", { source: model.source, modelId: model.id }).catch(cause => setError(String(cause))); }}>{model.source} · {model.name}</button>)}
+          </>}
           {modelOptions(snapshot).map(option => <button type="button" key={option.value} disabled={modelDisabled || option.value === currentModel}
             aria-pressed={option.value === currentModel} onClick={() => changeModel(option.value)}>
             <span>{option.name}</span>{option.value === currentModel && <small>当前使用</small>}
@@ -107,10 +122,22 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             onClick={() => changeNativeMode(mode.id)}><span>{mode.name || mode.id}</span>{mode.description && <small>{mode.description}</small>}{snapshot.nativeMode === mode.id && <small>当前使用</small>}</button>)}
         </div>}
         {activeSheet === "history" && <div className="graphical-sheet-list graphical-history-list">
-          {history?.data.map(thread => <div className="graphical-history-row" key={thread.id}><button type="button" disabled={historyDisabled || thread.archived || thread.id === snapshot.threadId}
+          {snapshot.provider === "codex" && <><div className="graphical-actions" role="tablist"><button role="tab" aria-selected={!controller.historyArchived} disabled={historyLoading} onClick={() => controller.loadHistory(null, false)}>进行中</button><button role="tab" aria-selected={controller.historyArchived} disabled={historyLoading} onClick={() => controller.loadHistory(null, true)}>已归档</button></div>
+            <input aria-label="搜索历史会话" placeholder="搜索历史会话" value={controller.historyQuery} onChange={event => controller.setHistoryQuery(event.target.value)} />
+          </>}
+          {error && <button type="button" disabled={historyLoading} onClick={() => loadHistory()}>重试加载历史</button>}
+          {history?.data.filter(thread => thread.title.toLocaleLowerCase().includes(controller.historyQuery.toLocaleLowerCase())).map(thread => <div className="graphical-history-row" key={thread.id}><button type="button" disabled={historyDisabled || thread.archived || thread.id === snapshot.threadId}
             onClick={() => { if (action({ type: "graphical.resume", targetThreadId: thread.id })) setActiveSheet(null); }}>
-            <span>{thread.title}</span><small>{new Date(thread.updatedAt * 1000).toLocaleString()}{thread.archived ? " · 已归档" : ""}</small>
+            <span>{thread.isPinned ? "置顶 · " : ""}{thread.title}</span><small>{new Date(thread.updatedAt * 1000).toLocaleString()}{thread.archived ? " · 已归档" : ""}</small>
           </button>
+            {snapshot.provider === "codex" && <div className="graphical-history-actions">
+              <button disabled={historyDisabled} onClick={() => { void copyMobileText(thread.id).catch(cause => setError(String(cause))); }}>复制 ID</button>
+              <button disabled={historyDisabled} onClick={() => { void controller.codexRequest<{ text: string } | null>("history.initial", { targetThreadId: thread.id }).then(value => copyMobileText(value?.text || "")).catch(cause => setError(String(cause))); }}>复制首条输入</button>
+              <button disabled={historyDisabled} onClick={() => { const name = window.prompt("重命名会话", thread.title); if (name?.trim()) void controller.codexRequest("history.rename", { targetThreadId: thread.id, name: name.trim() }).then(() => loadHistory()).catch(cause => setError(String(cause))); }}>重命名</button>
+              <button disabled={historyDisabled} onClick={() => { void controller.codexRequest("history.pin", { targetThreadId: thread.id, isPinned: !thread.isPinned }).then(() => loadHistory()).catch(cause => setError(String(cause))); }}>{thread.isPinned ? "取消置顶" : "置顶"}</button>
+              {!thread.archived && <button disabled={historyDisabled} onClick={() => { void controller.codexRequest("history.fork", { targetThreadId: thread.id }).then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>分叉</button>}
+              <button disabled={historyDisabled} onClick={() => { void controller.codexRequest(thread.archived ? "history.unarchive" : "history.archive", { targetThreadId: thread.id }).then(() => loadHistory()).catch(cause => setError(String(cause))); }}>{thread.archived ? "恢复归档" : "归档"}</button>
+            </div>}
             {snapshot.provider === "opencode" && <div className="graphical-history-actions">
               {snapshot.capabilities?.forkHistory && <button type="button" disabled={historyDisabled} onClick={() => mutateHistory(thread.id, "fork")}>分叉</button>}
               {snapshot.capabilities?.deleteHistory && <button type="button" disabled={historyDisabled || thread.id === snapshot.threadId}

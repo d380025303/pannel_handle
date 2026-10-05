@@ -51,6 +51,11 @@ export function modelOptions(snapshot: GraphicalSnapshot) {
   return snapshot.acpOptions?.find(option => option.id === "model")?.options || [];
 }
 export function openCodeEffortOption(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider === "codex" && snapshot.backend === "openai") {
+    const model = snapshot.models?.find(value => value.id === (snapshot.model || snapshot.effectiveModel));
+    if (model?.supportedReasoningEfforts?.length) return { id: "effort", type: "select", currentValue: snapshot.effort || model.defaultReasoningEffort || undefined,
+      options: model.supportedReasoningEfforts.map(value => ({ value: value.reasoningEffort, name: value.reasoningEffort, description: value.description })) };
+  }
   return snapshot.provider === "opencode"
     ? snapshot.acpOptions?.find(option => option.id === "effort" && option.type === "select" && option.options.length > 0)
     : undefined;
@@ -67,7 +72,7 @@ export function permissionLabel(permission?: string | null) {
 
 type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
-const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"]);
+const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError", "reasoning", "collabAgentToolCall", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
 export function groupTimeline(items: GraphicalItem[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const item of items) {
