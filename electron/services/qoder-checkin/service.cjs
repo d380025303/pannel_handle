@@ -1,4 +1,5 @@
 const { readCredentials } = require("./credentials.cjs");
+const { createDeviceContextReader } = require("./device-context.cjs");
 const BASE = "https://openapi.qoder.sh";
 const API = "/sash/api/v1/me/campaigns";
 const WINDOW_MS = 86400000;
@@ -30,14 +31,16 @@ function normalizeStatus(payload, credentials, now) {
   };
 }
 
-function createQoderCheckinService({ getCredentials = readCredentials, fetchFn = fetch, now = Date.now } = {}) {
+function createQoderCheckinService({ getCredentials = readCredentials, fetchFn = fetch, now = Date.now,
+  getRequestHeaders = createDeviceContextReader() } = {}) {
   let inFlight = null;
   async function request(credentials, suffix = "", method = "GET") {
+    const deviceHeaders = await getRequestHeaders(credentials);
     let response;
     try {
       response = await fetchFn(BASE + API + suffix, {
-        method, headers: { Accept: "application/json", Authorization: `Bearer ${credentials.token}`,
-          "Cosy-ClientType": "10", "Cosy-Version": "0.4.3", "User-Agent": "Qoder" },
+        method, headers: { ...deviceHeaders, Accept: "application/json", Authorization: `Bearer ${credentials.token}`,
+          "Cosy-ClientType": "10", "User-Agent": "Qoder" },
         signal: AbortSignal.timeout(15000)
       });
     } catch { throw failure("Qoder check-in request failed or timed out.", "network", true); }

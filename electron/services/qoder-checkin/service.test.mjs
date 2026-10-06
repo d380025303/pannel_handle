@@ -3,20 +3,20 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 const require = createRequire(import.meta.url);
 const { createQoderCheckinService, normalizeStatus, windowStart } = require("./service.cjs");
 const { createQoderAutoCheckinService, getNextQoderWindowDelay } = require("./auto-checkin.cjs");
-const now = Date.parse("2026-10-05T06:00:00Z");
+const now = Date.parse("2026-10-06T13:57:29Z");
 const credentials = { token: "private-test-token", accountId: "account", accountLabel: "desktop" };
-const campaign = (claimStatus = "CLAIMABLE") => ({ campaignId: "dynamic-id", actionType: "CLAIM_BENEFIT", claimStatus,
+const campaign = (claimStatus = "CLAIMABLE") => ({ campaignId: "daily-reward", campaignKey: "act-20260930-551", actionType: "CLAIM_BENEFIT", claimStatus,
   startAt: windowStart(now) / 1000, endAt: (windowStart(now) + 86340000) / 1000,
   benefit: { kind: "CREDITS", amount: 100, validity: { mode: "RELATIVE_DAYS", days: 30 } } });
 const json = campaigns => new Response(JSON.stringify({ campaigns }));
-const service = fetchFn => createQoderCheckinService({ getCredentials: async () => credentials, fetchFn, now: () => now });
+const service = fetchFn => createQoderCheckinService({ getRequestHeaders: () => ({ "Cosy-Version": "0.4.3", "Cosy-MachineToken": "test-device-token" }), getCredentials: async () => credentials, fetchFn, now: () => now });
 afterEach(() => vi.useRealTimers());
 
 describe("Qoder campaign check-in", () => {
   it("selects only the current daily credits reward and rejects ambiguity", () => {
     const c = campaign();
     const s = normalizeStatus({ campaigns: [c, { ...c, actionType: "VIEW_DETAILS" }, { ...c, startAt: c.startAt - 86400 }] }, credentials, now);
-    expect(s).toMatchObject({ active: true, claimable: true, campaignId: "dynamic-id", accountLabel: "desktop" });
+    expect(s).toMatchObject({ active: true, claimable: true, campaignId: "daily-reward", accountLabel: "desktop" });
     expect(() => normalizeStatus({ campaigns: [c, { ...c, campaignId: "other" }] }, credentials, now)).toThrow("uniquely");
     expect(normalizeStatus({ campaigns: [{ ...c, benefit: { kind: "COUPON" } }] }, credentials, now).active).toBe(false);
   });
@@ -33,8 +33,9 @@ describe("Qoder campaign check-in", () => {
     const first = s.claim();
     expect(s.claim()).toBe(first);
     expect(await first).toMatchObject({ alreadyCheckedIn: false, status: { todayCheckedIn: true } });
-    expect(fetchFn.mock.calls[1][0].endsWith("/dynamic-id/claim")).toBe(true);
+    expect(fetchFn.mock.calls[1][0].endsWith("/daily-reward/claim")).toBe(true);
     expect(fetchFn.mock.calls[1][1].method).toBe("POST");
+    for (const [, options] of fetchFn.mock.calls) expect(options.headers).toMatchObject({ "Cosy-MachineToken": "test-device-token", "Cosy-Version": "0.4.3", Authorization: "Bearer private-test-token" });
     expect(fetchFn.mock.calls[1][1]).not.toHaveProperty("body");
   });
   it("rechecks after an ambiguous POST timeout rather than reposting", async () => {
@@ -51,7 +52,7 @@ describe("Qoder campaign check-in", () => {
   it("stops before posting if the desktop account changes", async () => {
     const fetchFn = vi.fn(async () => json([campaign()]));
     const getCredentials = vi.fn().mockResolvedValueOnce(credentials).mockResolvedValueOnce({ ...credentials, accountId: "other" });
-    const s = createQoderCheckinService({ getCredentials, fetchFn, now: () => now });
+    const s = createQoderCheckinService({ getRequestHeaders: () => ({}), getCredentials, fetchFn, now: () => now });
     await expect(s.claim()).rejects.toMatchObject({ code: "account-changed", retryable: false });
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
