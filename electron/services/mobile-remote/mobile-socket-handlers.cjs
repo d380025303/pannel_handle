@@ -3,9 +3,9 @@ const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus }) {
   const { getSizeState, applySize } = sizes;
-  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, uploads, send, agentSessionLauncher });
+  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, agentSessionLauncher });
 
   function sendReady(socket) {
     const sessions = terminalManager.listSessions();
@@ -39,6 +39,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
       sendError(socket, "SESSION_NOT_FOUND", "会话不存在或已经结束。");
       return;
     }
+    graphical.release(socket);
     socket.subscriptions.clear();
     socket.graphicalSessionId = null;
     socket.subscriptions.add(sessionId);
@@ -112,6 +113,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         const cols = Math.max(20, Math.min(500, Math.floor(Number(message.cols) || 100)));
         const rows = Math.max(5, Math.min(200, Math.floor(Number(message.rows) || 30)));
         const session = await launchMobileTemplate(agentSessionLauncher, template, cols, rows);
+        graphical.release(socket);
         socket.subscriptions.clear();
         socket.graphicalSessionId = null;
         send(socket, { type: "session.launched", sessionId: session.id });
@@ -126,6 +128,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
         uploads?.releaseSession(sessionId);
         if (replacement.agentProvider !== message.provider || replacement.runtimeMode !== "app-server")
           throw new Error("目标图形 Agent 未能启动，请查看当前会话状态。");
+        graphical.release(socket);
         socket.subscriptions.clear();
         socket.graphicalSessionId = replacement.id;
         send(socket, { type: "session.launched", sessionId: replacement.id });
@@ -185,6 +188,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     socket.on("pong", () => { socket.lastAliveAt = now(); });
     socket.on("message", (raw) => { socket.lastAliveAt = now(); handleSocketMessage(socket, raw); });
     socket.on("close", (code) => {
+      graphical.release(socket);
       uploads?.releaseSocket(socket);
       files?.releaseSocket(socket);
       if (!socket.mobileCloseReason) socket.mobileCloseReason = Number.isInteger(code) ? `socket-close-${code}` : "socket-closed";
@@ -192,7 +196,7 @@ function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessio
     });
   }
   return { sendReady, handleWebSocket, handleGraphicalChanged: graphical.handleChanged,
-    handleGraphicalDelta: graphical.handleDelta };
+    handleGraphicalAuth: graphical.handleAuthEvent, handleGraphicalDelta: graphical.handleDelta };
 }
 
 module.exports = { createMobileSocketHandlers };

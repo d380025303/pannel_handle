@@ -77,7 +77,8 @@ export type CodexCommand = "version" | "version-update" | "models" | "model-sour
   | "plugins" | "plugin-install" | "plugin-uninstall" | "marketplace-add" | "marketplace-refresh" | "marketplace-remove"
   | "plugin-config" | "plugin-enable" | "mcp-config" | "mcp-save" | "mcp-remove";
 export type CodeBuddyCommand = "attachment-preview" | "version" | "version-update" | "models" | "model-metadata" | "model-source" | "main-agents" | "main-agent" | "multitask" | "context-window" | "effort" | "side-question" | "side-cancel" | "team-message" | "goal.read" | "goal.refresh" | "goal.set" | "goal.clear" | "history.rename" | "rewind" | "tasks" | "task-create" | "task-delete" | "jobs" | "job-context" | "job-history" | "job-dispatch" | "job-resume" | "job-transcript" | "job-action" | "plugins" | "plugin-reload" | "plugin-install" | "plugin-uninstall" | "plugin-enable" | "plugin-disable" | "plugin-update" | "marketplace-add" | "marketplace-refresh" | "marketplace-remove" | "marketplace-auto" | "mcp-config" | "mcp-save" | "mcp-remove" | "mcp-reveal" | "mcp-runtime" | "mcp-restart" | "app-load" | "app-read" | "app-prepare" | "app-resolve" | "app-dispose" | "app-images";
-export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "mainAgent" | "team" | "codeBuddyGoal" | "sideQuestion" | "availableCommands" | "goal" | "goalLoading" | "goalError" | "account" | "windowsSandboxSetup" | "subAgents" | "turnDiffs" | "tokenUsage" | "turnOutputTokens" | "outputTokensPerSecond" | "outputRateAvailable" | "mcpRuntime" | "mcpLogins" | "mcpReload" | "elicitations"> & { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
+export type OpenCodeCommand = "capabilities" | "version" | "version-update" | "reconnect" | "history.rename" | "revert" | "restore" | "attachment-preview" | "auth-start" | "auth-cancel" | "auth-write" | "auth-resize";
+export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "acpAuth" | "openCodeRevert" | "historyActionsError" | "mainAgent" | "team" | "codeBuddyGoal" | "sideQuestion" | "availableCommands" | "goal" | "goalLoading" | "goalError" | "account" | "windowsSandboxSetup" | "subAgents" | "turnDiffs" | "tokenUsage" | "turnOutputTokens" | "outputTokensPerSecond" | "outputRateAvailable" | "mcpRuntime" | "mcpLogins" | "mcpReload" | "elicitations"> & { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
   signedOut?: boolean; compacting?: boolean; reviewing?: boolean; sandboxSettingUp?: boolean; mainAgentChanging?: boolean;
   streamId?: string; revision?: number;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
@@ -85,10 +86,11 @@ export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "mainAgent" | "team
   model?: string | null; effectiveModel?: string | null; backend?: string | null;
   models?: Array<{ id: string; displayName: string; fastAvailable?: boolean; defaultReasoningEffort?: string | null; supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }> }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
+  openCodeMobile?: boolean;
   codeBuddyMobile?: boolean; modelSource?: string; serviceModelId?: string | null;
   contextUsage?: { used: number; size: number } | null;
   acpOptions?: Array<{ id: string; type?: string; currentValue?: string | boolean; options: Array<{ value: string; name: string; description?: string }> }>;
-  capabilities: { sideQuestion?: boolean; rewind?: boolean; history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
+  capabilities: { renameHistory?: boolean; revertHistory?: boolean; sideQuestion?: boolean; rewind?: boolean; history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
     message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
   approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };
@@ -107,6 +109,8 @@ export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qo
   limits: GraphicalUsageLimit[] };
 
 export type ServerMessage =
+  | { v: 8; type: "graphical.opencode.auth-data"; id: string; generation: number; seq: number; data: string }
+  | ({ v: 8; type: "graphical.opencode.auth-state"; id: string } & import("../../src/vite-env").OpenCodeAuthState)
   | { v: 8; type: "graphical.result"; requestId: string; sessionId: string; threadId: string | null; result: unknown }
   | { v: 8; type: "ready"; payload: ReadyPayload }
   | { v: 8; type: "session.overview"; overview: SessionOverview }
@@ -130,6 +134,7 @@ export type ServerMessage =
   | { v: 8; type: "error"; code: string; message: string; requestId?: string };
 
 export type ClientMessage =
+  | { v: 8; type: `graphical.opencode.${OpenCodeCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }
   | { v: 8; type: `graphical.codebuddy.${CodeBuddyCommand}`; sessionId: string; threadId: string | null; requestId: string; input: Record<string, unknown> }
   | { v: 8; type: `graphical.codex.${CodexCommand}`; sessionId: string; threadId: string | null; requestId: string; input?: Record<string, unknown> }
   | { v: 8; type: "password.login"; password: string; deviceName: string }

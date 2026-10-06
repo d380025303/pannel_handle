@@ -19,7 +19,7 @@ function createMobileRemoteService({
   graphicalService,
   codexPluginService, codexVersionService, projectSearchService, mcpConfigService,
   getAgentUsage,
-  getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService,
+  getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService,
   sessionStore,
   accessStore,
   stateHub,
@@ -57,7 +57,7 @@ function createMobileRemoteService({
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
-    terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, stateHub, now,
+    terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now,
     auth, sizes, uploads, files, send, sendError,
     getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });
@@ -264,6 +264,10 @@ function createMobileRemoteService({
         else agentStatuses.set(payload.id, payload);
         queueOverview(payload.id);
       }
+      return;
+    }
+    if (channel === "opencode-auth:data" || channel === "opencode-auth:state") {
+      for (const client of auth.getClients()) socketHandlers.handleGraphicalAuth(client.socket, channel, payload);
       return;
     }
     if (channel === "codex-app-server:changed") {

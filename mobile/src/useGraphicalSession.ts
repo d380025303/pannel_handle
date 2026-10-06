@@ -4,10 +4,10 @@ import { createRequestId } from "./protocol";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
 import { canSwitchMode, modelOptions, openCodeEffortOption, openCodePlanReplyId, permissions } from "./GraphicalPresentation";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalSnapshot,
-  type CodeBuddyCommand, type CodexCommand, type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
+  type OpenCodeCommand, type CodeBuddyCommand, type CodexCommand, type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
 export type GraphicalViewProps = {
   session: RuntimeSession;
   connectionEpoch: number;
@@ -21,7 +21,8 @@ export type GraphicalViewProps = {
 
 export type CodexSheet = "version" | "capabilities" | "plugins" | "goal" | "review" | "terminals" | "account" | "sandbox" | "workspace" | "mcp-config";
 export type CodeBuddySheet = "buddy-goal" | "buddy-side" | "buddy-tasks" | "buddy-jobs" | "buddy-plugins" | "buddy-mcp" | "buddy-version" | "buddy-config";
-type ActionSheet = CodeBuddySheet | CodexSheet | "menu" | "agent" | "agent-confirm" | "model" | "effort" | "history" | "permission" | "native-mode" | null;
+export type OpenCodeSheet = "opencode-capabilities" | "opencode-version" | "opencode-auth" | "opencode-revert";
+type ActionSheet = OpenCodeSheet | CodeBuddySheet | CodexSheet | "menu" | "agent" | "agent-confirm" | "model" | "effort" | "history" | "permission" | "native-mode" | null;
 export function useGraphicalSession({ session, connectionEpoch, send, onGraphicalMessage, draft, setDraft, submissionPending, onSubmitRequest }: GraphicalViewProps) {
   const [serviceModels, setServiceModels] = useState<Array<{ source: string; id: string; name: string }>>([]);
   const [buddyModelMetadata, setBuddyModelMetadata] = useState<Array<{ id: string; creditMultiplier?: string; promotions: Array<{ id: string; label: string }> }>>([]);
@@ -35,7 +36,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const rpcRef = useRef(new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; threadId: string | null; allowThreadChange: boolean; mutation?: boolean }>());
   const rejectRequests = (reason: string, preserveTransitions = false) => {
     for (const [id, pending] of rpcRef.current) { if (preserveTransitions && pending.allowThreadChange) continue; clearTimeout(pending.timer); pending.reject(new Error(reason)); rpcRef.current.delete(id); }
-    setCodexPending(snapshotRef.current?.provider === "codebuddy" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0);
+    setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0);
   };
   const [snapshot, setSnapshot] = useState<GraphicalSnapshot | null>(null);
   const snapshotRef = useRef<GraphicalSnapshot | null>(null);
@@ -47,6 +48,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const [activeSheet, setActiveSheet] = useState<ActionSheet>(null);
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider | null>(null);
   const [history, setHistory] = useState<GraphicalHistory | null>(null);
+  const [openCodeRevertTarget, setOpenCodeRevertTarget] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMutation, setHistoryMutation] = useState<string | null>(null);
   const historyMutationRef = useRef<{ requestId: string; kind: "fork" | "delete"; threadId: string | null } | null>(null);
@@ -112,16 +114,17 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       if (message.type === "graphical.result") {
         const pending = rpcRef.current.get(message.requestId);
         if (!pending) return;
-        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(snapshotRef.current?.provider === "codebuddy" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0);
+        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0);
         if (message.sessionId !== session.id || pending.threadId !== message.threadId || !pending.allowThreadChange && message.threadId !== threadRef.current) pending.reject(new Error("对话已切换。"));
         else pending.resolve(message.result);
         return;
       }
       if (message.type === "error" && message.requestId && rpcRef.current.has(message.requestId)) {
         const pending = rpcRef.current.get(message.requestId)!;
-        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(snapshotRef.current?.provider === "codebuddy" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); pending.reject(new Error(message.message)); return;
+        clearTimeout(pending.timer); rpcRef.current.delete(message.requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); pending.reject(new Error(message.message)); return;
       }
       if (message.type === "graphical.snapshot" && message.sessionId === session.id) {
+        if (snapshotRef.current && snapshotRef.current.provider !== message.snapshot.provider) rejectRequests("Agent 已切换。");
         if (threadRef.current !== message.snapshot.threadId) {
           rejectRequests("对话已切换。", true); setReferences([]);
           if (quickIdRef.current) pendingRef.current.delete(quickIdRef.current);
@@ -137,7 +140,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
           if (fileIds.length) send({ v: PROTOCOL_VERSION, type: "graphical.upload.discard", sessionId: session.id,
             threadId: threadRef.current, fileIds, requestId: createRequestId() });
           setHistory(null);
-          setActiveSheet(null);
+          setActiveSheet(sheet => sheet === "opencode-auth" && message.snapshot.provider === "opencode" ? sheet : null);
           setSelectedProvider(null);
           setExpandedGroupId(null);
           setAttachments([]);
@@ -318,6 +321,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
 
   const action = (payload: { type: `graphical.${string}`; [key: string]: unknown }) => {
     if (!snapshot) return;
+    if (snapshot.provider === "opencode" && (codexPending || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || "")) && !["graphical.cancelQuestion", "graphical.answer", "graphical.approval", "graphical.interrupt"].includes(payload.type)) return;
     if (historyMutationRef.current && ["graphical.submit", "graphical.new-thread", "graphical.resume",
       "graphical.model", "graphical.effort", "graphical.mode", "graphical.native-mode", "graphical.plan"].includes(payload.type)) return;
     const id = createRequestId();
@@ -328,31 +332,36 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     return id;
   };
 
-  const providerRequest = <T = unknown,>(provider: "codex" | "codebuddy", command: CodexCommand | CodeBuddyCommand, input: Record<string, unknown> = {}): Promise<T> => {
+  const providerRequest = <T = unknown,>(provider: "codex" | "codebuddy" | "opencode", command: CodexCommand | CodeBuddyCommand | OpenCodeCommand, input: Record<string, unknown> = {}): Promise<T> => {
     const current = snapshotRef.current;
+    if (provider === "opencode" && !current?.openCodeMobile) return Promise.reject(new Error("请更新桌面宿主后重试。"));
     if (provider === "codebuddy" && !current?.codeBuddyMobile) return Promise.reject(new Error("请更新桌面宿主后重试。"));
     if (!current || current.provider !== provider) return Promise.reject(new Error("图形会话不可用。"));
     if (provider === "codex" && rpcRef.current.size && !["models", "version", "capabilities", "workspace-search", "attachment-preview", "app-detail", "plugin-detail", "plugin-skill", "mcp-resource", "history.initial"].includes(command)) return Promise.reject(new Error("操作正在处理，请稍候。"));
-    const mutation = provider === "codebuddy" && !["version", "models", "model-metadata", "main-agents", "goal.read", "tasks", "jobs", "job-context", "job-history", "job-transcript", "plugins", "mcp-config", "mcp-runtime", "app-load", "app-read", "attachment-preview", "app-dispose", "side-cancel", "app-resolve"].includes(command);
+    const mutation = provider === "opencode" ? !["capabilities", "version", "attachment-preview", "auth-write", "auth-resize", "auth-cancel"].includes(command) : provider === "codebuddy" && !["version", "models", "model-metadata", "main-agents", "goal.read", "tasks", "jobs", "job-context", "job-history", "job-transcript", "plugins", "mcp-config", "mcp-runtime", "app-load", "app-read", "attachment-preview", "app-dispose", "side-cancel", "app-resolve"].includes(command);
+    if (provider === "opencode" && mutation && (current.busy || current.pendingPlan || current.approvals.length || current.questions.length || isSending || attachmentsRef.current.length)) return Promise.reject(new Error("当前会话不可执行此操作。"));
     if (mutation && [...rpcRef.current.values()].some(value => value.mutation)) return Promise.reject(new Error("操作正在处理，请稍候。"));
     const requestId = createRequestId();
     if (provider === "codex" || mutation) setCodexPending(true); if (provider === "codex" || mutation) setError("");
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider === "codebuddy" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("请求超时，操作结果未确认，请刷新后核对。")); }, 120000);
-      rpcRef.current.set(requestId, { resolve: value => resolve(value as T), reject, timer, threadId: current.threadId, mutation, allowThreadChange: ["history.fork", "fast-mode", "model-source", "mcp-restart", "rewind"].includes(command) });
+      const timer = setTimeout(() => { rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("请求超时，操作结果未确认，请刷新后核对。")); }, 120000);
+      rpcRef.current.set(requestId, { resolve: value => resolve(value as T), reject, timer, threadId: current.threadId, mutation, allowThreadChange: ["history.fork", "fast-mode", "model-source", "mcp-restart", "rewind", "reconnect", "auth-start", "revert", "restore"].includes(command) });
       if (!send({ v: PROTOCOL_VERSION, type: `graphical.${provider}.${command}`, sessionId: session.id, threadId: current.threadId, requestId, input } as ClientMessage)) {
-        clearTimeout(timer); rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider === "codebuddy" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("连接已断开，请重试。"));
+        clearTimeout(timer); rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("连接已断开，请重试。"));
       }
     });
   };
   const codexRequest = <T = unknown,>(command: CodexCommand, input: Record<string, unknown> = {}) => providerRequest<T>("codex", command, input);
   const buddyRequest = <T = unknown,>(command: CodeBuddyCommand, input: Record<string, unknown> = {}) => providerRequest<T>("codebuddy", command, input);
+  const openCodeRequest = <T = unknown,>(command: OpenCodeCommand, input: Record<string, unknown> = {}) => providerRequest<T>("opencode", command, input);
   const insertReference = (text: string, reference?: CodexCapabilityReference) => {
     setDraft(current => `${current}${current && !/\s$/.test(current) ? " " : ""}${text} `);
     if (reference) setReferences(current => [...current.filter(value => value.path !== reference.path), reference]);
     setActiveSheet(null);
   };
-  const slashCommands = snapshot?.provider === "codebuddy" ? [
+  const slashCommands = snapshot?.provider === "opencode" ? [
+    ["new", "新对话"], ["history", "历史会话"], ["mode", "模式"], ...(snapshot.acpOptions?.some(option => option.id === "model") ? [["model", "模型"]] : []), ...(openCodeEffortOption(snapshot) ? [["effort", "思考强度"]] : []), ["files", "附加文件"], ...(snapshot.availableCommands || []).map(command => [command.name, command.description || "OpenCode 命令"])
+  ].filter((row, index, rows) => rows.findIndex(value => value[0] === row[0]) === index) : snapshot?.provider === "codebuddy" ? [
     ["new", "新对话"], ["history", "历史会话"], ["mode", "模式"], ["model", "模型"], ...(snapshot.codeBuddyMobile ? [["mainAgent", "主 Agent"], ["multitask", "Multitask"], ["contextWindow", "上下文窗口"], ["goal", "目标管理"]] : []),
     ...(snapshot.capabilities?.sideQuestion ? [["btw", "独立旁问"]] : []),
     ...(session.type === "windows" && snapshot.codeBuddyMobile ? [["plugins", "插件管理"], ["codeBuddyJobs", "后台智能体"], ["tasks", "定时任务"], ["mcp", "MCP 管理"], ["version", "CLI 版本"]] : []),
@@ -363,6 +372,13 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     ["mode", "模式"], ["model", "模型"], ["effort", "思考强度"], ["fastMode", "快速模式"], ["permission", "执行权限"], ["files", "附加文件"]
   ].filter(([id]) => !["effort", "fastMode"].includes(id) || snapshot?.backend === "openai");
   const invokeSlash = (command: string) => {
+    if (snapshot?.provider === "opencode") {
+      if (command === "new") { if (snapshot.busy || isSending || codexPending) return false; action({ type: "graphical.new-thread" }); setDraft(""); }
+      else if (command === "history") { openHistory(); setDraft(""); }
+      else if (command === "mode" || command === "model" || command === "effort" || command === "files") { setActiveSheet(command === "mode" ? "native-mode" : command === "files" ? "menu" : command); setDraft(""); }
+      else { setDraft(`/${command} `); }
+      return true;
+    }
     if (snapshot?.provider === "codebuddy") {
       if (command === "new") { if (snapshot.busy || isSending) return false; action({ type: "graphical.new-thread" }); }
       else if (command === "history") openHistory();
@@ -389,13 +405,14 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   };
   const submit = () => {
     const text = draft.trim();
-    if (text.startsWith("/") && slashCommands.some(([id]) => id.toLowerCase() === text.slice(1).toLowerCase()) && invokeSlash(text.slice(1))) return;
+    if (!(snapshot?.provider === "opencode" && !["new", "history", "mode", "model", "effort", "files"].includes(text.slice(1))) && text.startsWith("/") && slashCommands.some(([id]) => id.toLowerCase() === text.slice(1).toLowerCase()) && invokeSlash(text.slice(1))) return;
     const ready = attachments.filter(item => item.status === "ready" && item.fileId);
     if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending || historyMutationRef.current || !graphicalInputPolicy(snapshot).canSubmit) return;
     submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId), references }) || null;
     if (submitIdRef.current) { onSubmitRequest(submitIdRef.current); setSending(true); }
   };
   const runQuickCommand = (command: QuickCommand) => {
+    if (snapshot?.provider === "opencode" && codexPending) return false;
     if (!snapshot || !graphicalInputPolicy(snapshot, Boolean(historyMutationRef.current)).canInput) return false;
     if ((command.mode || "write") === "write") { setDraft(current => current + command.command); return true; }
     if (isSending || quickIdRef.current || historyMutationRef.current || !graphicalInputPolicy(snapshot).canSubmit) return false;
@@ -502,7 +519,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     if (modeIdRef.current) setChangingMode(true);
   };
   const switchAgent = (provider: AgentProvider) => {
-    if (historyMutationRef.current) return;
+    if (historyMutationRef.current || snapshot?.provider === "opencode" && (codexPending || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || ""))) return;
     if (!snapshot || snapshot.busy || snapshot.approvals.length || snapshot.questions.length || snapshot.pendingPlan || switchingTo
       || provider === snapshot.provider) return;
     const id = createRequestId();
@@ -559,7 +576,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   useEffect(() => {
     if (snapshot?.provider === "codex" && activeSheet === "history" && historyQuery.trim() && history?.nextCursor && !historyLoading) loadHistory(history.nextCursor);
   }, [activeSheet, historyQuery, history, historyLoading]);
-  return { buddyModelMetadata, buddyRequest, session, capabilityTab, setCapabilityTab, slashCommands, invokeSlash, serviceModels, codexPending, references, setReferences, codexRequest, insertReference, historyArchived, historyQuery, setHistoryQuery, snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
+  return { openCodeRevertTarget, setOpenCodeRevertTarget, openCodeRequest, onGraphicalMessage, buddyModelMetadata, buddyRequest, session, capabilityTab, setCapabilityTab, slashCommands, invokeSlash, serviceModels, codexPending, references, setReferences, codexRequest, insertReference, historyArchived, historyQuery, setHistoryQuery, snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
     history, historyLoading, historyMutation, mutateHistory, expandedGroupId, setExpandedGroupId, changingMode, changingPermission, changingModel, changingEffort,
     attachments, setAttachments, switchingTo, scrollRef, moreButtonRef, sheetRef, action, submit,
     runQuickCommand, changeModel, changeEffort, uploadFile, addFiles, removeAttachment, changeMode, changePermission,

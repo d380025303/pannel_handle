@@ -2,7 +2,7 @@ import type { GraphicalSnapshot } from "./types";
 
 export function graphicalInputPolicy(snapshot: GraphicalSnapshot, historyMutation = false) {
   const canSendWhileBusy = snapshot.provider === "codex" && !snapshot.compacting && !snapshot.reviewing;
-  const canInput = Boolean(snapshot.threadId) && !snapshot.signedOut && !snapshot.archived && !historyMutation
+  const canInput = !(snapshot.provider === "opencode" && ["running", "reconnecting"].includes(snapshot.acpAuth?.status || "")) && Boolean(snapshot.threadId) && !snapshot.signedOut && !snapshot.archived && !historyMutation
     && (!snapshot.busy || canSendWhileBusy);
   const canSubmit = canInput && !snapshot.compacting && !snapshot.reviewing && !snapshot.sandboxSettingUp && !snapshot.mainAgentChanging;
   return { canInput, canSubmit };

@@ -3,7 +3,7 @@ import type { ConnectionStatus, RuntimeSession, ServerMessage } from "./types";
 
 type TextDraft = { text: string; version: number };
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
 
 export function useSessionDrafts(sessions: RuntimeSession[], status: ConnectionStatus,
   onGraphicalMessage: (listener: (message: GraphicalMessage) => void) => () => void) {
@@ -12,6 +12,7 @@ export function useSessionDrafts(sessions: RuntimeSession[], status: ConnectionS
   const [pasteOpenBySession, setPasteOpenBySession] = useState<Record<string, boolean>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, string>>({});
   const [recoveryNotice, setRecoveryNotice] = useState("");
+  const removedDrafts = useRef(new Map<string, TextDraft>());
   const pendingSubmissions = useRef(new Map<string, { sessionId: string; version: number }>());
 
   const updateGraphicalDraft = useCallback((sessionId: string, update: SetStateAction<string>) => {
@@ -25,6 +26,15 @@ export function useSessionDrafts(sessions: RuntimeSession[], status: ConnectionS
 
   useEffect(() => {
     const unsubscribe = onGraphicalMessage(message => {
+      if (message.type === "graphical.result") {
+        const result = message.result as { id?: string; previousSessionId?: string } | null;
+        if (result?.previousSessionId === message.sessionId && typeof result.id === "string") {
+          const replacementId = result.id, recovered = removedDrafts.current.get(message.sessionId);
+          removedDrafts.current.delete(message.sessionId);
+          setGraphicalDrafts(current => { const previous = current[message.sessionId] || recovered; return previous?.text && !current[replacementId]?.text ? { ...current, [replacementId]: previous } : current; });
+        }
+        return;
+      }
       if (message.type !== "command.ok" && message.type !== "error") return;
       if (!message.requestId) return;
       const pending = pendingSubmissions.current.get(message.requestId);
@@ -48,7 +58,11 @@ export function useSessionDrafts(sessions: RuntimeSession[], status: ConnectionS
   useEffect(() => {
     if (status !== "connected") return;
     const ids = new Set(sessions.map(session => session.id));
-    setGraphicalDrafts(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+    setGraphicalDrafts(current => {
+      for (const [id, draft] of Object.entries(current)) if (!ids.has(id) && draft.text) removedDrafts.current.set(id, draft);
+      while (removedDrafts.current.size > 32) removedDrafts.current.delete(removedDrafts.current.keys().next().value!);
+      return Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)));
+    });
     setPasteDrafts(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
     setPasteOpenBySession(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
     setPendingBySession(current => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));

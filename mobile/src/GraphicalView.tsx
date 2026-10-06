@@ -16,7 +16,7 @@ export function GraphicalView(props: GraphicalViewProps) {
   const remote = useCodeBuddyApi(controller);
   const { snapshot, isSending, error, activeSheet, setActiveSheet, switchingTo, moreButtonRef, runQuickCommand } = controller;
   if (!snapshot) return <section className="graphical-shell graphical-loading">正在加载图形会话…</section>;
-  const inputPolicy = graphicalInputPolicy(snapshot, Boolean(controller.historyMutation));
+  const inputPolicy = graphicalInputPolicy(snapshot, Boolean(controller.historyMutation || snapshot.provider === "opencode" && controller.codexPending));
   const context = snapshot.contextUsage;
   const contextPercent = context && context.size > 0 ? Math.min(100, Math.max(0, context.used / context.size * 100)) : null;
   return <CodeBuddyMcpAppContext.Provider value={{ sessionId: session.id, threadId: snapshot.threadId || "", api: remote.mcp,
@@ -40,21 +40,21 @@ export function GraphicalView(props: GraphicalViewProps) {
     <header className="graphical-header">
       <div className="graphical-header-details">
         <strong>{session.title}</strong>
-        <span>{providerLabel(snapshot.provider)} · {snapshot.busy ? "运行中" : "就绪"}</span>
+        <span>{providerLabel(snapshot.provider)} · {snapshot.provider === "opencode" && snapshot.acpAuth?.required ? "需要登录" : snapshot.questions.length ? "等待回答" : snapshot.approvals.length ? "待确认" : snapshot.busy ? "运行中" : "就绪"}</span>
         <div className="graphical-current-config">
           <span>模型：{modelLabel(snapshot)}</span>
           {snapshot.provider === "codebuddy" && snapshot.modelSource === "native" && controller.buddyModelMetadata.filter(model => model.id === snapshot.acpOptions?.find(option => option.id === "model")?.currentValue).map(model => <span key={model.id}>{model.creditMultiplier ? `模型倍率：${model.creditMultiplier}` : ""}{model.promotions.map(promotion => ` · ${promotion.label}`).join("")}</span>)}
           <span>强度：{effortLabel(snapshot)}</span>
           {snapshot.provider === "codex" && permissionLabel(snapshot.executionPermission)
             && <span>执行权限：{permissionLabel(snapshot.executionPermission)}</span>}
-          {snapshot.provider === "codex" && snapshot.tokenUsage && <span>Token：{snapshot.tokenUsage.total.totalTokens.toLocaleString()}{snapshot.tokenUsage.modelContextWindow ? ` · 上下文 ${Math.min(100, snapshot.tokenUsage.last.totalTokens / snapshot.tokenUsage.modelContextWindow * 100).toFixed(1)}%` : ""}</span>}
-          {snapshot.provider === "codex" && snapshot.outputRateAvailable && <span>本轮输出：{snapshot.turnOutputTokens || 0} Token · {(snapshot.outputTokensPerSecond || 0).toFixed(1)} Token/s</span>}
+          {["codex", "opencode"].includes(snapshot.provider) && snapshot.tokenUsage && <span>Token：{snapshot.tokenUsage.total.totalTokens.toLocaleString()}{snapshot.tokenUsage.modelContextWindow ? ` · 上下文 ${Math.min(100, snapshot.tokenUsage.last.totalTokens / snapshot.tokenUsage.modelContextWindow * 100).toFixed(1)}%` : ""}</span>}
+          {["codex", "opencode"].includes(snapshot.provider) && snapshot.outputRateAvailable && <span>本轮输出：{snapshot.turnOutputTokens || 0} Token · {(snapshot.outputTokensPerSecond || 0).toFixed(1)} Token/s</span>}
           {snapshot.fastMode && <span>快速模式</span>}
           {context && contextPercent !== null && <span aria-label="上下文用量">上下文：{contextPercent.toFixed(1)}% · {context.used.toLocaleString()} / {context.size.toLocaleString()}</span>}
         </div>
       </div>
       {switchingTo && <span className="graphical-switching">切换中…</span>}
-      {snapshot.provider !== "codex" && snapshot.provider !== "codebuddy" && <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
+      {!["codex", "codebuddy", "opencode"].includes(snapshot.provider) && <button ref={moreButtonRef} type="button" className="graphical-more-button" aria-label="更多操作" aria-haspopup="dialog"
         aria-expanded={Boolean(activeSheet)} onClick={() => setActiveSheet("menu")}><GraphicalIcon name="more" /></button>}
     </header>
     <GraphicalUsage sessionId={session.id} sessionType={session.type} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />

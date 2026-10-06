@@ -198,6 +198,7 @@ describe("mobile graphical session route", () => {
 
   it("switches only advertised models for each provider", async () => {
     const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [], pendingPlan: null });
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     f.snapshot.backend = "openai";
     f.snapshot.models = [{ id: "gpt-6" }];
@@ -217,6 +218,7 @@ describe("mobile graphical session route", () => {
 
   it("filters local OpenCode MiniMax variants and rejects hidden models on mobile", async () => {
     const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [], pendingPlan: null });
     f.session.type = "windows";
     f.session.agentProvider = "opencode";
     f.snapshot.provider = "opencode";
@@ -290,6 +292,7 @@ describe("mobile graphical session route", () => {
 
   it("routes Codex mode changes and allows only advertised safe ACP modes", async () => {
     const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [], pendingPlan: null });
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     await f.handlers.handle(f.socket, { type: "graphical.mode", sessionId: "graph-1", threadId: "thread-1", mode: "plan", requestId: "m1" });
     expect(f.graphicalService.setMode).toHaveBeenCalledWith("graph-1", "plan");
@@ -335,6 +338,7 @@ describe("mobile graphical session route", () => {
 
   it("routes Codex permissions and advertised ACP native modes", async () => {
     const f = fixture();
+    Object.assign(f.snapshot, { approvals: [], questions: [], pendingPlan: null });
     await f.handlers.handle(f.socket, { type: "graphical.subscribe", sessionId: "graph-1" });
     f.snapshot.capabilities = { permissions: true, supportedPermissions: ["askApproval", "fullAccess"] };
     await f.handlers.handle(f.socket, { type: "graphical.permission", sessionId: "graph-1", threadId: "thread-1", permission: "fullAccess", requestId: "p1" });

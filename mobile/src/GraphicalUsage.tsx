@@ -4,7 +4,7 @@ import { GraphicalIcon } from "./GraphicalIcon";
 import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type GraphicalUsage, type ServerMessage } from "./types";
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
 type Props = {
   sessionId: string;
   sessionType: "windows" | "wsl" | "ssh";

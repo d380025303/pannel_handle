@@ -11,7 +11,7 @@ vi.mock("./TerminalView", () => ({ TerminalView: ({ pasteText, setPasteText, pas
   onChange={event => setPasteText(event.target.value)} />}</div> }));
 
 type GraphicalMessage = Extract<ServerMessage,
-  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
+  { type: "graphical.snapshot" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
 const first: RuntimeSession = { id: "graph-1", title: "图形一", type: "windows", runtimeMode: "app-server", agentProvider: "codex" };
 const second: RuntimeSession = { ...first, id: "graph-2", title: "图形二" };
 const terminal: RuntimeSession = { id: "terminal-1", title: "终端", type: "windows", runtimeMode: "terminal" };
@@ -104,4 +104,18 @@ it("keeps a failed graphical submission available for retry after switching away
   showGraphical(first.id);
   expect((screen.getByPlaceholderText("输入消息") as HTMLTextAreaElement).value).toBe("重试内容");
   expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(false);
+});
+
+it("preserves an OpenCode draft when reconnect replaces the running session", () => {
+  remote.sessions = [{ ...first, agentProvider: "opencode" }];
+  const view = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开图形一详情" }));
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: first.id, snapshot: { ...snapshot, provider: "opencode", openCodeMobile: true } });
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "draft to keep" } });
+  remote.sessions = []; view.rerender(<App />);
+  const replacement = { ...first, id: "replacement", agentProvider: "opencode" as const };
+  remote.sessions = [replacement]; remote.lastLaunchedId = replacement.id; view.rerender(<App />);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: first.id, threadId: "thread-1", requestId: "reconnect", result: { id: replacement.id, previousSessionId: first.id } });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: replacement.id, snapshot: { ...snapshot, provider: "opencode", openCodeMobile: true } });
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("draft to keep");
 });

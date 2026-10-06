@@ -1,3 +1,4 @@
+const { createMobileOpenCodeHandlers } = require("./mobile-opencode.cjs");
 const { createMobileCodeBuddyHandlers } = require("./mobile-codebuddy.cjs");
 const { createMobileCodexHandlers } = require("./mobile-codex.cjs");
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
@@ -7,9 +8,10 @@ const { graphicalSubmitError } = require("./graphical-input-policy.cjs");
 
 const MAX_TEXT_BYTES = 16 * 1024;
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
+  const openCode = createMobileOpenCodeHandlers({ graphicalService, openCodeVersionService, agentSessionLauncher });
   const codex = createMobileCodexHandlers({ graphicalService, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService, getCodexVerifiedModels });
-  const buddy = createMobileCodeBuddyHandlers({ graphicalService, codeBuddyPluginService, codeBuddyVersionService, mcpConfigService, agentSessionLauncher, getCodeBuddyVerifiedModels });
+  const buddy = createMobileCodeBuddyHandlers({ graphicalService, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, mcpConfigService, agentSessionLauncher, getCodeBuddyVerifiedModels });
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -39,7 +41,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     if (!["codex", "codebuddy", "opencode", "claude", "qoder", "gemini", "grok"].includes(message.provider) || message.provider === session.agentProvider
       || (message.provider === "gemini" || message.provider === "grok") && session.type === "ssh")
       throw new Error("无效的目标 Agent。");
-    if (current.busy || current.approvals?.length || current.questions?.length || current.pendingPlan)
+    if (current.busy || current.approvals?.length || current.questions?.length || current.pendingPlan || ["running", "reconnecting"].includes(current.acpAuth?.status))
       throw new Error("当前会话正在执行或有待处理操作，请处理后再切换 Agent。");
     return sessionId;
   }
@@ -48,6 +50,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     const sessionId = String(message.sessionId || "");
     const session = assertSession(sessionId);
     if (message.type === "graphical.subscribe") {
+      if (socket.graphicalSessionId !== sessionId) openCode.release(socket);
       socket.subscriptions.clear();
       socket.graphicalSessionId = sessionId;
       socket.graphicalDelta = message.delta === true;
@@ -72,16 +75,18 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       return;
     }
     if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
-    if (message.type.startsWith("graphical.codex.") || message.type.startsWith("graphical.codebuddy.")) {
-      let result = await (message.type.startsWith("graphical.codebuddy.") ? buddy : codex).handle(message, session, current);
-      if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result, undefined, session);
+    if (message.type.startsWith("graphical.codex.") || message.type.startsWith("graphical.codebuddy.") || message.type.startsWith("graphical.opencode.")) {
+      let result = await (message.type.startsWith("graphical.opencode.") ? openCode : message.type.startsWith("graphical.codebuddy.") ? buddy : codex).handle(message, session, current, socket);
+      if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result, result.provider === "opencode" ? visibleOpenCodeOptions(result, session, session.type === "ssh" ? undefined : getOpenCodeVerifiedModels?.()) : undefined, session);
       send(socket, { type: "graphical.result", requestId: message.requestId, sessionId, threadId: message.threadId, result: result ?? null });
       if (socket.graphicalSessionId === sessionId && terminalManager.getSession(sessionId)) {
         sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
       }
-      if (["graphical.codex.model-source", "graphical.codebuddy.model-source"].includes(message.type) && result?.id) send(socket, { type: "session.launched", sessionId: result.id });
+      if (["graphical.codex.model-source", "graphical.codebuddy.model-source", "graphical.opencode.reconnect"].includes(message.type) && result?.id) send(socket, { type: "session.launched", sessionId: result.id });
       return;
     }
+    if (current.provider === "opencode" && ["graphical.model", "graphical.mode", "graphical.native-mode", "graphical.new-thread", "graphical.resume", "graphical.fork", "graphical.delete", "graphical.upload.prepare"].includes(message.type)
+      && (current.pendingPlan || current.approvals?.length || current.questions?.length || ["running", "reconnecting"].includes(current.acpAuth?.status))) throw new Error("当前会话有待处理操作。请处理后重试。");
     if (message.type === "graphical.upload.prepare") {
       if (!uploads || !current.threadId || current.archived || current.busy && current.provider !== "codex")
         throw new Error("当前会话不可上传附件。");
@@ -168,7 +173,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
         throw new Error("问题请求已失效。");
       await graphicalService.answerQuestion(sessionId, message.questionId, message.answers);
     } else if (message.type === "graphical.cancelQuestion") {
-      if ((current.provider !== "codebuddy" && current.provider !== "claude") || !current.questions?.some(value => String(value.requestId) === String(message.questionId)))
+      if (!["codebuddy", "claude", "opencode"].includes(current.provider) || !current.questions?.some(value => String(value.requestId) === String(message.questionId)))
         throw new Error("问题请求已失效。");
       await graphicalService.cancelQuestion(sessionId, message.questionId);
     } else if (message.type === "graphical.mode") {
@@ -239,7 +244,8 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
     } catch { /* The session ended while a change was queued. */ }
   }
 
-  return { handle, handleChanged, handleDelta, assertSwitchAllowed };
+  return { handle, handleChanged, handleDelta, assertSwitchAllowed, release: openCode.release,
+    handleAuthEvent: (socket, channel, payload) => openCode.event(socket, channel, payload, send) };
 }
 
 module.exports = { createMobileGraphicalHandlers, toMobileGraphicalSnapshot, toMobileUsageSnapshot };

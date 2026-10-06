@@ -1,0 +1,11 @@
+.opencode-mobile-terminal { height: min(45dvh, 360px); min-height: 160px; width: 100%; background: #171717; overflow: hidden; }
+.opencode-mobile-terminal .xterm { height: 100%; }
+.opencode-mobile-panel .graphical-sheet-list select { max-width: 100%; }
+.opencode-mobile-panel .graphical-sheet-list small { display: block; white-space: normal; overflow-wrap: anywhere; }
+.opencode-mobile-panel .codex-version-confirm { position: static; width: 100%; }
+.opencode-mobile-panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.opencode-mobile-panel .graphical-sheet-list button span { display: block; }
+.opencode-mobile-panel .graphical-sheet-list input, .opencode-mobile-panel .graphical-sheet-list select { width: 100%; min-height: 44px; padding: 10px; border: 1px solid #344459; border-radius: 8px; color: #e2e8f0; background: #19283b; }
+.opencode-mobile-panel .graphical-actions button { width: auto; min-width: 44px; }
+.opencode-mobile-panel .codex-version-control { padding: 12px; overflow-wrap: anywhere; }
+.opencode-mobile-panel pre { max-width: 100%; overflow-x: auto; }

@@ -4,6 +4,14 @@ import { afterEach, expect, it, vi } from "vitest";
 import { GraphicalView } from "./GraphicalView";
 import { PROTOCOL_VERSION, type ClientMessage, type GraphicalSnapshot, type RuntimeSession, type ServerMessage } from "./types";
 
+const loginTerminal = vi.hoisted(() => ({ write: vi.fn(), input: null as null | ((data: string) => void) }));
+vi.mock("@xterm/xterm", () => ({ Terminal: class {
+  cols = 80; rows = 24; open() {} loadAddon() {} reset() {} focus() {} dispose() {}
+  write(data: string) { loginTerminal.write(data); }
+  onData(callback: (data: string) => void) { loginTerminal.input = callback; return { dispose() {} }; }
+} }));
+vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
+
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it("shows OpenCode structured results and preserves expanded details on updates", async () => {
@@ -39,7 +47,7 @@ const snapshot: GraphicalSnapshot = {
 function fixture(viewSession = session) {
   const send = vi.fn((_message: ClientMessage) => true);
   type GraphicalMessage = Extract<ServerMessage,
-    { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "command.ok" | "error" }>;
+    { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
   const listeners = new Set<(message: GraphicalMessage) => void>();
   const subscribe = (callback: (message: GraphicalMessage) => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
   let changeEpoch: (value: number) => void = () => {};
@@ -1070,4 +1078,121 @@ it("keeps CodeBuddy management actions restricted to Windows hosts", () => {
   expect(screen.queryByRole("button", { name: "MCP 管理" })).toBeNull();
   expect(screen.queryByRole("button", { name: "后台智能体" })).toBeNull();
   expect(screen.getByRole("button", { name: "目标管理" })).toBeTruthy();
+});
+
+function openCodeFixture(extra: Partial<GraphicalSnapshot> = {}) {
+  const f = fixture({ ...session, agentProvider: "opencode" });
+  const current: GraphicalSnapshot = { ...snapshot, provider: "opencode", openCodeMobile: true, nativeMode: "build", nativeModes: [{ id: "build", name: "Build" }, { id: "plan", name: "Plan" }], ...extra };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: current });
+  const reply = (type: string, result: unknown) => {
+    const request = f.send.mock.calls.map(([message]) => message).filter(message => message.type === type).at(-1)!;
+    f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: current.threadId, requestId: "requestId" in request ? request.requestId : "", result });
+  };
+  return { ...f, current, reply };
+}
+
+it("loads current OpenCode Skills and MCP and inserts prompts without sending", async () => {
+  const f = openCodeFixture();
+  const sheet = openSheet("Skills 和 MCP");
+  f.reply("graphical.opencode.capabilities", { skills: [{ id: "review", name: "Review", description: "Inspect", enabled: true, path: "/review", scope: "project" }], apps: [], mcp: [], errors: {} });
+  await waitFor(() => expect(within(sheet).getByRole("button", { name: /Review/ })).toBeTruthy());
+  expect(within(sheet).queryByRole("tab", { name: "Apps" })).toBeNull();
+  fireEvent.click(within(sheet).getByRole("button", { name: /Review/ }));
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toContain("请使用 skill 工具加载 review");
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.submit")).toBe(false);
+  const second = openSheet("Skills 和 MCP");
+  f.reply("graphical.opencode.capabilities", { skills: [], apps: [], mcp: [{ name: "search", status: "connected", tools: [{ name: "web_search", description: "Search" }] }], errors: {} });
+  fireEvent.click(within(second).getByRole("tab", { name: "MCP" }));
+  await waitFor(() => expect(within(second).getByRole("button", { name: /web_search/ })).toBeTruthy());
+  fireEvent.click(within(second).getByRole("button", { name: /web_search/ }));
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toContain("请使用 MCP 工具 web_search");
+});
+
+it("shows only advertised OpenCode slash commands and keeps native commands as drafts", () => {
+  const f = openCodeFixture({ availableCommands: [{ name: "compact", description: "Compact session" }] });
+  const input = screen.getByRole("textbox", { name: "图形对话输入" }); fireEvent.change(input, { target: { value: "/" } });
+  expect(screen.getByRole("option", { name: /compact/ })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: /插件|Apps|goal|review/ })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: /compact/ })); expect((input as HTMLTextAreaElement).value).toBe("/compact ");
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.submit")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", text: "/compact" }));
+});
+
+it("confirms OpenCode message reverts and preserves the draft on failure", async () => {
+  const f = openCodeFixture({ capabilities: { history: true, revertHistory: true }, items: [{ id: "u", type: "userMessage", text: "question", rewindMessageId: "msg" }] });
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "my draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "回退到此处" }));
+  fireEvent.click(screen.getByRole("button", { name: "回退对话与文件" }));
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.opencode.revert")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "确认回退" }));
+  const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.opencode.revert")!;
+  expect(request).toEqual(expect.objectContaining({ input: { messageId: "msg" } }));
+  f.emit({ v: PROTOCOL_VERSION, type: "error", code: "GRAPHICAL_COMMAND_FAILED", message: "回退失败", requestId: "requestId" in request ? request.requestId : "" });
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("回退失败"));
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("my draft");
+});
+
+it("starts OpenCode login without a thread, deduplicates terminal output and cancels on close", async () => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} }); loginTerminal.write.mockClear();
+  const f = openCodeFixture({ threadId: null, acpAuth: { status: "idle", generation: 0, error: null, required: true, methods: [{ id: "login", name: "Login", description: "" }] } });
+  const sheet = openSheet("登录 OpenCode"); fireEvent.click(within(sheet).getByRole("button", { name: "开始登录" }));
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.opencode.auth-data", id: session.id, generation: 7, seq: 2, data: "second" });
+  f.reply("graphical.opencode.auth-start", { generation: 7, seq: 1, history: "first" });
+  await waitFor(() => expect(loginTerminal.write).toHaveBeenCalledWith("second"));
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.opencode.auth-data", id: session.id, generation: 7, seq: 2, data: "second" });
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.opencode.auth-data", id: session.id, generation: 8, seq: 3, data: "foreign" });
+  expect(loginTerminal.write.mock.calls).toEqual([["first"], ["second"]]);
+  act(() => loginTerminal.input?.("\r"));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.opencode.auth-write", input: { generation: 7, data: "\r" } }));
+  fireEvent.click(within(sheet).getByRole("button", { name: "关闭弹层" }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.opencode.auth-cancel", input: { generation: 7 } }));
+});
+
+it("disables advanced OpenCode entries against older hosts", () => {
+  openCodeFixture({ openCodeMobile: false }); fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(screen.getByRole("button", { name: "Skills 和 MCP" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByText("更新桌面宿主后可使用完整 OpenCode 功能。")).toBeTruthy();
+});
+
+it("refreshes OpenCode capabilities after failure and keeps disconnected MCP tools disabled", async () => {
+  const f = openCodeFixture(), sheet = openSheet("Skills 和 MCP");
+  const request = f.send.mock.calls.map(([message]) => message).find(message => message.type === "graphical.opencode.capabilities")!;
+  f.emit({ v: PROTOCOL_VERSION, type: "error", code: "GRAPHICAL_COMMAND_FAILED", message: "能力读取失败", requestId: "requestId" in request ? request.requestId : "" });
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toContain("能力读取失败"));
+  fireEvent.click(within(sheet).getByRole("button", { name: "刷新" }));
+  f.reply("graphical.opencode.capabilities", { skills: [], apps: [], mcp: [{ name: "offline", status: "failed", tools: [{ name: "offline_tool", description: "Unavailable" }] }], errors: {} });
+  fireEvent.click(within(sheet).getByRole("tab", { name: "MCP" }));
+  await waitFor(() => expect(within(sheet).getByRole("button", { name: /offline_tool/ }).hasAttribute("disabled")).toBe(true));
+});
+
+it("restores a staged OpenCode revert and refreshes the snapshot", async () => {
+  const f = openCodeFixture({ openCodeRevert: { messageID: "msg" }, capabilities: { history: true, revertHistory: true } });
+  fireEvent.click(screen.getByRole("button", { name: "恢复回退" }));
+  const sheet = screen.getByRole("dialog", { name: "回退与恢复" });
+  fireEvent.click(within(sheet).getByRole("button", { name: "恢复回退" }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.opencode.restore", input: {} }));
+  f.reply("graphical.opencode.restore", { ...f.current, openCodeRevert: null });
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...f.current, openCodeRevert: null } });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByText("对话已回退；发送新消息将提交回退。")).toBeNull();
+});
+
+it("shows the OpenCode version upgrade confirmation before invoking update", async () => {
+  const f = openCodeFixture(), sheet = openSheet("CLI 版本");
+  f.reply("graphical.opencode.version", { status: "available", currentVersion: "2.0.18", latestVersion: "2.0.19", method: "npm", environment: "windows" });
+  await waitFor(() => expect(within(sheet).getByRole("button", { name: /更新 OpenCode/ })).toBeTruthy());
+  fireEvent.click(within(sheet).getByRole("button", { name: /更新 OpenCode/ }));
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.opencode.version-update")).toBe(false);
+  fireEvent.click(within(sheet).getByRole("button", { name: /确认更新/ }));
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.opencode.version-update" }));
+  f.reply("graphical.opencode.version-update", { status: "current", currentVersion: "2.0.19", latestVersion: "2.0.19", environment: "windows", restartRequired: true });
+  await waitFor(() => expect(within(sheet).getByText(/手动重启会话/)).toBeTruthy());
+});
+
+it("disables OpenCode mutations while waiting for a Question", () => {
+  openCodeFixture({ questions: [{ requestId: 1, submitting: false, params: { threadId: "thread-1", turnId: "turn", questions: [{ id: "q", header: "Question", question: "Choose", options: [{ label: "A", description: "" }] }] } }] });
+  expect(screen.getByRole("button", { name: "Build" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(within(screen.getByRole("dialog")).getByRole("button", { name: /登录 OpenCode/ }).hasAttribute("disabled")).toBe(true);
 });

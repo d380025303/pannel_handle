@@ -538,7 +538,7 @@ if (!gotSingleInstanceLock) {
       graphicalService: codexAppServerSessionService,
       codexPluginService, codexVersionService, projectSearchService: { searchWorkspaceEntries: (...args) => projectSearchService.searchWorkspaceEntries(...args) }, mcpConfigService,
       getAgentUsage: (sessionId, options) => tokenUsageModule.getUsage(sessionId, options),
-      codeBuddyPluginService, codeBuddyVersionService,
+      codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService,
       getCodeBuddyVerifiedModels: () => [
         ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
       ].flatMap(([source, store]) => !store.getApiKey() ? [] : store.getCachedModels()
