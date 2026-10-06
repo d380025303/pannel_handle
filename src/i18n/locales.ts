@@ -158,6 +158,10 @@ export type TranslationKey =
   | "usage.qoderCheckinTitle"
   | "usage.qoderCheckinAccount"
   | "usage.qoderCheckinClaimed"
+  | "usage.qoderUsageAccount"
+  | "usage.qoderAddOn"
+  | "usage.qoderAccountChanged"
+  | "usage.qoderCheckinFailed"
   | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -502,6 +506,8 @@ export type TranslationKey =
   | "usage.notInPlan"
   | "usage.copilotUnavailable"
   | "usage.grokUnavailable"
+  | "usage.qoderRewardExpirationUnavailable"
+  | "usage.qoderRewardExpiresAt"
   | "usage.qoderActivities"
   | "usage.qoderActivityUnavailable"
   | "usage.qoderActivityEmpty"
@@ -1194,6 +1200,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderCheckinTitle": "Qoder 每日签到",
     "usage.qoderCheckinAccount": "桌面 App 账号：{account}（可能与会话账号不同）",
     "usage.qoderCheckinClaimed": "本轮已领取 {credit} Credits",
+    "usage.qoderUsageAccount": "额度与签到账号：{account}",
+    "usage.qoderAddOn": "附加额度（含奖励）",
+    "usage.qoderAccountChanged": "Qoder 桌面 App 账号已变化，请刷新额度后重试。",
+    "usage.qoderCheckinFailed": "Qoder 签到查询失败，请稍后重试。",
     "settings.graphicalSessionMinimalMode": "图形会话极简模式",
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -1538,6 +1548,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.notInPlan": "不在当前套餐",
     "usage.copilotUnavailable": "GitHub Copilot 暂无稳定的账户额度接口",
     "usage.grokUnavailable": "Grok CLI 暂无稳定的账户额度接口",
+    "usage.qoderRewardExpirationUnavailable": "奖励额度到期时间暂不可查询",
+    "usage.qoderRewardExpiresAt": "额度将于 {time} 到期",
     "usage.qoderActivities": "活动额度",
     "usage.qoderActivityUnavailable": "活动额度暂不可用，请刷新后重试",
     "usage.qoderActivityEmpty": "当前没有可用活动额度",
@@ -2222,6 +2234,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderCheckinTitle": "Qoder daily check-in",
     "usage.qoderCheckinAccount": "Desktop App account: {account} (may differ from session account)",
     "usage.qoderCheckinClaimed": "Claimed {credit} Credits this window",
+    "usage.qoderUsageAccount": "Quota and check-in account: {account}",
+    "usage.qoderAddOn": "Additional credits (including rewards)",
+    "usage.qoderAccountChanged": "Qoder desktop account changed. Refresh quota and retry.",
+    "usage.qoderCheckinFailed": "Qoder check-in failed. Please retry.",
     "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",
@@ -2566,6 +2582,8 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.notInPlan": "Not in current plan",
     "usage.copilotUnavailable": "GitHub Copilot does not expose a stable account quota API",
     "usage.grokUnavailable": "Grok CLI does not expose a stable account quota API",
+    "usage.qoderRewardExpirationUnavailable": "Reward credit expiration is currently unavailable",
+    "usage.qoderRewardExpiresAt": "Credits expire at {time}",
     "usage.qoderActivities": "Promotional quota",
     "usage.qoderActivityUnavailable": "Promotional quota is unavailable. Refresh to retry.",
     "usage.qoderActivityEmpty": "No promotional quota is currently available",

@@ -1,7 +1,7 @@
 import type { WorkspaceEntrySearchResult, WorkspaceEntrySearchResponse } from "../../src/vite-env";
 import { useEffect, useState } from "react";
 import { canSwitchMode, modelLabel } from "./GraphicalPresentation";
-import { graphicalInputPolicy, graphicalPermissionStatus } from "./GraphicalInputPolicy";
+import { graphicalInputPolicy } from "./GraphicalInputPolicy";
 import { GraphicalIcon } from "./GraphicalIcon";
 import { type useGraphicalSession, type GraphicalViewProps } from "./useGraphicalSession";
 import type { GraphicalSnapshot } from "./types";
@@ -25,7 +25,6 @@ export function GraphicalComposer({ snapshot, controller, draft, setDraft }: {
   const [preview, setPreview] = useState<{ name: string; url?: string; text?: string } | null>(null);
   useEffect(() => () => { if (preview?.url) URL.revokeObjectURL(preview.url); }, [preview]);
   const policy = graphicalInputPolicy(snapshot, Boolean(historyMutation || snapshot.provider === "opencode" && (controller.codexPending || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || ""))));
-  const permissionStatus = graphicalPermissionStatus(snapshot);
   const openCodeBlocked = snapshot.provider === "opencode" && (controller.codexPending || controller.isSending || !!snapshot.pendingPlan || !!snapshot.approvals.length || !!snapshot.questions.length || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || ""));
   const effectivePlan = snapshot.mode === "plan";
   return (    <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
@@ -52,7 +51,6 @@ export function GraphicalComposer({ snapshot, controller, draft, setDraft }: {
       </div>}
       {(["codex", "codebuddy", "opencode"].includes(snapshot.provider)) && draft.startsWith("/") && <div className="graphical-slash-commands" role="listbox" aria-label="会话操作联想">{controller.slashCommands.filter(([command]) => `/${command}`.toLowerCase().startsWith(draft.trim().toLowerCase())).map(([command, label]) => <button type="button" role="option" aria-selected={false} key={command} onClick={() => controller.invokeSlash(command)}>/{command} · {label}</button>)}</div>}
       {snapshot.provider === "codex" && mentionQuery !== undefined && fileSuggestions.length > 0 && <div className="graphical-slash-commands" role="listbox" aria-label="搜索工作区文件">{fileSuggestions.map(file => <button type="button" role="option" aria-selected={false} key={file.path} onClick={() => { setDraft(current => current.replace(/@[^\s]*$/, `@${file.relativePath} `)); setFileSuggestions([]); }}>{file.relativePath}</button>)}</div>}
-      {permissionStatus && <span className="graphical-composer-permission">{permissionStatus}</span>}
     </form>
   );
 }

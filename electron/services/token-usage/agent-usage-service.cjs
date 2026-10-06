@@ -397,6 +397,7 @@ function createAgentUsageService({
   qoderSdkLoader,
   qoderSpawn,
   qoderTerminateProcessTree,
+  qoderDesktopReader,
   geminiSpawn,
   geminiHelperFile,
   miniMaxConfigStore,
@@ -444,6 +445,7 @@ function createAgentUsageService({
           timeoutMs,
           now,
           sdkLoader: qoderSdkLoader,
+          desktopReader: qoderDesktopReader,
           spawn: qoderSpawn,
           terminateProcessTree: qoderTerminateProcessTree
         });
@@ -526,7 +528,8 @@ function createAgentUsageService({
       : session.agentProvider === "codex" && session.codexBackend === "minimax"
         ? Math.min(cacheTtlMs, MINIMAX_CACHE_TTL_MS)
       : session.agentProvider === "qoder"
-        ? Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)
+        // Desktop auth can switch independently of the terminal. Revalidate on each query.
+        ? session.type === "windows" ? 0 : Math.min(cacheTtlMs, QODER_CACHE_TTL_MS)
         : session.agentProvider === "gemini"
           ? (cacheTtlMs === DEFAULT_CACHE_TTL_MS ? GEMINI_CACHE_TTL_MS : cacheTtlMs)
         : cacheTtlMs;

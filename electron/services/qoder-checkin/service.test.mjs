@@ -51,14 +51,26 @@ describe("Qoder campaign check-in", () => {
   });
   it("stops before posting if the desktop account changes", async () => {
     const fetchFn = vi.fn(async () => json([campaign()]));
-    const getCredentials = vi.fn().mockResolvedValueOnce(credentials).mockResolvedValueOnce({ ...credentials, accountId: "other" });
+    const getCredentials = vi.fn().mockResolvedValueOnce(credentials).mockResolvedValueOnce(credentials)
+      .mockResolvedValueOnce(credentials).mockResolvedValueOnce({ ...credentials, accountId: "other" });
     const s = createQoderCheckinService({ getRequestHeaders: () => ({}), getCredentials, fetchFn, now: () => now });
     await expect(s.claim()).rejects.toMatchObject({ code: "account-changed", retryable: false });
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
   it("redacts network errors and stops retrying authentication failures", async () => {
     await expect(service(async () => { throw Error(credentials.token); }).getStatus()).rejects.toThrow("request failed");
-    await expect(service(async () => new Response("secret", { status: 403 })).getStatus()).rejects.toMatchObject({ retryable: false });
+    await expect(service(async () => new Response("secret", { status: 403 })).getStatus()).rejects.toMatchObject({ code: "authentication", retryable: false });
+  });
+  it("binds queries and claims to the quota account and rechecks after a response", async () => {
+    const fetchFn = vi.fn(async () => json([campaign()]));
+    await expect(service(fetchFn).getStatus("other")).rejects.toMatchObject({ code: "account-changed" });
+    await expect(service(fetchFn).claim("other")).rejects.toMatchObject({ code: "account-changed" });
+    expect(fetchFn).not.toHaveBeenCalled();
+    const getCredentials = vi.fn().mockResolvedValueOnce(credentials).mockResolvedValueOnce(credentials)
+      .mockResolvedValueOnce({ ...credentials, accountId: "other" });
+    const s = createQoderCheckinService({ getCredentials, getRequestHeaders: () => ({}), fetchFn, now: () => now });
+    await expect(s.getStatus()).rejects.toMatchObject({ code: "account-changed" });
+    expect(() => normalizeStatus({ uid: "other", campaigns: [campaign()] }, credentials, now)).toThrow("account changed");
   });
 });
 

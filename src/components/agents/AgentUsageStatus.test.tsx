@@ -184,6 +184,7 @@ describe("AgentUsageStatus", () => {
     cleanup();
     vi.restoreAllMocks();
     Reflect.deleteProperty(window, "workBuddyCheckinApi");
+    Reflect.deleteProperty(window, "qoderCheckinApi");
   });
 
   it("hides non-Codex state and renders loading and retry states", () => {
@@ -416,6 +417,49 @@ describe("AgentUsageStatus", () => {
     fireEvent.click(screen.getByRole("button", { name: /Qoder.*3,300 Credits/ }));
     expect(screen.getByRole("dialog").textContent).toContain("3,300 / 4,100 Credits");
     expect(document.querySelector(".qoder-activity-quota")?.textContent).toContain("活动额度暂不可用");
+  });
+
+  it("shows unavailable reward expiration without losing the desktop balance", () => {
+    const value = qoderSnapshot();
+    value.qoderSource = "desktop";
+    value.qoderRewardDetailsStatus = "unavailable";
+    value.activities = [];
+    render(<AgentUsageStatus state={{ status: "ready", snapshot: value, refreshing: false }} onRefresh={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /Qoder.*3,300 Credits/ }));
+    expect(screen.getByRole("dialog").textContent).toContain("3,300 / 4,100 Credits");
+    expect(screen.getByText("奖励额度到期时间暂不可查询")).toBeTruthy();
+    expect(screen.queryByText("当前没有可用活动额度")).toBeNull();
+  });
+  it("labels desktop reward expiration separately from the activity end time", () => {
+    const value = qoderSnapshot();
+    value.qoderSource = "desktop";
+    value.qoderRewardDetailsStatus = "available";
+    render(<AgentUsageStatus state={{ status: "ready", snapshot: value, refreshing: false }} onRefresh={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /Qoder.*3,300 Credits/ }));
+    expect(screen.getByText(/额度将于 .* 到期/)).toBeTruthy();
+  });
+  it("shows App reward credits and refreshes quota and check-in together", async () => {
+    const getStatus = vi.fn(async () => ({ accountId: "desktop", accountLabel: "desktop@example.test", active: true,
+      claimable: false, todayCheckedIn: true, dailyCredit: 100, windowStart: 0, nextClaimAt: 86400000 }));
+    Object.defineProperty(window, "qoderCheckinApi", { configurable: true, value: { getStatus, claim: vi.fn() } });
+    const value = qoderSnapshot();
+    value.qoderSource = "desktop";
+    value.qoderAccount = { id: "desktop", label: "desktop@example.test" };
+    value.summary = { kind: "credits", total: 200, used: 0, remaining: 200, usedPercent: 0, remainingPercent: 100, unit: "Credits" };
+    value.limits = [{ id: "qoder-plan", name: "personal_standard", category: "base", totalAmount: 0, usedAmount: 0, remainingAmount: 0, usedPercent: 0, remainingPercent: 100 },
+      { id: "qoder-addon", name: "Add-on Credits", category: "extra", totalAmount: 200, usedAmount: 0, remainingAmount: 200, usedPercent: 0, remainingPercent: 100 }];
+    value.activities = [];
+    const onRefresh = vi.fn();
+    render(<AgentUsageStatus state={{ status: "ready", snapshot: value, refreshing: false }} onRefresh={onRefresh} />);
+    fireEvent.click(screen.getByRole("button", { name: /Qoder.*200 Credits/ }));
+    expect(screen.getByRole("dialog").textContent).toContain("200 / 200 Credits");
+    expect(screen.getAllByText("附加额度（含奖励）")).toHaveLength(2);
+    expect(screen.queryByText("当前没有可用活动额度")).toBeNull();
+    expect(await screen.findByText("本轮已领取 100 Credits")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "刷新用量" }));
+    await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(2));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(getStatus).toHaveBeenLastCalledWith("desktop");
   });
 
   it("claims once, renders the checked-in state, and refreshes quota", async () => {

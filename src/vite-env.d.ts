@@ -792,6 +792,9 @@ export type AgentUsageSnapshot = {
   resetCredits?: AgentUsageResetCreditsSummary;
   activities?: AgentUsageActivityQuota[];
   activityError?: string;
+  qoderSource?: "desktop" | "cli";
+  qoderRewardDetailsStatus?: "available" | "unavailable";
+  qoderAccount?: { id: string; label: string };
   limits: AgentUsageLimit[];
 };
 
@@ -825,8 +828,8 @@ export type QoderCheckinStatus = {
   campaignId?: string;
 };
 export type QoderCheckinApi = {
-  getStatus: () => Promise<QoderCheckinStatus>;
-  claim: () => Promise<{ alreadyCheckedIn: boolean; status: QoderCheckinStatus }>;
+  getStatus: (accountId?: string) => Promise<QoderCheckinStatus>;
+  claim: (accountId?: string) => Promise<{ alreadyCheckedIn: boolean; status: QoderCheckinStatus }>;
 };
 
 export type WorkBuddyCheckinStatus = {

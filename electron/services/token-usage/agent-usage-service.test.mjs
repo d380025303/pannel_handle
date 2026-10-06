@@ -590,7 +590,7 @@ describe("agent-usage-service", () => {
   });
 
   it("reads and caches Qoder quota through the SDK client", async () => {
-    const session = { id: "qoder-1", type: "windows", cwd: "C:\\repo", agentProvider: "qoder" };
+    const session = { id: "qoder-1", type: "wsl", wslDistro: "Ubuntu", cwd: "/srv/app", agentProvider: "qoder" };
     const close = vi.fn(async () => undefined);
     const query = vi.fn(() => ({
       initializationResult: vi.fn(async () => ({})),
@@ -613,6 +613,18 @@ describe("agent-usage-service", () => {
     await expect(service.getUsage(session.id)).resolves.toMatchObject({ provider: "qoder" });
     expect(query).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes Windows Qoder to the App and revalidates instead of reusing an account-blind cache", async () => {
+    const session = { id: "qoder-win", type: "windows", agentProvider: "qoder" };
+    const qoderDesktopReader = vi.fn().mockResolvedValueOnce({ provider: "qoder", summary: { remaining: 200 }, qoderAccount: { id: "first" } })
+      .mockResolvedValueOnce({ provider: "qoder", summary: { remaining: 50 }, qoderAccount: { id: "second" } });
+    const qoderSdkLoader = vi.fn();
+    const service = createAgentUsageService({ terminalManager: { getSession: () => session }, now: () => 1000, qoderDesktopReader, qoderSdkLoader });
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({ summary: { remaining: 200 } });
+    await expect(service.getUsage(session.id)).resolves.toMatchObject({ summary: { remaining: 50 }, qoderAccount: { id: "second" } });
+    expect(qoderDesktopReader).toHaveBeenCalledTimes(2);
+    expect(qoderSdkLoader).not.toHaveBeenCalled();
   });
 
   it("rejects Qoder quota over SSH before loading the SDK", async () => {

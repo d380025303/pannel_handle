@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it, expect, vi } from "vitest";
 const require = createRequire(import.meta.url);
-const { createDeviceContextReader } = require("./device-context.cjs");
+const { createDeviceContextReader, findResources } = require("./device-context.cjs");
 const dirs = [];
 afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 function fixture() {
@@ -17,6 +17,17 @@ function fixture() {
     read: createDeviceContextReader({ root, resolveResources: () => root, run, now: () => clock }) };
 }
 describe("Qoder desktop device context", () => {
+  it("discovers a custom installation from registry and validates the product and helper", () => {
+    const custom = path.join("D:\\apps", "Qoder", "resources");
+    const run = vi.fn().mockReturnValueOnce("").mockReturnValueOnce('"D:\\apps\\Qoder\\uninstallerIcon.ico",0\r\n');
+    expect(findResources({ run, readJson: file => {
+      if (file !== path.join(custom, "product.json")) throw Error();
+      return { productId: "qoder" };
+    }, exists: file => file === path.join(custom, "umid", "runtime-info.exe") })).toBe(custom);
+    expect(run.mock.calls[1][1].at(-1)).toContain("Uninstall");
+    expect(() => findResources({ run: () => "D:\\apps\\Other\\Other.exe", readJson: () => ({ productId: "other" }), exists: () => true }))
+      .toThrow("device identity");
+  });
   it("uses official helper input and caches only for the same account and five minutes", () => {
     const f = fixture();
     expect(f.read({ accountId: "account" })).toMatchObject({ "Cosy-Version": "0.4.3", "Cosy-MachineId": "test-machine-id", "Cosy-MachineToken": "test-device-token" });

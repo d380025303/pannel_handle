@@ -922,13 +922,12 @@ it.each([
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("保留草稿");
 });
 
-it("allows Codex messages while busy and shows current permission beside the composer", () => {
+it("allows Codex messages while busy", () => {
   const f = fixture();
   f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
     snapshot: { ...snapshot, busy: true, executionPermission: "readOnly" } });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "继续" } });
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).disabled).toBe(false);
-  expect(screen.getByText("执行权限：只读", { selector: ".graphical-composer-permission" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
   expect(f.send.mock.calls.some(([message]) => message.type === "graphical.submit")).toBe(true);
 });

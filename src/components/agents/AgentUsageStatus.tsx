@@ -45,6 +45,7 @@ function getPrimaryLimit(state: AgentUsageViewState): AgentUsageLimit | undefine
 export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = async () => undefined }: AgentUsageStatusProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [qoderRefreshVersion, setQoderRefreshVersion] = useState(0);
   const [checkinState, setCheckinState] = useState<WorkBuddyCheckinViewState>({ status: "idle" });
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [confirmResetCreditId, setConfirmResetCreditId] = useState("");
@@ -79,6 +80,10 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
   const activityError = state.status === "ready" && state.snapshot.provider === "qoder"
     ? state.snapshot.activityError
     : undefined;
+  const refreshUsage = () => {
+    if (isQoder) setQoderRefreshVersion(value => value + 1);
+    onRefresh();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -266,7 +271,7 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
           <div className="agent-usage-popover-header">
             <strong>{dialogTitle}</strong>
             <span>
-              <button type="button" title={t("usage.refresh")} aria-label={t("usage.refresh")} onClick={onRefresh} disabled={state.refreshing}>
+              <button type="button" title={t("usage.refresh")} aria-label={t("usage.refresh")} onClick={refreshUsage} disabled={state.refreshing}>
                 <RefreshCw className={state.refreshing ? "spin" : ""} aria-hidden="true" />
               </button>
               <button type="button" title={t("usage.close")} aria-label={t("usage.close")} onClick={() => setOpen(false)}>
@@ -420,11 +425,11 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
             )}
             {!isCodeBuddy && (isQoder ? groupedLimits.map(group => (
               <section className="agent-usage-limit-group" key={group.category}>
-                <h4>{t(`usage.category.${group.category}`)}</h4>
+                <h4>{t(group.category === "extra" && state.snapshot.qoderSource === "desktop" ? "usage.qoderAddOn" : `usage.category.${group.category}`)}</h4>
                 {group.limits.map(limit => (
                   <div className={`agent-usage-limit ${getRemainingClass(limit.remainingPercent)}`} key={limit.id}>
                     <div className="agent-usage-limit-heading">
-                      <strong>{limit.name}</strong>
+                      <strong>{state.snapshot.qoderSource === "desktop" && limit.id === "qoder-addon" ? t("usage.qoderAddOn") : limit.name}</strong>
                       <span>{t("usage.creditRemaining", {
                         remaining: formatAmount(locale, limit.remainingAmount ?? 0),
                         total: formatAmount(locale, limit.totalAmount ?? 0)
@@ -484,10 +489,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
               </div>
             )))}
             {isQoder && (<>
-              <QoderCheckin onRefresh={onRefresh} />
-              <section className="agent-usage-limit-group qoder-activity-quota" aria-label={t("usage.qoderActivities")}>
+              <QoderCheckin onRefresh={refreshUsage} accountId={state.snapshot.qoderAccount?.id} refreshVersion={qoderRefreshVersion} />
+              {(state.snapshot.qoderSource !== "desktop" || state.snapshot.qoderRewardDetailsStatus || activities.length > 0 || activityError) && <section className="agent-usage-limit-group qoder-activity-quota" aria-label={t("usage.qoderActivities")}>
                 <h4>{t("usage.qoderActivities")}</h4>
-                {activityError ? (
+                {state.snapshot.qoderRewardDetailsStatus === "unavailable" ? (
+                  <div className="agent-usage-empty" role="status">{t("usage.qoderRewardExpirationUnavailable")}</div>
+                ) : activityError ? (
                   <div className="agent-usage-empty" role="status" title={activityError}>
                     {t("usage.qoderActivityUnavailable")}
                   </div>
@@ -525,12 +532,12 @@ export function AgentUsageStatus({ state, onRefresh, onConsumeResetCredit = asyn
                         total: formatAmount(locale, activity.totalAmount)
                       })}</span>
                       <span>{activity.expiresAt
-                        ? t("usage.activityExpiresAt", { time: formatTimestamp(locale, activity.expiresAt) })
-                        : t("usage.activityNoExpiration")}</span>
+                        ? t(state.snapshot.qoderSource === "desktop" ? "usage.qoderRewardExpiresAt" : "usage.activityExpiresAt", { time: formatTimestamp(locale, activity.expiresAt) })
+                        : t(state.snapshot.qoderSource === "desktop" ? "usage.qoderRewardExpirationUnavailable" : "usage.activityNoExpiration")}</span>
                     </div>
                   </div>
                 ))}
-              </section>
+              </section>}
             </>)}
           </div>
           <small>{t("usage.updatedAt", { time: formatTimestamp(locale, state.snapshot.fetchedAt) })}</small>

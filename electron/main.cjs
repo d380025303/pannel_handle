@@ -53,6 +53,7 @@ const { createDiagnosticsStore } = require("./services/codex-app-server/diagnost
 const { createWorkBuddyCheckinService, createWorkBuddyModelCatalogService, createWorkBuddyAutoCheckinService } = require("./services/workbuddy/index.cjs");
 const { createQoderAutoCheckinService } = require("./services/qoder-checkin/auto-checkin.cjs");
 const { createQoderCheckinService } = require("./services/qoder-checkin/service.cjs");
+const { registerQoderCheckinIpcHandlers } = require("./services/qoder-checkin/ipc.cjs");
 const { createIdeaModule } = require("./services/idea/idea-module.cjs");
 const { createSettingsModule } = require("./services/settings/index.cjs");
 const { createScreenshotModule } = require("./services/screenshot/index.cjs");
@@ -364,8 +365,7 @@ if (!gotSingleInstanceLock) {
         }).show();
       }
     });
-    ipcMain.handle("qoder-checkin:get-status", () => qoderCheckinService.getStatus());
-    ipcMain.handle("qoder-checkin:claim", () => qoderCheckinService.claim());
+    registerQoderCheckinIpcHandlers({ ipcMain, service: qoderCheckinService, getLocale: () => configStore.getConfig().locale });
     qoderResumeHandler = () => qoderAutoCheckinService.resume();
     powerMonitor.on("resume", qoderResumeHandler);
     workBuddyCheckinService = createWorkBuddyCheckinService();

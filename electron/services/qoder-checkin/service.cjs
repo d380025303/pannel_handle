@@ -1,6 +1,6 @@
 const { readCredentials } = require("./credentials.cjs");
 const { createDeviceContextReader } = require("./device-context.cjs");
-const BASE = "https://openapi.qoder.sh";
+const { createQoderDesktopClient, failure } = require("./desktop-client.cjs");
 const API = "/sash/api/v1/me/campaigns";
 const WINDOW_MS = 86400000;
 
@@ -8,12 +8,11 @@ function windowStart(now) {
   return Math.floor((now - 7200000) / WINDOW_MS) * WINDOW_MS + 7200000;
 }
 
-function failure(message, code, retryable = false) {
-  return Object.assign(new Error(message), { code, retryable });
-}
-
 function normalizeStatus(payload, credentials, now) {
   if (!Array.isArray(payload?.campaigns)) throw failure("Qoder returned an invalid campaign response.", "invalid-response", true);
+  if (typeof payload.uid === "string" && payload.uid !== credentials.accountId) {
+    throw failure("Qoder desktop account changed. Please retry.", "account-changed");
+  }
   const start = windowStart(now);
   const candidates = payload.campaigns.filter(c => c.actionType === "CLAIM_BENEFIT"
     && c.benefit?.kind === "CREDITS" && c.benefit.amount === 100
@@ -34,43 +33,21 @@ function normalizeStatus(payload, credentials, now) {
 function createQoderCheckinService({ getCredentials = readCredentials, fetchFn = fetch, now = Date.now,
   getRequestHeaders = createDeviceContextReader() } = {}) {
   let inFlight = null;
+  let claimAccountId;
+  const client = createQoderDesktopClient({ getCredentials, fetchFn });
   async function request(credentials, suffix = "", method = "GET") {
     const deviceHeaders = await getRequestHeaders(credentials);
-    let response;
-    try {
-      response = await fetchFn(BASE + API + suffix, {
-        method, headers: { ...deviceHeaders, Accept: "application/json", Authorization: `Bearer ${credentials.token}`,
-          "Cosy-ClientType": "10", "User-Agent": "Qoder" },
-        signal: AbortSignal.timeout(15000)
-      });
-    } catch { throw failure("Qoder check-in request failed or timed out.", "network", true); }
-    if (!response.ok) throw failure(response.status === 401 || response.status === 403
-      ? "Qoder login expired or reward requires desktop device verification. Please open Qoder."
-      : `Qoder check-in returned HTTP ${response.status}.`, "http-error", response.status >= 500 || response.status === 429);
-    if (method === "POST") { await response.body?.cancel(); return; }
-    let text;
-    try {
-      const reader = response.body.getReader();
-      const chunks = [];
-      let size = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > 1024 * 1024) { await reader.cancel(); throw failure("Qoder response exceeded the size limit.", "response-too-large"); }
-        chunks.push(Buffer.from(value));
-      }
-      text = Buffer.concat(chunks).toString("utf8");
-    } catch (error) {
-      if (error.code === "response-too-large") throw error;
-      throw failure("Qoder check-in response could not be read.", "network", true);
-    }
-    try { return JSON.parse(text); } catch { throw failure("Qoder returned an invalid response.", "invalid-response", true); }
+    await client.credentials(credentials.accountId);
+    return client.request(credentials, API + suffix, { method, headers: deviceHeaders });
   }
-  async function status(credentials) { return normalizeStatus(await request(credentials), credentials, now()); }
-  async function getStatus() { return status(await getCredentials()); }
-  async function performClaim() {
-    const credentials = await getCredentials();
+  async function status(credentials) {
+    const payload = await request(credentials);
+    await client.credentials(credentials.accountId);
+    return normalizeStatus(payload, credentials, now());
+  }
+  async function getStatus(expectedAccountId) { return status(await client.credentials(expectedAccountId)); }
+  async function performClaim(expectedAccountId) {
+    const credentials = await client.credentials(expectedAccountId);
     const current = await status(credentials);
     if (current.todayCheckedIn) return { alreadyCheckedIn: true, status: current };
     if (!current.active || !current.claimable) throw failure("Qoder daily reward is not available.", "activity-inactive");
@@ -89,8 +66,14 @@ function createQoderCheckinService({ getCredentials = readCredentials, fetchFn =
   }
   return {
     getStatus,
-    claim() {
-      if (!inFlight) inFlight = performClaim().finally(() => { inFlight = null; });
+    claim(expectedAccountId) {
+      if (inFlight && expectedAccountId !== claimAccountId) {
+        return Promise.reject(failure("Qoder desktop account changed. Please retry.", "account-changed"));
+      }
+      if (!inFlight) {
+        claimAccountId = expectedAccountId;
+        inFlight = performClaim(expectedAccountId).finally(() => { inFlight = null; claimAccountId = undefined; });
+      }
       return inFlight;
     }
   };

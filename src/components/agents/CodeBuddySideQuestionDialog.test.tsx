@@ -11,6 +11,55 @@ const running: CodexAppServerSnapshot = { ...base, sideQuestion: { requestId: "r
 afterEach(cleanup);
 
 describe("CodeBuddy side question dialog", () => {
+  it("supports modified Enter, ignores composition, and blocks duplicate submissions", async () => {
+    const askSideQuestion = vi.fn(() => new Promise<CodexAppServerSnapshot>(() => {}));
+    Object.assign(window, { codexAppServerApi: { askSideQuestion, cancelSideQuestion: vi.fn().mockResolvedValue(base) } });
+    render(<CodeBuddySideQuestionDialog sessionId="run" snapshot={base} onClose={vi.fn()} onUpdated={vi.fn()} />);
+    const input = screen.getByRole("textbox", { name: "旁问问题" });
+    expect((screen.getByRole("button", { name: "发送旁问" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "解释当前进展" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    expect(askSideQuestion).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    expect(askSideQuestion).toHaveBeenCalledTimes(1);
+    expect(askSideQuestion).toHaveBeenCalledWith("run", "解释当前进展");
+    expect(screen.getByRole("status").textContent).toContain("关闭弹窗将取消");
+  });
+
+  it("traps focus, closes with Escape, and restores the trigger", () => {
+    const trigger = document.createElement("button");
+    document.body.append(trigger); trigger.focus();
+    Object.assign(window, { codexAppServerApi: { askSideQuestion: vi.fn(), cancelSideQuestion: vi.fn().mockResolvedValue(base) } });
+    const onClose = vi.fn();
+    const view = render(<CodeBuddySideQuestionDialog sessionId="run" snapshot={base} onClose={onClose} onUpdated={vi.fn()} />);
+    const input = screen.getByRole("textbox");
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭旁问" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount(); expect(document.activeElement).toBe(trigger); trigger.remove();
+  });
+
+  it("cancels explicitly and reports clipboard failure", async () => {
+    const cancelSideQuestion = vi.fn().mockResolvedValue(base);
+    Object.assign(window, { codexAppServerApi: { askSideQuestion: vi.fn(), cancelSideQuestion } });
+    const onUpdated = vi.fn();
+    const view = render(<CodeBuddySideQuestionDialog sessionId="run" snapshot={running} onClose={vi.fn()} onUpdated={onUpdated} copyText={async () => false} />);
+    fireEvent.click(screen.getByRole("button", { name: "取消旁问" }));
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(base));
+    expect(cancelSideQuestion).toHaveBeenCalledWith("run", "request");
+    view.rerender(<CodeBuddySideQuestionDialog sessionId="run" snapshot={{ ...base, sideQuestion: { ...running.sideQuestion!, status: "completed", answer: "answer" } }} onClose={vi.fn()} onUpdated={onUpdated} copyText={async () => false} />);
+    fireEvent.click(screen.getByRole("button", { name: "复制答案" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("复制失败，请重试。"));
+  });
+
   it("automatically sends the slash question while the main turn remains busy, then renders a separate answer", async () => {
     const askSideQuestion = vi.fn().mockResolvedValue(running);
     const cancelSideQuestion = vi.fn().mockResolvedValue(base);

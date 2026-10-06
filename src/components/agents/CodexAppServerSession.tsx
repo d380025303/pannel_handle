@@ -43,6 +43,12 @@ const codeBuddyModeDescriptions: Record<string, string> = {
   dontask: "运行命令与修改文件均不再弹出确认。",
   delegate: "将子任务委派给子 Agent 并行处理。"
 };
+const codeBuddyMainAgentDescriptions: Record<string, string> = {
+  cli: "完整编程助手：可编辑文件、运行命令、搜索代码和网页，并使用技能、计划、目标及子 Agent。",
+  ptc: "具备 Standard 的能力，通过 REPL / Code Mode 将多个工具操作编排为程序执行。",
+  minimal: "仅通过 REPL 使用 Bash、文件编辑和技能，不支持 MCP、独立文件读取与搜索工具、计划或子 Agent；可通过 Bash 查看文件并读取命令输出。",
+  create: "具备 Standard 的完整工具，并指导创建 ~/.codebuddy/agents 下的用户自定义 Agent；配置中需设置 mainAgent: true 才会出现在选择列表中。"
+};
 const normalizeModeKey = (value: string) => (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function openCodePlanReplyId(snapshot: CodexAppServerSnapshot) {
   if (snapshot.provider !== "opencode" || snapshot.nativeMode !== "plan" || snapshot.busy || snapshot.archived
@@ -1137,7 +1143,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     ? (mainAgent?.agents || []).map(agent => {
       const conflict = agent.name === "minimal" && (snapshot.nativeMode === "plan" || multitaskOption?.currentValue === true);
       return { value: agent.name, label: agent.displayName,
-        description: [agent.description, ({ "built-in": "内置", user: "用户", project: "项目" } as Record<string, string>)[agent.source || ""] || agent.source,
+        description: [agent.source === "built-in" ? codeBuddyMainAgentDescriptions[agent.name] || agent.description : agent.description,
+          ({ "built-in": "内置", user: "用户", project: "项目" } as Record<string, string>)[agent.source || ""] || agent.source,
           agent.broken, conflict ? "请先退出 Plan 并关闭 Multitask" : ""].filter(Boolean).join(" · "),
         selected: mainAgent?.currentAgentName === agent.name,
         disabled: snapshot.busy || sending || resumingHistory || mainAgentLoading || !mainAgent?.sessionBlank || Boolean(mainAgent?.error || agent.broken || conflict) };
@@ -1695,7 +1702,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : snapshot.provider === "opencode" ? " · Shift+Tab 切换 Build / Plan" : ""}</span>
           <div className="codex-app-server-input-primary">
             <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId)} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
-            {canAskSideQuestion && <button type="button" className="codex-app-server-icon-button" aria-label="旁问" title="独立旁问 /btw" disabled={!snapshot.threadId || mainAgentPending} onClick={() => openSideQuestion()}>旁问</button>}
+            {canAskSideQuestion && <button type="button" className="codebuddy-side-trigger" aria-label="旁问" title="独立旁问 /btw" disabled={!snapshot.threadId || mainAgentPending} onClick={() => openSideQuestion()}>旁问</button>}
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
             {(!snapshot.busy || canSendWhileBusy || Boolean(btwMatch)) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId) || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
           </div>

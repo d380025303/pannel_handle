@@ -8,20 +8,30 @@ function unavailable() {
     { code: "device-identity-unavailable", retryable: false });
 }
 
-function findResources() {
+function findResources({ run = execFileSync, exists = fs.existsSync, readJson = file => JSON.parse(fs.readFileSync(file, "utf8")) } = {}) {
   const script = 'Get-Process Qoder -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -Unique';
   let running = [];
   try {
-    running = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script],
+    running = run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script],
       { encoding: "utf8", windowsHide: true, timeout: 10000, maxBuffer: 65536, stdio: ["ignore", "pipe", "ignore"] }).trim().split(/\r?\n/);
   } catch { /* Try the standard installation locations below. */ }
-  const candidates = [...running.filter(Boolean).map(file => path.join(path.dirname(file), "resources")),
+  let installed = [];
+  try {
+    const registryScript = '[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $roots=@("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*","HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*","HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*"); Get-ItemProperty -Path $roots -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "^Qoder(?: |$)" } | ForEach-Object { if ($_.InstallLocation) { $_.InstallLocation }; if ($_.DisplayIcon) { $_.DisplayIcon } }';
+    installed = run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", registryScript],
+      { encoding: "utf8", windowsHide: true, timeout: 10000, maxBuffer: 65536, stdio: ["ignore", "pipe", "ignore"] })
+      .trim().split(/\r?\n/).filter(Boolean).map(value => {
+        const file = value.trim().replace(/,\s*-?\d+$/, "").replace(/^"|"$/g, "");
+        return path.join(/\.(?:exe|ico)$/i.test(file) ? path.dirname(file) : file, "resources");
+      });
+  } catch { /* The installation may not have a registry entry. */ }
+  const candidates = [...running.filter(Boolean).map(file => path.join(path.dirname(file), "resources")), ...installed,
     path.join(process.env.LOCALAPPDATA || "", "Programs", "Qoder", "resources"),
     path.join(process.env.ProgramFiles || "", "Qoder", "resources")];
-  for (const resources of candidates) {
+  for (const resources of new Set(candidates)) {
     try {
-      if (JSON.parse(fs.readFileSync(path.join(resources, "product.json"), "utf8")).productId === "qoder"
-        && fs.existsSync(path.join(resources, "umid", "runtime-info.exe"))) return resources;
+      if (readJson(path.join(resources, "product.json")).productId === "qoder"
+        && exists(path.join(resources, "umid", "runtime-info.exe"))) return resources;
     } catch { /* Continue looking for the installed desktop client. */ }
   }
   throw unavailable();

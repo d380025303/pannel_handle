@@ -636,7 +636,12 @@ contextBridge.exposeInMainWorld("windowApi", {
   }
 });
 
+async function invokeQoderCheckin(channel, accountId) {
+  const result = await ipcRenderer.invoke(channel, { accountId });
+  if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code, retryable: result.error.retryable });
+  return result.value;
+}
 contextBridge.exposeInMainWorld("qoderCheckinApi", {
-  getStatus: () => ipcRenderer.invoke("qoder-checkin:get-status"),
-  claim: () => ipcRenderer.invoke("qoder-checkin:claim")
+  getStatus: accountId => invokeQoderCheckin("qoder-checkin:get-status", accountId),
+  claim: accountId => invokeQoderCheckin("qoder-checkin:claim", accountId)
 });

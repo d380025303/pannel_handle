@@ -1,5 +1,6 @@
 const { spawn: defaultSpawn, spawnSync: defaultSpawnSync } = require("node:child_process");
 const path = require("node:path");
+const { createQoderDesktopClient, failure } = require("../qoder-checkin/desktop-client.cjs");
 
 const QODER_CACHE_TTL_MS = 30 * 1000;
 const QODER_ACTIVITY_OUTPUT_PREFIX = "PANNEL_HANDLE_QODER_ACTIVITY:";
@@ -15,14 +16,18 @@ function clampPercent(value) {
 }
 
 function parseAmount(value) {
+  if (value === null || value === undefined || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return undefined;
   const amount = Number(value);
   return Number.isFinite(amount) && amount >= 0 ? amount : undefined;
 }
 
 function parseTimestamp(value) {
-  const timestamp = Number(value);
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const numeric = Number(value);
+  const timestamp = Number.isFinite(numeric) ? numeric : Date.parse(value);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return undefined;
-  return timestamp < 1_000_000_000_000 ? Math.round(timestamp * 1000) : Math.round(timestamp);
+  const milliseconds = timestamp < 1_000_000_000_000 ? Math.round(timestamp * 1000) : Math.round(timestamp);
+  return milliseconds < Date.UTC(9999, 0, 1) ? milliseconds : undefined;
 }
 
 function normalizeText(value) {
@@ -141,28 +146,6 @@ function normalizeBucket({ id, name, category, source, totalKey = "total", expir
   };
 }
 
-function mergeActivitiesIntoSummary(snapshot, activities) {
-  if (!activities?.length || !snapshot.summary) return snapshot;
-  const activityTotal = activities.reduce((sum, activity) => sum + activity.totalAmount, 0);
-  const activityUsed = activities.reduce((sum, activity) => sum + activity.usedAmount, 0);
-  const activityRemaining = activities.reduce((sum, activity) => sum + activity.remainingAmount, 0);
-  const total = snapshot.summary.total + activityTotal;
-  const used = snapshot.summary.used + activityUsed;
-  const remaining = snapshot.summary.remaining + activityRemaining;
-  const usedPercent = total > 0 ? clampPercent((used / total) * 100) : 100;
-  return {
-    ...snapshot,
-    summary: {
-      ...snapshot.summary,
-      total,
-      used,
-      remaining,
-      usedPercent,
-      remainingPercent: 100 - usedPercent
-    }
-  };
-}
-
 function normalizeQoderUsage(usage, fetchedAt = Date.now()) {
   if (!usage || typeof usage !== "object") {
     throw new Error("Qoder quota is unavailable. Please sign in or update Qoder CLI.");
@@ -225,6 +208,69 @@ function normalizeQoderUsage(usage, fetchedAt = Date.now()) {
     },
     limits
   };
+}
+
+function normalizeQoderDesktopUsage(payload, credentials, fetchedAt = Date.now()) {
+  if (payload?.displayMode !== "qoder" || !payload.qoderUsage || typeof payload.qoderUsage !== "object") {
+    throw failure("Qoder returned an unsupported quota response.", "invalid-response");
+  }
+  const usage = payload.qoderUsage;
+  if (typeof usage.userId === "string" && usage.userId !== credentials.accountId) {
+    throw failure("Qoder desktop account changed. Please retry.", "account-changed");
+  }
+  const bucket = (value, totalKey = "total") => {
+    if (value === undefined) return undefined;
+    const total = parseAmount(totalKey === "cap" ? value?.cap ?? value?.total : value?.[totalKey]);
+    const used = parseAmount(value?.used);
+    const remaining = value?.remaining === undefined && total !== undefined && used !== undefined
+      ? Math.max(0, total - used) : parseAmount(value?.remaining);
+    if (total === undefined || used === undefined || remaining === undefined) {
+      throw failure("Qoder returned incomplete quota amounts.", "invalid-response");
+    }
+    return { ...value, [totalKey]: total, used, remaining, percentage: total > 0 ? used / total * 100 : 0 };
+  };
+  const expiresAt = parseTimestamp(usage.expiresAt);
+  const snapshot = normalizeQoderUsage({
+    userType: usage.userType,
+    // The desktop response uses 0..1 percentages; calculate from the returned amounts.
+    expiresAt: expiresAt && expiresAt < Date.UTC(9999, 0, 1) ? expiresAt : undefined,
+    userQuota: bucket(usage.userQuota),
+    addOnQuota: bucket(usage.addOnQuota),
+    orgResourcePackage: bucket(usage.orgResourcePackage, "cap")
+  }, fetchedAt);
+  let activities = [];
+  let rewardDetailsStatus = "unavailable";
+  try {
+    if (usage.dedicatedResourcePackages !== undefined) {
+      if (!Array.isArray(usage.dedicatedResourcePackages)) throw failure("Qoder returned invalid reward details.", "invalid-response");
+      const seen = new Set();
+      activities = normalizeQoderActivities(usage.dedicatedResourcePackages.map(value => {
+        const id = normalizeText(value?.id);
+        if (!id || seen.has(id)) throw failure("Qoder returned invalid reward details.", "invalid-response");
+        seen.add(id);
+        const normalized = bucket(value);
+        return { activityId: id, modelName: normalizeText(value.name) || "Qoder Credits",
+          limit: normalized.total, used: normalized.used, remaining: normalized.remaining,
+          eligible: value.available, tagStyle: value.status?.includes("EXPIRED") ? "EXPIRED" : undefined,
+          activityEndAt: value.expiresAt ?? value.expires_at, description: value.description };
+      }), fetchedAt);
+      rewardDetailsStatus = "available";
+    }
+  } catch {
+    // Reward details must not make the independently reported balance unavailable.
+    activities = [];
+  }
+  // Dedicated package details are not added to the server's account balances a second time.
+  return { ...snapshot, qoderSource: "desktop", qoderAccount: { id: credentials.accountId, label: credentials.accountLabel }, activities, qoderRewardDetailsStatus: rewardDetailsStatus };
+}
+
+async function readQoderDesktopUsage({ signal, timeoutMs = 15000, now = Date.now, getCredentials, fetchFn } = {}) {
+  const client = createQoderDesktopClient({ getCredentials, fetchFn });
+  const credentials = await client.credentials();
+  const payload = await client.request(credentials, "/sash/api/v2/me/usage", { signal, timeoutMs });
+  await client.credentials(credentials.accountId);
+  if (signal?.aborted) throw failure("Qoder quota request was canceled.", "USAGE_CANCELED");
+  return normalizeQoderDesktopUsage(payload, credentials, now());
 }
 
 function normalizeQoderActivities(value, fetchedAt = Date.now()) {
@@ -341,10 +387,10 @@ async function readQoderUsage({
   sdkLoader = () => import("@qoder-ai/qoder-agent-sdk"),
   spawn,
   terminateProcessTree,
-  activityReader = readQoderActivities
+  desktopReader = readQoderDesktopUsage
 }) {
+  if (session.type === "windows") return desktopReader({ signal, timeoutMs, now });
   const sdk = await sdkLoader();
-  const startedAt = Date.now();
   const abortController = new AbortController();
   const abort = () => abortController.abort();
   signal?.addEventListener("abort", abort, { once: true });
@@ -376,28 +422,7 @@ async function readQoderUsage({
     const usage = await query.getUsageInfo();
     if (abortController.signal.aborted) throw new Error("Reading Qoder quota timed out or was canceled.");
     const fetchedAt = now();
-    const snapshot = normalizeQoderUsage(usage, fetchedAt);
-    if (session.type !== "windows") return snapshot;
-    clearTimeout(timer);
-    const activityAbortController = new AbortController();
-    const abortActivity = () => activityAbortController.abort();
-    signal?.addEventListener("abort", abortActivity, { once: true });
-    const remainingTimeoutMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
-    const activityTimer = setTimeout(abortActivity, remainingTimeoutMs);
-    try {
-      const activities = normalizeQoderActivities(await activityReader({
-        signal: activityAbortController.signal,
-        spawn,
-        terminateProcessTree
-      }), fetchedAt);
-      return mergeActivitiesIntoSummary({ ...snapshot, activities }, activities);
-    } catch {
-      if (signal?.aborted) throw new Error("Qoder quota request was canceled.");
-      return { ...snapshot, activities: [], activityError: "Qoder activity quota is unavailable." };
-    } finally {
-      clearTimeout(activityTimer);
-      signal?.removeEventListener("abort", abortActivity);
-    }
+    return { ...normalizeQoderUsage(usage, fetchedAt), qoderSource: "cli" };
   } catch (error) {
     if (abortController.signal.aborted) {
       throw new Error(signal?.aborted ? "Qoder quota request was canceled." : "Reading Qoder quota timed out.");
@@ -416,8 +441,10 @@ module.exports = {
   createQoderProcessSpawner,
   getQoderActivityHelperLaunch,
   normalizeQoderActivities,
+  normalizeQoderDesktopUsage,
   normalizeQoderUsage,
   readQoderActivities,
+  readQoderDesktopUsage,
   readQoderUsage,
   terminateWindowsProcessTree,
   windowsPathToWsl

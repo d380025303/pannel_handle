@@ -30,4 +30,16 @@ describe("Qoder desktop credentials", () => {
     fs.unlinkSync(path.join(options.root, "auth.v1.dat"));
     expect(() => readCredentials(options)).toThrow("not installed or signed in");
   });
+  it("supports safeStorage payloads while retaining Qoder's own v10 key", () => {
+    const options = fixture();
+    const encrypted = Buffer.from("native-storage-payload");
+    fs.writeFileSync(path.join(options.root, "auth.v1.dat"), encrypted);
+    const plain = Buffer.from(JSON.stringify({ token: "test-secret", user: { id: "desktop" }, expiresAt: "2099-01-01T00:00:00Z" }));
+    expect(readCredentials({ ...options, decrypt: data => {
+      expect(data).toEqual(encrypted);
+      return plain;
+    } })).toMatchObject({ accountId: "desktop", accountLabel: "desktop" });
+    expect(plain.every(value => value === 0)).toBe(true);
+    expect(fs.readFileSync(path.join(options.root, "auth.v1.dat"))).toEqual(encrypted);
+  });
 });

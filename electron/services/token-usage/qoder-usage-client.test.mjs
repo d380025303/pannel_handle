@@ -164,34 +164,24 @@ describe("qoder-usage-client", () => {
     expect(terminateProcessTree).toHaveBeenCalledWith(canceledChild);
   });
 
-  it("uses the official SDK control request and always closes the temporary session", async () => {
+  it("keeps WSL on the official SDK control request and always closes the temporary session", async () => {
     const close = vi.fn(async () => undefined);
     const initializationResult = vi.fn(async () => ({ account: {} }));
     const getUsageInfo = vi.fn(async () => usageInfo());
     const query = vi.fn(() => ({ initializationResult, getUsageInfo, close }));
     const qodercliAuth = vi.fn(() => ({ type: "qodercli" }));
-    const activityReader = vi.fn(async () => [{
-      activityId: "qwen38_800_invoke",
-      modelName: "Qwen3.8-Max Free Quota",
-      limit: 800,
-      used: 0,
-      remaining: 800,
-      eligible: true
-    }]);
-
     await expect(readQoderUsage({
-      session: { type: "windows", cwd: "C:\\repo" },
+      session: { type: "wsl", wslDistro: "Ubuntu", cwd: "/srv/app" },
       signal: new AbortController().signal,
       timeoutMs: 1000,
       now: () => 99,
       sdkLoader: async () => ({ query, qodercliAuth }),
-      spawn: vi.fn(),
-      activityReader
+      spawn: vi.fn()
     })).resolves.toMatchObject({
       provider: "qoder",
       fetchedAt: 99,
-      summary: { total: 4100, used: 800, remaining: 3300 },
-      activities: [expect.objectContaining({ id: "qwen38_800_invoke", remainingAmount: 800 })]
+      summary: { total: 3300, used: 800, remaining: 2500 },
+      qoderSource: "cli"
     });
 
     expect(qodercliAuth).toHaveBeenCalledTimes(1);
@@ -205,41 +195,18 @@ describe("qoder-usage-client", () => {
     });
     expect(initializationResult).toHaveBeenCalledTimes(1);
     expect(getUsageInfo).toHaveBeenCalledTimes(1);
-    expect(activityReader).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps Credits when Windows activity quota fails and skips activities for WSL", async () => {
-    const close = vi.fn(async () => undefined);
-    const query = vi.fn(() => ({
-      initializationResult: vi.fn(async () => ({})),
-      getUsageInfo: vi.fn(async () => usageInfo()),
-      close
-    }));
-    const sdkLoader = async () => ({ query, qodercliAuth: () => ({ type: "qodercli" }) });
-    const activityReader = vi.fn(async () => { throw new Error("private API changed"); });
-    await expect(readQoderUsage({
-      session: { type: "windows", cwd: "C:\\repo" },
-      signal: new AbortController().signal,
-      timeoutMs: 1000,
-      sdkLoader,
-      spawn: vi.fn(),
-      activityReader
-    })).resolves.toMatchObject({
-      summary: { remaining: 2500 },
-      activities: [],
-      activityError: "Qoder activity quota is unavailable."
-    });
-
-    const wslActivityReader = vi.fn();
-    await expect(readQoderUsage({
-      session: { type: "wsl", wslDistro: "Ubuntu", cwd: "/srv/app" },
-      signal: new AbortController().signal,
-      timeoutMs: 1000,
-      sdkLoader,
-      spawn: vi.fn(),
-      activityReader: wslActivityReader
-    })).resolves.toMatchObject({ summary: { remaining: 2500 } });
-    expect(wslActivityReader).not.toHaveBeenCalled();
+  it("uses desktop quota for Windows without launching a CLI or falling back on failure", async () => {
+    const sdkLoader = vi.fn();
+    const desktopReader = vi.fn(async () => ({ provider: "qoder", summary: { remaining: 200 } }));
+    await expect(readQoderUsage({ session: { type: "windows" }, timeoutMs: 1000, sdkLoader, desktopReader }))
+      .resolves.toMatchObject({ summary: { remaining: 200 } });
+    expect(sdkLoader).not.toHaveBeenCalled();
+    desktopReader.mockRejectedValueOnce(Error("desktop authentication unavailable"));
+    await expect(readQoderUsage({ session: { type: "windows" }, timeoutMs: 1000, sdkLoader, desktopReader }))
+      .rejects.toThrow("desktop authentication unavailable");
+    expect(sdkLoader).not.toHaveBeenCalled();
   });
 });

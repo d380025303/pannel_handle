@@ -29,13 +29,29 @@ function inspect(appOutDir, repair) {
   const archive = path.join(resources, "app.asar");
   const fallbackRoot = path.join(resources, "node_modules");
   const files = new Set(asar.listPackage(archive).map(file => file.replaceAll("\\", "/")));
-  const queue = [...files].filter(file => file.endsWith("/package.json") && file.includes("/node_modules/")
-    && !file.includes("/benchmark/") && !file.startsWith("/node_modules/nan/tools/"));
+  const queue = ["/package.json", ...[...files].filter(file => file.endsWith("/package.json") && file.includes("/node_modules/")
+    && !file.includes("/benchmark/") && !file.startsWith("/node_modules/nan/tools/"))];
+  if (fs.existsSync(fallbackRoot)) {
+    for (const entry of fs.readdirSync(fallbackRoot)) {
+      const names = entry.startsWith("@")
+        ? fs.readdirSync(path.join(fallbackRoot, entry)).map(name => `${entry}/${name}`)
+        : [entry];
+      for (const name of names) {
+        if (fs.existsSync(path.join(fallbackRoot, name, "package.json"))) {
+          queue.push(`/node_modules/__fallback__/${name}/package.json`);
+        }
+      }
+    }
+  }
   const seen = new Set();
   const missing = [];
   const copied = new Set();
 
   function packagedPackage(from, name) {
+    // Modules outside app.asar cannot resolve dependencies inside the archive.
+    if (from.startsWith("/node_modules/__fallback__/")) {
+      return fs.existsSync(path.join(fallbackRoot, name, "package.json"));
+    }
     let directory = path.posix.dirname(from);
     while (true) {
       const candidate = `${directory}/node_modules/${name}/package.json`.replace(/^\/\//, "/");
@@ -69,7 +85,10 @@ function inspect(appOutDir, repair) {
   console.log(`Packaged dependency graph is complete${copied.size ? `; copied ${copied.size} omitted modules` : ""}.`);
 }
 
-module.exports = async context => inspect(context.appOutDir, true);
+module.exports = async context => {
+  inspect(context.appOutDir, true);
+  require("./smoke-packaged-dependencies.cjs")(context.appOutDir);
+};
 
 if (require.main === module) {
   try {

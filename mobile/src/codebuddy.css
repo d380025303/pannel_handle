@@ -1,5 +1,9 @@
 .mobile-codebuddy-panel .modal-overlay, .mobile-codebuddy-panel .codex-plugin-backdrop { position: fixed; inset: 0; z-index: 70; background: #0008; display: flex; align-items: flex-end; }
 .mobile-codebuddy-panel .modal-dialog, .mobile-codebuddy-panel .codex-plugin-dialog { box-sizing: border-box; width: 100%; max-width: 100%; max-height: 90dvh; overflow: auto; border-radius: 18px 18px 0 0; padding: 16px; background: var(--surface, #202127); color: inherit; }
+.mobile-codebuddy-panel .codebuddy-side-dialog { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.mobile-codebuddy-panel .codebuddy-side-dialog label { margin: 0; }
+.mobile-codebuddy-panel .codebuddy-side-dialog button { margin: 0; }
+.mobile-codebuddy-panel .codebuddy-side-answer-body pre { white-space: pre; overflow-wrap: normal; }
 .mobile-codebuddy-panel header, .mobile-codebuddy-panel .codex-app-server-history-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .mobile-codebuddy-panel label { display: grid; gap: 8px; margin: 12px 0; }
 .mobile-codebuddy-panel textarea, .mobile-codebuddy-panel input:not([type=checkbox]):not([type=radio]), .mobile-codebuddy-panel select { box-sizing: border-box; width: 100%; min-height: 40px; }

@@ -12,26 +12,37 @@ function unprotectWindows(data) {
   }).trim(), "base64");
 }
 
-function readCredentials({ root = path.join(process.env.APPDATA || "", "com.qoder.app.stable"), unprotect = unprotectWindows } = {}) {
-  if (!fs.existsSync(path.join(root, "auth.v1.dat"))) throw Object.assign(new Error("Qoder desktop App is not installed or signed in."), { retryable: false });
+function decryptWithSafeStorage(data) {
+  const { safeStorage } = require("electron");
+  if (!safeStorage?.isEncryptionAvailable()) throw new Error();
+  return Buffer.from(safeStorage.decryptString(data), "utf8");
+}
+
+function readCredentials({ root = path.join(process.env.APPDATA || "", "com.qoder.app.stable"), unprotect = unprotectWindows,
+  decrypt = decryptWithSafeStorage } = {}) {
+  if (!fs.existsSync(path.join(root, "auth.v1.dat"))) throw Object.assign(new Error("Qoder desktop App is not installed or signed in."), { code: "login-unavailable", retryable: false });
   let key;
   let plain;
   try {
-    const encryptedKey = Buffer.from(JSON.parse(fs.readFileSync(path.join(root, "Local State"), "utf8")).os_crypt.encrypted_key, "base64");
-    if (encryptedKey.subarray(0, 5).toString() !== "DPAPI") throw new Error();
-    key = unprotect(encryptedKey.subarray(5));
     const data = fs.readFileSync(path.join(root, "auth.v1.dat"));
-    if (data.subarray(0, 3).toString() !== "v10") throw new Error();
-    const cipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(3, 15));
-    cipher.setAuthTag(data.subarray(-16));
-    plain = Buffer.concat([cipher.update(data.subarray(15, -16)), cipher.final()]);
+    if (data.subarray(0, 3).toString() === "v10") {
+      // Electron's AES key belongs to Qoder's userData, not this application's safeStorage.
+      const encryptedKey = Buffer.from(JSON.parse(fs.readFileSync(path.join(root, "Local State"), "utf8")).os_crypt.encrypted_key, "base64");
+      if (encryptedKey.subarray(0, 5).toString() !== "DPAPI") throw new Error();
+      key = unprotect(encryptedKey.subarray(5));
+      const cipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(3, 15));
+      cipher.setAuthTag(data.subarray(-16));
+      plain = Buffer.concat([cipher.update(data.subarray(15, -16)), cipher.final()]);
+    } else {
+      plain = decrypt(data);
+    }
     const auth = JSON.parse(plain.toString("utf8"));
     if (typeof auth.token !== "string" || !auth.token || typeof auth.user?.id !== "string" || !auth.user.id || !Number.isFinite(Date.parse(auth.expiresAt))) throw new Error();
     if (Date.parse(auth.expiresAt) <= Date.now()) throw new Error("expired");
     const label = [auth.user.email, auth.user.name, auth.user.id].find(value => typeof value === "string" && value.trim());
     return { token: auth.token, accountId: auth.user.id, accountLabel: label.slice(0, 240) };
   } catch (error) {
-    throw Object.assign(new Error(error.message === "expired" ? "Qoder desktop login expired. Please sign in again." : "Cannot read Qoder desktop login. Please sign in to the desktop App again."), { retryable: false });
+    throw Object.assign(new Error(error.message === "expired" ? "Qoder desktop login expired. Please sign in again." : "Cannot read Qoder desktop login. Please sign in to the desktop App again."), { code: error.message === "expired" ? "login-expired" : "login-unavailable", retryable: false });
   } finally {
     key?.fill(0);
     plain?.fill(0);
