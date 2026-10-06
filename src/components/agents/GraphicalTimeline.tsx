@@ -144,7 +144,7 @@ export const teamStatusLabels: Record<string, string> = {
   cancelled: "已取消", killed: "已终止", unresumable: "无法恢复", removed: "已离队", unknown: "状态未知"
 };
 
-export function TeamMemberTimeline({ member, onLinkClick, codeBuddy = true, minimalMode = false }: { member: TeamMember; onLinkClick?: (href: string) => void; codeBuddy?: boolean; minimalMode?: boolean }) {
+export function TeamMemberTimeline({ member, onLinkClick, onCopyLink, codeBuddy = true, minimalMode = false }: { member: TeamMember; onCopyLink?: (text: string) => Promise<boolean>; onLinkClick?: (href: string) => void; codeBuddy?: boolean; minimalMode?: boolean }) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   return <div className="codex-app-server-team-timeline" aria-label={`${member.name} 的消息时间线`}>
     {!member.items.length && <p className="codex-app-server-team-empty">暂无成员消息。</p>}
@@ -157,7 +157,7 @@ export function TeamMemberTimeline({ member, onLinkClick, codeBuddy = true, mini
       const item = entry.item;
       if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
         {item.type === "userMessage" ? <p>{item.text}</p>
-          : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
+          : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} onCopyLink={onCopyLink} linkActions />}
       </article>;
       if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
         <strong>计划进度</strong><ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>

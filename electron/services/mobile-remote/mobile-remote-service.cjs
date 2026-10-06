@@ -19,7 +19,7 @@ function createMobileRemoteService({
   graphicalService,
   codexPluginService, codexVersionService, projectSearchService, mcpConfigService,
   getAgentUsage,
-  getOpenCodeVerifiedModels, getCodexVerifiedModels,
+  getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService,
   sessionStore,
   accessStore,
   stateHub,
@@ -57,7 +57,7 @@ function createMobileRemoteService({
     sendReady: socket => socketHandlers.sendReady(socket)
   });
   const socketHandlers = createMobileSocketHandlers({
-    terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, stateHub, now,
+    terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, stateHub, now,
     auth, sizes, uploads, files, send, sendError,
     getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });

@@ -1,3 +1,5 @@
+import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
+import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
 import { copyMobileText } from "./clipboard";
 import { useState } from "react";
 import { McpElicitationCard } from "../../src/components/agents/GraphicalInteractionCards";
@@ -12,12 +14,22 @@ import type { GraphicalSnapshot } from "./types";
 type Controller = ReturnType<typeof useGraphicalSession>;
 export function GraphicalTimeline({ snapshot, controller }: { snapshot: GraphicalSnapshot; controller: Controller }) {
   const { expandedGroupId, setExpandedGroupId, changingMode, scrollRef, action, executeOpenCodePlan } = controller;
+  const [rewind, setRewind] = useState<{ messageId: string; scope: string } | null>(null);
+  const [rewindPending, setRewindPending] = useState(false);
+  const [teamText, setTeamText] = useState("");
+  const [teamPending, setTeamPending] = useState(false);
+  const [teamMember, setTeamMember] = useState("");
   const [preview, setPreview] = useState<{ kind: string; dataUrl?: string; text?: string } | null>(null);
   const copy = (text: string) => { void copyMobileText(text).catch(cause => controller.setError(String(cause))); };
   const fail = (cause: unknown) => controller.setError(cause instanceof Error ? cause.message : String(cause));
   const openCodePlanItemId = openCodePlanReplyId(snapshot);
   const openCodeBuildMode = snapshot.nativeModes?.find(mode => mode.id.toLowerCase() === "build");
   return (    <div className="graphical-timeline" ref={scrollRef}>
+      {rewind && <div className="graphical-card" role="dialog" aria-label="CodeBuddy 会话回退"><strong>回退到此处</strong><p>代码回退只覆盖 CodeBuddy 文件编辑工具记录的改动；终端命令和外部修改不在其中。</p><select aria-label="回退范围" value={rewind.scope} disabled={rewindPending} onChange={event => setRewind({ ...rewind, scope: event.target.value })}><option value="Conversation">仅对话</option><option value="Code">仅代码</option><option value="CodeAndConversation">对话和代码</option></select><button disabled={rewindPending} onClick={() => setRewind(null)}>取消</button><button disabled={rewindPending || snapshot.busy} onClick={() => { setRewindPending(true); void controller.buddyRequest("rewind", rewind).then(() => setRewind(null)).catch(fail).finally(() => setRewindPending(false)); }}>确认回退</button></div>}
+      {snapshot.provider === "codebuddy" && snapshot.team && <details className="graphical-card graphical-team"><summary>团队 · {snapshot.team.name} · {snapshot.team.members.length} 位成员</summary>
+        {snapshot.team.members.map(member => <details key={member.name}><summary>{member.name} · {teamStatusLabels[member.status] || member.status}</summary><TeamMemberTimeline member={member} onLinkClick={url => { if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); else fail(new Error("手机浏览器仅支持 HTTP(S) 外链。")); }} onCopyLink={async text => { await copyMobileText(text); return true; }} /></details>)}
+        <form onSubmit={event => { event.preventDefault(); if (!teamText.trim() || !teamMember || teamPending) return; setTeamPending(true); void controller.buddyRequest("team-message", { team: snapshot.team!.name, member: teamMember, text: teamText }).then(() => setTeamText("")).catch(fail).finally(() => setTeamPending(false)); }}><select aria-label="团队成员" value={teamMember} onChange={event => setTeamMember(event.target.value)}><option value="">选择成员</option>{snapshot.team.members.filter(member => member.status !== "removed").map(member => <option key={member.name}>{member.name}</option>)}</select><textarea aria-label="团队消息" value={teamText} onChange={event => setTeamText(event.target.value)} /><button disabled={!teamText.trim() || !teamMember || teamPending}>发送给成员</button></form>
+      </details>}
       {preview && <div className="graphical-card"><button type="button" onClick={() => setPreview(null)}>关闭附件预览</button>{preview.kind === "image" ? <img className="graphical-preview-image" src={preview.dataUrl} alt="会话附件" /> : <pre>{preview.text || (preview.kind === "too_large" ? "附件过大，无法预览" : "此附件不支持预览")}</pre>}</div>}
       {snapshot.items.length === 0 && <p className="graphical-empty">向 {providerLabel(snapshot.provider)} 发送消息以开始对话。</p>}
       {groupTimeline(snapshot.items).map(entry => {
@@ -32,13 +44,15 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
               <strong>工具调用 · {entry.items.length} 项</strong><span>{status}</span>
             </button>
             {expanded && <div className="graphical-tool-list">{entry.items.map(item => <ToolItem item={item} codeBuddy={snapshot.provider === "codebuddy"} key={item.id} />)}</div>}
+            {snapshot.provider === "codebuddy" && entry.items.filter(item => item.mcpApp).map(item => <CodeBuddyMcpApp key={item.id} itemId={item.id} revision={item.mcpApp?.revision} />)}
           </section>;
         }
         const item = entry.item;
         if (item.type === "userMessage" || item.type === "agentMessage")
           return <article className={`graphical-message ${item.type}`} key={item.id}>
             <div className="graphical-markdown"><MarkdownBlock content={item.text || ""} onCopyCode={copy} /></div>
-            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <button type="button" key={index} disabled={!file.path} onClick={() => { void controller.codexRequest<{ kind: string; dataUrl?: string; text?: string }>("attachment-preview", { path: file.path }).then(setPreview).catch(fail); }}><Paperclip aria-hidden="true" />{file.name}</button>)}</div> : null}
+            {snapshot.provider === "codebuddy" && <div className="graphical-message-actions"><button type="button" onClick={() => copy(item.text || "")}>复制消息</button>{snapshot.codeBuddyMobile && snapshot.capabilities?.rewind && item.type === "userMessage" && item.rewindMessageId && <button type="button" disabled={snapshot.busy || controller.codexPending} onClick={() => setRewind({ messageId: item.rewindMessageId!, scope: "Conversation" })}>回退到此处</button>}</div>}
+            {item.attachments?.length ? <div className="graphical-attachment-history">{item.attachments.map((file, index) => <button type="button" key={index} disabled={!file.path} onClick={() => { void (snapshot.provider === "codebuddy" ? controller.buddyRequest<{ kind: string; dataUrl?: string; text?: string }>("attachment-preview", { path: file.path }) : controller.codexRequest<{ kind: string; dataUrl?: string; text?: string }>("attachment-preview", { path: file.path })).then(setPreview).catch(fail); }}><Paperclip aria-hidden="true" />{file.name}</button>)}</div> : null}
             {snapshot.provider === "codex" && <div className="graphical-message-actions"><button type="button" onClick={() => copy(item.text || "")}>复制消息</button>{item.turnId && <button type="button" disabled={snapshot.busy || snapshot.archived || controller.isSending} onClick={() => { void controller.codexRequest("fork-turn", { turnId: item.turnId }).then(() => controller.setError("")).catch(fail); }}>分叉到新会话</button>}</div>}
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
               <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
@@ -50,7 +64,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
             <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
           </div>}</article>;
         if (item.type === "turnError") return <article className="graphical-card" role="alert" key={item.id}><strong>运行错误</strong><p>{item.text}</p></article>;
-        return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong></article>;
+        return <article className="graphical-card" key={item.id}><strong>后台任务汇总</strong>{item.text && <MarkdownBlock content={item.text} />}{item.summary?.map((value, index) => <p key={index}>{typeof value === "string" ? value : value.text}</p>)}</article>;
       })}
       {snapshot.provider === "codex" && <>
         {snapshot.turnDiffs?.map(diff => <details className="graphical-card" key={diff.turnId}><summary>代码差异</summary><button type="button" onClick={() => copy(diff.diff)}>复制差异</button><pre>{diff.diff}</pre></details>)}

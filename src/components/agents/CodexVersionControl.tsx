@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { CodexVersionState } from "../../vite-env";
 
-export function CodexVersionControl({ sessionId, provider = "codex" }: { sessionId: string; provider?: "codex" | "codebuddy" | "opencode" }) {
+export function CodexVersionControl({ sessionId, provider = "codex", api: suppliedApi }: { api?: typeof window.codexVersionApi; sessionId: string; provider?: "codex" | "codebuddy" | "opencode" }) {
   const { t } = useI18n();
-  const api = provider === "codebuddy" ? window.codeBuddyVersionApi
-    : provider === "opencode" ? window.openCodeVersionApi : window.codexVersionApi;
+  const api = suppliedApi || (provider === "codebuddy" ? window.codeBuddyVersionApi
+    : provider === "opencode" ? window.openCodeVersionApi : window.codexVersionApi);
   const target = `${provider}:${sessionId}`;
   const currentTarget = useRef(target);
   currentTarget.current = target;

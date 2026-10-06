@@ -63,3 +63,16 @@ describe("MCP App host", () => {
     expect(api.dispose).toHaveBeenCalledWith("session", "thread", "item");
   });
 });
+
+
+it("uses an injected remote API for initial load, revisions and teardown", async () => {
+  const { api, view } = setup(); view.unmount(); bridges.length = 0;
+  const remote = { ...api, load: vi.fn(async () => ({ html: "<h1>Mobile App</h1>" })), dispose: vi.fn(async () => {}), restart: vi.fn(), runtime: vi.fn(), images: vi.fn() };
+  const context = { sessionId: "mobile", threadId: "mobile-thread", enabled: true, fillMessage: vi.fn(), api: remote, openLink: vi.fn(async () => {}) };
+  const mobile = render(<CodeBuddyMcpAppContext.Provider value={context}><CodeBuddyMcpApp itemId="remote-item" revision={1} /></CodeBuddyMcpAppContext.Provider>);
+  await waitFor(() => expect(remote.load).toHaveBeenCalledWith("mobile", "mobile-thread", "remote-item"));
+  const calls = remote.load.mock.calls.length;
+  mobile.rerender(<CodeBuddyMcpAppContext.Provider value={context}><CodeBuddyMcpApp itemId="remote-item" revision={2} /></CodeBuddyMcpAppContext.Provider>);
+  await waitFor(() => expect(remote.load.mock.calls.length).toBeGreaterThan(calls));
+  mobile.unmount(); expect(remote.dispose).toHaveBeenCalledWith("mobile", "mobile-thread", "remote-item");
+});

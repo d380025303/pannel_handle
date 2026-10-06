@@ -1,3 +1,4 @@
+import { CodeBuddyPanel } from "./CodeBuddyPanel";
 import { copyMobileText } from "./clipboard";
 import { CodexAdvancedSheet, codexSheetTitles } from "./CodexAdvancedSheet";
 import type { CodexSheet } from "./useGraphicalSession";
@@ -15,12 +16,13 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
     action, changeModel, changeEffort, addFiles, changeMode, changePermission, changeNativeMode, switchAgent,
     loadHistory, openHistory, isSending, historyMutation, mutateHistory } = controller;
   if (!activeSheet) return null;
+  if (snapshot.provider === "codebuddy" && activeSheet.startsWith("buddy-")) return <CodeBuddyPanel key={`${session.id}:${snapshot.threadId}`} controller={controller} />;
   const advanced = activeSheet in codexSheetTitles ? activeSheet as CodexSheet : null;
   const title = advanced ? codexSheetTitles[advanced] : null;
   const effectivePlan = snapshot.mode === "plan";
   const addFileDisabled = !snapshot.threadId || snapshot.archived || isSending || attachments.length >= 10
     || (snapshot.busy && snapshot.provider !== "codex");
-  const modelDisabled = (!modelOptions(snapshot).length && !(snapshot.provider === "codex" && session.type !== "ssh")) || snapshot.busy || snapshot.archived || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation);
+  const modelDisabled = (!modelOptions(snapshot).length && !(["codex", "codebuddy"].includes(snapshot.provider) && session.type !== "ssh")) || snapshot.busy || snapshot.archived || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation);
   const effortOption = openCodeEffortOption(snapshot);
   const effortDisabled = !snapshot.threadId || !effortOption || snapshot.busy || snapshot.archived || isSending
     || changingModel || changingEffort || attachments.length > 0 || Boolean(historyMutation || snapshot.pendingPlan)
@@ -29,7 +31,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
   const historyDisabled = controller.codexPending || snapshot.busy || isSending || Boolean(historyMutation || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length)
     || attachments.some(item => item.status === "uploading");
   const currentModel = snapshot.provider === "codex" ? snapshot.model || snapshot.effectiveModel || ""
-    : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
+    : snapshot.provider === "codebuddy" && snapshot.modelSource && snapshot.modelSource !== "native" ? "" : String(snapshot.acpOptions?.find(option => option.id === "model")?.currentValue || "");
   return (<div className="graphical-sheet-backdrop" onClick={() => setActiveSheet(null)}>
       <div ref={sheetRef} className="graphical-sheet" role="dialog" aria-modal="true"
         aria-label={title || (activeSheet === "menu" ? "更多操作" : activeSheet === "agent" ? "切换 Agent"
@@ -60,6 +62,14 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             : snapshot.nativeModes?.length ? <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
               onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span><GraphicalIcon name="mode" />切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
+          {snapshot.provider === "codebuddy" && snapshot.codeBuddyMobile && <>
+            <button onClick={() => setActiveSheet("buddy-config")} disabled={!snapshot.threadId}>会话配置 · 主 Agent / Multitask / 上下文</button>
+            <button onClick={() => setActiveSheet("buddy-goal")} disabled={!snapshot.threadId}>目标管理</button>
+            {snapshot.capabilities?.sideQuestion && <button onClick={() => setActiveSheet("buddy-side")} disabled={!snapshot.threadId}>独立旁问</button>}
+            <button onClick={() => setActiveSheet("buddy-version")} disabled={!snapshot.threadId}>CLI 版本</button>
+            {session.type === "windows" && <><button onClick={() => setActiveSheet("buddy-plugins")}>插件管理</button><button onClick={() => setActiveSheet("buddy-tasks")}>定时任务</button><button onClick={() => setActiveSheet("buddy-jobs")}>后台智能体</button><button onClick={() => setActiveSheet("buddy-mcp")}>MCP 管理</button></>}
+          </>}
+          {snapshot.provider === "codebuddy" && !snapshot.codeBuddyMobile && <p>更新桌面宿主后可使用完整 CodeBuddy 功能。</p>}
           {snapshot.provider === "codex" && <>
             {snapshot.backend === "openai" && <button type="button" disabled={controller.codexPending || !snapshot.threadId || snapshot.busy || snapshot.archived} onClick={() => { void controller.codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause))); }}><span>快速模式</span><small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
             {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button type="button" key={key} disabled={!snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
@@ -97,9 +107,13 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             {snapshot.backend !== "openai" && <button disabled={snapshot.busy || snapshot.archived || controller.codexPending} onClick={() => { if (window.confirm("切换到 OpenAI 原生模型将重启图形会话，是否继续？")) void controller.codexRequest("model-source", { source: "native" }).catch(cause => setError(String(cause))); }}>OpenAI · 原生模型</button>}
             {controller.serviceModels.map(model => <button key={`${model.source}:${model.id}`} disabled={snapshot.busy || snapshot.archived || controller.codexPending || attachments.length > 0} onClick={() => { if (window.confirm(`切换到 ${model.name} 将重启图形会话，是否继续？`)) void controller.codexRequest("model-source", { source: model.source, modelId: model.id }).catch(cause => setError(String(cause))); }}>{model.source} · {model.name}</button>)}
           </>}
+          {snapshot.provider === "codebuddy" && snapshot.codeBuddyMobile && session.type !== "ssh" && <>
+            {snapshot.modelSource !== "native" && <button disabled={modelDisabled || controller.codexPending} onClick={() => { if (window.confirm("切换原生模型将重启会话，是否继续？")) void controller.buddyRequest("model-source", { source: "native" }).catch(cause => setError(String(cause))); }}>原生模型</button>}
+            {controller.serviceModels.map(model => <button key={`${model.source}:${model.id}`} disabled={modelDisabled || controller.codexPending || snapshot.modelSource === model.source && snapshot.serviceModelId === model.id} aria-pressed={snapshot.modelSource === model.source && snapshot.serviceModelId === model.id} onClick={() => { if (window.confirm(`切换到 ${model.name} 将重启图形会话，是否继续？`)) void controller.buddyRequest("model-source", { source: model.source, modelId: model.id }).catch(cause => setError(String(cause))); }}>{model.source} · {model.name}</button>)}
+          </>}
           {modelOptions(snapshot).map(option => <button type="button" key={option.value} disabled={modelDisabled || option.value === currentModel}
-            aria-pressed={option.value === currentModel} onClick={() => changeModel(option.value)}>
-            <span>{option.name}</span>{option.value === currentModel && <small>当前使用</small>}
+            aria-pressed={option.value === currentModel} onClick={() => { if (snapshot.provider === "codebuddy" && snapshot.modelSource && snapshot.modelSource !== "native") { if (window.confirm("切换原生模型将重启会话，是否继续？")) void controller.buddyRequest("model-source", { source: "native", modelId: option.value }).catch(cause => setError(String(cause))); } else changeModel(option.value); }}>
+            <span>{option.name}{snapshot.provider === "codebuddy" && controller.buddyModelMetadata.filter(model => model.id === option.value).map(model => <small key={model.id}>{model.creditMultiplier ? ` · ${model.creditMultiplier} 倍` : ""}{model.promotions.map(promotion => ` · ${promotion.label}`).join("")}</small>)}</span>{option.value === currentModel && <small>当前使用</small>}
           </button>)}
         </div>}
         {activeSheet === "effort" && <div className="graphical-sheet-list">
@@ -130,6 +144,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             onClick={() => { if (action({ type: "graphical.resume", targetThreadId: thread.id })) setActiveSheet(null); }}>
             <span>{thread.isPinned ? "置顶 · " : ""}{thread.title}</span><small>{new Date(thread.updatedAt * 1000).toLocaleString()}{thread.archived ? " · 已归档" : ""}</small>
           </button>
+            {snapshot.provider === "codebuddy" && <div className="graphical-history-actions"><button onClick={() => void copyMobileText(thread.id).catch(cause => setError(String(cause)))}>复制会话 ID</button>{snapshot.codeBuddyMobile && <button disabled={historyDisabled || controller.codexPending} onClick={() => { const name = window.prompt("会话名称", thread.title); if (name?.trim()) void controller.buddyRequest("history.rename", { targetThreadId: thread.id, name }).then(() => loadHistory()).catch(cause => setError(String(cause))); }}>重命名</button>}</div>}
             {snapshot.provider === "codex" && <div className="graphical-history-actions">
               <button disabled={historyDisabled} onClick={() => { void copyMobileText(thread.id).catch(cause => setError(String(cause))); }}>复制 ID</button>
               <button disabled={historyDisabled} onClick={() => { void controller.codexRequest<{ text: string } | null>("history.initial", { targetThreadId: thread.id }).then(value => copyMobileText(value?.text || "")).catch(cause => setError(String(cause))); }}>复制首条输入</button>

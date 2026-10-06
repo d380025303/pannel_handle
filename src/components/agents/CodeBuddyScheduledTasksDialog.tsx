@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { CodeBuddyScheduledTask } from "../../vite-env";
 
-type Props = { sessionId: string; threadId: string; onClose: () => void };
+type Props = { api?: typeof window.codexAppServerApi; sessionId: string; threadId: string; onClose: () => void };
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
-export function CodeBuddyScheduledTasksDialog({ sessionId, threadId, onClose }: Props) {
+export function CodeBuddyScheduledTasksDialog({ api = window.codexAppServerApi, sessionId, threadId, onClose }: Props) {
   const [tasks, setTasks] = useState<CodeBuddyScheduledTask[]>([]);
   const [prompt, setPrompt] = useState("");
   const [cron, setCron] = useState("*/5 * * * *");
@@ -27,7 +27,7 @@ export function CodeBuddyScheduledTasksDialog({ sessionId, threadId, onClose }: 
     const request = ++sequence.current;
     setLoading(true);
     try {
-      const rows = await window.codexAppServerApi.listScheduledTasks(sessionId, threadId);
+      const rows = await api.listScheduledTasks(sessionId, threadId);
       if (token === generation.current && request === sequence.current) { setTasks(rows); setLoaded(true); setError(""); }
     } catch (cause) {
       if (token === generation.current && request === sequence.current) setError(message(cause));
@@ -76,14 +76,14 @@ export function CodeBuddyScheduledTasksDialog({ sessionId, threadId, onClose }: 
           {task.createdAt != null && <p>创建时间：{new Date(task.createdAt).toLocaleString()}</p>}
           {task.lastFiredAt != null && <p>最近触发：{new Date(task.lastFiredAt).toLocaleString()}</p>}
           {confirmDelete === task.id ? <div><span>确认删除此任务？</span>
-            <button disabled={disabled} onClick={() => void run(() => window.codexAppServerApi.deleteScheduledTask(sessionId, threadId, task.id))}>确认删除</button>
+            <button disabled={disabled} onClick={() => void run(() => api.deleteScheduledTask(sessionId, threadId, task.id))}>确认删除</button>
             <button disabled={disabled} onClick={() => setConfirmDelete(null)}>取消</button></div>
             : <button disabled={disabled} aria-label={`删除任务 ${task.prompt}`} onClick={() => setConfirmDelete(task.id)}>删除</button>}
         </li>)}</ul>
         <h3>创建定时任务</h3>
         <form className="codebuddy-scheduled-form" onSubmit={event => {
           event.preventDefault();
-          void run(() => window.codexAppServerApi.createScheduledTask(sessionId, threadId, { prompt, cron, recurring, durable }), true);
+          void run(() => api.createScheduledTask(sessionId, threadId, { prompt, cron, recurring, durable }), true);
         }}>
           <label>任务内容<textarea aria-label="任务内容" rows={3} value={prompt} maxLength={16000} required disabled={pending} onChange={event => setPrompt(event.target.value)} /></label>
           <label>Cron 表达式<input aria-label="Cron 表达式" value={cron} maxLength={200} required disabled={pending} onChange={event => setCron(event.target.value)} /></label>

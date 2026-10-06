@@ -998,3 +998,76 @@ it("opens Apps from the slash picker without sending the command as a message", 
   expect(screen.getByRole("tab", { name: "Apps" }).getAttribute("aria-selected")).toBe("true");
   expect(f.send.mock.calls.some(([value]) => value.type === "graphical.submit")).toBe(false);
 });
+
+
+it("offers complete CodeBuddy menus and leaves unsupported hosts compatible", () => {
+  const { emit, send } = fixture({ ...session, agentProvider: "codebuddy" });
+  const buddy = { ...snapshot, provider: "codebuddy" as const, codeBuddyMobile: true, capabilities: { history: true, sideQuestion: true } };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: buddy });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  for (const name of ["目标管理", "独立旁问", "CLI 版本", "插件管理", "定时任务", "后台智能体", "MCP 管理"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "目标管理" }));
+  expect(screen.getByRole("dialog", { name: "CodeBuddy 目标管理" })).toBeTruthy();
+  fireEvent.change(screen.getByPlaceholderText("写下可验证的完成条件"), { target: { value: "finish tests" } });
+  fireEvent.click(screen.getByRole("button", { name: "创建目标" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codebuddy.goal.set", input: expect.objectContaining({ objective: "finish tests" }) }));
+});
+
+it("shows CodeBuddy teams and confirms rewind using desktop scopes", () => {
+  const { emit, send } = fixture({ ...session, agentProvider: "codebuddy" });
+  const buddy = { ...snapshot, provider: "codebuddy" as const, codeBuddyMobile: true, capabilities: { history: true, rewind: true },
+    team: { name: "builders", isAutoTeam: false, hasLiveMembers: true, members: [{ name: "worker", status: "idle", items: [{ id: "member-msg", type: "agentMessage", text: "member result" }] }] },
+    items: [{ id: "user", type: "userMessage", text: "implement", rewindMessageId: "msg" }] };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: buddy });
+  expect(screen.getByText("member result")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "回退到此处" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "回退范围" }), { target: { value: "CodeAndConversation" } });
+  fireEvent.click(screen.getByRole("button", { name: "确认回退" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codebuddy.rewind", input: { messageId: "msg", scope: "CodeAndConversation" } }));
+});
+
+it("hides new CodeBuddy operations when connected to an old host", () => {
+  const { emit } = fixture({ ...session, agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, provider: "codebuddy" } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(screen.queryByRole("button", { name: "插件管理" })).toBeNull();
+  expect(screen.getByText("更新桌面宿主后可使用完整 CodeBuddy 功能。")).toBeTruthy();
+});
+
+
+it("keeps CodeBuddy side questions available while the main task runs and rejects pending RPC on disconnect", async () => {
+  const { emit, send, disconnect } = fixture({ ...session, agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, provider: "codebuddy", codeBuddyMobile: true, busy: true, capabilities: { sideQuestion: true } } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: "独立旁问" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "旁问问题" }), { target: { value: "what changed?" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送旁问" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codebuddy.side-question", input: { question: "what changed?" } }));
+  disconnect();
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("连接中断"));
+});
+
+it("loads CodeBuddy verified service models and confirms a source restart", async () => {
+  const { emit, send } = fixture({ ...session, agentProvider: "codebuddy" });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, provider: "codebuddy", codeBuddyMobile: true, modelSource: "native", acpOptions: [{ id: "model", currentValue: "native", options: [{ value: "native", name: "Native" }] }] } });
+  openSheet("切换模型");
+  const requests = send.mock.calls.map(([message]) => message);
+  for (const request of requests.filter(message => message.type === "graphical.codebuddy.models" || message.type === "graphical.codebuddy.model-metadata")) {
+    if (!("requestId" in request)) continue;
+    emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: request.requestId!, result: request.type === "graphical.codebuddy.models" ? [{ source: "minimax", id: "verified", name: "Verified Model" }] : [] });
+  }
+  await waitFor(() => expect(screen.getByRole("button", { name: "minimax · Verified Model" })).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "minimax · Verified Model" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codebuddy.model-source", input: { source: "minimax", modelId: "verified" } }));
+  vi.restoreAllMocks();
+});
+
+it("keeps CodeBuddy management actions restricted to Windows hosts", () => {
+  const { emit } = fixture({ ...session, type: "ssh", agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, provider: "codebuddy", codeBuddyMobile: true } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  expect(screen.queryByRole("button", { name: "MCP 管理" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "后台智能体" })).toBeNull();
+  expect(screen.getByRole("button", { name: "目标管理" })).toBeTruthy();
+});

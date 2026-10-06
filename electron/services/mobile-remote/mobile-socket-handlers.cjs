@@ -3,9 +3,9 @@ const { toRuntimeSession, toSavedTemplates, launchMobileTemplate } = require("./
 const { createMobileGraphicalHandlers } = require("./mobile-graphical.cjs");
 const { sessionOverview } = require("./mobile-session-overview.cjs");
 
-function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus }) {
+function createMobileSocketHandlers({ terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, stateHub, now, auth, sizes, uploads, files, send, sendError, getAgentStatus }) {
   const { getSizeState, applySize } = sizes;
-  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, uploads, send, agentSessionLauncher });
+  const graphical = createMobileGraphicalHandlers({ terminalManager, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, uploads, send, agentSessionLauncher });
 
   function sendReady(socket) {
     const sessions = terminalManager.listSessions();

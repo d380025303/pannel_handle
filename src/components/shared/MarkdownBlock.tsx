@@ -9,14 +9,16 @@ type MarkdownBlockProps = {
   externalLinks?: boolean;
   onLinkClick?: (href: string) => void;
   linkActions?: boolean;
+  onCopyLink?: (text: string) => Promise<boolean>;
   onCopyCode?: (text: string) => void;
 };
 
-function MarkdownLink({ href, children, onLinkClick, linkActions, ...props }: {
+function MarkdownLink({ href, children, onLinkClick, linkActions, onCopyLink, ...props }: {
   href?: string;
   children: React.ReactNode;
   onLinkClick?: (href: string) => void;
   linkActions: boolean;
+  onCopyLink?: (text: string) => Promise<boolean>;
 } & React.AnchorHTMLAttributes<HTMLAnchorElement>) {
   const addressId = useId();
   const [hovered, setHovered] = useState(false);
@@ -34,7 +36,7 @@ function MarkdownLink({ href, children, onLinkClick, linkActions, ...props }: {
 
   async function copyAddress() {
     try {
-      setCopyStatus(await window.clipboardApi.writeText(href!) ? "已复制" : "复制失败");
+      setCopyStatus(await (onCopyLink ? onCopyLink(href!) : window.clipboardApi.writeText(href!)) ? "已复制" : "复制失败");
     } catch {
       setCopyStatus("复制失败");
     }
@@ -60,7 +62,7 @@ function plainCodeText(node: React.ReactNode): string {
   return Children.toArray(node).map(child => isValidElement(child) ? plainCodeText((child.props as { children?: React.ReactNode }).children) : String(child)).join("");
 }
 
-export const MarkdownBlock = memo(function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false, onCopyCode }: MarkdownBlockProps) {
+export const MarkdownBlock = memo(function MarkdownBlock({ content, className, externalLinks = false, onLinkClick, linkActions = false, onCopyLink, onCopyCode }: MarkdownBlockProps) {
   if (!content || content === "-") {
     return <div className={className}>{content || "-"}</div>;
   }
@@ -76,7 +78,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, className, e
             const text = code ? plainCodeText((code.props as { children?: React.ReactNode }).children).replace(/\n$/, "") : "";
             return <div className="markdown-code-block"><button type="button" onClick={() => onCopyCode(text)}>复制代码</button><pre>{children}</pre></div>;
           } } : {}),
-          ...(externalLinks || onLinkClick || linkActions ? { a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <MarkdownLink {...props} href={href} onLinkClick={onLinkClick} linkActions={linkActions}>{children}</MarkdownLink> } : {})
+          ...(externalLinks || onLinkClick || linkActions ? { a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <MarkdownLink {...props} href={href} onLinkClick={onLinkClick} onCopyLink={onCopyLink} linkActions={linkActions}>{children}</MarkdownLink> } : {})
         } : undefined}
       >
         {content}

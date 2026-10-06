@@ -1,3 +1,4 @@
+const { createMobileCodeBuddyHandlers } = require("./mobile-codebuddy.cjs");
 const { createMobileCodexHandlers } = require("./mobile-codex.cjs");
 const { toMobileGraphicalSnapshot, toMobileUsageSnapshot } = require("./mobile-graphical-snapshot.cjs");
 const { availableModelIds, visibleOpenCodeOptions, nativeModeFor } = require("./graphical-command-policy.cjs");
@@ -6,8 +7,9 @@ const { graphicalSubmitError } = require("./graphical-input-policy.cjs");
 
 const MAX_TEXT_BYTES = 16 * 1024;
 
-function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
+function createMobileGraphicalHandlers({ terminalManager, graphicalService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, uploads, send, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService }) {
   const codex = createMobileCodexHandlers({ graphicalService, codexPluginService, codexVersionService, projectSearchService, agentSessionLauncher, mcpConfigService, getCodexVerifiedModels });
+  const buddy = createMobileCodeBuddyHandlers({ graphicalService, codeBuddyPluginService, codeBuddyVersionService, mcpConfigService, agentSessionLauncher, getCodeBuddyVerifiedModels });
   function assertSession(sessionId) {
     const session = terminalManager.getSession(sessionId);
     if (!session || session.runtimeMode !== "app-server" || !graphicalService)
@@ -20,7 +22,7 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       const session = terminalManager.getSession(sessionId);
       const models = snapshot.provider === "opencode"
         ? visibleOpenCodeOptions(snapshot, session, session?.type === "ssh" ? undefined : getOpenCodeVerifiedModels?.()) : undefined;
-      send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot, models) });
+      send(socket, { type: "graphical.snapshot", sessionId, snapshot: toMobileGraphicalSnapshot(snapshot, models, session) });
       socket.graphicalStreamId = snapshot.streamId || null;
       socket.graphicalRevision = snapshot.revision ?? null;
     }
@@ -70,14 +72,14 @@ function createMobileGraphicalHandlers({ terminalManager, graphicalService, getA
       return;
     }
     if (message.threadId !== current.threadId) throw new Error("对话已切换，请刷新后重试。");
-    if (message.type.startsWith("graphical.codex.")) {
-      let result = await codex.handle(message, session, current);
-      if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result);
+    if (message.type.startsWith("graphical.codex.") || message.type.startsWith("graphical.codebuddy.")) {
+      let result = await (message.type.startsWith("graphical.codebuddy.") ? buddy : codex).handle(message, session, current);
+      if (result && Array.isArray(result.items) && Object.hasOwn(result, "threadId")) result = toMobileGraphicalSnapshot(result, undefined, session);
       send(socket, { type: "graphical.result", requestId: message.requestId, sessionId, threadId: message.threadId, result: result ?? null });
       if (socket.graphicalSessionId === sessionId && terminalManager.getSession(sessionId)) {
         sendSnapshot(socket, sessionId, graphicalService.snapshot(sessionId));
       }
-      if (message.type === "graphical.codex.model-source" && result?.id) send(socket, { type: "session.launched", sessionId: result.id });
+      if (["graphical.codex.model-source", "graphical.codebuddy.model-source"].includes(message.type) && result?.id) send(socket, { type: "session.launched", sessionId: result.id });
       return;
     }
     if (message.type === "graphical.upload.prepare") {

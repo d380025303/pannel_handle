@@ -538,6 +538,12 @@ if (!gotSingleInstanceLock) {
       graphicalService: codexAppServerSessionService,
       codexPluginService, codexVersionService, projectSearchService: { searchWorkspaceEntries: (...args) => projectSearchService.searchWorkspaceEntries(...args) }, mcpConfigService,
       getAgentUsage: (sessionId, options) => tokenUsageModule.getUsage(sessionId, options),
+      codeBuddyPluginService, codeBuddyVersionService,
+      getCodeBuddyVerifiedModels: () => [
+        ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
+      ].flatMap(([source, store]) => !store.getApiKey() ? [] : store.getCachedModels()
+        .filter(model => store.getAgentModelVerifications("codebuddy")[model.id]?.status === "passed")
+        .map(model => ({ source, id: model.id, name: model.name }))),
       getCodexVerifiedModels: () => [
         ["openrouter", openRouterConfigStore], ["nararouter", naraRouterConfigStore], ["minimax", miniMaxConfigStore]
       ].flatMap(([source, store]) => store.getApiKey() ? store.getCachedModels()

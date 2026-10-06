@@ -13,6 +13,7 @@ import type {
 } from "../../vite-env";
 
 type McpManagerProps = {
+  api?: typeof window.mcpApi;
   session?: TerminalSession;
   embeddedCodex?: boolean;
   embeddedCodeBuddy?: boolean;
@@ -105,7 +106,7 @@ function SecretRows({ entries, disabled, keyLabel, valueLabel, onChange, onRevea
   );
 }
 
-export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy = false, runtimeStatuses = [], onDirtyChange, onRegisterSave, onCommitted }: McpManagerProps) {
+export function McpManager({ api = window.mcpApi, session, embeddedCodex = false, embeddedCodeBuddy = false, runtimeStatuses = [], onDirtyChange, onRegisterSave, onCommitted }: McpManagerProps) {
   const { t } = useI18n();
   const [provider, setProvider] = useState<McpProvider>(embeddedCodeBuddy ? "codebuddy" : "codex");
   const [scope, setScope] = useState<McpScope>("user");
@@ -155,7 +156,7 @@ export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy =
     setError("");
     setNotice("");
     try {
-      const next = await window.mcpApi.list(targetFor(nextProvider, nextScope));
+      const next = await api.list(targetFor(nextProvider, nextScope));
       if (requestRef.current !== requestId) return;
       setDocument(next);
       const selected = next.servers.find((server) => server.name === preferredName) || next.servers[0];
@@ -180,7 +181,7 @@ export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy =
     setError("");
     setNotice("");
     try {
-      const result = await window.mcpApi.save({
+      const result = await api.save({
         ...requestTarget(),
         originalName,
         draft,
@@ -233,7 +234,7 @@ export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy =
     setSaving(true);
     setError("");
     try {
-      const result = await window.mcpApi.remove({ ...requestTarget(), name: originalName, expectedVersion: document.version });
+      const result = await api.remove({ ...requestTarget(), name: originalName, expectedVersion: document.version });
       if (result.status === "conflict") {
         setError(t("mcp.conflict"));
         return;
@@ -256,8 +257,8 @@ export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy =
     setError("");
     setNotice("");
     try {
-      const destination = await window.mcpApi.list(targetFor(destinationProvider, scope));
-      const result = await window.mcpApi.copy({
+      const destination = await api.list(targetFor(destinationProvider, scope));
+      const result = await api.copy({
         source: requestTarget(), name: originalName,
         expectedSourceVersion: document.version,
         expectedDestinationVersion: destination.version
@@ -281,7 +282,7 @@ export function McpManager({ session, embeddedCodex = false, embeddedCodeBuddy =
     if (!document || !originalName || !draft) return;
     setError("");
     try {
-      const result = await window.mcpApi.reveal({ ...requestTarget(), name: originalName, field, key, expectedVersion: document.version });
+      const result = await api.reveal({ ...requestTarget(), name: originalName, field, key, expectedVersion: document.version });
       if (result.status === "conflict") {
         setError(t("mcp.conflict"));
         return;

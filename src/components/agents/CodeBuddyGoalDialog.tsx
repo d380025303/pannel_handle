@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { CodexAppServerSnapshot } from "../../vite-env";
 
-type Props = { sessionId: string; snapshot: CodexAppServerSnapshot; onClose: () => void;
+type Props = { api?: typeof window.codexAppServerApi; sessionId: string; snapshot: CodexAppServerSnapshot; onClose: () => void;
   onUpdated: (value: CodexAppServerSnapshot) => void };
 
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
@@ -11,7 +11,7 @@ const duration = (ms: number) => {
   return `${Math.floor(seconds / 3600).toString().padStart(2, "0")}:${Math.floor(seconds / 60 % 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 };
 
-export function CodeBuddyGoalDialog({ sessionId, snapshot, onClose, onUpdated }: Props) {
+export function CodeBuddyGoalDialog({ api = window.codexAppServerApi, sessionId, snapshot, onClose, onUpdated }: Props) {
   const goal = snapshot.codeBuddyGoal;
   const [condition, setCondition] = useState(goal?.active?.condition || "");
   const [dirty, setDirty] = useState(false);
@@ -35,7 +35,7 @@ export function CodeBuddyGoalDialog({ sessionId, snapshot, onClose, onUpdated }:
     if (goal?.active && !confirmReplace) { setConfirmReplace(true); return; }
     setPending(true); setError("");
     try {
-      onUpdated(await window.codexAppServerApi.setGoal(sessionId, { objective: condition.trim(), status: "active" }));
+      onUpdated(await api.setGoal(sessionId, { objective: condition.trim(), status: "active" }));
       setDirty(false); setConfirmReplace(false);
     } catch (cause) { setError(errorText(cause)); }
     finally { setPending(false); }
@@ -45,7 +45,7 @@ export function CodeBuddyGoalDialog({ sessionId, snapshot, onClose, onUpdated }:
     if (!confirmClear) { setConfirmClear(true); return; }
     setPending(true); setError("");
     try {
-      onUpdated(await window.codexAppServerApi.clearGoal(sessionId));
+      onUpdated(await api.clearGoal(sessionId));
       setConfirmClear(false); setDirty(false);
     } catch (cause) { setError(errorText(cause)); }
     finally { setPending(false); }
@@ -53,7 +53,7 @@ export function CodeBuddyGoalDialog({ sessionId, snapshot, onClose, onUpdated }:
   async function refresh() {
     if (snapshot.busy || busy) return;
     setPending(true); setError("");
-    try { onUpdated(await window.codexAppServerApi.refreshGoal(sessionId)); }
+    try { onUpdated(await api.refreshGoal(sessionId)); }
     catch (cause) { setError(errorText(cause)); }
     finally { setPending(false); }
   }

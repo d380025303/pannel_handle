@@ -5,6 +5,7 @@ import "./codebuddy-mcp.css";
 
 type MessageContent = Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 export const CodeBuddyMcpAppContext = createContext<{
+  api?: CodeBuddyMcpApi; openLink?: (url: string) => Promise<unknown>;
   sessionId: string; threadId: string; enabled: boolean;
   fillMessage: (itemId: string, content: MessageContent) => Promise<void>;
 } | null>(null);
@@ -59,7 +60,7 @@ export function CodeBuddyMcpApp({ itemId, revision }: { itemId: string; revision
         locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
       bridge?.setHostContext(hostContext.current);
     };
-    const api = window.codeBuddyMcpApi;
+    const api = context.api || window.codeBuddyMcpApi;
     void (async () => {
       const data = await api.load(sessionId, threadId, itemId);
       check(); latestData.current = data;
@@ -100,7 +101,7 @@ export function CodeBuddyMcpApp({ itemId, revision }: { itemId: string; revision
       bridge.onopenlink = async ({ url }) => {
         check();
         if (!/^https?:\/\//i.test(url)) throw new Error("仅支持 HTTP(S) 外链。");
-        await window.externalLinkApi.open(url);
+        await (context.openLink ? context.openLink(url) : window.externalLinkApi.open(url));
         return {};
       };
       bridge.onmessage = async ({ content }) => {
@@ -144,7 +145,7 @@ export function CodeBuddyMcpApp({ itemId, revision }: { itemId: string; revision
   useEffect(() => {
     if (!context?.enabled || !revision) return;
     let active = true;
-    void window.codeBuddyMcpApi.load(context.sessionId, context.threadId, itemId).then(data => {
+    void (context.api || window.codeBuddyMcpApi).load(context.sessionId, context.threadId, itemId).then(data => {
       if (!active) return;
       latestData.current = data;
       if (!ready.current) return;

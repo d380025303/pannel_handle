@@ -3,7 +3,7 @@ import { RefreshCw, X } from "lucide-react";
 import type { CodeBuddyJob, CodeBuddyJobDispatch, CodeBuddyJobDispatchContext, CodeBuddyResumableJob, CodexAppServerSnapshot } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 
-type Props = { sessionId: string; cwd: string; snapshot: CodexAppServerSnapshot; onClose: () => void };
+type Props = { api?: typeof window.codexAppServerApi; sessionId: string; cwd: string; snapshot: CodexAppServerSnapshot; onClose: () => void };
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
 const sameCwd = (left: string, right: string) => left.replace(/\//g, "\\").toLowerCase() === right.replace(/\//g, "\\").toLowerCase();
 const jobLabel = (job: CodeBuddyJob) => job.name || job.prompt?.slice(0, 80) || job.id;
@@ -26,7 +26,7 @@ function updateText(value: Update): { key: string; text: string; kind: string } 
   return { key: String(update.messageId || ""), kind: kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thought" : "agent", text: content.text };
 }
 
-export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props) {
+export function CodeBuddyJobsDialog({ api = window.codexAppServerApi, sessionId, cwd, snapshot, onClose }: Props) {
   const [jobs, setJobs] = useState<CodeBuddyJob[]>([]);
   const [context, setContext] = useState<CodeBuddyJobDispatchContext | null>(null);
   const [resumable, setResumable] = useState<CodeBuddyResumableJob[]>([]);
@@ -49,20 +49,20 @@ export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props
 
   async function refresh() {
     const [jobRows, dispatchContext] = await Promise.all([
-      window.codexAppServerApi.listJobs(sessionId), window.codexAppServerApi.jobDispatchContext(sessionId)
+      api.listJobs(sessionId), api.jobDispatchContext(sessionId)
     ]);
     setJobs(jobRows); setContext(dispatchContext);
   }
   async function refreshHistory() {
-    setResumable(await window.codexAppServerApi.listResumableJobs(sessionId));
+    setResumable(await api.listResumableJobs(sessionId));
   }
   useEffect(() => {
     let active = true;
     void refresh().catch(cause => { if (active) setError(errorText(cause)); }).finally(() => { if (active) setLoading(false); });
-    const offJobs = window.codexAppServerApi.onJobsEvent(event => {
+    const offJobs = api.onJobsEvent(event => {
       if (active && sameCwd(event.cwd, cwd)) void refresh().catch(cause => setError(errorText(cause)));
     });
-    const offTranscript = window.codexAppServerApi.onJobTranscript(event => {
+    const offTranscript = api.onJobTranscript(event => {
       if (!active || !sameCwd(event.cwd, cwd) || event.jobId !== selectedRef.current) return;
       if (event.reset) { setUpdates([]); return; }
       if (event.error) { setError(event.error); return; }
@@ -73,8 +73,8 @@ export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props
   useEffect(() => {
     if (!selected) { setUpdates([]); return; }
     setUpdates([]);
-    void window.codexAppServerApi.watchJob(sessionId, selected).catch(cause => setError(errorText(cause)));
-    return () => { void window.codexAppServerApi.unwatchJob(sessionId, selected).catch(() => {}); };
+    void api.watchJob(sessionId, selected).catch(cause => setError(errorText(cause)));
+    return () => { void api.unwatchJob(sessionId, selected).catch(() => {}); };
   }, [sessionId, selected]);
   async function run(label: string, operation: () => Promise<unknown>) {
     if (pending) return;
@@ -104,13 +104,13 @@ export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props
           {chosen ? <>
             <h3>{jobLabel(chosen)}</h3><p>{stateLabel(chosen)} · {chosen.alive ? "进程运行中" : "进程已退出"}</p>
             <div className="codebuddy-jobs-actions">
-              {chosen.status === "waiting" && <form onSubmit={event => { event.preventDefault(); void run("reply", async () => { await window.codexAppServerApi.jobAction(sessionId, chosen.id, "reply", { text: reply }); setReply(""); }); }}>
+              {chosen.status === "waiting" && <form onSubmit={event => { event.preventDefault(); void run("reply", async () => { await api.jobAction(sessionId, chosen.id, "reply", { text: reply }); setReply(""); }); }}>
                 <input aria-label="回复后台智能体" value={reply} onChange={event => setReply(event.target.value)} /><button disabled={!reply.trim() || Boolean(pending)}>回复</button>
               </form>}
-              {chosen.alive && <button disabled={Boolean(pending)} onClick={() => void run("stop", () => window.codexAppServerApi.jobAction(sessionId, chosen.id, "stop"))}>停止</button>}
-              <button disabled={Boolean(pending)} onClick={() => void run("respawn", () => window.codexAppServerApi.jobAction(sessionId, chosen.id, "respawn"))}>重启</button>
-              <button disabled={Boolean(pending)} onClick={() => { const value = window.prompt("后台智能体名称", chosen.name || ""); if (value?.trim()) void run("rename", () => window.codexAppServerApi.jobAction(sessionId, chosen.id, "rename", { name: value })); }}>重命名</button>
-              <button disabled={Boolean(pending)} onClick={() => { if (window.confirm(`删除后台智能体“${jobLabel(chosen)}”？`)) void run("delete", async () => { await window.codexAppServerApi.jobAction(sessionId, chosen.id, "delete"); setSelected(null); }); }}>删除</button>
+              {chosen.alive && <button disabled={Boolean(pending)} onClick={() => void run("stop", () => api.jobAction(sessionId, chosen.id, "stop"))}>停止</button>}
+              <button disabled={Boolean(pending)} onClick={() => void run("respawn", () => api.jobAction(sessionId, chosen.id, "respawn"))}>重启</button>
+              <button disabled={Boolean(pending)} onClick={() => { const value = window.prompt("后台智能体名称", chosen.name || ""); if (value?.trim()) void run("rename", () => api.jobAction(sessionId, chosen.id, "rename", { name: value })); }}>重命名</button>
+              <button disabled={Boolean(pending)} onClick={() => { if (window.confirm(`删除后台智能体“${jobLabel(chosen)}”？`)) void run("delete", async () => { await api.jobAction(sessionId, chosen.id, "delete"); setSelected(null); }); }}>删除</button>
             </div>
             <div className="codebuddy-jobs-transcript" aria-label="后台智能体对话">
               {updates.length === 0 && <p>暂无对话输出。</p>}
@@ -127,7 +127,7 @@ export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props
                 effort: effort as CodeBuddyJobDispatch["effort"] || undefined,
                 permissionMode: permissionMode as CodeBuddyJobDispatch["permissionMode"] || undefined,
                 bgIsolation: bgIsolation as CodeBuddyJobDispatch["bgIsolation"] || undefined };
-              void run("dispatch", async () => { await window.codexAppServerApi.dispatchJob(sessionId, input); setPrompt(""); setName(""); });
+              void run("dispatch", async () => { await api.dispatchJob(sessionId, input); setPrompt(""); setName(""); });
             }}>
               <textarea aria-label="任务内容" placeholder="描述后台任务" value={prompt} onChange={event => setPrompt(event.target.value)} required />
               <input aria-label="实例名称" placeholder="名称（可选）" value={name} onChange={event => setName(event.target.value)} />
@@ -141,7 +141,7 @@ export function CodeBuddyJobsDialog({ sessionId, cwd, snapshot, onClose }: Props
               <button type="submit" disabled={!prompt.trim() || Boolean(pending)}>派发</button>
             </form>
             <div className="codebuddy-jobs-history"><button disabled={Boolean(pending)} onClick={() => { setShowHistory(!showHistory); if (!showHistory) void refreshHistory().catch(cause => setError(errorText(cause))); }}>从历史恢复</button>
-              {showHistory && resumable.map(item => <div key={item.sessionId}><span>{item.title || item.sessionId}</span><button disabled={Boolean(pending)} onClick={() => void run("resume", async () => { await window.codexAppServerApi.resumeJob(sessionId, item.sessionId); await refreshHistory(); })}>恢复为实例</button></div>)}
+              {showHistory && resumable.map(item => <div key={item.sessionId}><span>{item.title || item.sessionId}</span><button disabled={Boolean(pending)} onClick={() => void run("resume", async () => { await api.resumeJob(sessionId, item.sessionId); await refreshHistory(); })}>恢复为实例</button></div>)}
               {showHistory && resumable.length === 0 && <p>当前项目没有可恢复的历史对话。</p>}
             </div>
           </>}

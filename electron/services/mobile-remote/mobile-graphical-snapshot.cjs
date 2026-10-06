@@ -24,7 +24,7 @@ function toMobileUsageSnapshot(value) {
   };
 }
 
-function toMobileGraphicalSnapshot(value, modelOptions) {
+function toMobileGraphicalSnapshot(value, modelOptions, session) {
   const snapshot = value || {};
   return {
     threadId: snapshot.threadId ?? null,
@@ -45,6 +45,9 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
     backend: snapshot.backend || null,
     effectiveModel: snapshot.effectiveModel || null,
     models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName, fastAvailable: model.fastAvailable, defaultReasoningEffort: model.defaultReasoningEffort, supportedReasoningEfforts: model.supportedReasoningEfforts })),
+    ...(snapshot.provider === "codebuddy" ? { codeBuddyMobile: true, modelSource: session?.modelSource || "native", serviceModelId: session?.modelId || null,
+      mainAgent: snapshot.mainAgent ? { currentAgentName: snapshot.mainAgent.currentAgentName, sessionBlank: snapshot.mainAgent.sessionBlank, changing: snapshot.mainAgent.changing, error: snapshot.mainAgent.error, agents: snapshot.mainAgent.agents.map(agent => ({ name: agent.name, displayName: agent.displayName, description: agent.description, source: agent.source, broken: agent.broken })) } : null, codeBuddyGoal: snapshot.codeBuddyGoal || null, sideQuestion: snapshot.sideQuestion || null,
+      availableCommands: (snapshot.availableCommands || []).map(command => ({ name: command.name, description: command.description })), team: snapshot.team ? { name: snapshot.team.name, isAutoTeam: snapshot.team.isAutoTeam, hasLiveMembers: snapshot.team.hasLiveMembers, members: snapshot.team.members.map(member => ({ name: member.name, color: member.color, description: member.description, status: member.status, taskId: member.taskId, sessionId: member.sessionId, tokenUsage: member.tokenUsage, toolCallCount: member.toolCallCount, items: toMobileGraphicalSnapshot({ items: member.items }).items })) } : null } : {}),
     goal: snapshot.goal || null, goalLoading: Boolean(snapshot.goalLoading), goalError: snapshot.goalError || null,
     account: snapshot.account ? { status: snapshot.account.status, requiresOpenaiAuth: snapshot.account.requiresOpenaiAuth, account: snapshot.account.account ? { type: snapshot.account.account.type, email: snapshot.account.account.email, planType: snapshot.account.account.planType } : null, login: snapshot.account.login ? { type: snapshot.account.login.type, loginId: snapshot.account.login.loginId, url: snapshot.account.login.url, userCode: snapshot.account.login.userCode } : null, error: snapshot.account.error, rateLimitsError: snapshot.account.rateLimitsError, usageError: snapshot.account.usageError } : null, windowsSandboxSetup: snapshot.windowsSandboxSetup ? { available: snapshot.windowsSandboxSetup.available, mode: snapshot.windowsSandboxSetup.mode, status: snapshot.windowsSandboxSetup.status, error: snapshot.windowsSandboxSetup.error } : null,
     subAgents: snapshot.subAgents ? { expanded: snapshot.subAgents.expanded, selectedThreadId: snapshot.subAgents.selectedThreadId, loading: snapshot.subAgents.loading, error: snapshot.subAgents.error, warning: snapshot.subAgents.warning,
@@ -59,12 +62,13 @@ function toMobileGraphicalSnapshot(value, modelOptions) {
       && Number.isFinite(snapshot.contextUsage?.used) && snapshot.contextUsage.used >= 0
       && Number.isFinite(snapshot.contextUsage?.size) && snapshot.contextUsage.size > 0
       ? { used: snapshot.contextUsage.used, size: snapshot.contextUsage.size } : null,
-    acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort")
+    acpOptions: (snapshot.acpOptions || []).filter(option => option.id === "model" || option.id === "effort" || option.id === "reasoning_effort" || snapshot.provider === "codebuddy" && ["multitask", "context_window"].includes(option.id))
       .map(option => ({ id: option.id, type: option.type, currentValue: option.currentValue,
         options: (option.id === "model" && modelOptions ? modelOptions : option.options || []).map(value => ({ value: value.value, name: value.name, description: value.description })) })),
     capabilities: snapshot.capabilities || null,
     pendingPlan: snapshot.pendingPlan || null,
     items: (snapshot.items || []).map(item => ({
+      rewindMessageId: item.rewindMessageId, mcpApp: item.mcpApp ? { serverName: item.mcpApp.serverName, resourceUri: item.mcpApp.resourceUri, revision: item.mcpApp.revision } : undefined,
       id: item.id, type: item.type, turnId: item.turnId, text: item.text,
       summary: item.summary, senderThreadId: item.senderThreadId, receiverThreadId: item.receiverThreadId, prompt: item.prompt, agentStatus: item.agentStatus,
       command: item.command, output: item.output, status: item.status,

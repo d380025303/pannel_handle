@@ -5,7 +5,7 @@ import type { CodeBuddyPluginCatalog, CodeBuddyPluginScope } from "../../vite-en
 const scopeNames: Record<CodeBuddyPluginScope, string> = { user: "用户", project: "项目", local: "本地" };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function CodeBuddyPluginDialog({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+export function CodeBuddyPluginDialog({ sessionId, onClose, api = window.codeBuddyPluginApi }: { api?: typeof window.codeBuddyPluginApi; sessionId: string; onClose: () => void }) {
   const [catalog, setCatalog] = useState<CodeBuddyPluginCatalog | null>(null);
   const [tab, setTab] = useState<"installed" | "available" | "marketplaces">("installed");
   const [scope, setScope] = useState<CodeBuddyPluginScope>("user");
@@ -19,7 +19,7 @@ export function CodeBuddyPluginDialog({ sessionId, onClose }: { sessionId: strin
   useEffect(() => {
     let active = true;
     setBusy(true);
-    void window.codeBuddyPluginApi.list(sessionId)
+    void api.list(sessionId)
       .then(value => { if (active) setCatalog(value); })
       .catch(cause => { if (active) setError(errorText(cause)); })
       .finally(() => { if (active) setBusy(false); });
@@ -41,7 +41,7 @@ export function CodeBuddyPluginDialog({ sessionId, onClose }: { sessionId: strin
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
   }
-  const api = window.codeBuddyPluginApi;
+
   return <div className="codex-plugin-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="codex-plugin-dialog" role="dialog" aria-modal="true" aria-label="CodeBuddy 插件管理"
       onKeyDown={event => { if (event.key === "Escape" && !busy) { event.stopPropagation(); onClose(); } }}>

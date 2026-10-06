@@ -40,6 +40,7 @@ function configLabel(snapshot: GraphicalSnapshot, id: "model" | "effort") {
   return value ? option?.options.find(entry => entry.value === value)?.name || value : null;
 }
 export function modelLabel(snapshot: GraphicalSnapshot) {
+  if (snapshot.provider === "codebuddy" && snapshot.modelSource && snapshot.modelSource !== "native") return `${snapshot.modelSource} · ${snapshot.serviceModelId || "服务模型"}`;
   const model = configLabel(snapshot, "model");
   if (model) return model;
   const id = snapshot.model || snapshot.effectiveModel;

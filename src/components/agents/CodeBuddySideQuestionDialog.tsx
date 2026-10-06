@@ -3,11 +3,11 @@ import { X } from "lucide-react";
 import type { CodexAppServerSnapshot } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 
-type Props = { sessionId: string; snapshot: CodexAppServerSnapshot; initialQuestion?: string;
+type Props = { api?: typeof window.codexAppServerApi; copyText?: (text: string) => Promise<boolean>; sessionId: string; snapshot: CodexAppServerSnapshot; initialQuestion?: string;
   onClose: () => void; onUpdated: (snapshot: CodexAppServerSnapshot) => void };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function CodeBuddySideQuestionDialog({ sessionId, snapshot, initialQuestion = "", onClose, onUpdated }: Props) {
+export function CodeBuddySideQuestionDialog({ api = window.codexAppServerApi, copyText = text => window.clipboardApi.writeText(text), sessionId, snapshot, initialQuestion = "", onClose, onUpdated }: Props) {
   const state = snapshot.sideQuestion;
   const [question, setQuestion] = useState(initialQuestion || state?.question || "");
   const [pending, setPending] = useState(false);
@@ -23,7 +23,7 @@ export function CodeBuddySideQuestionDialog({ sessionId, snapshot, initialQuesti
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (request.current) void window.codexAppServerApi.cancelSideQuestion(sessionId, request.current).catch(() => {});
+      if (request.current) void api.cancelSideQuestion(sessionId, request.current).catch(() => {});
     };
   }, [sessionId]);
 
@@ -31,10 +31,10 @@ export function CodeBuddySideQuestionDialog({ sessionId, snapshot, initialQuesti
     if (!value.trim() || value.length > 8000 || pendingRef.current || state?.status === "running") return;
     pendingRef.current = true; setPending(true); setError("");
     try {
-      const updated = await window.codexAppServerApi.askSideQuestion(sessionId, value);
+      const updated = await api.askSideQuestion(sessionId, value);
       request.current = updated.sideQuestion?.status === "running" ? updated.sideQuestion.requestId : null;
       if (!mounted.current) {
-        if (request.current) await window.codexAppServerApi.cancelSideQuestion(sessionId, request.current);
+        if (request.current) await api.cancelSideQuestion(sessionId, request.current);
         return;
       }
       onUpdated(updated);
@@ -52,7 +52,7 @@ export function CodeBuddySideQuestionDialog({ sessionId, snapshot, initialQuesti
     if (!request.current) return;
     setPending(true); setError("");
     try {
-      const updated = await window.codexAppServerApi.cancelSideQuestion(sessionId, request.current);
+      const updated = await api.cancelSideQuestion(sessionId, request.current);
       if (mounted.current) onUpdated(updated);
     } catch (cause) { if (mounted.current) setError(errorText(cause)); }
     finally { if (mounted.current) setPending(false); }
@@ -75,7 +75,7 @@ export function CodeBuddySideQuestionDialog({ sessionId, snapshot, initialQuesti
       {state?.status === "cancelled" && <p role="status">旁问已取消。</p>}
       {(error || state?.error) && <p className="codex-app-server-goal-error" role="alert">{error || state?.error}</p>}
       {state?.status === "completed" && <div aria-label="旁问答案"><MarkdownBlock content={state.answer} />
-        <div className="codex-app-server-goal-actions"><button type="button" onClick={() => void window.clipboardApi.writeText(state.answer)
+        <div className="codex-app-server-goal-actions"><button type="button" onClick={() => void copyText(state.answer)
           .then(copied => { if (!copied) setError("复制失败，请重试。"); }).catch(cause => setError(errorText(cause)))}>复制答案</button></div></div>}
       </div>
     </section>
