@@ -1,6 +1,5 @@
 import type { WorkspaceEntrySearchResult, WorkspaceEntrySearchResponse } from "../../src/vite-env";
 import { useEffect, useState } from "react";
-import { canSwitchMode, modelLabel } from "./GraphicalPresentation";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
 import { GraphicalIcon } from "./GraphicalIcon";
 import { type useGraphicalSession, type GraphicalViewProps } from "./useGraphicalSession";
@@ -40,15 +39,10 @@ export function GraphicalComposer({ snapshot, controller, draft, setDraft }: {
           <textarea onKeyDown={event => { if (snapshot.provider !== "opencode" || event.nativeEvent.isComposing) return; if (event.key === "Tab" && event.shiftKey) { event.preventDefault(); if (!openCodeBlocked) controller.changeMode(effectivePlan ? "default" : "plan"); } else if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} value={draft} onChange={event => { const value = event.target.value; setDraft(value); controller.setReferences(current => current.filter(reference => value.includes(reference.token))); }} onPaste={event => { if (event.clipboardData.files.length) { event.preventDefault(); controller.addFiles(event.clipboardData.files); } }} aria-label="图形对话输入" aria-autocomplete="list" placeholder={snapshot.signedOut ? "请先登录 Codex 账号" : snapshot.archived ? "已归档的对话不可发送" : "输入消息"}
             disabled={!policy.canInput} />
           {snapshot.busy && <button type="button" className="graphical-icon-button" aria-label="停止" title="停止" onClick={() => action({ type: "graphical.interrupt" })}><GraphicalIcon name="stop" /></button>}
+          {(["codex", "codebuddy", "opencode"].includes(snapshot.provider)) && <button type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || isSending} className="graphical-icon-button" aria-label="新对话" title="新对话" onClick={() => action({ type: "graphical.new-thread" })}><GraphicalIcon name="new" /></button>}
           <button type="submit" className="primary graphical-icon-button" aria-label="发送" title="发送" disabled={isSending || (!draft.trim() && !attachments.length) || attachments.some(item => item.status !== "ready") || !policy.canSubmit}><GraphicalIcon name="send" /></button>
         </div>
       </div>
-      {(["codex", "codebuddy", "opencode"].includes(snapshot.provider)) && <div className="graphical-composer-toolbar">
-        <button ref={controller.moreButtonRef} type="button" aria-label="更多操作" aria-haspopup="dialog" aria-expanded={Boolean(controller.activeSheet)} onClick={() => controller.setActiveSheet("menu")}><GraphicalIcon name="more" /></button>
-        <button type="button" disabled={openCodeBlocked || snapshot.provider === "opencode" && !canSwitchMode(snapshot, effectivePlan ? "default" : "plan") || snapshot.busy || snapshot.archived || !!snapshot.pendingPlan || controller.changingMode} onClick={() => controller.changeMode(effectivePlan ? "default" : "plan")}>{effectivePlan ? "Plan" : snapshot.provider === "codebuddy" ? snapshot.executionPermission === "fullAccess" ? "Full Access" : snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "模式" : snapshot.provider === "opencode" ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "Build" : "Exec"}</button>
-        <button type="button" disabled={openCodeBlocked || snapshot.busy || snapshot.archived || controller.changingModel} onClick={() => controller.setActiveSheet("model")}>{modelLabel(snapshot)}</button>
-        <button type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || isSending} aria-label="新对话" onClick={() => action({ type: "graphical.new-thread" })}><GraphicalIcon name="new" /></button>
-      </div>}
       {(["codex", "codebuddy", "opencode"].includes(snapshot.provider)) && draft.startsWith("/") && <div className="graphical-slash-commands" role="listbox" aria-label="会话操作联想">{controller.slashCommands.filter(([command]) => `/${command}`.toLowerCase().startsWith(draft.trim().toLowerCase())).map(([command, label]) => <button type="button" role="option" aria-selected={false} key={command} onClick={() => controller.invokeSlash(command)}>/{command} · {label}</button>)}</div>}
       {snapshot.provider === "codex" && mentionQuery !== undefined && fileSuggestions.length > 0 && <div className="graphical-slash-commands" role="listbox" aria-label="搜索工作区文件">{fileSuggestions.map(file => <button type="button" role="option" aria-selected={false} key={file.path} onClick={() => { setDraft(current => current.replace(/@[^\s]*$/, `@${file.relativePath} `)); setFileSuggestions([]); }}>{file.relativePath}</button>)}</div>}
     </form>

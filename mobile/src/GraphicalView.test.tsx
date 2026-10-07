@@ -417,7 +417,7 @@ it("shows current model and effort and sends a Plan mode change", () => {
     ...snapshot, model: "gpt-6", models: [{ id: "gpt-6", displayName: "GPT-6" }], effort: "high"
   } });
   const header = document.querySelector(".graphical-header")!;
-  expect(within(header as HTMLElement).getByText("模型：GPT-6")).toBeTruthy();
+  expect(within(header as HTMLElement).getByRole("button", { name: "GPT-6" })).toBeTruthy();
   expect(within(header as HTMLElement).getByText("强度：高")).toBeTruthy();
   expect(document.querySelector(".graphical-session-settings")).toBeNull();
   expect(document.querySelector(".graphical-input-border")?.getAttribute("data-mode")).toBe("default");
@@ -466,7 +466,7 @@ it("shows CodeBuddy native modes and switches any advertised mode", () => {
     nativeModes: [{ id: "default", name: "Default" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Full Access" }],
     acpOptions: [{ id: "model", currentValue: "glm-5", options: [{ value: "glm-5", name: "GLM 5" }] }]
   } });
-  expect(screen.getByText("模型：GLM 5")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "GLM 5" })).toBeTruthy();
   const models = openSheet("切换模型");
   expect(within(models).getByRole("button", { name: /GLM 5/ }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(within(models).getByRole("button", { name: "关闭弹层" }));

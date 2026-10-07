@@ -147,12 +147,19 @@ button { color: inherit; }
 .graphical-loading { align-items: center; justify-content: center; color: #91a4bc; }
 .graphical-header { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 12px; border-bottom: 1px solid #263244; background: #0d1522; }
 .graphical-header > .graphical-header-details { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.graphical-header-details > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphical-header-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.graphical-header-heading > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22px; }
+.graphical-header .graphical-header-status { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 10px; line-height: 20px; }
+.graphical-header-status::before { content: ""; width: 5px; height: 5px; flex: none; border-radius: 50%; background: #6da68f; }
+.graphical-header-status[data-state="running"]::before { background: #67c4d8; }
+.graphical-header .graphical-header-status[data-state="attention"] { color: #e4bd76; }
+.graphical-header-status[data-state="attention"]::before { background: #e4bd76; }
 .graphical-header span { color: #8fa4bc; font-size: 11px; }
 .graphical-header button, .graphical-actions button, .graphical-message-actions button, .graphical-card > button, .graphical-composer button { padding: 7px 10px; border: 1px solid #36506e; border-radius: 8px; background: #172235; }
 .graphical-header .graphical-more-button { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border-radius: 12px; }
 .graphical-header .graphical-switching { flex: none; }
-.graphical-header .graphical-current-config { display: flex; min-width: 0; flex-wrap: wrap; gap: 2px 10px; overflow-wrap: anywhere; }
+.graphical-header .graphical-current-config { display: flex; min-width: 0; flex-wrap: wrap; gap: 4px; overflow-wrap: anywhere; margin-top: 3px; }
+.graphical-current-config > span { max-width: 100%; padding: 2px 6px; border-radius: 5px; background: #182334; line-height: 16px; }
 .graphical-header .graphical-mode-warning { color: #fbbf24; }
 .graphical-usage { border-bottom: 1px solid #263244; background: #101b2b; }
 .graphical-usage-trigger { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 0; color: #c8e8f4; background: transparent; text-align: left; font-size: 13px; }
@@ -312,15 +319,14 @@ button { color: inherit; }
 .computer-files-error { color: #fecdd3; background: #4c0519; }
 .computer-files-notice { color: #a5f3fc; background: #083344; }
 
-/* Codex controls remain reachable above mobile keyboards. */
+/* Keep the composer compact above mobile keyboards. */
 .graphical-composer { flex: none; min-width: 0; flex-wrap: wrap; gap: 6px; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); }
 .graphical-input-border, .graphical-attachments { width: 100%; }
-.graphical-composer-toolbar { display: flex; width: 100%; align-items: center; gap: 6px; min-width: 0; }
-.graphical-composer-toolbar button { min-width: 0; min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.graphical-composer-toolbar button:first-child, .graphical-composer-toolbar button:last-child { flex: none; width: 44px; padding: 0; }
-.graphical-composer-toolbar button:nth-child(2) { flex: 0 1 auto; max-width: 35%; }
-.graphical-composer-toolbar button:nth-child(3) { flex: 0 1 auto; }
-.graphical-composer-toolbar button:last-child { margin-left: auto; }
+.graphical-header-controls { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 6px; }
+.graphical-header-controls button { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 40px; padding: 6px 10px; border-radius: 10px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graphical-header-controls .graphical-more-button { flex: 0 0 40px; width: 40px; height: 40px; margin-left: auto; border-color: #2e4158; background: #121e2e; }
+.graphical-header-controls button:disabled { opacity: .45; }
+.graphical-header-controls button:focus-visible { outline: 2px solid #67e8f9; outline-offset: 2px; }
 .graphical-goal-chip { margin: 4px 10px; flex-shrink: 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .graphical-message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .graphical-message-actions button { min-height: 36px; max-width: 100%; font-size: 12px; overflow-wrap: anywhere; }
