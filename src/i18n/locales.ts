@@ -34,6 +34,7 @@ export type TranslationKey =
   | "codexVersion.current"
   | "codexVersion.latest"
   | "codexVersion.unknown"
+  | "codexVersion.unavailable"
   | "codexVersion.upToDate"
   | "codexVersion.restart"
   | "codexVersion.manual"
@@ -1076,6 +1077,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.current": "当前版本：{version}",
     "codexVersion.latest": "最新版本：{version}",
     "codexVersion.unknown": "当前版本不可用",
+    "codexVersion.unavailable": "不可用",
     "codexVersion.upToDate": "已是最新版本",
     "codexVersion.restart": "更新已安装，手动重启会话后生效",
     "codexVersion.manual": "安装来源不明，请按原安装方式手动更新",
@@ -2110,6 +2112,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "codexVersion.current": "Installed: {version}",
     "codexVersion.latest": "Latest: {version}",
     "codexVersion.unknown": "Installed version unavailable",
+    "codexVersion.unavailable": "Unavailable",
     "codexVersion.upToDate": "Up to date",
     "codexVersion.restart": "Update installed. Restart this session to use it.",
     "codexVersion.manual": "Installation source unknown. Update using the original installer.",

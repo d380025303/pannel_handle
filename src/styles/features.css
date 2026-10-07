@@ -8340,6 +8340,9 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-version-title { color: var(--color-text); font-size: 13px; }
 .codex-version-detail { display: flex; flex-direction: column; gap: 3px; color: var(--color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
 .codex-version-detail [role="alert"] { color: var(--color-danger); }
+.codex-version-row, .codex-version-checking { display: flex; align-items: center; gap: 6px; }
+.codex-version-row { flex-wrap: wrap; }
+.codex-version-spinner { flex-shrink: 0; width: 10px; height: 10px; border: 1.5px solid var(--color-border-strong); border-top-color: var(--color-text-secondary); border-radius: 50%; animation: codex-tool-spin 1s linear infinite; }
 .codex-version-actions, .codex-version-confirm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .codex-app-server-empty .codex-version-confirm p { flex-basis: 100%; margin: 0; font-size: 11px; }
 .codex-version-actions button, .codex-version-confirm button { border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 4px 8px; color: var(--color-text); background: var(--color-bg-control); cursor: pointer; }

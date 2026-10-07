@@ -67,10 +67,17 @@ export function CodexVersionControl({ sessionId, provider = "codex", api: suppli
   return <div className="codex-version-control" role="group" aria-label={label("title")}>
     <strong className="codex-version-title">{label("title")}</strong>
     <div className="codex-version-detail" aria-live="polite">
-      {checking ? t("codexVersion.checking") : state?.currentVersion
-        ? t("codexVersion.current", { version: state.currentVersion }) : t("codexVersion.unknown")}
-      {state?.latestVersion && <span>{t("codexVersion.latest", { version: state.latestVersion })}</span>}
-      {state?.status === "current" && !state.restartRequired && <span>{t("codexVersion.upToDate")}</span>}
+      {(["current", "latest"] as const).map(kind => {
+        const version = kind === "current" ? state?.currentVersion : state?.latestVersion;
+        return <div key={kind} className="codex-version-row" aria-busy={checking}>
+          <span>{t(`codexVersion.${kind}`, { version: version || (checking ? t("codexVersion.checking") : t("codexVersion.unavailable")) })}</span>
+          {checking && <span className="codex-version-checking">
+            <span className="codex-version-spinner" aria-hidden="true" />
+            {version && <span>{t("codexVersion.checking")}</span>}
+          </span>}
+        </div>;
+      })}
+      {!checking && state?.status === "current" && !state.restartRequired && <span>{t("codexVersion.upToDate")}</span>}
       {state?.restartRequired && <span>{t("codexVersion.restart")}</span>}
       {state?.guidance && available && <span>{t("codexVersion.manual")}</span>}
       {state?.error && <span role="alert">{state.error}</span>}
@@ -84,7 +91,7 @@ export function CodexVersionControl({ sessionId, provider = "codex", api: suppli
     {confirming && <div className="codex-version-confirm" role="group" aria-label={label("confirmTitle")}>
       <p>{t(provider === "codebuddy" ? "codeBuddyVersion.confirm" : provider === "opencode" ? "openCodeVersion.confirm" : "codexVersion.confirm", { environment: state?.environment || "", version: state?.latestVersion || "" })}</p>
       <button type="button" onClick={() => setConfirming(false)}>{t("codexVersion.cancel")}</button>
-      <button type="button" disabled={updating} onClick={() => void update()}>{t("codexVersion.confirmUpdate")}</button>
+      <button type="button" disabled={checking || updating} onClick={() => void update()}>{t("codexVersion.confirmUpdate")}</button>
     </div>}
     {updating && <span role="status">{label("updating")}</span>}
     {state?.progress && <div className="codex-version-progress">
