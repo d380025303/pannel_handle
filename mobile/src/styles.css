@@ -330,6 +330,11 @@ button { color: inherit; }
 .graphical-goal-chip { margin: 4px 10px; flex-shrink: 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .graphical-message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .graphical-message-actions button { min-height: 36px; max-width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+.graphical-message-actions .graphical-message-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; padding: 0; }
+.graphical-message-actions .graphical-message-copy { margin-left: auto; }
+.graphical-message-actions-right { justify-content: flex-end; }
+.graphical-message-actions-right .graphical-message-copy { margin-left: 0; }
+.graphical-message-icon svg { width: 18px; height: 18px; }
 .graphical-message-actions button:focus-visible, .graphical-card > button:focus-visible, .graphical-actions button:focus-visible, .graphical-composer button:focus-visible { outline: 2px solid #67e8f9; outline-offset: 2px; }
 .graphical-history-actions { flex-wrap: wrap; }
 .graphical-preview-image { display: block; max-width: 100%; max-height: 45dvh; object-fit: contain; }
