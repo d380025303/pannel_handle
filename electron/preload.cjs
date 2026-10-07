@@ -140,36 +140,6 @@ contextBridge.exposeInMainWorld("remoteFileApi", {
   }
 });
 
-contextBridge.exposeInMainWorld("projectAssistantApi", {
-  getSnapshot: () => ipcRenderer.invoke("project-assistant:snapshot"),
-  start: () => ipcRenderer.invoke("project-assistant:start"),
-  newConversation: () => ipcRenderer.invoke("project-assistant:new-conversation"),
-  send: (text, sessionId) => ipcRenderer.invoke("project-assistant:send", text, sessionId),
-  resolve: approved => ipcRenderer.invoke("project-assistant:resolve", approved),
-  stop: () => ipcRenderer.invoke("project-assistant:stop"),
-  readAccount: () => ipcRenderer.invoke("project-assistant:account-read"),
-  startLogin: type => ipcRenderer.invoke("project-assistant:account-login", type),
-  cancelLogin: () => ipcRenderer.invoke("project-assistant:account-cancel"),
-  logout: () => ipcRenderer.invoke("project-assistant:account-logout"),
-  refreshAccountUsage: () => ipcRenderer.invoke("project-assistant:account-usage"),
-  listCodexSessions: () => ipcRenderer.invoke("project-assistant:codex-sessions"),
-  getCodexScreen: sessionId => ipcRenderer.invoke("project-assistant:codex-screen", sessionId),
-  getCodexDeltas: (sessionId, afterSeq) => ipcRenderer.invoke("project-assistant:codex-deltas", sessionId, afterSeq),
-  writeCodex: (sessionId, data) => ipcRenderer.invoke("project-assistant:codex-write", sessionId, data),
-  submitCodex: (sessionId, text) => ipcRenderer.invoke("project-assistant:codex-submit", sessionId, text),
-  switchCodexMode: sessionId => ipcRenderer.invoke("project-assistant:codex-mode", sessionId),
-  onChanged: callback => {
-    const listener = (_event, value) => callback(value);
-    ipcRenderer.on("project-assistant:changed", listener);
-    return () => ipcRenderer.removeListener("project-assistant:changed", listener);
-  },
-  onProgress: callback => {
-    const listener = (_event, value) => callback(value);
-    ipcRenderer.on("project-assistant:progress", listener);
-    return () => ipcRenderer.removeListener("project-assistant:progress", listener);
-  }
-});
-
 contextBridge.exposeInMainWorld("codexAppServerApi", {
   setupWindowsSandbox: (id, mode) => ipcRenderer.invoke("codex-app-server:windows-sandbox-setup", id, mode),
   setSubAgentView: (id, expanded, threadId, rootThreadId) => ipcRenderer.invoke("codex-app-server:sub-agent-view", id, expanded, threadId, rootThreadId),

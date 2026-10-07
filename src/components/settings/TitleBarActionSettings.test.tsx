@@ -41,8 +41,8 @@ describe("TitleBarActionSettings", () => {
     expect(settingsGrip.closest(".titlebar-action-row")?.querySelector("input")).toBeNull();
     fireEvent.keyDown(settingsGrip, { key: "ArrowUp" });
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ titleBarActionOrder: [
-      ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => id !== "settings" && id !== "screenshot").slice(0, 6),
-      "settings", "screenshot", ...DEFAULT_TITLE_BAR_ACTION_ORDER.slice(8)
+      ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => id !== "settings" && id !== "screenshot").slice(0, 5),
+      "settings", "screenshot", ...DEFAULT_TITLE_BAR_ACTION_ORDER.slice(7)
     ] }));
     expect(container.querySelectorAll(".titlebar-action-row")).toHaveLength(DEFAULT_TITLE_BAR_ACTION_ORDER.length);
   });

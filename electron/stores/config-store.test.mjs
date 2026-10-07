@@ -45,12 +45,30 @@ describe("config-store", () => {
     expect(reloaded.getConfig().titleBarHiddenActions).toEqual(["stats"]);
   });
 
-  it("keeps the old settings position and persists a custom one", () => {
+  it("filters the removed assistant from old icon preferences", () => {
     const configFile = createTempConfigPath();
-    fs.writeFileSync(configFile, JSON.stringify({ titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"] }));
+    fs.writeFileSync(configFile, JSON.stringify({
+      titleBarActionOrder: ["create", "assistant", "settings", "terminal"],
+      titleBarHiddenActions: ["assistant", "stats"]
+    }));
     const store = createConfigStore({ configFile });
     store.loadConfig();
-    expect(store.getConfig().titleBarActionOrder).toEqual(["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "settings", "screenshot", "library", "quickAgent"]);
+    expect(store.getConfig().titleBarActionOrder.slice(0, 3)).toEqual(["create", "settings", "terminal"]);
+    expect(store.getConfig().titleBarActionOrder).not.toContain("assistant");
+    expect(store.getConfig().titleBarHiddenActions).toEqual(["stats"]);
+    store.updateConfig({ titleBarActionOrder: store.getConfig().titleBarActionOrder });
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().titleBarActionOrder).toEqual(store.getConfig().titleBarActionOrder);
+    expect(reloaded.getConfig().titleBarHiddenActions).toEqual(["stats"]);
+  });
+
+  it("keeps the old settings position and persists a custom one", () => {
+    const configFile = createTempConfigPath();
+    fs.writeFileSync(configFile, JSON.stringify({ titleBarActionOrder: ["create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"] }));
+    const store = createConfigStore({ configFile });
+    store.loadConfig();
+    expect(store.getConfig().titleBarActionOrder).toEqual(["create", "terminal", "stats", "skills", "mcp", "idea", "settings", "screenshot", "library", "quickAgent"]);
     store.updateConfig({ titleBarActionOrder: ["settings", ...store.getConfig().titleBarActionOrder.filter(id => id !== "settings")] });
     const reloaded = createConfigStore({ configFile });
     reloaded.loadConfig();
@@ -88,7 +106,7 @@ describe("config-store", () => {
       graphicalSessionMinimalMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "dark-slate",
@@ -310,7 +328,7 @@ describe("config-store", () => {
       graphicalSessionMinimalMode: false,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
-      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
+      titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
       titleBarHiddenActions: [],
       lastActiveSessionIds: [],
       themeId: "light",

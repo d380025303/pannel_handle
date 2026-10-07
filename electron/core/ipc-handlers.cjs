@@ -21,7 +21,7 @@ function updateSessionFromIpc(terminalManager, { id, title, cwd, preferredDiskMo
   return terminalManager.updateSession(id, { title, cwd, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
 }
 
-function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, projectAssistantService, codexSessionControl, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService, codeBuddyPluginService }) {
+function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, terminalManager, sessionShellService, mobileRemoteService, agentSessionLauncher, sessionStore, launchTemplateStore, launchTemplateService, windowManager, agentConversationManager, agentConversationHistoryService, clipboard, clipboardImageService, dialog, shellApi, disconnectFileSession, remoteSystemService, skillsService, mcpConfigService, sessionStatusServer, workBuddyCheckinService, hookConfigManager, remoteHookConfigService, projectSearchService, remoteAgentBridgeService, codexWorkspaceTrustService, postgresBackupService, codexAppServerSessionService, codexVersionService, codeBuddyVersionService, openCodeVersionService, codexPluginService, codeBuddyPluginService }) {
 
   if (environmentService) {
     ipcMain.handle("environment:list", () => environmentService.list());
@@ -32,27 +32,6 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
-  if (projectAssistantService) {
-    ipcMain.handle("project-assistant:snapshot", () => projectAssistantService.snapshot());
-    ipcMain.handle("project-assistant:start", () => projectAssistantService.start());
-    ipcMain.handle("project-assistant:new-conversation", () => projectAssistantService.newConversation());
-    ipcMain.handle("project-assistant:send", (_event, text, sessionId) => projectAssistantService.sendMessage(text, sessionId));
-    ipcMain.handle("project-assistant:resolve", (_event, approved) => projectAssistantService.resolveAction(approved === true));
-    ipcMain.handle("project-assistant:stop", () => projectAssistantService.stop());
-    ipcMain.handle("project-assistant:account-read", () => projectAssistantService.readAccount());
-    ipcMain.handle("project-assistant:account-login", (_event, type) => projectAssistantService.startLogin(type));
-    ipcMain.handle("project-assistant:account-cancel", () => projectAssistantService.cancelLogin());
-    ipcMain.handle("project-assistant:account-logout", () => projectAssistantService.logout());
-    ipcMain.handle("project-assistant:account-usage", () => projectAssistantService.refreshAccountUsage());
-  }
-  if (codexSessionControl) {
-    ipcMain.handle("project-assistant:codex-sessions", () => codexSessionControl.listSessions());
-    ipcMain.handle("project-assistant:codex-screen", (_event, sessionId) => codexSessionControl.getScreen(sessionId));
-    ipcMain.handle("project-assistant:codex-deltas", (_event, sessionId, afterSeq) => codexSessionControl.getDeltas(sessionId, afterSeq));
-    ipcMain.handle("project-assistant:codex-write", (_event, sessionId, data) => codexSessionControl.write(sessionId, data));
-    ipcMain.handle("project-assistant:codex-submit", (_event, sessionId, text) => codexSessionControl.submit(sessionId, text));
-    ipcMain.handle("project-assistant:codex-mode", (_event, sessionId) => codexSessionControl.switchMode(sessionId));
-  }
   if (codexAppServerSessionService) {
     ipcMain.handle("opencode-auth:start", (_event, id, methodId) => codexAppServerSessionService.startAcpLogin(String(id || ""), String(methodId || "")));
     ipcMain.handle("opencode-auth:cancel", (_event, id, generation) => codexAppServerSessionService.cancelAcpLogin(String(id || ""), generation));

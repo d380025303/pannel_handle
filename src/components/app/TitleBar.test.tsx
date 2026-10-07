@@ -34,12 +34,10 @@ function createMobileAccessState(activeConnections: MobileAccessState["activeCon
 describe("TitleBar mobile access layout", () => {
   afterEach(cleanup);
 
-  it("opens the project assistant from a distinct titlebar button", () => {
-    const onOpenProjectAssistant = vi.fn();
+  it("omits the project assistant and keeps quick Agent creation", () => {
     render(<TitleBar isMaximized={false} mobileAccessState={null} onOpenSettings={() => undefined}
-      onOpenPicker={() => undefined} onOpenCreate={() => undefined} onOpenProjectAssistant={onOpenProjectAssistant} />);
-    fireEvent.click(screen.getByRole("button", { name: "打开项目助手" }));
-    expect(onOpenProjectAssistant).toHaveBeenCalledOnce();
+      onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
+    expect(screen.queryByRole("button", { name: "打开项目助手" })).toBeNull();
     expect(screen.getByRole("button", { name: /快速.*Agent/i })).toBeTruthy();
   });
 

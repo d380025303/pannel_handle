@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bot, Cable, Library, Lightbulb, MessageSquareText, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Cable, Library, Lightbulb, Minus, PanelsTopLeft, Plus, ScanLine, Settings, Square, Terminal, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { AgentProvider, MobileAccessState } from "../../vite-env";
 import { AGENT_PROVIDER_OPTIONS } from "../sessions/agentProviders";
@@ -17,7 +17,6 @@ type TitleBarProps = {
   onOpenTerminal?: () => void;
   onOpenSkills?: () => void;
   onOpenMcp?: () => void;
-  onOpenProjectAssistant?: () => void;
   onOpenIdea?: () => void;
   mobileAccessState: MobileAccessState | null;
   screenshotEnabled?: boolean;
@@ -26,7 +25,7 @@ type TitleBarProps = {
   hiddenActions?: TitleBarActionId[];
 };
 
-export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenProjectAssistant, onOpenIdea, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
+export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screenshotEnabled = false, onCaptureScreenshot, onOpenSettings, onOpenPicker, onOpenCreate, onQuickCreateAgent, onOpenStats, onOpenTerminal, onOpenSkills, onOpenMcp, onOpenIdea, actionOrder = DEFAULT_TITLE_BAR_ACTION_ORDER, hiddenActions = [] }: TitleBarProps) {
   const { t } = useI18n();
   const [quickAgentMenuOpen, setQuickAgentMenuOpen] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<AgentProvider>();
@@ -65,7 +64,6 @@ export function TitleBar({ activeTitle, isMaximized, mobileAccessState, screensh
     stats: { label: t("tokenStats.open"), icon: BarChart3, onClick: onOpenStats },
     skills: { label: t("skills.open"), icon: BookOpen, onClick: onOpenSkills },
     mcp: { label: t("mcp.open"), icon: Cable, onClick: onOpenMcp },
-    assistant: { label: t("projectAssistant.open"), icon: MessageSquareText, onClick: onOpenProjectAssistant },
     idea: { label: t("idea.open"), icon: Lightbulb, onClick: onOpenIdea },
     screenshot: { label: t("screenshot.capture"), icon: ScanLine, onClick: onCaptureScreenshot },
     library: { label: t("sidebar.openLibrary"), icon: Library, onClick: onOpenPicker },

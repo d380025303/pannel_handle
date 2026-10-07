@@ -33,8 +33,6 @@ const { createSessionStatusServer } = require("./services/mcp/session-status-ser
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
-const { createProjectAssistantService } = require("./services/project-assistant/project-assistant-service.cjs");
-const { createCodexSessionControl } = require("./services/project-assistant/codex-session-control.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
 const { createCodeBuddyVersionService } = require("./services/codebuddy-acp/version-service.cjs");
@@ -134,8 +132,6 @@ let terminalStateHub = null;
 let agentConversationManager = null;
 let agentConversationHistoryService = null;
 let ideaModule = null;
-let projectAssistantService = null;
-let codexSessionControl = null;
 let codexAppServerSessionService = null;
 let questionAnswerStore = null;
 let diagnosticsStore = null;
@@ -515,22 +511,6 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       agentSessionLauncher
     });
-    codexSessionControl = createCodexSessionControl({
-      terminalManager,
-      stateHub: terminalStateHub,
-      conversationManager: agentConversationManager
-    });
-    projectAssistantService = createProjectAssistantService({
-      userData: app.getPath("userData"),
-      broadcast: windowManager.broadcast,
-      dependencies: {
-        terminalManager, sessionStore, launchTemplateStore, launchTemplateService,
-        agentSessionLauncher, tokenUsageModule,
-        disconnectFileSession: remoteFilesModule.disconnectSession,
-        remoteSystemService,
-        codexSessionControl
-      }
-    });
     mobileRemoteService = createMobileRemoteService({
       terminalManager,
       agentSessionLauncher,
@@ -635,8 +615,6 @@ if (!gotSingleInstanceLock) {
       remoteAgentBridgeService,
       codexWorkspaceTrustService,
       postgresBackupService,
-      projectAssistantService,
-      codexSessionControl,
       codexAppServerSessionService,
       codexVersionService,
       codeBuddyVersionService,
@@ -703,7 +681,6 @@ app.on("window-all-closed", async () => {
     void ideaModule.shutdown();
   }
   tokenUsageModule?.shutdown();
-  projectAssistantService?.shutdown();
   if (postgresBackupService) void postgresBackupService.shutdown();
   qoderAutoCheckinService?.shutdown();
   if (qoderResumeHandler) powerMonitor.removeListener("resume", qoderResumeHandler);

@@ -8,27 +8,6 @@ export type TranslationKey =
   | "agentCapabilities.pannelHandleRemote"
   | "app.noActiveSession"
   | "app.openTerminal"
-  | "projectAssistant.title"
-  | "projectAssistant.open"
-  | "projectAssistant.newConversation"
-  | "projectAssistant.description"
-  | "projectAssistant.empty"
-  | "projectAssistant.you"
-  | "projectAssistant.application"
-  | "projectAssistant.thinking"
-  | "projectAssistant.confirm"
-  | "projectAssistant.reject"
-  | "projectAssistant.execute"
-  | "projectAssistant.placeholder"
-  | "projectAssistant.stop"
-  | "projectAssistant.send"
-  | "projectAssistant.codexSessions"
-  | "projectAssistant.selectCodexSession"
-  | "projectAssistant.noCodexSessions"
-  | "projectAssistant.switchMode"
-  | "projectAssistant.questionHint"
-  | "projectAssistant.codexPlaceholder"
-  | "projectAssistant.sendToCodex"
   | "codexVersion.title"
   | "codexVersion.checking"
   | "codexVersion.current"
@@ -61,7 +40,6 @@ export type TranslationKey =
   | "openCodeVersion.confirmTitle"
   | "openCodeVersion.confirm"
   | "openCodeVersion.updating"
-  | "projectAssistant.statusUnknown"
   | "settings.title"
   | "settings.subtitle"
   | "settings.categories"
@@ -1051,27 +1029,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle 远程桥",
     "app.noActiveSession": "无活动会话",
     "app.openTerminal": "打开终端",
-    "projectAssistant.title": "项目助手",
-    "projectAssistant.open": "打开项目助手",
-    "projectAssistant.newConversation": "新对话",
-    "projectAssistant.description": "查看并操控运行中的 Codex 对话，也可查询本机会话、模板和用量。",
-    "projectAssistant.empty": "试试：“当前 Codex 在做什么？”或“让当前 Codex 继续检查”。",
-    "projectAssistant.you": "你",
-    "projectAssistant.application": "应用",
-    "projectAssistant.thinking": "正在查询并思考…",
-    "projectAssistant.confirm": "等待确认",
-    "projectAssistant.reject": "拒绝",
-    "projectAssistant.execute": "确认执行",
-    "projectAssistant.placeholder": "询问 Codex 进展，或描述希望它执行的操作",
-    "projectAssistant.stop": "停止生成",
-    "projectAssistant.send": "发送消息",
-    "projectAssistant.codexSessions": "Codex 实时对话",
-    "projectAssistant.selectCodexSession": "选择 Codex 会话",
-    "projectAssistant.noCodexSessions": "暂无运行中的 Codex 会话",
-    "projectAssistant.switchMode": "切换 Plan / 默认模式",
-    "projectAssistant.questionHint": "Codex 提问时，点击上方终端，用键盘选择或输入答案。",
-    "projectAssistant.codexPlaceholder": "向当前 Codex 会话输入内容",
-    "projectAssistant.sendToCodex": "发送给 Codex",
     "codexVersion.title": "Codex CLI 更新",
     "codexVersion.checking": "正在检测版本…",
     "codexVersion.current": "当前版本：{version}",
@@ -1104,7 +1061,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "openCodeVersion.confirmTitle": "确认更新 OpenCode",
     "openCodeVersion.confirm": "将更新 {environment} 中的 OpenCode 至 {version}。当前会话继续运行，重启后生效。",
     "openCodeVersion.updating": "正在更新 OpenCode…",
-    "projectAssistant.statusUnknown": "状态未知",
     "settings.title": "设置",
     "settings.subtitle": "管理应用行为、模型服务与本地连接",
     "settings.categories": "设置分类",
@@ -2086,27 +2042,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "agentCapabilities.pannelHandleRemote": "Pannel Handle Remote Bridge",
     "app.noActiveSession": "No active session",
     "app.openTerminal": "Open terminal",
-    "projectAssistant.title": "Project Assistant",
-    "projectAssistant.open": "Open project assistant",
-    "projectAssistant.newConversation": "New conversation",
-    "projectAssistant.description": "View and control running Codex conversations, or ask about local sessions, templates, and usage.",
-    "projectAssistant.empty": "Try “What is Codex doing?” or “Ask Codex to continue checking.”",
-    "projectAssistant.you": "You",
-    "projectAssistant.application": "App",
-    "projectAssistant.thinking": "Reading local data and thinking…",
-    "projectAssistant.confirm": "Awaiting confirmation",
-    "projectAssistant.reject": "Decline",
-    "projectAssistant.execute": "Confirm and run",
-    "projectAssistant.placeholder": "Ask about Codex progress or describe an action",
-    "projectAssistant.stop": "Stop generating",
-    "projectAssistant.send": "Send message",
-    "projectAssistant.codexSessions": "Live Codex conversation",
-    "projectAssistant.selectCodexSession": "Select Codex session",
-    "projectAssistant.noCodexSessions": "No running Codex sessions",
-    "projectAssistant.switchMode": "Switch Plan / Default mode",
-    "projectAssistant.questionHint": "When Codex asks a question, click the terminal above and answer with the keyboard.",
-    "projectAssistant.codexPlaceholder": "Enter text for the current Codex session",
-    "projectAssistant.sendToCodex": "Send to Codex",
     "codexVersion.title": "Codex CLI updates",
     "codexVersion.checking": "Checking version…",
     "codexVersion.current": "Installed: {version}",
@@ -2139,7 +2074,6 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "openCodeVersion.confirmTitle": "Confirm OpenCode update",
     "openCodeVersion.confirm": "Update OpenCode in {environment} to {version}. The current session will keep running until restarted.",
     "openCodeVersion.updating": "Updating OpenCode…",
-    "projectAssistant.statusUnknown": "Status unknown",
     "settings.title": "Settings",
     "settings.subtitle": "Manage app behavior, model services, and local connections",
     "settings.categories": "Settings categories",

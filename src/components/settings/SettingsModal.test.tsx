@@ -23,7 +23,7 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         debugMode={false}
         screenshotEnabled
         screenshotShortcut="Ctrl+Shift+S"
-        titleBarActionOrder={["terminal", "stats", "skills", "mcp", "assistant", "screenshot", "library", "quickAgent", "create"]}
+        titleBarActionOrder={["terminal", "stats", "skills", "mcp", "screenshot", "library", "quickAgent", "create"]}
         titleBarHiddenActions={[]}
         onTitleBarActionsChange={vi.fn().mockResolvedValue(undefined)}
         themeId="dark-slate"

@@ -74,10 +74,14 @@ export function permissionLabel(permission?: string | null) {
 type TimelineEntry = { kind: "item"; item: GraphicalItem } | { kind: "tools"; items: GraphicalItem[] };
 const toolTypes = new Set(["commandExecution", "fileChange", "toolCall", "mcpToolCall", "dynamicToolCall", "webSearch"]);
 const visibleTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError", "reasoning", "collabAgentToolCall", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
-export function groupTimeline(items: GraphicalItem[]): TimelineEntry[] {
+export function codexReasoningSummary(item: GraphicalItem) {
+  return item.summary?.map(part => typeof part === "string" ? part : part.text || "").filter(Boolean).join("\n\n").trim() || "";
+}
+export function groupTimeline(items: GraphicalItem[], provider?: AgentProvider): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const item of items) {
     if (!toolTypes.has(item.type) && !visibleTypes.has(item.type)) continue;
+    if (provider === "codex" && item.type === "reasoning" && !codexReasoningSummary(item)) continue;
     const previous = entries.at(-1);
     if (toolTypes.has(item.type)) {
       if (previous?.kind === "tools" && (!previous.items[0].turnId || !item.turnId || previous.items[0].turnId === item.turnId))

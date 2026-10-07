@@ -120,7 +120,7 @@ describe("TitleBar session actions", () => {
   it("uses the configured order and keeps settings available even if hidden was requested", () => {
     const onOpenSettings = vi.fn();
     const { container } = render(<TitleBar isMaximized={false} mobileAccessState={null}
-      actionOrder={["settings", "create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"]}
+      actionOrder={["settings", "create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"]}
       hiddenActions={["settings", "terminal", "library"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
@@ -136,10 +136,10 @@ describe("TitleBar session actions", () => {
   it("keeps settings visible when a running main process returns an old action order", () => {
     const onOpenSettings = vi.fn();
     const { container } = render(<TitleBar isMaximized={false} mobileAccessState={null}
-      actionOrder={["create", "terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "library", "quickAgent"]}
+      actionOrder={["create", "terminal", "stats", "skills", "mcp", "idea", "screenshot", "library", "quickAgent"]}
       onOpenSettings={onOpenSettings} onOpenPicker={() => undefined} onOpenCreate={() => undefined} />);
     const buttons = Array.from(container.querySelectorAll(".titlebar-actions > button, .titlebar-quick-agent > button"));
-    expect(buttons.map(button => button.getAttribute("aria-label")).slice(6, 9)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
+    expect(buttons.map(button => button.getAttribute("aria-label")).slice(5, 8)).toEqual(["打开 IDEA", "打开设置", "从库中启动"]);
     fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });

@@ -428,27 +428,6 @@ export function installBrowserPreview() {
       openExternal: async () => ({ ok: true }),
       onSnapshot: () => () => undefined
     } satisfies Window["agentConversationApi"],
-    projectAssistantApi: {
-      getSnapshot: async () => ({ threadId: "preview", messages: [], pendingAction: null, busy: false, error: null }),
-      start: async () => undefined,
-      newConversation: async () => ({ threadId: "preview-new", messages: [], pendingAction: null, busy: false, error: null }),
-      send: async (text) => ({ threadId: "preview", messages: [{ role: "user", text, at: Date.now() }, { role: "assistant", text: "浏览器预览中的示例回答。", at: Date.now() }], pendingAction: null, busy: false, error: null }),
-      resolve: async approved => ({ approved }),
-      stop: async () => undefined,
-      readAccount: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      startLogin: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: { type: "chatgpt", loginId: "preview", url: "https://example.com" }, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      cancelLogin: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      logout: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      refreshAccountUsage: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
-      listCodexSessions: async () => sessions.filter(session => session.agentProvider === "codex").map(session => ({ id: session.id, title: session.title, type: session.type, cwd: session.cwd, status: "running" })),
-      getCodexScreen: async sessionId => ({ sessionId, ansi: `Codex browser preview\r\n${sessions.find(session => session.id === sessionId)?.title || ""}\r\n`, seq: 0, cols: 80, rows: 24, owner: "desktop" }),
-      getCodexDeltas: async () => [],
-      writeCodex: async () => undefined,
-      submitCodex: async () => undefined,
-      switchCodexMode: async () => undefined,
-      onChanged: () => () => undefined,
-      onProgress: () => () => undefined
-    } satisfies Window["projectAssistantApi"],
     codexAppServerApi: {
       setSubAgentView: async () => undefined,
       refreshSubAgents: async () => undefined,
@@ -680,7 +659,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "agentConversationApi" | "projectAssistantApi" | "codexAppServerApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "agentConversationApi" | "codexAppServerApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

@@ -15,7 +15,6 @@ import { AgentConversationPanel } from "./components/agents/AgentConversationPan
 import type { CodexAppServerSessionHandle } from "./components/agents/CodexAppServerSession";
 import { GraphicalSessionPanel } from "./components/agents/GraphicalSessionPanel";
 import type { CodexCapabilityReference } from "./vite-env";
-import { ProjectAssistantPage } from "./components/agents/ProjectAssistantPage";
 import { RemoteAgentApprovalCard } from "./components/agents/RemoteAgentApprovalCard";
 import { CodexWorkspaceTrustDialog } from "./components/agents/CodexWorkspaceTrustDialog";
 import { EditSessionModal } from "./components/sessions/EditSessionModal";
@@ -116,7 +115,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [showTokenStats, setShowTokenStats] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
-  const [showProjectAssistant, setShowProjectAssistant] = useState(false);
   const [showIdea, setShowIdea] = useState(false);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
@@ -236,7 +234,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   }, [showSettingsModal]);
   const terminalInstances = useTerminalInstances({
     activeId: activeTerminalId,
-    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showProjectAssistant || showIdea),
+    isVisible: !isAppServerSession && workspaceTab === "terminal" && !(showTokenStats || showSkills || showMcp || showIdea),
     terminalTheme,
     sessions: terminalSessions.sessions
   });
@@ -488,7 +486,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       setShowTokenStats(false);
       setShowSkills(false);
       setShowMcp(false);
-      setShowProjectAssistant(false);
       setShowIdea(false);
       setMcpDirty(false);
       setWorkspaceTab("terminal");
@@ -764,7 +761,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     <>
       <div className="app-frame">
         <TitleBar
-          activeTitle={showProjectAssistant ? t("projectAssistant.title") : showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
+          activeTitle={showMcp ? t("mcp.title") : showSkills ? t("skills.title") : showIdea ? t("tabs.idea") : showTokenStats ? t("tokenStats.title") : undefined}
           isMaximized={isMaximized}
           mobileAccessState={mobileAccessState}
           screenshotEnabled={screenshotEnabled}
@@ -780,7 +777,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
-            setShowProjectAssistant(false);
             setShowIdea(false);
           }}
           onOpenStats={() => {
@@ -788,7 +784,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowSkills(false);
             setShowMcp(false);
             setShowTokenStats(true);
-            setShowProjectAssistant(false);
             setShowIdea(false);
           }}
           onOpenSkills={() => {
@@ -796,29 +791,18 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setShowTokenStats(false);
             setShowMcp(false);
             setShowSkills(true);
-            setShowProjectAssistant(false);
             setShowIdea(false);
           }}
           onOpenMcp={() => {
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(true);
-            setShowProjectAssistant(false);
-            setShowIdea(false);
-          }}
-          onOpenProjectAssistant={() => {
-            if (mcpDirty && !window.confirm(t("mcp.discardChanges"))) return;
-            setShowTokenStats(false);
-            setShowSkills(false);
-            setShowMcp(false);
-            setShowProjectAssistant(true);
             setShowIdea(false);
           }}
           onOpenIdea={() => {
             setShowTokenStats(false);
             setShowSkills(false);
             setShowMcp(false);
-            setShowProjectAssistant(false);
             setShowIdea(true);
           }}
         />
@@ -850,7 +834,6 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         {showTokenStats && <AgentTokenStatsDashboard />}
         {showSkills && <SkillsManager key={terminalSessions.activeSession?.id || "personal"} session={terminalSessions.activeSession} />}
         {showIdea && <IdeaRunPanel />}
-        {showProjectAssistant && <ProjectAssistantPage initialSessionId={terminalSessions.activeSession?.agentProvider === "codex" ? terminalSessions.activeSession.id : undefined} />}
         {showMcp && (
           <McpManager
             session={terminalSessions.activeSession}
@@ -858,7 +841,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             onRegisterSave={(handler) => { saveMcpRef.current = handler; }}
           />
         )}
-        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showProjectAssistant || showIdea ? "none" : undefined }}>
+        <main className="app-shell" style={{ gridTemplateColumns: appShellColumns, display: showTokenStats || showSkills || showMcp || showIdea ? "none" : undefined }}>
           <SessionSidebar
             sessions={terminalSessions.sessions}
             activeId={terminalSessions.activeId}

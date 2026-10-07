@@ -5,7 +5,7 @@ const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
 const VALID_LOCALES = new Set(["zh-CN", "en-US"]);
-const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "assistant", "idea", "screenshot", "settings", "library", "quickAgent", "create"];
+const DEFAULT_TITLE_BAR_ACTION_ORDER = ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"];
 const VALID_TITLE_BAR_ACTIONS = new Set(DEFAULT_TITLE_BAR_ACTION_ORDER);
 function normalizeTitleBarActionOrder(value) {
   const seen = new Set();
@@ -17,7 +17,7 @@ function normalizeTitleBarActionOrder(value) {
     }
   }
   const normalized = [...ordered, ...DEFAULT_TITLE_BAR_ACTION_ORDER.filter(id => !seen.has(id) && id !== "settings")];
-  if (!seen.has("settings")) normalized.splice(7, 0, "settings");
+  if (!seen.has("settings")) normalized.splice(6, 0, "settings");
   return normalized;
 }
 function normalizeTitleBarHiddenActions(value) {

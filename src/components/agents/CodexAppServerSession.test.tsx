@@ -220,7 +220,7 @@ describe("CodexAppServerSession", () => {
     const emptyState = container.querySelector(".codex-app-server-empty")!;
     const updates = await screen.findByRole("group", { name: "Codex CLI 更新" });
     expect(emptyState.contains(updates)).toBe(true);
-    await waitFor(() => expect(screen.getByText("最新版本：1.1.0")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1.1.0")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.getByRole("menu", { name: "会话操作" }).contains(updates)).toBe(false);

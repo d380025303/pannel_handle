@@ -7,7 +7,7 @@ import { Check, Circle, Paperclip } from "lucide-react";
 import { MarkdownBlock } from "../../src/components/shared/MarkdownBlock";
 import { GraphicalIcon } from "./GraphicalIcon";
 import { GraphicalQuestionCard } from "./GraphicalQuestionCard";
-import { groupTimeline, openCodePlanReplyId, providerLabel, ToolItem, toolStatus } from "./GraphicalPresentation";
+import { codexReasoningSummary, groupTimeline, openCodePlanReplyId, providerLabel, ToolItem, toolStatus } from "./GraphicalPresentation";
 import { type useGraphicalSession } from "./useGraphicalSession";
 import type { GraphicalSnapshot } from "./types";
 
@@ -33,7 +33,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
       {preview && <div className="graphical-card"><button type="button" onClick={() => setPreview(null)}>关闭附件预览</button>{preview.kind === "image" ? <img className="graphical-preview-image" src={preview.dataUrl} alt="会话附件" /> : <pre>{preview.text || (preview.kind === "too_large" ? "附件过大，无法预览" : "此附件不支持预览")}</pre>}</div>}
       {snapshot.provider === "opencode" && snapshot.openCodeRevert && <div className="graphical-card"><p>对话已回退；发送新消息将提交回退。</p><button disabled={snapshot.busy || controller.codexPending || controller.isSending} onClick={() => { controller.setOpenCodeRevertTarget(null); controller.setActiveSheet("opencode-revert"); }}>恢复回退</button></div>}
       {snapshot.items.length === 0 && <p className="graphical-empty">向 {providerLabel(snapshot.provider)} 发送消息以开始对话。</p>}
-      {groupTimeline(snapshot.items).map(entry => {
+      {groupTimeline(snapshot.items, snapshot.provider).map(entry => {
         if (entry.kind === "tools") {
           const groupId = entry.items[0].id;
           const expanded = expandedGroupId === groupId;
@@ -59,6 +59,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
               <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
             </div>}</article>;
+        if (snapshot.provider === "codex" && item.type === "reasoning") return <details className="graphical-card" key={item.id}><summary>思考过程</summary><pre>{codexReasoningSummary(item)}</pre></details>;
         if (item.type === "reasoning" || item.type === "collabAgentToolCall" || item.type === "contextCompaction" || item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return <details className="graphical-card" key={item.id}><summary>{item.type === "reasoning" ? "思考过程" : item.type === "collabAgentToolCall" ? "子 Agent" : item.type === "contextCompaction" ? "上下文压缩" : "代码审查"}</summary><pre>{item.text || item.summary?.map(value => typeof value === "string" ? value : value.text || "").join("\n") || item.prompt || item.agentStatus || "状态已更新"}</pre></details>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;
         if (item.type === "plan" || item.type === "turnPlan") return <article className="graphical-card" key={item.id}><strong>计划</strong><p>{item.text}</p>{item.plan?.map((step, index) => <p className="graphical-plan-step" key={index}>{step.status === "completed" ? <Check aria-hidden="true" /> : <Circle aria-hidden="true" />}<span>{step.step}</span></p>)}

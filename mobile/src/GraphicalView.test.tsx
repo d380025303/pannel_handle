@@ -66,6 +66,45 @@ function fixture(viewSession = session) {
   return { send, emit, reconnect, disconnect };
 }
 
+it("hides empty Codex reasoning before grouping tools and shows streamed summaries in order", () => {
+  const { emit } = fixture();
+  const items: GraphicalSnapshot["items"] = [
+    { id: "tool-a", type: "commandExecution", turnId: "turn-1" },
+    { id: "missing", type: "reasoning" },
+    { id: "empty-array", type: "reasoning", summary: [] },
+    { id: "empty-string", type: "reasoning", summary: [""] },
+    { id: "streamed", type: "reasoning", summary: [" \n", { text: "\t" }, {}], status: "inProgress" },
+    { id: "tool-b", type: "commandExecution", turnId: "turn-1" }
+  ];
+  const update = (nextItems: GraphicalSnapshot["items"]) => emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, items: nextItems } });
+  update(items);
+  expect(screen.queryByText("思考过程")).toBeNull();
+  expect(screen.queryByText("状态已更新")).toBeNull();
+  expect(screen.getAllByRole("button", { name: /工具调用 · 2 项/ })).toHaveLength(1);
+
+  update(items.map(item => item.id === "streamed" ? { ...item, summary: ["分析问题", { text: "检查实现" }] } : item));
+  const card = screen.getByText("思考过程").closest("details")!;
+  expect(card.querySelector("pre")?.textContent).toBe("分析问题\n\n检查实现");
+  const groups = screen.getAllByRole("button", { name: /工具调用 · 1 项/ });
+  expect(groups[0].closest("section")?.nextElementSibling).toBe(card);
+  expect(card.nextElementSibling).toBe(groups[1].closest("section"));
+
+  update(items.map(item => item.id === "streamed" ? { ...item, status: "completed" } : item));
+  expect(screen.queryByText("思考过程")).toBeNull();
+});
+
+it("preserves other providers' reasoning text and status event fallback", () => {
+  const { emit } = fixture({ ...session, agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: {
+    ...snapshot, provider: "codebuddy", items: [{ id: "reason", type: "reasoning", text: "正在检查代码" },
+      { id: "review", type: "enteredReviewMode" }]
+  } });
+  expect(screen.getByText("正在检查代码")).toBeTruthy();
+  expect(screen.getByText("思考过程")).toBeTruthy();
+  expect(screen.getByText("状态已更新")).toBeTruthy();
+});
+
 function openSheet(name: string) {
   fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "更多操作" })).getByRole("button", { name: new RegExp(name) }));
