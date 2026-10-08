@@ -320,6 +320,13 @@ contextBridge.exposeInMainWorld("terminalApi", {
   },
   listWslDistros: () => ipcRenderer.invoke("wsl:list-distros"),
   loadSavedSessions: () => ipcRenderer.invoke("sessions:load-saved"),
+  getIgnoredConfigWarnings: templateId => ipcRenderer.invoke("sessions:config-warnings", templateId),
+  ignoreConfigWarning: (templateId, fingerprint) => ipcRenderer.invoke("sessions:ignore-config-warning", templateId, fingerprint),
+  onConfigWarningsChanged: callback => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("sessions:config-warnings-changed", listener);
+    return () => ipcRenderer.removeListener("sessions:config-warnings-changed", listener);
+  },
   exportSavedSessions: () => ipcRenderer.invoke("sessions:export-library"),
   importSavedSessions: () => ipcRenderer.invoke("sessions:import-library"),
   launchSessions: (sessions, launchMode) => ipcRenderer.invoke("sessions:launch-selected", sessions, launchMode),

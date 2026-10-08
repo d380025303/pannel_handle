@@ -1,6 +1,7 @@
+import { configWarningFingerprint, useConfigWarningVisibility } from "./configWarningVisibility";
 import { CodeBuddyMcpApp } from "./CodeBuddyMcpApp";
 import { useId, useState } from "react";
-import { ChevronRight, CircleCheck, CircleX, Code2, FileDiff, FileSearch, FileText, Globe2, Search, Terminal, Wrench } from "lucide-react";
+import { ChevronRight, CircleCheck, CircleX, Code2, FileDiff, FileSearch, FileText, Globe2, Search, Terminal, Wrench, X } from "lucide-react";
 import type { CodexAppServerSnapshot } from "../../vite-env";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import { AcpToolContent } from "../shared/AcpToolContent";
@@ -193,17 +194,29 @@ function diagnosticSummary(event: Diagnostic) {
   if (event.kind === "model/verification") return "需要额外账户验证";
   return event.kind === "model/safetyBuffering/updated" ? "响应正在安全缓冲" : "查看详情";
 }
-export function DiagnosticCard({ event }: { event: Diagnostic }) {
+export function DiagnosticCard({ event, sessionId, templateId }: { event: Diagnostic; sessionId?: string; templateId?: string }) {
+  if (event.kind === "configWarning") return <ConfigWarningCard event={event} sessionId={sessionId} templateId={templateId} />;
+  return <DiagnosticDetails event={event} />;
+}
+function ConfigWarningCard({ event, sessionId, templateId }: { event: Diagnostic; sessionId?: string; templateId?: string }) {
+  const visibility = useConfigWarningVisibility(sessionId, templateId, event.id, configWarningFingerprint(event.payload));
+  if (visibility.hidden) return null;
+  return <DiagnosticDetails event={event} actions={<span className="codex-config-warning-actions">
+    {templateId && <button type="button" disabled={visibility.busy} title="此会话模板不再提示相同警告" onClick={click => { click.preventDefault(); click.stopPropagation(); void visibility.ignore(); }}>{visibility.busy ? "保存中…" : "不再提示"}</button>}
+    <button type="button" aria-label="关闭配置警告" title="关闭配置警告" disabled={visibility.busy} onClick={click => { click.preventDefault(); click.stopPropagation(); visibility.close(); }}><X aria-hidden="true" /></button>
+  </span>} error={visibility.error} />;
+}
+function DiagnosticDetails({ event, actions, error }: { event: Diagnostic; actions?: React.ReactNode; error?: string }) {
   const data = event.payload;
   const kind = event.kind === "error" || event.kind.includes("Warning") || event.kind === "warning" ? "warning" : "info";
-  return <details className="codex-app-server-diagnostic" data-kind={kind}>
+  return <><details className="codex-app-server-diagnostic" data-kind={kind}>
     <summary><span>{diagnosticNames[event.kind] || event.kind}</span><strong>{diagnosticSummary(event)}</strong>
-      <time dateTime={new Date(event.at).toISOString()}>{new Date(event.at).toLocaleTimeString()}</time></summary>
+      <time dateTime={new Date(event.at).toISOString()}>{new Date(event.at).toLocaleTimeString()}</time>{actions}</summary>
     {event.kind === "error" && typeof data.kind === "string" && <p>类别：{errorNames[data.kind] || data.kind}{typeof data.httpStatusCode === "number" ? ` · HTTP ${data.httpStatusCode}` : ""}</p>}
     {event.kind === "configWarning" && typeof data.path === "string" && <p>配置文件：{data.path}</p>}
     {event.kind === "configWarning" && typeof data.details === "string" && <p>{data.details}</p>}
     <pre>{JSON.stringify(data, null, 2)}</pre>
-  </details>;
+  </details>{error && <p className="codex-config-warning-error" role="alert">{error}</p>}</>;
 }
 export function groupTimeline(snapshot: CodexAppServerSnapshot, minimalMode = false): DisplayItem[] {
   const groups = groupTools(snapshot.items, !snapshot.provider || snapshot.provider === "codex", minimalMode);

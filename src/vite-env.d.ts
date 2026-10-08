@@ -37,6 +37,7 @@ export type SshConfig = {
 export type TerminalSession = EnvironmentSelection & {
   id: string;
   templateId?: string;
+  ignoredCodexConfigWarnings?: string[];
   title: string;
   shell: string;
   cwd: string;
@@ -1369,6 +1370,9 @@ export type TerminalApi = {
   onSessionSelectRequested: (callback: (payload: { id: string }) => void) => () => void;
   listWslDistros: () => Promise<string[]>;
   loadSavedSessions: () => Promise<TerminalSession[]>;
+  getIgnoredConfigWarnings: (templateId: string) => Promise<string[]>;
+  ignoreConfigWarning: (templateId: string, fingerprint: string) => Promise<string[]>;
+  onConfigWarningsChanged: (callback: (payload: { templateId: string; ignored: string[] }) => void) => () => void;
   exportSavedSessions: () => Promise<SessionLibraryFileResult>;
   importSavedSessions: () => Promise<SessionLibraryImportResult>;
   launchSessions: (sessions: TerminalSession[], launchMode: "manual" | "restore") => Promise<TerminalSession[]>;

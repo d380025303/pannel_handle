@@ -32,6 +32,17 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
   ipcMain.handle("sessions:list", () => terminalManager.listSessions());
 
   ipcMain.handle("sessions:load-saved", () => sessionStore.getLibrary());
+  ipcMain.handle("sessions:config-warnings", (_event, templateId) => {
+    const template = sessionStore.getTemplate(String(templateId || ""));
+    if (!template) throw new Error("会话模板不存在。");
+    return [...template.ignoredCodexConfigWarnings];
+  });
+  ipcMain.handle("sessions:ignore-config-warning", (_event, templateId, fingerprint) => {
+    const id = String(templateId || "");
+    const ignored = sessionStore.ignoreCodexConfigWarning(id, fingerprint);
+    windowManager.broadcast("sessions:config-warnings-changed", { templateId: id, ignored });
+    return ignored;
+  });
   if (codexAppServerSessionService) {
     ipcMain.handle("opencode-auth:start", (_event, id, methodId) => codexAppServerSessionService.startAcpLogin(String(id || ""), String(methodId || "")));
     ipcMain.handle("opencode-auth:cancel", (_event, id, generation) => codexAppServerSessionService.cancelAcpLogin(String(id || ""), generation));

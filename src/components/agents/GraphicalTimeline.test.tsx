@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 import type { CodexAppServerSnapshot } from "../../vite-env";
-import { CodexEventCard, groupTimeline, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
+import { DiagnosticCard, CodexEventCard, groupTimeline, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 
 afterEach(cleanup);
 
@@ -106,4 +106,43 @@ it("toggles child reasoning during streaming without hiding replies", () => {
   expect(screen.queryByText("updated reasoning")).toBeNull();
   rerender(<TeamMemberTimeline member={member} codeBuddy={false} />);
   expect(screen.getByText("updated reasoning")).toBeTruthy();
+});
+
+it("closes a configuration warning across remounts without changing details", () => {
+  const event = { id: "close-test", kind: "configWarning", at: Date.now(), turnId: null, payload: { summary: "close warning" } };
+  const view = render(<DiagnosticCard event={event} sessionId="close-session" />);
+  const details = view.container.querySelector("details")!;
+  fireEvent.click(screen.getByRole("button", { name: "关闭配置警告" }));
+  expect(details.open).toBe(false);
+  expect(screen.queryByText("close warning")).toBeNull();
+  view.unmount();
+  render(<DiagnosticCard event={event} sessionId="close-session" />);
+  expect(screen.queryByText("close warning")).toBeNull();
+  expect(screen.queryByText("不再提示")).toBeNull();
+});
+
+it("suppresses equal warnings only in the selected template and allows retry after failure", async () => {
+  const callbacks = new Set<(payload: { templateId: string; ignored: string[] }) => void>();
+  const ignoreConfigWarning = vi.fn().mockRejectedValueOnce(new Error("disk unavailable")).mockImplementation(async (templateId, fingerprint) => {
+    for (const callback of callbacks) callback({ templateId, ignored: [fingerprint] });
+    return [fingerprint];
+  });
+  const previous = window.terminalApi;
+  window.terminalApi = { getIgnoredConfigWarnings: async () => [], ignoreConfigWarning,
+    onConfigWarningsChanged: (callback: (payload: { templateId: string; ignored: string[] }) => void) => { callbacks.add(callback); return () => { callbacks.delete(callback); }; }
+  } as unknown as typeof window.terminalApi;
+  const event = { id: "ignore-test", kind: "configWarning", at: Date.now(), turnId: null, payload: { summary: "same warning" } };
+  try {
+    const view = render(<><DiagnosticCard event={event} sessionId="a1" templateId="template-a" /><DiagnosticCard event={{ ...event, id: "second" }} sessionId="a2" templateId="template-a" /><DiagnosticCard event={event} sessionId="b" templateId="template-b" /></>);
+    await waitFor(() => expect(callbacks.size).toBe(3));
+    fireEvent.click(screen.getAllByRole("button", { name: "不再提示" })[0]);
+    await screen.findByRole("alert");
+    expect(screen.getAllByText("same warning")).toHaveLength(3);
+    expect(view.container.querySelector("details")!.open).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "不再提示" })[0]);
+    await waitFor(() => expect(screen.getAllByText("same warning")).toHaveLength(1));
+    view.unmount();
+    render(<DiagnosticCard event={{ ...event, payload: { summary: "different warning" } }} sessionId="a3" templateId="template-a" />);
+    expect(screen.getByText("different warning")).toBeTruthy();
+  } finally { cleanup(); window.terminalApi = previous; }
 });

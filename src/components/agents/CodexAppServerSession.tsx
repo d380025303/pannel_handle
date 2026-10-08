@@ -1377,7 +1377,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           <button type="button" disabled={snapshot.busy || snapshot.archived || Boolean(forkingTurnId) || sending || pastingImage}
             onClick={() => void forkFromTurn(entry.turnId)}>{forkingTurnId === entry.turnId ? "正在新建会话…" : "从此回合新建会话"}</button>
         </div>;
-        if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} />;
+        if (entry.kind === "diagnostic") return <DiagnosticCard key={`diagnostic-${entry.event.id}`} event={entry.event} sessionId={sessionId} templateId={session?.templateId} />;
         if (entry.kind === "diff") return <TurnDiffCard key={`diff-${entry.diff.turnId}`} diff={entry.diff} />;
         if (entry.kind === "tools") {
           const groupId = entry.items[0].id;

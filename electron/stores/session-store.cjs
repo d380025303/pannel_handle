@@ -192,6 +192,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexAppServerEffort,
       codexAppServerFastMode,
       codexExecutionPermission,
+      ignoredCodexConfigWarnings: [...new Set((Array.isArray(template.ignoredCodexConfigWarnings) ? template.ignoredCodexConfigWarnings : []).filter(value => typeof value === "string" && value))],
       ...(codeBuddyGraphicalOptions && Object.keys(codeBuddyGraphicalOptions).length ? { codeBuddyGraphicalOptions } : {}),
       ...(openCodeGraphicalOptions && Object.keys(openCodeGraphicalOptions).length ? { openCodeGraphicalOptions } : {}),
       type: template.type,
@@ -290,7 +291,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       : sessionMeta.agentProvider === "grok" ? { ...sessionMeta, grokGraphicalConfigured: true } : sessionMeta);
     const idx = librarySessions.findIndex(s => s.id === template.id);
     if (idx >= 0) {
-      librarySessions[idx] = template;
+      librarySessions[idx] = { ...template, ignoredCodexConfigWarnings: librarySessions[idx].ignoredCodexConfigWarnings };
     } else {
       librarySessions.push(template);
     }
@@ -313,6 +314,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       ...serializeTemplate(source),
       id: createTemplateId(),
       title: `${source.title} - 副本`,
+      ignoredCodexConfigWarnings: [],
       createdAt: Date.now()
     };
     librarySessions.push(duplicated);
@@ -354,6 +356,20 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     librarySessions = updated;
     try { onChanged(); }
     catch (err) { console.error("Failed to notify library change:", err); }
+  }
+
+  function ignoreCodexConfigWarning(id, fingerprint) {
+    if (typeof fingerprint !== "string" || !fingerprint || fingerprint.length > 65536)
+      throw new Error("无效的配置警告标识。");
+    const index = librarySessions.findIndex(template => template.id === id);
+    if (index < 0) throw new Error("会话模板不存在。");
+    const ignored = [...new Set([...librarySessions[index].ignoredCodexConfigWarnings, fingerprint])];
+    const updated = [...librarySessions];
+    updated[index] = { ...updated[index], ignoredCodexConfigWarnings: ignored };
+    writeJson(dataStore, sessionsFile, updated);
+    librarySessions = updated;
+    try { onChanged(); } catch (err) { console.error("Failed to notify library change:", err); }
+    return [...ignored];
   }
 
   function getLibrary() {
@@ -428,6 +444,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     exportLibrary,
     importLibrary,
     getTemplate,
+    ignoreCodexConfigWarning,
   };
 }
 

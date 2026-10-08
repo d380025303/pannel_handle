@@ -187,6 +187,7 @@ describe("git command routing", () => {
     });
     await wslService.getStatus(repositoryTarget("wsl", "/work/repo"));
     expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work/repo", "--exec", "env", "GIT_TERMINAL_PROMPT=0", "git", "status", "--porcelain=v2", "--branch", "-z"]);
+    expect(wslSpawn.calls[0].options.cwd).toBeUndefined();
   });
 
   it("routes one-level repository discovery through WSL", async () => {
@@ -208,6 +209,7 @@ describe("git command routing", () => {
     });
     expect(wslSpawn.calls[0].args).toEqual(["-d", "Ubuntu-24.04", "--cd", "/work", "--exec", "find", ".", "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print0"]);
     expect(wslSpawn.calls.slice(1).every((call) => call.args.includes("--is-inside-work-tree"))).toBe(true);
+    expect(wslSpawn.calls.every((call) => call.options.cwd === undefined)).toBe(true);
   });
 
   it("quotes SSH directories and supports cancellable streaming execution", async () => {

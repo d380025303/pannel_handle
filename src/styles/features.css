@@ -8428,3 +8428,15 @@ button.agent-usage-status[aria-expanded="true"] {
 .codebuddy-scheduled-form textarea, .codebuddy-scheduled-form input:not([type="checkbox"]) { display: block; width: 100%; box-sizing: border-box; }
 
 .codebuddy-scheduled-form textarea, .codebuddy-scheduled-form input:not([type="checkbox"]) { border: 1px solid var(--color-border); border-radius: 7px; padding: 8px; color: var(--color-text); background: var(--color-bg-control); }
+
+.codex-app-server-diagnostic summary strong { min-width: 0; }
+.codex-config-warning-actions { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.codex-config-warning-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
+.codex-config-warning-actions button:hover { background: var(--color-bg-code); color: var(--color-text); }
+.codex-config-warning-actions button:disabled { opacity: .5; cursor: default; }
+.codex-config-warning-actions svg { width: 16px; height: 16px; }
+@media (max-width: 600px) {
+  .codex-app-server-diagnostic summary { flex-wrap: wrap; }
+  .codex-app-server-diagnostic summary strong { flex-basis: 40%; }
+  .codex-config-warning-actions { margin-left: auto; }
+}

@@ -321,6 +321,19 @@ export function installBrowserPreview() {
     onSessionSelectRequested: () => () => undefined,
     listWslDistros: async () => ["Ubuntu-24.04", "Debian"],
     loadSavedSessions: async () => copy(library),
+    getIgnoredConfigWarnings: async id => [...(library.find(item => item.id === id)?.ignoredCodexConfigWarnings || [])],
+    ignoreConfigWarning: async (id, fingerprint) => {
+      const template = library.find(item => item.id === id);
+      if (!template) throw new Error("会话模板不存在。");
+      template.ignoredCodexConfigWarnings = [...new Set([...(template.ignoredCodexConfigWarnings || []), fingerprint])];
+      window.dispatchEvent(new CustomEvent("preview-config-warnings", { detail: { templateId: id, ignored: template.ignoredCodexConfigWarnings } }));
+      return [...template.ignoredCodexConfigWarnings];
+    },
+    onConfigWarningsChanged: callback => {
+      const listener = (event: Event) => callback((event as CustomEvent<{ templateId: string; ignored: string[] }>).detail);
+      window.addEventListener("preview-config-warnings", listener);
+      return () => window.removeEventListener("preview-config-warnings", listener);
+    },
     exportSavedSessions: async () => ({ canceled: false, ok: true, filePath: "C:\\Downloads\\pannel-handle-preview.json", exportedCount: library.length }),
     importSavedSessions: async () => ({ canceled: true }),
     launchSessions: async (templates) => copy(launch(templates)),

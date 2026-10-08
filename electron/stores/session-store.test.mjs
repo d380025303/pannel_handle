@@ -818,3 +818,30 @@ describe("session-store", () => {
     expect(launchTemplateStore.removeSessionTemplate).toHaveBeenCalledWith("1");
   });
 });
+
+it("persists warning suppression per template and clears it on duplication", () => {
+  const file = createTempSessionsFile();
+  const store = createStore(file);
+  store.addToLibrary({ id: "a", agentProvider: "codex" });
+  store.addToLibrary({ id: "b", agentProvider: "codex" });
+  expect(store.getTemplate("a").ignoredCodexConfigWarnings).toEqual([]);
+  store.ignoreCodexConfigWarning("a", "warning");
+  store.ignoreCodexConfigWarning("a", "warning");
+  store.updateLibrary("a", { title: "renamed" });
+  expect(store.duplicateInLibrary("a").ignoredCodexConfigWarnings).toEqual([]);
+  const reloaded = createStore(file);
+  reloaded.loadLibrary();
+  expect(reloaded.getTemplate("a").ignoredCodexConfigWarnings).toEqual(["warning"]);
+  expect(reloaded.getTemplate("b").ignoredCodexConfigWarnings).toEqual([]);
+  expect(() => store.ignoreCodexConfigWarning("missing", "warning")).toThrow();
+});
+
+it("does not apply warning suppression when persistence fails", () => {
+  let failed = false;
+  const store = createSessionStore({ sessionsFile: "unused", getDefaultShell: () => "powershell.exe", getWslShell: () => "wsl.exe",
+    dataStore: { write: () => { if (failed) throw new Error("disk unavailable"); } } });
+  store.addToLibrary({ id: "a" });
+  failed = true;
+  expect(() => store.ignoreCodexConfigWarning("a", "warning")).toThrow("disk unavailable");
+  expect(store.getTemplate("a").ignoredCodexConfigWarnings).toEqual([]);
+});

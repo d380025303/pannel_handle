@@ -473,7 +473,7 @@ function createGitService({
       "GIT_TERMINAL_PROMPT=0",
       "git",
       ...args
-    ], { ...options, env: environment });
+    ], { ...options, cwd: undefined, env: environment });
   }
 
   async function hasHead(session, cwd) {

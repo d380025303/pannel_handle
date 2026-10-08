@@ -155,3 +155,20 @@ describe("session IPC handlers", () => {
     }));
   });
 });
+
+it("broadcasts template warning suppression only after successful persistence", () => {
+  const handlers = new Map();
+  const broadcast = vi.fn();
+  const ignoreCodexConfigWarning = vi.fn(() => ["fingerprint"]);
+  registerIpcHandlers({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: vi.fn() },
+    sessionStore: { getTemplate: id => id === "a" ? { ignoredCodexConfigWarnings: [] } : undefined, ignoreCodexConfigWarning },
+    windowManager: { broadcast } });
+  expect(handlers.get("sessions:config-warnings")({}, "a")).toEqual([]);
+  expect(() => handlers.get("sessions:config-warnings")({}, "missing")).toThrow("会话模板不存在");
+  expect(handlers.get("sessions:ignore-config-warning")({}, "a", "fingerprint")).toEqual(["fingerprint"]);
+  expect(broadcast).toHaveBeenCalledWith("sessions:config-warnings-changed", { templateId: "a", ignored: ["fingerprint"] });
+  broadcast.mockClear();
+  ignoreCodexConfigWarning.mockImplementation(() => { throw new Error("disk unavailable"); });
+  expect(() => handlers.get("sessions:ignore-config-warning")({}, "a", "other")).toThrow("disk unavailable");
+  expect(broadcast).not.toHaveBeenCalled();
+});
