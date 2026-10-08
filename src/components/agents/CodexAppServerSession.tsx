@@ -1371,7 +1371,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     <div ref={messagesRef} className="codex-app-server-messages" aria-live="polite" onScroll={event => {
       if (isActive) followMessagesRef.current = event.currentTarget.scrollHeight - event.currentTarget.clientHeight - event.currentTarget.scrollTop <= 32;
     }}>
-      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>有什么需要完成？</h2><p>描述你的任务，{agentName} 会在当前项目中协助你。</p><span className="codex-app-server-empty-hint">支持附加文件、粘贴图片{snapshot.capabilities?.plan ? "与规划模式" : ""}</span>{canCheckVersion && <CodexVersionControl key={`${sessionId}:${snapshot.threadId}:${versionProvider}`} sessionId={sessionId} provider={versionProvider!} />}</div>}
+      {snapshot.items.length === 0 && !snapshot.busy && <div className="codex-app-server-empty"><div className="codex-app-server-empty-welcome"><span className="codex-app-server-empty-icon"><Sparkles aria-hidden="true" /></span><h2>我是 {agentName}，有什么需要完成？</h2></div>{canCheckVersion && <CodexVersionControl key={`${sessionId}:${snapshot.threadId}:${versionProvider}`} sessionId={sessionId} provider={versionProvider!} />}</div>}
       {timeline.map(entry => {
         if (entry.kind === "forkTurn") return <div className="codex-app-server-turn-actions" key={`fork-${entry.turnId}`}>
           <button type="button" disabled={snapshot.busy || snapshot.archived || Boolean(forkingTurnId) || sending || pastingImage}

@@ -7969,12 +7969,12 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-messages { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; scrollbar-width: none; }
 .codex-app-server-messages::-webkit-scrollbar { display: none; }
 .codex-app-server-messages > :not(.codex-app-server-empty) { flex-shrink: 0; }
-.codex-app-server-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-height: 280px; text-align: center; }
+.codex-app-server-empty { display: grid; grid-template-rows: minmax(24px, 1fr) auto minmax(min-content, 1fr); gap: 24px; flex: 1; min-height: 280px; text-align: center; }
+.codex-app-server-empty-welcome { grid-row: 2; display: flex; flex-direction: column; align-items: center; }
+.codex-app-server-empty > .codex-version-control { grid-row: 3; align-self: end; justify-self: end; margin-top: 0; }
 .codex-app-server-empty-icon { width: 58px; height: 58px; border-radius: 18px; box-shadow: 0 10px 32px rgba(0, 0, 0, .1); }
 .codex-app-server-empty-icon svg { width: 27px; height: 27px; }
 .codex-app-server-empty h2 { margin: 20px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
-.codex-app-server-empty p { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; }
-.codex-app-server-empty-hint { margin-top: 24px; padding: 7px 12px; border: 1px solid var(--color-border); border-radius: 20px; color: var(--color-text-muted); background: var(--color-bg-panel); font-size: 11px; }
 .codex-app-server-message, .codex-app-server-event, .codex-app-server-approval { box-sizing: border-box; max-width: min(88%, 900px); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px 16px; background: var(--color-bg-panel); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
 .codex-app-server-message { align-self: flex-start; width: fit-content; }
 .codex-app-server-message > strong { display: block; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
