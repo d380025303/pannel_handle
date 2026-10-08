@@ -1504,7 +1504,10 @@ export type SkillsCatalog = {
   projectPath?: string;
 };
 
+export type SkillDetail = SkillSummary & { content: string };
+
 export type SkillsApi = {
+  read: (provider: SkillProvider, id: string, sessionId?: string) => Promise<SkillDetail>;
   list: (provider: SkillProvider, sessionId?: string) => Promise<SkillsCatalog>;
 };
 

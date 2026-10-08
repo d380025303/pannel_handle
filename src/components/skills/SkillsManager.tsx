@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, RefreshCw, Search } from "lucide-react";
 import { useI18n } from "../../i18n";
-import type { SkillProvider, SkillSource, SkillsCatalog, TerminalSession } from "../../vite-env";
+import { MarkdownBlock } from "../shared/MarkdownBlock";
+import type { SkillDetail, SkillSummary, SkillProvider, SkillSource, SkillsCatalog, TerminalSession } from "../../vite-env";
 
 const SOURCES: SkillSource[] = ["project", "personal", "system", "plugin"];
 
@@ -13,9 +14,29 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const requestRef = useRef(0);
+  const detailRequestRef = useRef(0);
+  const [selected, setSelected] = useState<SkillSummary | null>(null);
+  const [detail, setDetail] = useState<SkillDetail | null>(null);
+  const [detailError, setDetailError] = useState("");
+  function closeDetail() { ++detailRequestRef.current; setSelected(null); setDetail(null); setDetailError(""); }
+  async function openDetail(skill: SkillSummary) {
+    const request = ++detailRequestRef.current;
+    setSelected(skill); setDetail(null); setDetailError("");
+    try {
+      const value = await window.skillsApi.read(provider, skill.id, session?.id);
+      if (request === detailRequestRef.current) setDetail(value);
+    } catch (err) {
+      if (request === detailRequestRef.current) setDetailError(err instanceof Error ? err.message : String(err));
+    }
+  }
+  useEffect(() => {
+    closeDetail();
+    return () => { ++detailRequestRef.current; ++requestRef.current; };
+  }, [provider, session?.id]);
 
   const loadSkills = useCallback(async (nextProvider: SkillProvider, sessionId?: string) => {
     const requestId = ++requestRef.current;
+    closeDetail();
     setLoading(true);
     setError("");
     try {
@@ -56,6 +77,7 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
             <h3>{skill.name}</h3>
             {!skill.enabled && <span className="skills-disabled">{t("skills.disabled")}</span>}
           </div>
+          <button type="button" className="skills-detail-trigger" onClick={() => void openDetail(skill)} aria-label={`${t("skills.viewDetail")}：${skill.name}`}>{t("skills.viewDetail")}</button>
           {skill.description && <p>{skill.description}</p>}
           {provider === "codex" && <small className="skills-card-path" title={skill.path}>{skill.path}</small>}
         </article>
@@ -77,6 +99,14 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchProvider("codebuddy")}>CodeBuddy</button>
       </div>
 
+      {selected && <section className="skills-detail" aria-label={t("skills.detail")}>
+        <header><h2>{selected.name}</h2><button type="button" onClick={closeDetail}>{t("skills.closeDetail")}</button></header>
+        <p>{t(`skills.source.${selected.source}`)} · {selected.enabled ? t("skills.enabled") : t("skills.disabled")}</p>
+        {selected.description && <p>{selected.description}</p>}
+        <small className="skills-detail-path">{selected.path}</small>
+        {detailError ? <div role="alert" className="skills-load-error">{detailError}<button type="button" onClick={() => void openDetail(selected)}>{t("common.refresh")}</button></div>
+          : detail ? <MarkdownBlock className="skills-detail-body" content={detail.content} externalLinks /> : <p role="status">{t("common.loading")}</p>}
+      </section>}
       <section className="skills-content">
         <div className="skills-list-toolbar">
           <label><Search aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("skills.search")} aria-label={t("skills.search")} /></label>

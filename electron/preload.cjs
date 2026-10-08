@@ -69,7 +69,8 @@ contextBridge.exposeInMainWorld("remoteSystemApi", {
 });
 
 contextBridge.exposeInMainWorld("skillsApi", {
-  list: (provider, sessionId) => ipcRenderer.invoke("skills:list", { provider, sessionId })
+  list: (provider, sessionId) => ipcRenderer.invoke("skills:list", { provider, sessionId }),
+  read: (provider, id, sessionId) => ipcRenderer.invoke("skills:read", { provider, id, sessionId })
 });
 
 contextBridge.exposeInMainWorld("mcpApi", {

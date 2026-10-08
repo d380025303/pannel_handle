@@ -575,7 +575,7 @@ export function installBrowserPreview() {
     remoteSystemApi: {
       getMetrics: async () => ({ sampledAt: Date.now(), network: { receivedBytesPerSecond: 1_240_000, transmittedBytesPerSecond: 280_000 }, memory: { usedBytes: 6_442_450_944, totalBytes: 17_179_869_184 }, cpu: { usedPercent: 37.5 }, disks: [{ filesystem: "/dev/sda1", type: "ext4", mountPoint: "/", usedBytes: 53_687_091_200, totalBytes: 128_849_018_880, availableBytes: 75_161_927_680, usedPercent: 41.7, io: { busyPercent: 4.2, readBytesPerSecond: 820_000, writeBytesPerSecond: 240_000 } }] })
     } satisfies Window["remoteSystemApi"],
-    skillsApi: { list: async (provider) => ({ skills: [
+    skillsApi: { read: async (_provider, id) => ({ id, name: "ui-review", description: "检查界面", path: "C:/preview/skills/ui-review/SKILL.md", source: "personal", enabled: true, content: "# UI Review\n\n检查布局、交互和可访问性。" }), list: async (provider) => ({ skills: [
       { id: `${provider}-ui-review`, name: "UI Review", description: "检查桌面界面的布局、一致性和可访问性。", path: "C:\\preview\\ui-review\\SKILL.md", source: "personal", enabled: true },
       { id: `${provider}-release`, name: "Release", description: "生成并验证桌面应用发布产物。", path: "C:\\preview\\release\\SKILL.md", source: "system", enabled: true }
     ], pluginStatus: provider === "codex" ? "requires-session" : "not-applicable",

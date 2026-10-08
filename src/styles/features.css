@@ -8440,3 +8440,13 @@ button.agent-usage-status[aria-expanded="true"] {
   .codex-app-server-diagnostic summary strong { flex-basis: 40%; }
   .codex-config-warning-actions { margin-left: auto; }
 }
+
+.skills-detail-trigger { margin-top: 10px; color: var(--color-accent); }
+.skills-detail { flex: none; max-height: 55%; overflow: auto; margin: 14px 24px 0; padding: 16px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-panel); }
+.skills-detail header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skills-detail h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.skills-detail p { overflow-wrap: anywhere; }
+.skills-detail-path { display: block; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.skills-detail-body { margin-top: 16px; overflow-wrap: anywhere; line-height: 1.65; }
+.skills-detail-body pre { overflow: auto; padding: 12px; background: var(--color-bg-control); }
+.skills-detail-body img { max-width: 100%; }

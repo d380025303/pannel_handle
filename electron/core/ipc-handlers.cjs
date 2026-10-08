@@ -416,6 +416,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     return remoteSystemService.getMetrics(sessionId);
   });
 
+  ipcMain.handle("skills:read", (_event, { provider, id, sessionId }) => skillsService.read(provider, id, sessionId));
   ipcMain.handle("skills:list", (_event, { provider, sessionId }) => skillsService.list(provider, sessionId));
 
   ipcMain.handle("mcp:list", (_event, request) => mcpConfigService.list(request));

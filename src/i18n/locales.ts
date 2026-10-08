@@ -564,6 +564,10 @@ export type TranslationKey =
   | "tokenStats.noSkills"
   | "tokenStats.noMcp"
   | "tokenStats.transcriptDetected"
+  | "skills.viewDetail"
+  | "skills.detail"
+  | "skills.closeDetail"
+  | "skills.enabled"
   | "skills.title"
   | "skills.open"
   | "skills.description"
@@ -1598,6 +1602,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.source.system": "内置技能",
     "skills.source.plugin": "插件技能",
     "skills.disabled": "已停用",
+    "skills.viewDetail": "查看详情",
+    "skills.detail": "Skill 详情",
+    "skills.closeDetail": "关闭详情",
+    "skills.enabled": "已启用",
     "skills.groupEmpty": "暂无技能",
     "skills.projectRequiresSession": "打开项目会话后可查看项目级技能。",
     "skills.remoteRequiresCodex": "打开该远程环境的 Codex 图形会话后可查看技能。",
@@ -2611,6 +2619,10 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "skills.source.system": "Built-in",
     "skills.source.plugin": "Plugin",
     "skills.disabled": "Disabled",
+    "skills.viewDetail": "View details",
+    "skills.detail": "Skill details",
+    "skills.closeDetail": "Close details",
+    "skills.enabled": "Enabled",
     "skills.groupEmpty": "No skills here",
     "skills.projectRequiresSession": "Open a project session to view project skills.",
     "skills.remoteRequiresCodex": "Open a Codex graphical session in this remote environment to view its skills.",

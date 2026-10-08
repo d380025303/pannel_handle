@@ -42,7 +42,7 @@ function sourceOfRuntimeSkill(skill, projectPath) {
   return project && normalized.startsWith(`${project}/`) ? "project" : "personal";
 }
 
-function createSkillsService({ homeDir, terminalManager, codexAppServerSessionService, environmentService, fsApi = fs } = {}) {
+function createSkillsService({ homeDir, terminalManager, codexAppServerSessionService, environmentService, sshFileSystem, fsApi = fs } = {}) {
   if (!homeDir) throw new Error("A home directory is required.");
   const home = path.resolve(homeDir);
 
@@ -134,7 +134,31 @@ function createSkillsService({ homeDir, terminalManager, codexAppServerSessionSe
       ...(session ? { projectPath: localCwd } : {}) };
   }
 
-  return { list };
+  async function read(provider, id, sessionId) {
+    const catalog = await list(provider, sessionId);
+    const skill = catalog.skills.find(item => item.id === id);
+    if (!skill) throw new Error("Skill 已不存在，请刷新列表。");
+    const session = sessionId ? terminalManager?.getSession?.(String(sessionId)) : null;
+    let buffer;
+    if (provider === "codex" && session?.type === "ssh" && session.agentLocation !== "local") {
+      if (!sshFileSystem) throw new Error("SSH 文件读取不可用。");
+      buffer = await sshFileSystem.get(session.id, skill.path);
+    } else if (provider === "codex" && session?.type === "wsl") {
+      const execFile = require("node:util").promisify(require("node:child_process").execFile);
+      const result = await execFile("wsl.exe", ["-d", session.wslDistro, "--", "cat", "--", skill.path],
+        { encoding: "utf8", timeout: 15000, maxBuffer: 2 * 1024 * 1024, windowsHide: true });
+      buffer = result.stdout;
+    } else {
+      const stat = await fsApi.promises.stat(skill.path);
+      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error("Skill 文件不可读取或超过 2 MB。");
+      buffer = await fsApi.promises.readFile(skill.path);
+    }
+    if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) throw new Error("Skill 文件超过 2 MB。");
+    if (sessionId && terminalManager?.getSession?.(String(sessionId)) !== session) throw new Error("会话已切换，请重新查看详情。");
+    return { ...skill, content: buffer.toString("utf8").replace(/^\uFEFF/, "") };
+  }
+
+  return { list, read };
 }
 
 module.exports = { createSkillsService };

@@ -18,6 +18,7 @@ const codeBuddySkills: SkillSummary[] = [
 ];
 
 const list = vi.fn();
+const read = vi.fn();
 const codexCatalog: SkillsCatalog = { skills: codexSkills, pluginStatus: "available", projectStatus: "available", projectPath: "C:\\repo" };
 const codeBuddyCatalog: SkillsCatalog = { skills: codeBuddySkills, pluginStatus: "not-applicable", projectStatus: "not-applicable" };
 
@@ -31,9 +32,11 @@ function renderManager(session?: TerminalSession) {
 
 describe("SkillsManager", () => {
   beforeEach(() => {
+    read.mockReset();
+    read.mockResolvedValue({ ...codexSkills[0], content: "# Instructions\nFull skill details" });
     list.mockReset();
     list.mockImplementation(async (provider) => provider === "codex" ? codexCatalog : codeBuddyCatalog);
-    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list } });
+    Object.defineProperty(window, "skillsApi", { configurable: true, value: { list, read } });
   });
 
   afterEach(() => {
@@ -117,4 +120,28 @@ describe("SkillsManager", () => {
     expect(list).toHaveBeenCalledWith("codex", "run-1");
     expect(screen.getByText(/Open a Codex graphical session/)).toBeTruthy();
   });
+
+it("opens full Skill details and closes them", async () => {
+  renderManager();
+  fireEvent.click(await screen.findByRole("button", { name: /View details.*review/ }));
+  expect(await screen.findByText("Full skill details")).toBeTruthy();
+  expect(read).toHaveBeenCalledWith("codex", "review", undefined);
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  expect(screen.queryByText("Full skill details")).toBeNull();
+});
+
+it("shows read failures and discards results after switching providers", async () => {
+  renderManager();
+  read.mockRejectedValueOnce(new Error("Read failed"));
+  fireEvent.click(await screen.findByRole("button", { name: /View details.*review/ }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  let resolve: ((value: unknown) => void) | undefined;
+  read.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  fireEvent.click(screen.getByRole("button", { name: /View details.*review/ }));
+  fireEvent.click(screen.getByRole("tab", { name: "CodeBuddy" }));
+  await screen.findByRole("heading", { name: "browser" });
+  resolve!({ ...codexSkills[0], content: "Old details" });
+  await waitFor(() => expect(screen.queryByText("Old details")).toBeNull());
+});
+
 });

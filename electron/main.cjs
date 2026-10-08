@@ -471,7 +471,7 @@ if (!gotSingleInstanceLock) {
     mcpConfigService = createMcpConfigService({ homeDir: app.getPath("home"), terminalManager,
       graphicalService: codexGraphicalService, sshAgentTransport, sshFileSystem, environmentService });
     skillsService = createSkillsService({ homeDir: app.getPath("home"), terminalManager,
-      codexAppServerSessionService: codexGraphicalService, environmentService });
+      codexAppServerSessionService: codexGraphicalService, environmentService, sshFileSystem });
     hookConfigManager = createHookConfigManager();
     agentHookServer = createAgentHookServer({ terminalManager, agentTokenStatsService: tokenUsageModule });
     sshHookTunnelService = createSshHookTunnelService({

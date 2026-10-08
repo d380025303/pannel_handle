@@ -154,3 +154,15 @@ describe("skills-service", () => {
     });
   });
 });
+
+it("reads only catalogued Skills and returns the full source", async () => {
+  const home = createHome();
+  const content = "---\nname: review\n---\n# Instructions\nFull details";
+  writeSkill(home, ".agents/skills/review", content);
+  const service = createSkillsService({ homeDir: home });
+  const { skills } = await service.list("codex");
+  expect(await service.read("codex", skills[0].id)).toMatchObject({ name: "review", content });
+  await expect(service.read("codex", "../secret")).rejects.toThrow(/Skill/);
+  fs.unlinkSync(skills[0].path);
+  await expect(service.read("codex", skills[0].id)).rejects.toThrow(/Skill/);
+});
