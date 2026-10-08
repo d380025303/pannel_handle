@@ -6,6 +6,7 @@ const { PassThrough } = require("node:stream");
 const fs = require("node:fs");
 const path = require("node:path");
 const { createSubAgentObserver } = require("./sub-agent-observer.cjs");
+const { createConfigurationController } = require("./configuration-controller.cjs");
 const { createAccountController } = require("./account-controller.cjs");
 const { displayItem, historyItems, mergeQuestionAnswers, questionAnswerItem, activitySummary, itemSummary, updateTokenUsage } = require("./snapshot-helpers.cjs");
 const { mergeEnvironment } = require("../environment/index.cjs");
@@ -99,7 +100,7 @@ function buildInvocation(session, runtime, environment) {
 }
 
 function createCodexAppServerSessionService({ environmentService, terminalManager, broadcast, sessionStore = null, questionAnswerStore = null, diagnosticsStore = null, spawnProcess = spawn, spawnSyncProcess = spawnSync,
-  sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
+  conversationArchive = null, sshAgentTransport = null, sshFileSystem = null, removePastedImage = null, onTokenUsage = () => {} }) {
   const sessions = new Map();
   const publishTimers = new Map();
   const isRemote = entry => entry.session.type === "ssh" && !entry.runtime.localBridge;
@@ -172,6 +173,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     if (!entry) throw new Error("Codex App Server 会话不存在。");
     return { subAgents: entry.subAgentObserver?.snapshot(), threadId: entry.threadId, mode: entry.mode, executionPermission: entry.executionPermission,
+      permissionProfileId: entry.permissionProfileId, permissionError: entry.permissionError, changingPermission: Boolean(entry.changingPermission),
+      permissionOptions: entry.configuration?.snapshot().legacy || [],
       backend: entry.session.codexBackend || "openai", models: entry.models || [], fastMode: entry.fastMode, effort: entry.effort,
       busy: entry.busy, reviewing: Boolean(entry.review), archived: entry.archived, compacting: entry.compacting, compactionStatus: entry.compactionStatus,
       windowsSandboxSetup: { available: sandboxSetupAvailable(entry), mode: "elevated", status: "idle", error: null, ...entry.windowsSandboxSetup },
@@ -310,6 +313,16 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       catch (error) { clearTimeout(timer); entry.pending.delete(id); reject(error); }
     });
   }
+  function validInputModalities(value) {
+    return Array.isArray(value) && value.length > 0 && value.every(item => typeof item === "string" && item.trim())
+      ? [...value] : undefined;
+  }
+  function checkImageInput(entry, filePaths, orderedContent) {
+    const modalities = validInputModalities(entry.models.find(model => model.id === entry.model)?.inputModalities);
+    if (modalities && !modalities.includes("image") && (filePaths.some(filePath => entry.pastedImages.has(filePath)
+      || /\.(png|jpe?g|gif|webp|bmp)$/i.test(filePath)) || orderedContent?.some(part => part.type === "image")))
+      throw new Error("当前模型不支持图片输入，请先移除图片附件。");
+  }
   async function refreshModels(entry) {
     if ((entry.session.codexBackend || "openai") !== "openai") return;
     const models = [];
@@ -318,6 +331,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const result = await request(entry, "model/list", { limit: 100, ...(cursor ? { cursor } : {}) });
       models.push(...(result.data || []).filter(model => model?.id && !model.hidden).map(model => ({
         id: model.id, displayName: model.displayName || model.id,
+        inputModalities: validInputModalities(model.inputModalities),
         fastAvailable: Array.isArray(model.serviceTiers) && model.serviceTiers.some(tier => tier.id === "priority" || tier.id === "fast"),
         defaultReasoningEffort: typeof model.defaultReasoningEffort === "string" ? model.defaultReasoningEffort : null,
         supportedReasoningEfforts: Array.isArray(model.supportedReasoningEfforts)
@@ -366,7 +380,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       const pending = entry.pending.get(message.id);
       if (!pending) return;
       entry.pending.delete(message.id); clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error(message.error.message || "App Server 请求失败。"));
+      if (message.error) pending.reject(Object.assign(new Error(message.error.message || "App Server 请求失败。"), { code: message.error.code }));
       else pending.resolve(message.result);
       return;
     }
@@ -671,6 +685,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     }
     const entry = { child, session, runtime, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), elicitations: new Map(), allowedFiles: new Set(), pastedImages: new Set(), threadId: null,
+      permissionProfileId: template?.codexPermissionProfileId || session.codexPermissionProfileId || null, permissionError: null, changingPermission: false,
       turnId: null, mode: "default", executionPermission: template?.codexExecutionPermission || session.codexExecutionPermission || "askApproval",
       model: template?.codexAppServerModel || session.codexAppServerModel || session.codexModel || null,
       effort: template?.codexAppServerEffort || session.codexAppServerEffort || null, fastMode, models: [], busy: false, archived: false, error: null, items: [],
@@ -684,6 +699,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       usageNeedsBaseline: Boolean(runtime.resumeThreadId),
       status: "completed", activitySummary: "", statusTimer: null, lastStatusBroadcastAt: 0,
       streamId: randomUUID(), revision: 0, streamItems: new Set(), streamDiffs: new Set(), streamText: new Map() };
+    entry.configuration = createConfigurationController({ request: (method, params) => request(entry, method, params),
+      cwd: () => projectCwd(entry), check: () => { if (sessions.get(id) !== entry) throw new Error("会话已切换。"); } });
     entry.subAgentObserver = createSubAgentObserver({ request: (method, params) => request(entry, method, params),
       changed: () => { if (sessions.get(id) === entry) publish(id); } });
     entry.accountController = createAccountController({ request: (method, params) => request(entry, method, params),
@@ -753,12 +770,16 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (entry.threadId || sessions.get(id) !== entry) return;
     if (entry.threadStartPromise) return entry.threadStartPromise;
     entry.threadStartPromise = (async () => {
+    await entry.configuration.load();
+    let permission;
+    try { permission = threadPermissions(entry); entry.permissionError = null; }
+    catch (error) { entry.permissionError = error.message; publish(id); return; }
     await refreshModels(entry).catch(() => {});
     const { runtime, session } = entry;
     const template = session.templateId && sessionStore?.getTemplate(session.templateId);
     const result = runtime.resumeThreadId
-      ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry) })
-      : await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request", sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+      ? await request(entry, "thread/resume", { threadId: runtime.resumeThreadId, cwd: projectCwd(entry), ...permission })
+      : await request(entry, "thread/start", { cwd: projectCwd(entry), ...permission, serviceName: "pannel_handle_session" });
     entry.threadId = result.thread.id;
     entry.threadStatus = result.thread.status || null;
     entry.mcpRuntime.clear(); entry.mcpLogins.clear(); entry.mcpReload = { status: "idle", error: null }; entry.mcpStatusRevision = 0;
@@ -770,6 +791,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     if (entry.pendingTokenUsage?.threadId === entry.threadId && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
     entry.pendingThreadId = null; entry.pendingTokenUsage = null;
     if (runtime.resumeThreadId) {
+      conversationArchive?.pause(id);
       entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
       const lastTurn = result.thread.turns?.at(-1);
       entry.busy = lastTurn?.status === "inProgress";
@@ -803,6 +825,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     const entry = sessions.get(id);
     guardSandboxSetup(entry);
     if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
+    if (entry?.changingPermission) throw new Error("正在切换执行权限。");
     if (!entry?.threadId || entry.busy) throw new Error("Codex 会话未就绪或正在运行。");
     return entry;
   }
@@ -1126,7 +1149,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (!turn || turn.status === "inProgress") throw new Error("所选回合不存在或仍在运行。");
       assertThreadIdle(threadId);
     }
-    const result = await request(entry, "thread/fork", { threadId, ...(lastTurnId === null ? {} : { lastTurnId }) });
+    const result = await request(entry, "thread/fork", { threadId, ...threadPermissions(entry), ...(lastTurnId === null ? {} : { lastTurnId }) });
     if (!result.thread?.id) throw new Error("App Server 未返回分支会话 ID。");
     try { return await resume(id, result.thread.id); }
     catch (error) { throw new Error(`${error.message} 已创建的分支 ${result.thread.id} 可在历史列表中查看。`); }
@@ -1154,7 +1177,9 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function listSkills(id, forceRefresh = false) {
     const entry = sessions.get(id);
     if (!entry?.threadId) throw new Error("Codex 会话未就绪。");
+    const threadId = entry.threadId;
     const response = await request(entry, "skills/list", { cwds: [projectCwd(entry)], forceReload: Boolean(forceRefresh) });
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("会话已切换，请刷新技能列表。");
     const group = (response.data || []).find(value => value.cwd === projectCwd(entry));
     if (!group) throw new Error("Codex 未返回当前项目的技能列表。");
     if (group?.errors?.length) throw new Error(group.errors.map(value => value.message || String(value)).join("；"));
@@ -1162,6 +1187,29 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       name: value.name, path: value.path, description: value.description || "", enabled: value.enabled !== false,
       scope: value.scope || ""
     }));
+  }
+  async function setSkillEnabled(id, skillPath, enabled) {
+    if (typeof skillPath !== "string" || !skillPath.trim() || skillPath.includes("\0") || typeof enabled !== "boolean")
+      throw new Error("无效的技能设置。");
+    const entry = ready(id);
+    if (entry.session.agentProvider && entry.session.agentProvider !== "codex") throw new Error("仅 Codex 图形会话支持此操作。");
+    const threadId = entry.threadId;
+    const check = () => {
+      if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("会话已切换，请刷新技能列表。");
+      ready(id);
+      if (entry.archived || entry.compacting || entry.review || entry.uploading) throw new Error("当前会话不可修改技能设置。");
+    };
+    check();
+    const operation = (entry.skillWriteQueue || Promise.resolve()).then(async () => {
+      check();
+      const skills = await listSkills(id, true);
+      check();
+      const skill = skills.find(value => value.path === skillPath);
+      if (!skill) throw new Error("技能已不可用，请刷新列表后重试。");
+      await request(entry, "skills/config/write", { path: skill.path, enabled });
+    });
+    entry.skillWriteQueue = operation.catch(() => {});
+    await operation;
   }
   async function listCapabilities(id, forceRefresh = false) {
     const entry = sessions.get(id);
@@ -1381,7 +1429,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.pendingThreadId = threadId;
     entry.pendingTokenUsage = null;
     let result;
-    try { result = await request(entry, "thread/resume", { threadId, cwd: projectCwd(entry) }); }
+    try { result = await request(entry, "thread/resume", { threadId, cwd: projectCwd(entry), ...threadPermissions(entry) }); }
     catch (error) { entry.pendingThreadId = null; entry.pendingTokenUsage = null; throw error; }
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
@@ -1400,6 +1448,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     entry.outputTokensPerSecond = 0; entry.outputRateAvailable = false;
     if (entry.pendingTokenUsage && updateTokenUsage(entry, entry.pendingTokenUsage)) recordTokenUsage(entry);
     entry.pendingThreadId = null; entry.pendingTokenUsage = null;
+    conversationArchive?.pause(id);
     entry.items = mergeQuestionAnswers(historyItems(result.thread), questionAnswerStore?.list(result.thread.id) || []);
     entry.subAgentObserver.reset(entry.threadId, entry.items);
     const lastTurn = result.thread.turns?.at(-1);
@@ -1427,8 +1476,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   }
   async function newThread(id) {
     const entry = ready(id);
-    const result = await request(entry, "thread/start", { cwd: projectCwd(entry), approvalPolicy: "on-request",
-      sandbox: "workspace-write", serviceName: "pannel_handle_session" });
+    const result = await request(entry, "thread/start", { cwd: projectCwd(entry), ...threadPermissions(entry), serviceName: "pannel_handle_session" });
     await releasePastedImages(id, entry);
     const previousThreadId = entry.threadId;
     entry.threadId = result.thread.id;
@@ -1532,18 +1580,79 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       throw error;
     }
   }
-  function setExecutionPermission(id, permission) {
-    const entry = ready(id);
-    if (!Object.hasOwn(EXECUTION_PERMISSIONS, permission)) throw new Error("无效的 Codex 执行权限。");
-    const templateId = entry.session.templateId;
-    const template = templateId && sessionStore?.getTemplate(templateId);
-    if (template) sessionStore.setCodexExecutionPermission(templateId, permission);
-    for (const [sessionId, current] of sessions) {
-      if (sessionId !== id && (!template || current.session.templateId !== templateId)) continue;
-      current.executionPermission = permission;
-      publish(sessionId);
-    }
-    return snapshot(id);
+  function threadPermissions(entry) {
+    const permission = entry.configuration.validate(entry.permissionProfileId, entry.executionPermission);
+    if (permission.permissions) return permission;
+    const sandbox = { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[permission.sandboxPolicy.type];
+    return { approvalPolicy: permission.approvalPolicy, sandbox };
+  }
+  async function readConfiguration(id) {
+    const entry = sessions.get(id);
+    if (!entry?.configuration) throw new Error("Codex App Server 会话不存在。");
+    const threadId = entry.threadId;
+    const result = await entry.configuration.load(true);
+    if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("会话已切换，请刷新配置。");
+    try { entry.configuration.validate(entry.permissionProfileId, entry.executionPermission); entry.permissionError = null; }
+    catch (error) { entry.permissionError = error.message; }
+    publish(id);
+    return { ...result, cwd: projectCwd(entry), runtime: { model: entry.model, effort: entry.effort, mode: entry.mode,
+      executionPermission: entry.executionPermission, permissionProfileId: entry.permissionProfileId }, permissionError: entry.permissionError };
+  }
+  async function changePermission(id, profileId, permission) {
+    const entry = sessions.get(id);
+    guardSandboxSetup(entry);
+    if (!entry || entry.busy || entry.changingPermission || entry.archived || entry.compacting || entry.review || entry.uploading
+      || entry.pendingPlan || entry.approvals.size || entry.questions.size || entry.elicitations.size
+      || entry.accountController?.snapshot().status === "signedOut") throw new Error("当前会话不可切换执行权限。");
+    const threadId = entry.threadId;
+    const previous = { profileId: entry.permissionProfileId, permission: entry.executionPermission };
+    entry.changingPermission = true; publish(id);
+    try {
+      await entry.configuration.load();
+      if (sessions.get(id) !== entry || entry.threadId !== threadId || entry.busy) throw new Error("会话已切换。");
+      const policy = entry.configuration.validate(profileId, permission, entry.mode === "plan");
+      // Validate the saved profile even when Plan temporarily uses read-only permissions.
+      entry.configuration.validate(profileId, permission);
+      const params = policy.sandboxPolicy?.type === "workspaceWrite"
+        ? { ...policy, sandboxPolicy: { ...policy.sandboxPolicy, writableRoots: [projectCwd(entry)] } } : policy;
+      if (threadId) {
+        try { await request(entry, "thread/settings/update", { threadId, ...params }); }
+        catch (error) { if (profileId || !(error.code === -32601 || /method not found|unknown method/i.test(error.message))) throw error; }
+      }
+      if (sessions.get(id) !== entry || entry.threadId !== threadId) throw new Error("会话已切换。");
+      entry.permissionProfileId = profileId; entry.executionPermission = permission; entry.permissionError = null;
+      if (!threadId) await initializeThread(id, entry);
+      if (entry.permissionError || !entry.threadId) throw new Error(entry.permissionError || "会话未就绪。");
+      const templateId = entry.session.templateId;
+      const template = templateId && sessionStore?.getTemplate(templateId);
+      if (template) {
+        try {
+          if (profileId) sessionStore.setCodexPermissionProfile(templateId, profileId);
+          else sessionStore.setCodexExecutionPermission(templateId, permission);
+        } catch (error) {
+          entry.permissionProfileId = previous.profileId; entry.executionPermission = previous.permission;
+          try {
+            const rollback = entry.configuration.validate(previous.profileId, previous.permission, entry.mode === "plan");
+            await request(entry, "thread/settings/update", { threadId: entry.threadId, ...rollback });
+          } catch { entry.permissionError = "模板保存失败且权限恢复未确认，请重新选择权限。"; }
+          throw error;
+        }
+      }
+      if (!profileId) for (const [sessionId, current] of sessions) {
+        if (sessionId === id || !template || current.session.templateId !== templateId || current.permissionProfileId) continue;
+        current.executionPermission = permission; publish(sessionId);
+      }
+      entry.changingPermission = false;
+      return snapshot(id);
+    } finally { if (sessions.get(id) === entry) { entry.changingPermission = false; publish(id); } }
+  }
+  async function setPermissionProfile(id, profileId) {
+    if (typeof profileId !== "string" || !profileId.trim() || profileId.length > 512 || profileId.includes("\0")) throw new Error("无效的权限档。");
+    return changePermission(id, profileId, sessions.get(id)?.executionPermission || "askApproval");
+  }
+  async function setExecutionPermission(id, permission) {
+    if (!Object.prototype.hasOwnProperty.call(EXECUTION_PERMISSIONS, permission)) throw new Error("无效的 Codex 执行权限。");
+    return changePermission(id, null, permission);
   }
   function dismissPlan(id, itemId) {
     const entry = sessions.get(id);
@@ -1621,6 +1730,8 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
   async function submit(id, text, filePaths = [], references = [], orderedContent) {
     const entry = sessions.get(id);
     guardSandboxSetup(entry);
+    if (entry?.changingPermission || entry?.permissionError) throw new Error(entry.permissionError || "正在切换执行权限。");
+    conversationArchive?.baseline(id, snapshot(id));
     const expectedThreadId = entry?.threadId;
     if (entry?.accountController?.snapshot().status === "signedOut") throw new Error("请先登录 Codex 账号。");
     if (!entry?.threadId || entry.archived || entry.uploading || typeof text !== "string" || !Array.isArray(filePaths) || filePaths.length > 10
@@ -1635,7 +1746,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         || part.type === "text" && typeof part.text !== "string"
         || part.type === "image" && typeof part.path !== "string"))) throw new Error("无效的消息内容顺序。");
     const activeReferences = references.filter(value => value && typeof value.token === "string" && text.includes(value.token));
-    const capabilities = activeReferences.length ? await listCapabilities(id) : null;
+    const capabilities = activeReferences.length ? await listCapabilities(id, true) : null;
     const referenceInput = activeReferences.map(value => {
       if (value.kind === "skill" && capabilities.skills.some(skill => skill.enabled && skill.name === value.name && skill.path === value.path))
         return { type: "skill", name: value.name, path: value.path };
@@ -1645,7 +1756,18 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     });
     if (sessions.get(id) !== entry || entry.threadId !== expectedThreadId) throw new Error("会话已切换，请重新发送消息。");
     guardSandboxSetup(entry);
+    if (entry.changingPermission || entry.permissionError) throw new Error(entry.permissionError || "正在切换执行权限。");
     if (entry.review) throw new Error("代码审查正在进行，请等待完成或停止审查。");
+    if (!entry.busy && !entry.model) {
+      const result = await request(entry, "model/list", {});
+      const selected = result.data?.find(model => model.isDefault) || result.data?.[0];
+      entry.model = selected?.id;
+      if (selected) entry.models = [...entry.models.filter(model => model.id !== selected.id),
+        { ...selected, inputModalities: validInputModalities(selected.inputModalities) }];
+      entry.effort = compatibleEffort(entry);
+      if (sessions.get(id) !== entry || entry.threadId !== expectedThreadId) throw new Error("会话已切换，请重新发送消息。");
+    }
+    checkImageInput(entry, filePaths, orderedContent);
     entry.uploading = true;
     const uploaded = [];
     let files;
@@ -1655,6 +1777,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     let startingTurn = false;
     try {
       if (sessions.get(id) !== entry) throw new Error("会话已关闭。");
+      checkImageInput(entry, filePaths, orderedContent);
       const imagePaths = filePaths.filter((_, index) => files[index].image);
       const suppliedImages = orderedContent?.filter(part => part.type === "image").map(part => part.path);
       if (orderedContent && (orderedContent.filter(part => part.type === "text").map(part => part.text).join("").trim() !== text.trim()
@@ -1670,11 +1793,6 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
       if (orderedContent && fileReferences.length) orderedInput.push({ type: "text", text: `\n\n请读取以下附件文件：${fileReferences.join("、")}` });
       if (orderedContent) orderedInput.push(...imagePaths.filter(filePath => !suppliedImages.includes(filePath))
         .map(filePath => ({ type: "localImage", path: files[filePaths.indexOf(filePath)].path })));
-      if (!entry.busy && !entry.model) {
-        const models = await request(entry, "model/list", {});
-        entry.model = models.data?.find(model => model.isDefault)?.id || models.data?.[0]?.id;
-        entry.effort = compatibleEffort(entry);
-      }
       if (!entry.busy && !entry.model) throw new Error("无法确定 Codex 模型，不能切换协作模式。");
       entry.error = null;
       entry.errorDetails = null;
@@ -1700,13 +1818,13 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
         turnRequestSent = true;
         let result;
         if (startingTurn) {
-          const permission = entry.mode === "plan" ? EXECUTION_PERMISSIONS.readOnly : EXECUTION_PERMISSIONS[entry.executionPermission];
-          const sandboxPolicy = permission.sandboxPolicy.type === "workspaceWrite"
-            ? { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } : permission.sandboxPolicy;
+          const permission = entry.configuration.validate(entry.permissionProfileId, entry.executionPermission, entry.mode === "plan");
+          const policy = permission.sandboxPolicy?.type === "workspaceWrite"
+            ? { ...permission, sandboxPolicy: { ...permission.sandboxPolicy, writableRoots: [projectCwd(entry)] } } : permission;
           result = await request(entry, "turn/start", { threadId: entry.threadId, input, model: entry.model,
             summary: "auto",
             ...(entry.effort ? { effort: entry.effort } : {}),
-            approvalPolicy: permission.approvalPolicy, sandboxPolicy,
+            ...policy,
             collaborationMode: { mode: entry.mode, settings: { model: entry.model, developer_instructions: null } } });
         } else {
           result = await request(entry, "turn/steer", { threadId: entry.threadId, input, expectedTurnId: entry.turnId });
@@ -1834,7 +1952,7 @@ function createCodexAppServerSessionService({ environmentService, terminalManage
     return entry.accountController.logout();
   }
   async function refreshAccountUsage(id) { return accountEntry(id).accountController.refreshUsage(); }
-  return { setSubAgentView, refreshSubAgents, start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
+  return { readConfiguration, setPermissionProfile, setSubAgentView, refreshSubAgents, start, restart, snapshot, setupWindowsSandbox, getWorkspaceCwd, getPluginRuntime, resetUsageBaselines, allowFiles, previewAttachment, allowPastedImage, discardPastedImage, listHistory, readInitialUserInput, renameThread, pinThread, forkThread, archiveThread, unarchiveThread, listSkills, setSkillEnabled, listCapabilities, readPluginDetail, readPluginSkill, readAppDetail, readMcpResource, loginMcpServer, reloadMcpServers, listPlugins, installPlugin, uninstallPlugin, addPluginMarketplace, refreshPluginMarketplace, removePluginMarketplace, resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal: refreshGoal, setGoal, clearGoal, setMode, setModel, setEffort, setFastMode, setExecutionPermission, dismissPlan, executePlan, submit, interrupt, resolveApproval, answerQuestion, resolveElicitation, close, shutdown,
     startReview, readAccount, startLogin, cancelLogin, logout, refreshAccountUsage };
 }
 

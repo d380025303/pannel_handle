@@ -15,7 +15,7 @@ const LIST_CACHE_TTL_MS = 30_000;
 const MAX_LIST_CACHE_ENTRIES = 2;
 
 function createAgentConversationHistoryService({
-  terminalManager,
+  terminalManager, conversationArchive,
   sshAgentTransport,
   homeDir = os.homedir(),
   fsApi = fs,
@@ -34,6 +34,7 @@ function createAgentConversationHistoryService({
   const runRemote = createRemoteHistoryReader({ fsApi, remoteScriptFile, spawn, sshAgentTransport });
 
   async function listHistory(input = {}) {
+    if (input.source === "archive") return conversationArchive.list(input);
     return listHistoryForSession(getSession(input.panelSessionId), input);
   }
 
@@ -98,6 +99,7 @@ function createAgentConversationHistoryService({
   }
 
   async function getHistoryMessages(input = {}) {
+    if (String(input.conversationRef || "").startsWith("archive:")) return conversationArchive.read(input);
     return getHistoryMessagesForSession(getSession(input.panelSessionId), input);
   }
 

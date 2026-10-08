@@ -62,7 +62,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
           </div>}
           {snapshot.provider === "codex"
             ? <button type="button"
-              onClick={() => { setError(""); setActiveSheet("permission"); }}><span><GraphicalIcon name="shield" />执行权限</span><small>{permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
+              onClick={() => { setError(""); setActiveSheet("permission"); }}><span><GraphicalIcon name="shield" />执行权限</span><small>{snapshot.permissionProfileId || permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
             : snapshot.nativeModes?.length ? <button type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
               onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span><GraphicalIcon name="mode" />切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
           <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
@@ -84,7 +84,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
           {snapshot.provider === "codebuddy" && !snapshot.codeBuddyMobile && <p>更新桌面宿主后可使用完整 CodeBuddy 功能。</p>}
           {snapshot.provider === "codex" && <>
             {snapshot.backend === "openai" && <button type="button" disabled={controller.codexPending || !snapshot.threadId || snapshot.busy || snapshot.archived} onClick={() => { void controller.codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause))); }}><span>快速模式</span><small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
-            {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button type="button" key={key} disabled={!snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
+            {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button type="button" key={key} disabled={key !== "configuration" && !snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
             <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || isSending || snapshot.compacting} onClick={() => { void controller.codexRequest("compact").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>压缩对话</button>
           </>}
           {effortOption && <button type="button" disabled={effortDisabled} onClick={() => setActiveSheet("effort")}><span><GraphicalIcon name="mode" />思考强度</span><small>{effortLabel(snapshot)}</small></button>}
@@ -137,10 +137,11 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
           </button>)}
         </div>}
         {activeSheet === "permission" && <div className="graphical-sheet-list">
-          {permissions.map(option => <button type="button" key={option.value} aria-pressed={snapshot.executionPermission === option.value}
-            disabled={changingPermission || snapshot.busy
+          {permissions.map(option => <button type="button" key={option.value} aria-pressed={!snapshot.permissionProfileId && snapshot.executionPermission === option.value}
+            disabled={changingPermission || snapshot.changingPermission || snapshot.busy
+              || snapshot.permissionOptions?.some(value => value.id === option.value && !value.allowed)
               || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(option.value))}
-            onClick={() => changePermission(option.value)}><span>{option.name}</span><small>{option.description}</small></button>)}
+            onClick={() => changePermission(option.value)}><span>{option.name}</span><small>{snapshot.permissionOptions?.find(value => value.id === option.value)?.reason || option.description}</small></button>)}
         </div>}
         {activeSheet === "native-mode" && <div className="graphical-sheet-list">
           {snapshot.nativeModes?.map(mode => <button type="button" key={mode.id} aria-pressed={snapshot.nativeMode === mode.id}

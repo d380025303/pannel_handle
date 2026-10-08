@@ -58,6 +58,7 @@ export type TerminalSession = EnvironmentSelection & {
   codeBuddyGraphicalOptions?: { mode?: string; model?: string; contextWindow?: string; multitask?: boolean };
   openCodeGraphicalOptions?: { mode?: string; model?: string; effort?: string };
   codexExecutionPermission?: CodexExecutionPermission;
+  codexPermissionProfileId?: string;
   type: 'windows' | 'wsl' | 'ssh';
   wslDistro?: string;
   sshConfig?: SshConfig;
@@ -633,8 +634,13 @@ export type AgentStatusPayload = {
 
 export type AgentConversationMessage = {
   id: string;
-  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
-  kind: "user" | "commentary" | "final" | "reply";
+  provider: AgentProvider;
+  kind: "user" | "commentary" | "final" | "reply" | "reasoning" | "tool";
+  threadId?: string;
+  itemType?: string;
+  turnId?: string;
+  status?: string;
+  item?: Record<string, unknown>;
   text: string;
   timestamp: number;
 };
@@ -655,23 +661,33 @@ export type AgentConversationSnapshot = {
 
 export type AgentConversationHistoryItem = {
   ref: string;
-  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
+  provider: AgentProvider;
   title: string;
   preview: string;
   cwd: string;
   createdAt: number;
   updatedAt: number;
   archived: boolean;
+  status?: "running" | "ended" | "failed" | "interrupted";
+  captureStatus?: "waiting" | "supported" | "unsupported" | "error";
+  captureError?: string | null;
+  location?: string;
+  mode?: "terminal" | "graphical";
+  endedAt?: number | null;
+  threadIds?: string[];
 };
 
 export type AgentConversationHistoryError = {
-  provider: "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
+  provider: AgentProvider;
   message: string;
 };
 
 export type AgentConversationHistoryListInput = {
-  panelSessionId: string;
-  providers?: Array<"codex" | "codebuddy" | "opencode" | "gemini" | "grok">;
+  panelSessionId?: string;
+  providers?: AgentProvider[];
+  source?: "archive" | "cli";
+  cwd?: string;
+  windows?: boolean;
   scope?: "cwd" | "all";
   includeArchived?: boolean;
   query?: string;
@@ -686,7 +702,7 @@ export type AgentConversationHistoryListResult = {
 };
 
 export type AgentConversationHistoryMessagesInput = {
-  panelSessionId: string;
+  panelSessionId?: string;
   conversationRef: string;
   cursor?: string | null;
   limit?: number;
@@ -996,6 +1012,17 @@ export type CodexWorkspaceTrustApi = {
   onResolved: (callback: (value: { id: string }) => void) => () => void;
 };
 
+export type CodexConfigSection<T> = { status: "loading" | "ready" | "error" | "unsupported"; data: T | null; error?: string };
+export type CodexPermissionOption = { id: string; allowed: boolean; reason: string | null; description?: string | null };
+export type CodexConfigurationView = {
+  cwd: string;
+  config?: CodexConfigSection<{ values: Record<string, unknown>; layers: Array<{ type: string | null; path: string | null; disabled: boolean; values: Record<string, unknown> }> }>;
+  requirements: CodexConfigSection<Record<string, unknown>>;
+  profiles: CodexConfigSection<CodexPermissionOption[]>;
+  legacy: CodexPermissionOption[];
+  runtime: { model?: string | null; effort?: string | null; mode: string; executionPermission: CodexExecutionPermission; permissionProfileId: string | null };
+  permissionError?: string | null;
+};
 export type CodexExecutionPermission = "readOnly" | "askApproval" | "fullAccess";
 export type CodexQuestionAnswer = { answers: string[] };
 export type CodexQuestionRequest = { requestId: number | string; submitting: boolean; params: {
@@ -1101,7 +1128,7 @@ export type CodexAppServerSnapshot = {
   mcpRuntime?: Array<{ name: string; status: string; error: string | null; failureReason: string | null }>;
   mcpLogins?: Array<{ name: string; status: "pending" | "refreshing" | "failed"; error: string | null }>;
   mcpReload?: { status: "idle" | "reloading" | "queued" | "failed"; error: string | null };
-  models?: Array<{ id: string; displayName: string; fastAvailable: boolean; defaultReasoningEffort: string | null;
+  models?: Array<{ id: string; displayName: string; inputModalities?: string[]; fastAvailable: boolean; defaultReasoningEffort: string | null;
     supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }> }>;
   effort?: string | null;
   fastMode?: boolean;
@@ -1112,6 +1139,10 @@ export type CodexAppServerSnapshot = {
   outputRateAvailable?: boolean;
   mode: "default" | "plan";
   executionPermission: CodexExecutionPermission;
+  permissionProfileId?: string | null;
+  permissionError?: string | null;
+  changingPermission?: boolean;
+  permissionOptions?: CodexPermissionOption[];
   busy: boolean;
   compacting?: boolean;
   reviewing?: boolean;
@@ -1266,6 +1297,8 @@ export type CodexAppServerApi = {
   cancelLogin: (id: string) => Promise<CodexAccountState>;
   logout: (id: string) => Promise<CodexAccountState>;
   refreshAccountUsage: (id: string) => Promise<CodexAccountState>;
+  readConfiguration: (id: string) => Promise<CodexConfigurationView>;
+  setPermissionProfile: (id: string, profileId: string) => Promise<CodexAppServerSnapshot>;
   listHistory: (id: string, cursor?: string | null, archived?: boolean, isPinned?: boolean | null) => Promise<{ data: CodexAppServerHistory[]; nextCursor: string | null }>;
   readInitialUserInput: (id: string, threadId: string) => Promise<{ text: string; attachments: Array<{ path: string; name: string }> } | null>;
   revertThread: (id: string, messageId: string) => Promise<CodexAppServerSnapshot>;
@@ -1280,6 +1313,7 @@ export type CodexAppServerApi = {
   archiveThread: (id: string, threadId: string) => Promise<void>;
   unarchiveThread: (id: string, threadId: string) => Promise<void>;
   listCapabilities: (id: string, refresh?: boolean) => Promise<CodexSessionCapabilities>;
+  setSkillEnabled: (id: string, path: string, enabled: boolean) => Promise<void>;
   readPluginDetail: (id: string, plugin: string, marketplace: string) => Promise<CodexPluginDetail>;
   readPluginSkill: (id: string, plugin: string, marketplace: string, skill: string) => Promise<{ contents: string | null; truncated: boolean }>;
   readAppDetail: (id: string, appId: string) => Promise<CodexAppDetail>;

@@ -1,10 +1,11 @@
+import { CodexConfigurationPanel } from "../../src/components/agents/CodexConfigurationPanel";
 import { useEffect, useRef, useState } from "react";
 import type { CodexAppDetail, CodexPluginDetail, CodexMcpResourceResult, CodexVersionState, CodexAccountState, CodexPluginCatalog, CodexReviewTarget, CodexSessionCapabilities, McpDocument, McpServerDraft, WorkspaceEntrySearchResponse } from "../../src/vite-env";
 import type { GraphicalSnapshot } from "./types";
 import type { CodexSheet, useGraphicalSession } from "./useGraphicalSession";
 
 type Controller = ReturnType<typeof useGraphicalSession>;
-export const codexSheetTitles: Record<CodexSheet, string> = { version: "Codex 版本", capabilities: "Skills、Apps 和 MCP", plugins: "插件管理", goal: "目标管理", review: "代码审查", terminals: "后台终端", account: "Codex 账号", sandbox: "Windows 沙箱初始化", workspace: "工作区文件", "mcp-config": "MCP 配置" };
+export const codexSheetTitles: Record<CodexSheet, string> = { configuration: "配置与权限", version: "Codex 版本", capabilities: "Skills、Apps 和 MCP", plugins: "插件管理", goal: "目标管理", review: "代码审查", terminals: "后台终端", account: "Codex 账号", sandbox: "Windows 沙箱初始化", workspace: "工作区文件", "mcp-config": "MCP 配置" };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const pluginValue = (plugin: Record<string, unknown>, ...keys: string[]) => String(keys.map(key => plugin[key]).find(value => typeof value === "string" && value) || "");
 const emptyDraft = (): McpServerDraft => ({ name: "", enabled: true, transport: "stdio", command: "", args: [], argsMasked: false, cwd: "", url: "", urlMasked: false, bearerTokenEnvVar: "", env: [], headers: [] });
@@ -45,7 +46,7 @@ export function CodexAdvancedSheet({ sheet, snapshot, controller }: { sheet: Cod
   const update = <T,>(setter: (value: T) => void, value: T) => { if (mounted.current) setter(value); };
   async function load(refresh = false) {
     if (sheet === "version") update(setVersion, await request<CodexVersionState>("version", { force: refresh }));
-    if (sheet === "capabilities") update(setCaps, await request<CodexSessionCapabilities>("capabilities", { refresh }));
+    if (sheet === "capabilities") update(setCaps, await request<CodexSessionCapabilities>("capabilities", { refresh: true }));
     if (sheet === "plugins") update(setCatalog, await request<CodexPluginCatalog>("plugins"));
     if (sheet === "goal") {
       const next = await request<GraphicalSnapshot>("goal.read");
@@ -60,7 +61,20 @@ export function CodexAdvancedSheet({ sheet, snapshot, controller }: { sheet: Cod
   useEffect(() => { if (snapshot.account) setAccount(snapshot.account); }, [snapshot.account]);
   const matches = (name: string, description = "") => `${name} ${description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const idleDisabled = !snapshot.threadId || snapshot.busy || snapshot.archived || snapshot.signedOut || snapshot.sandboxSettingUp || busy;
+  const skillDisabled = idleDisabled || snapshot.compacting || snapshot.reviewing;
+  async function toggleSkill(skill: CodexSessionCapabilities["skills"][number]) {
+    await request("skill-enable", { path: skill.path, enabled: !skill.enabled });
+    if (!mounted.current) return;
+    try {
+      const next = await request<CodexSessionCapabilities>("capabilities", { refresh: true });
+      if (next.errors.skills) throw new Error(next.errors.skills);
+      update(setCaps, next);
+    } catch (cause) { throw new Error(`已保存，刷新失败：${message(cause)}`); }
+  }
   const confirm = (text: string) => window.confirm(text);
+  if (sheet === "configuration") return <CodexConfigurationPanel sessionKey={`${controller.session.id}:${snapshot.threadId || ""}`} locked={snapshot.signedOut || snapshot.busy || controller.isSending || controller.codexPending || Boolean(snapshot.changingPermission || snapshot.archived || snapshot.compacting || snapshot.reviewing || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions.length || snapshot.elicitations?.length || snapshot.sandboxSettingUp)}
+    read={() => request("configuration")} selectProfile={profileId => request("permission-profile", { profileId })}
+    selectLegacy={permission => request("permission-legacy", { permission })} />;
   return <div className="codex-mobile-advanced" aria-busy={busy}>
     {busy && <p role="status">正在处理…</p>}
     {error && <p role="alert">{error}<button type="button" disabled={busy} onClick={() => void run(() => load(true))}>重新加载</button></p>}
@@ -73,8 +87,10 @@ export function CodexAdvancedSheet({ sheet, snapshot, controller }: { sheet: Cod
       <div className="graphical-actions" role="tablist">{(["skills", "apps", "mcp"] as const).map(value => <button key={value} role="tab" aria-selected={tab === value} onClick={() => { setTab(value); setDetail(null); }}>{value === "skills" ? "Skills" : value === "apps" ? "Apps" : "MCP"}</button>)}
         <button disabled={busy} onClick={() => void run(() => load(true))}>刷新能力</button></div>
       {caps?.errors[tab] && <p role="alert">{caps.errors[tab]}</p>}
+      {tab === "skills" && <p>启停设置保存到当前运行环境的 Codex 配置，并非仅影响当前会话。</p>}
       {tab === "skills" && caps?.skills.filter(skill => matches(skill.name, skill.description)).map(skill => <article key={skill.path}>
-        <button disabled={!skill.enabled} onClick={() => insertReference(`$${skill.name}`, { kind: "skill", name: skill.name, path: skill.path, token: `$${skill.name}` })}>{skill.name}{!skill.enabled ? " · 已停用" : ""}</button><p>{skill.description}</p><small>{skill.scope}</small></article>)}
+        <button disabled={!skill.enabled || busy} onClick={() => insertReference(`$${skill.name}`, { kind: "skill", name: skill.name, path: skill.path, token: `$${skill.name}` })}>{skill.name}{!skill.enabled ? " · 已停用" : ""}</button><p>{skill.description}</p><small>{skill.scope}</small>
+        <button disabled={Boolean(skillDisabled)} aria-label={`${skill.enabled ? "禁用" : "启用"}技能 ${skill.name}`} onClick={() => void run(() => toggleSkill(skill))}>{skill.enabled ? "禁用" : "启用"}</button></article>)}
       {tab === "apps" && caps?.apps.filter(app => matches(app.name, app.description)).map(app => <article key={app.id}>
         <button disabled={!app.accessible || !app.enabled || !app.callable} onClick={() => insertReference(`$${app.id}`, { kind: "app", name: app.name, path: `app://${app.id}`, token: `$${app.id}` })}>{app.name}</button><p>{app.description}</p>
         <button disabled={busy} onClick={() => void run(async () => update(setDetail, await request("app-detail", { appId: app.id })))}>查看 App 详情</button></article>)}

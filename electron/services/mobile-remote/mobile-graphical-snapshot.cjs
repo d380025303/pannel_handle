@@ -47,7 +47,7 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
     model: snapshot.model || null,
     backend: snapshot.backend || null,
     effectiveModel: snapshot.effectiveModel || null,
-    models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName, fastAvailable: model.fastAvailable, defaultReasoningEffort: model.defaultReasoningEffort, supportedReasoningEfforts: model.supportedReasoningEfforts })),
+    models: (snapshot.models || []).map(model => ({ id: model.id, displayName: model.displayName, inputModalities: model.inputModalities, fastAvailable: model.fastAvailable, defaultReasoningEffort: model.defaultReasoningEffort, supportedReasoningEfforts: model.supportedReasoningEfforts })),
     ...(snapshot.provider === "codebuddy" ? { codeBuddyMobile: true, modelSource: session?.modelSource || "native", serviceModelId: session?.modelId || null,
       mainAgent: snapshot.mainAgent ? { currentAgentName: snapshot.mainAgent.currentAgentName, sessionBlank: snapshot.mainAgent.sessionBlank, changing: snapshot.mainAgent.changing, error: snapshot.mainAgent.error, agents: snapshot.mainAgent.agents.map(agent => ({ name: agent.name, displayName: agent.displayName, description: agent.description, source: agent.source, broken: agent.broken })) } : null, codeBuddyGoal: snapshot.codeBuddyGoal || null, sideQuestion: snapshot.sideQuestion || null,
       availableCommands: (snapshot.availableCommands || []).map(command => ({ name: command.name, description: command.description })), team: snapshot.team ? { name: snapshot.team.name, isAutoTeam: snapshot.team.isAutoTeam, hasLiveMembers: snapshot.team.hasLiveMembers, members: snapshot.team.members.map(member => ({ name: member.name, color: member.color, description: member.description, status: member.status, taskId: member.taskId, sessionId: member.sessionId, tokenUsage: member.tokenUsage, toolCallCount: member.toolCallCount, items: toMobileGraphicalSnapshot({ items: member.items }).items })) } : null } : {}),
@@ -61,6 +61,8 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
     effort: snapshot.effort || null,
     fastMode: Boolean(snapshot.fastMode),
     executionPermission: snapshot.executionPermission || null,
+    permissionProfileId: snapshot.permissionProfileId || null, permissionError: snapshot.permissionError || null,
+    changingPermission: Boolean(snapshot.changingPermission), permissionOptions: snapshot.permissionOptions || [],
     contextUsage: (snapshot.provider === "codebuddy" || snapshot.provider === "opencode")
       && Number.isFinite(snapshot.contextUsage?.used) && snapshot.contextUsage.used >= 0
       && Number.isFinite(snapshot.contextUsage?.size) && snapshot.contextUsage.size > 0

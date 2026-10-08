@@ -491,6 +491,7 @@ function createAgentTokenStatsService({
       const agentSessionId = input?.session_id || input?.sessionId;
       const transcriptPath = input?.transcript_path || input?.transcriptPath;
       if (isNestedAgentTranscript(provider, transcriptPath)) return;
+      conversationSink?.bindThread?.(session?.id, provider, agentSessionId);
       if (TOKEN_STATS_PROVIDERS.includes(provider) && agentSessionId) {
         const key = `${provider}:${agentSessionId}`;
         if (!startedAtBySession.has(key)) startedAtBySession.set(key, now());

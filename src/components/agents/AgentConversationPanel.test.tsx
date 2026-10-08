@@ -77,8 +77,23 @@ describe("AgentConversationPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
     expect(await screen.findByText("Historical answer")).toBeTruthy();
     expect(screen.getByText("Historical question")).toBeTruthy();
-    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", providers: ["codex", "codebuddy", "opencode", "gemini", "grok"], scope: "cwd" }));
+    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", source: "archive", scope: "cwd" }));
     expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
+  });
+
+  it("opens a local archive without a running session and keeps the CLI history source", async () => {
+    const ref = "archive:00000000-0000-0000-0000-000000000001";
+    listHistory.mockResolvedValue({ items: [{ ref, provider: "copilot", title: "Closed launch", preview: "", cwd: "C:\\work",
+      createdAt: 1, updatedAt: 2, archived: false, status: "ended", captureStatus: "unsupported", mode: "terminal" }], errors: [], nextCursor: null });
+    getHistoryMessages.mockResolvedValue({ conversationRef: ref, messages: [], nextCursor: null });
+    render(<AgentConversationPanel snapshot={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Closed launch/ }));
+    expect(await screen.findByText("暂不支持此 CLI 的结构化对话采集，会话记录已保存。")).toBeTruthy();
+    expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ source: "archive", scope: "all" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "对话来源" }));
+    expect(await screen.findByRole("option", { name: "CLI 原始历史" })).toBeTruthy();
   });
 
   it("filters and displays OpenCode history", async () => {
@@ -109,7 +124,8 @@ describe("AgentConversationPanel", () => {
     render(<AgentConversationPanel snapshot={{ activeSessionId: "panel-1", turn: null }}
       session={{ id: "panel-1", title: "Terminal", shell: "pwsh", cwd: "C:\\work", createdAt: 1, type: "windows" }} />);
     fireEvent.click(screen.getByRole("button", { name: "展开对话历史" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: "对话来源" }), { target: { value: "other-computer" } });
+    fireEvent.click(await screen.findByRole("combobox", { name: "对话来源" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Other computer" }));
     fireEvent.click(await screen.findByRole("button", { name: /Remote backup/ }));
     expect(await screen.findByText("Backed up answer")).toBeTruthy();
     expect(listConversations).toHaveBeenCalledWith("other-computer", 0);

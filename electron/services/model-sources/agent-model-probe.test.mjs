@@ -35,6 +35,17 @@ describe("Agent model probe", () => {
     const result = await runAgentModelProbe(config, { spawnProcess: () => processMock(1, "Rejected private-key"), probeToken: "probe-success" });
     expect(result).toMatchObject({ status: "failed", error: "Rejected [redacted]" });
   });
+  it("injects the exact MiniMax model registration into the real CLI probe", async () => {
+    const spawnProcess = vi.fn(() => processMock(0, "probe-success"));
+    await runAgentModelProbe({ ...config, providerId: "minimax", modelId: "MiniMax-M3", baseUrl: "https://api.minimaxi.com/v1" },
+      { spawnProcess, probeToken: "probe-success" });
+    const [command, args, options] = spawnProcess.mock.calls[0];
+    expect(`${command} ${args.join(" ")}`).toContain("--model MiniMax-M3");
+    expect(JSON.parse(options.env.ACC_PRODUCT_CONFIG_V3).models).toContainEqual({
+      id: "MiniMax-M3", name: "MiniMax-M3", url: "https://api.minimaxi.com/v1", tags: ["custom"]
+    });
+    expect(options.env.ACC_PRODUCT_CONFIG_V3).not.toContain("private-key");
+  });
   it("runs OpenCode with a private server that receives the injected model configuration", async () => {
     const spawnProcess = vi.fn(() => processMock(1, "Model unavailable"));
     await runAgentModelProbe({ ...config, agent: "opencode", providerId: "minimax", modelId: "MiniMax-M2.7-highspeed", apiKeyEnv: "MINIMAX_API_KEY" }, { spawnProcess });

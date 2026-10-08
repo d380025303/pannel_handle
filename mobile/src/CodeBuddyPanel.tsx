@@ -10,6 +10,7 @@ import type { CodexAppServerSnapshot, TerminalSession } from "../../src/vite-env
 import { copyMobileText } from "./clipboard";
 import type { useGraphicalSession } from "./useGraphicalSession";
 import { useCodeBuddyApi } from "./useCodeBuddyApi";
+import { codeBuddyMultitaskOption } from "./CodeBuddyOptions";
 import "./codebuddy.css";
 
 export function CodeBuddyPanel({ controller }: { controller: ReturnType<typeof useGraphicalSession> }) {
@@ -20,6 +21,7 @@ export function CodeBuddyPanel({ controller }: { controller: ReturnType<typeof u
   useEffect(() => { if (activeSheet === "buddy-config") void buddyRequest("main-agents").catch(cause => setError(String(cause))); }, [activeSheet, snapshot?.threadId]);
   if (!snapshot || snapshot.provider !== "codebuddy" || !activeSheet?.startsWith("buddy-")) return null;
   const state = snapshot as unknown as CodexAppServerSnapshot;
+  const multitaskOption = codeBuddyMultitaskOption(snapshot);
   const common = { sessionId: session.id, api: remote.api, onClose: close, snapshot: state, onUpdated: () => {} };
   return <div ref={controller.sheetRef} tabIndex={-1} className="mobile-codebuddy-panel" onKeyDown={event => { if (event.key === "Escape" && ["buddy-version", "buddy-config"].includes(activeSheet)) close(); }}>
     {activeSheet === "buddy-goal" && <CodeBuddyGoalDialog {...common} />}
@@ -32,7 +34,7 @@ export function CodeBuddyPanel({ controller }: { controller: ReturnType<typeof u
       {controller.error && <p role="alert">{controller.error}</p>}
       {activeSheet === "buddy-version" ? <CodexVersionControl sessionId={session.id} provider="codebuddy" api={remote.version} /> : <>
         {snapshot.mainAgent && <label>主 Agent<select aria-label="主 Agent" value={snapshot.mainAgent.currentAgentName || ""} disabled={pending || snapshot.busy || !snapshot.mainAgent.sessionBlank} onChange={event => void run(() => buddyRequest("main-agent", { name: event.target.value }))}><option value="">默认</option>{snapshot.mainAgent.agents.map(agent => <option key={agent.name} value={agent.name} disabled={Boolean(agent.broken)}>{agent.displayName || agent.name}</option>)}</select>{!snapshot.mainAgent.sessionBlank && <small>新建对话后可切换主 Agent。</small>}{snapshot.mainAgent.error && <p role="alert">{snapshot.mainAgent.error}</p>}</label>}
-        {snapshot.acpOptions?.filter(option => ["multitask", "context_window", "effort", "reasoning_effort"].includes(option.id)).map(option => <label key={option.id}>{option.id === "multitask" ? "Multitask" : option.id === "context_window" ? "上下文窗口" : "思考强度"}{option.id === "multitask" ? <input type="checkbox" checked={option.currentValue === true || option.currentValue === "true"} disabled={pending || snapshot.busy} onChange={event => void run(() => buddyRequest("multitask", { enabled: event.target.checked }))} /> : <select value={String(option.currentValue || "")} disabled={pending || snapshot.busy} onChange={event => void run(() => buddyRequest(option.id === "context_window" ? "context-window" : "effort", { value: event.target.value }))}>{option.options.map(value => <option key={value.value} value={value.value}>{value.name}</option>)}</select>}</label>)}
+        {snapshot.acpOptions?.filter(option => option.id === "multitask" ? option === multitaskOption : ["context_window", "effort", "reasoning_effort"].includes(option.id)).map(option => <label key={option.id}>{option.id === "multitask" ? "Multitask" : option.id === "context_window" ? "上下文窗口" : "思考强度"}{option.id === "multitask" ? <input type="checkbox" checked={option.currentValue === true} disabled={pending || snapshot.busy} onChange={event => void run(() => buddyRequest("multitask", { enabled: event.target.checked }))} /> : <select value={String(option.currentValue || "")} disabled={pending || snapshot.busy} onChange={event => void run(() => buddyRequest(option.id === "context_window" ? "context-window" : "effort", { value: event.target.value }))}>{option.options.map(value => <option key={value.value} value={value.value}>{value.name}</option>)}</select>}</label>)}
       </>}
     </section></div>}
   </div>;

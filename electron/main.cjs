@@ -32,6 +32,7 @@ const { createMcpConfigService } = require("./services/mcp/mcp-config-service.cj
 const { createSessionStatusServer } = require("./services/mcp/session-status-server.cjs");
 const { createTokenUsageModule } = require("./services/token-usage/index.cjs");
 const { createPostgresBackupService } = require("./services/postgres-backup/postgres-backup-service.cjs");
+const { createConversationArchiveService } = require("./services/conversation-history/conversation-archive-service.cjs");
 const { createAgentConversationHistoryService } = require("./services/conversation-history/index.cjs");
 const { createCodexAppServerSessionService } = require("./services/codex-app-server/session-service.cjs");
 const { createCodexVersionService } = require("./services/codex-app-server/version-service.cjs");
@@ -131,6 +132,7 @@ let mobileRemoteService = null;
 let terminalStateHub = null;
 let agentConversationManager = null;
 let agentConversationHistoryService = null;
+let conversationArchive = null;
 let ideaModule = null;
 let codexAppServerSessionService = null;
 let questionAnswerStore = null;
@@ -223,11 +225,17 @@ if (!gotSingleInstanceLock) {
     dingTalkConfigStore.loadConfig();
     knownHostStore.loadKnownHosts();
     mobileAccessStore.load();
+    conversationArchive = createConversationArchiveService({ userData: app.getPath("userData"), getHistoryService: () => agentConversationHistoryService });
     agentConversationManager = createAgentConversationManager({
+      conversationArchive,
       broadcast: windowManager.broadcast
     });
     terminalStateHub = createTerminalStateHub({ scrollback: 5000 });
     const broadcast = (channel, payload) => {
+      if (channel === "codex-app-server:changed") conversationArchive?.graphical(payload.id, payload.snapshot);
+      if (channel === "codex-app-server:delta") {
+        try { conversationArchive?.graphical(payload.id, codexAppServerSessionService.snapshot(payload.id)); } catch {}
+      }
       windowManager.broadcast(channel, payload);
       if (channel === "sessions:changed") postgresBackupService?.trackSessions(payload);
       mobileRemoteService?.handleDesktopEvent(channel, payload);
@@ -236,6 +244,12 @@ if (!gotSingleInstanceLock) {
     terminalManager = createTerminalManager({
       environmentService,
       getDefaultShell: resolveConfiguredShell,
+      onSessionCreated: session => conversationArchive?.start(session),
+      onSessionStartFailed: id => conversationArchive?.finish(id, "failed"),
+      onSessionClosing: id => {
+        try { conversationArchive?.graphical(id, codexAppServerSessionService.snapshot(id)); } catch {}
+        conversationArchive?.finish(id);
+      },
       sessionStore,
       configStore,
       broadcast,
@@ -306,6 +320,7 @@ if (!gotSingleInstanceLock) {
       sessionStore,
       questionAnswerStore,
       diagnosticsStore,
+      conversationArchive,
       sshAgentTransport,
       sshFileSystem,
       onTokenUsage: usage => tokenUsageModule?.recordAppServerUsage(usage)
@@ -313,33 +328,33 @@ if (!gotSingleInstanceLock) {
     agentConversationHistoryService = createAgentConversationHistoryService({
       terminalManager,
       sshAgentTransport,
-      homeDir: app.getPath("home")
+      homeDir: app.getPath("home"), conversationArchive
     });
     const codeBuddyGraphicalService = createCodeBuddyAcpSessionService({
-      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, conversationArchive,
       historyService: agentConversationHistoryService,
       workBuddyModelCatalogService: createWorkBuddyModelCatalogService(),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalCodeBuddy(usage),
       onTokenLiveEvent: event => tokenUsageModule?.handleGraphicalCodeBuddyLive(event)
     });
     const openCodeGraphicalService = createOpenCodeAcpSessionService({
-      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, conversationArchive,
       getCapabilityEndpoint: id => agentHookServer?.getOpenCodeCapabilityEndpoint(id),
       clearCapabilityEndpoint: id => agentHookServer?.clearOpenCodeCapabilityEndpoint(id),
       onTokenUsageCheckpoint: usage => tokenUsageModule?.recordGraphicalOpenCode(usage)
     });
     const claudeGraphicalService = createClaudeAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem, conversationArchive
     });
     const qoderGraphicalService = createQoderAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem, conversationArchive
     });
     const geminiGraphicalService = createGeminiAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem, conversationArchive,
       historyService: agentConversationHistoryService
     });
     const grokGraphicalService = createGrokAcpSessionService({
-      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem,
+      environmentService, terminalManager, broadcast, sshAgentTransport, sshFileSystem, conversationArchive,
       historyService: agentConversationHistoryService
     });
     codexAppServerSessionService = createGraphicalSessionRouter(codexGraphicalService, codeBuddyGraphicalService, terminalManager, openCodeGraphicalService, claudeGraphicalService, qoderGraphicalService, geminiGraphicalService, grokGraphicalService);
@@ -638,19 +653,28 @@ if (!gotSingleInstanceLock) {
   });
 }
 
+async function flushConversationArchive() {
+  for (const session of terminalManager?.listSessions() || []) {
+    if (session.runtimeMode !== "app-server") continue;
+    try { conversationArchive?.graphical(session.id, codexAppServerSessionService.snapshot(session.id)); } catch {}
+  }
+  await conversationArchive?.flush();
+}
+
 let graphicalShutdownComplete = false;
 let graphicalShutdownPending = null;
 app.on("before-quit", event => {
   if (graphicalShutdownComplete || !codexAppServerSessionService) return;
   event.preventDefault();
   if (!graphicalShutdownPending) {
-    graphicalShutdownPending = Promise.resolve(codexAppServerSessionService.shutdown())
+    graphicalShutdownPending = flushConversationArchive().then(() => codexAppServerSessionService.shutdown())
       .catch(error => console.error("Graphical session shutdown failed:", error))
       .finally(() => { graphicalShutdownComplete = true; app.quit(); });
   }
 });
 
 app.on("window-all-closed", async () => {
+  await flushConversationArchive();
   await codexAppServerSessionService?.shutdown();
   if (configStore) {
     configStore.saveConfig();
@@ -687,6 +711,7 @@ app.on("window-all-closed", async () => {
   if (workBuddyAutoCheckinService) {
     workBuddyAutoCheckinService.shutdown();
   }
+  conversationArchive?.shutdown();
   if (agentConversationManager) {
     agentConversationManager.shutdown();
   }

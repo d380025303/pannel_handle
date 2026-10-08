@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, History, Search, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
+  AgentProvider,
   AgentConversationHistoryError,
   AgentConversationHistoryItem,
   AgentConversationMessage,
@@ -10,8 +11,12 @@ import type {
   TerminalSession
 } from "../../vite-env";
 import { useI18n } from "../../i18n";
+import { SearchableSelect } from "../shared/SearchableSelect";
 
-function providerName(provider?: "codex" | "codebuddy" | "opencode" | "gemini" | "grok") {
+function providerName(provider?: AgentProvider) {
+  if (provider === "claude") return "Claude";
+  if (provider === "qoder") return "Qoder";
+  if (provider === "copilot") return "Copilot";
   return provider === "codebuddy" ? "CodeBuddy" : provider === "opencode" ? "OpenCode" : provider === "gemini" ? "Gemini CLI" : provider === "grok" ? "Grok CLI" : "Codex";
 }
 
@@ -50,7 +55,7 @@ function highlightChildren(children: ReactNode, query: string, nextIndex: () => 
   return cloneElement(children, undefined, highlightChildren(children.props.children, query, nextIndex, activeIndex));
 }
 
-type HistoryProviderFilter = "all" | "codex" | "codebuddy" | "opencode" | "gemini" | "grok";
+type HistoryProviderFilter = "all" | AgentProvider;
 
 export function AgentConversationPanel({
   snapshot,
@@ -69,7 +74,7 @@ export function AgentConversationPanel({
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyItems, setHistoryItems] = useState<Array<AgentConversationHistoryItem & { backupSourceKey?: string; backupRef?: string }>>([]);
   const [backupDevices, setBackupDevices] = useState<Array<{ id: string; name: string }>>([]);
-  const [historyDeviceId, setHistoryDeviceId] = useState("local");
+  const [historyDeviceId, setHistoryDeviceId] = useState("archive");
   const [historyErrors, setHistoryErrors] = useState<AgentConversationHistoryError[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -99,7 +104,9 @@ export function AgentConversationPanel({
   );
   const normalizedSearchQuery = searchQuery.trim();
   const historyProviderFilters = useMemo(
-    () => historyDeviceId === "local" && session?.type === "ssh"
+    () => historyDeviceId === "archive"
+      ? (["all", "codex", "codebuddy", "opencode", "claude", "qoder", "copilot", "gemini", "grok"] as const)
+      : historyDeviceId === "local" && session?.type === "ssh"
       ? (["all", "codex", "codebuddy", "opencode"] as const)
       : (["all", "codex", "codebuddy", "opencode", "gemini", "grok"] as const),
     [historyDeviceId, session?.type]
@@ -108,7 +115,7 @@ export function AgentConversationPanel({
   useEffect(() => {
     if (window.postgresBackupApi) void window.postgresBackupApi.listDevices().then(setBackupDevices).catch(() => {});
   }, []);
-  useEffect(() => { setSelectedRef(""); setHistoryItems([]); setScope(historyDeviceId === "local" ? "cwd" : "all"); }, [historyDeviceId]);
+  useEffect(() => { setSelectedRef(""); setHistoryItems([]); setProviderFilter("all"); setScope((historyDeviceId === "archive" || historyDeviceId === "local") && session ? "cwd" : "all"); }, [historyDeviceId]);
 
   useEffect(() => {
     setSelectedRef(hasLive ? "live" : "");
@@ -121,15 +128,17 @@ export function AgentConversationPanel({
     setProviderFilter("all");
   }, [session?.id, snapshot?.activeSessionId]);
 
-  const loadHistory = useCallback(async (cursor: string | null = null, append = false) => {
-    if (!session) return;
+  const loadHistory = useCallback(async (cursor: string | null = null, append = false, refresh = false) => {
+    if (!session && historyDeviceId !== "archive") return;
     const requestId = ++listRequestRef.current;
     setHistoryLoading(true);
     try {
-      const result = historyDeviceId === "local" ? await window.agentConversationApi.listHistory({
-        panelSessionId: session.id,
+      const result = historyDeviceId === "local" || historyDeviceId === "archive" ? await window.agentConversationApi.listHistory({
+        source: historyDeviceId === "archive" ? "archive" : "cli",
+        cwd: session?.cwd, windows: session?.type === "windows",
+        panelSessionId: session?.id,
         providers: providerFilter === "all"
-          ? (session.type === "ssh" ? ["codex", "codebuddy", "opencode"] : ["codex", "codebuddy", "opencode", "gemini", "grok"])
+          ? (historyDeviceId === "archive" ? undefined : session?.type === "ssh" ? ["codex", "codebuddy", "opencode"] : ["codex", "codebuddy", "opencode", "gemini", "grok"])
           : [providerFilter],
         scope,
         includeArchived,
@@ -143,19 +152,26 @@ export function AgentConversationPanel({
           ref: `backup:${JSON.stringify([entry.source_key, entry.conversation_ref])}`,
           backupSourceKey: entry.source_key, backupRef: entry.conversation_ref }))
           .filter(item => (providerFilter === "all" || item.provider === providerFilter)
-            && (scope === "all" || item.cwd === session.cwd)
+            && (scope === "all" || item.cwd === session?.cwd)
             && (includeArchived || !item.archived)
             && [item.title, item.preview, item.cwd].some(value => String(value || "").toLowerCase().includes(historyQuery.trim().toLowerCase())));
         return { items, nextCursor: page.length === 100 ? String(offset + page.length) : null, errors: [] };
       })();
       if (requestId !== listRequestRef.current) return;
-      setHistoryItems(current => append ? [...current, ...result.items] : result.items);
+      setHistoryItems(current => {
+        const next = result.items.map(item => {
+          const existing = current.find(value => value.ref === item.ref);
+          return existing && JSON.stringify(existing) === JSON.stringify(item) ? existing : item;
+        });
+        if (append) return [...current, ...next.filter(item => !current.some(value => value.ref === item.ref))];
+        return refresh ? [...next, ...current.filter(item => !next.some(value => value.ref === item.ref))] : next;
+      });
       setHistoryErrors(result.errors);
-      setHistoryCursor(result.nextCursor);
-      if (!append) {
+      if (!refresh) setHistoryCursor(result.nextCursor);
+      if (!append && !refresh) {
         setSelectedRef(current => {
-          if (current === "live" && hasLive && historyDeviceId === "local") return current;
-          return result.items.some(item => item.ref === current) ? current : (hasLive && historyDeviceId === "local" ? "live" : result.items[0]?.ref || "");
+          if (current === "live" && hasLive && (historyDeviceId === "local" || historyDeviceId === "archive")) return current;
+          return result.items.some(item => item.ref === current) ? current : (hasLive && (historyDeviceId === "local" || historyDeviceId === "archive") ? "live" : result.items[0]?.ref || "");
         });
       }
     } catch (error) {
@@ -173,14 +189,20 @@ export function AgentConversationPanel({
     return () => window.clearTimeout(timer);
   }, [loadHistory]);
 
+  useEffect(() => {
+    if (historyDeviceId !== "archive") return;
+    const timer = window.setInterval(() => { void loadHistory(null, false, true); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [historyDeviceId, loadHistory]);
+
   const loadMessages = useCallback(async (cursor: string | null = null, append = false) => {
-    if (!session || !selectedRef || selectedRef === "live") return;
+    if ((!session && historyDeviceId !== "archive") || !selectedRef || selectedRef === "live") return;
     const requestId = ++detailRequestRef.current;
     setDetailLoading(true);
     setDetailError("");
     try {
-      const result = historyDeviceId === "local" ? await window.agentConversationApi.getHistoryMessages({
-        panelSessionId: session.id,
+      const result = historyDeviceId === "local" || historyDeviceId === "archive" ? await window.agentConversationApi.getHistoryMessages({
+        panelSessionId: session?.id,
         conversationRef: selectedRef,
         cursor,
         limit: 100
@@ -320,6 +342,8 @@ export function AgentConversationPanel({
     if (detailLoading && detailMessages.length === 0) {
       return <div className="agent-conversation-empty">{isEnglish ? "Loading conversation…" : "正在加载对话…"}</div>;
     }
+    if (detailMessages.length === 0 && selectedHistory?.captureStatus === "unsupported") return <div className="agent-conversation-empty">暂不支持此 CLI 的结构化对话采集，会话记录已保存。</div>;
+    if (detailMessages.length === 0 && selectedHistory?.captureError) return <div className="agent-conversation-empty">{selectedHistory.captureError}</div>;
     if (detailMessages.length === 0) {
       return <div className="agent-conversation-empty">{showingLive ? (isEnglish ? "Waiting for an Agent reply…" : "正在等待 Agent 回复…") : (isEnglish ? "This conversation has no visible messages." : "此对话没有可见消息。")}</div>;
     }
@@ -340,6 +364,8 @@ export function AgentConversationPanel({
                 ? (isEnglish ? "You" : "用户")
                 : message.kind === "final"
                   ? (isEnglish ? "Final reply" : "最终回复")
+                  : message.kind === "reasoning" ? (isEnglish ? "Reasoning" : "推理")
+                  : message.kind === "tool" ? (isEnglish ? "Tool / event" : "工具 / 事件")
                   : (isEnglish ? "Progress update" : "中间回复")}
             </div>
           )}
@@ -376,7 +402,19 @@ export function AgentConversationPanel({
     <section className={`agent-conversation-panel${historyOpen ? " history-open" : ""}${searchOpen ? " searching" : ""}`} aria-label={isEnglish ? "Agent conversation" : "Agent 对话"}>
       <aside id="agent-conversation-history" className="agent-conversation-history" aria-label={isEnglish ? "Conversation history" : "对话历史"} hidden={!historyOpen}>
         <div className="agent-conversation-history-filters">
-          {backupDevices.length > 0 && <select value={historyDeviceId} onChange={event => setHistoryDeviceId(event.target.value)} aria-label={isEnglish ? "Conversation source" : "对话来源"}><option value="local">{isEnglish ? "Local history" : "本机历史"}</option>{backupDevices.map(device => <option key={device.id} value={device.id}>{device.name}</option>)}</select>}
+          {(
+            <SearchableSelect
+              className="agent-conversation-history-source"
+              value={historyDeviceId}
+              onChange={setHistoryDeviceId}
+              ariaLabel={isEnglish ? "Conversation source" : "对话来源"}
+              options={[
+                { value: "archive", label: isEnglish ? "Local archive" : "本地留档" },
+                { value: "local", label: isEnglish ? "CLI original history" : "CLI 原始历史" },
+                ...backupDevices.map(device => ({ value: device.id, label: device.name }))
+              ]}
+            />
+          )}
           <div className="agent-conversation-history-provider" role="group" aria-label={isEnglish ? "Provider" : "Agent 类型"}>
             {historyProviderFilters.map(provider => (
               <button className={providerFilter === provider ? "active" : ""} key={provider} type="button" onClick={() => setProviderFilter(provider)}>
@@ -396,7 +434,7 @@ export function AgentConversationPanel({
           </label>
         </div>
         <div className="agent-conversation-history-list">
-          {turn && historyDeviceId === "local" && (
+          {turn && (historyDeviceId === "local" || historyDeviceId === "archive") && (
             <button className={`agent-conversation-history-item live${selectedRef === "live" ? " active" : ""}`} type="button" onClick={() => selectConversation("live")}>
               <span><strong>{isEnglish ? "Current conversation" : "当前对话"}</strong><small className={`agent-conversation-provider ${turn.provider}`}>{providerName(turn.provider)}</small></span>
             </button>
@@ -405,6 +443,10 @@ export function AgentConversationPanel({
             <button className={`agent-conversation-history-item${selectedRef === item.ref ? " active" : ""}`} key={item.ref} type="button" onClick={() => selectConversation(item.ref)}>
               <span><strong>{item.title}</strong><small className={`agent-conversation-provider ${item.provider}`}>{providerName(item.provider)}</small></span>
               <small title={item.cwd}>{item.cwd}</small>
+              {item.status && <small>{item.status === "running" ? "进行中" : item.status === "failed" ? "启动失败" : item.status === "interrupted" ? "已中断" : "已结束"} · {item.mode === "graphical" ? "图形" : "终端"}</small>}
+              {item.captureStatus === "unsupported" && <small>暂不支持对话采集</small>}
+              {item.captureStatus === "waiting" && <small>等待对话采集</small>}
+              {item.captureError && <small role="status">{item.captureError}</small>}
               <time dateTime={new Date(item.updatedAt).toISOString()}>{new Date(item.updatedAt).toLocaleString(locale)}</time>
             </button>
           ))}

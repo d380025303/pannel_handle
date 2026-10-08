@@ -192,6 +192,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       codexAppServerEffort,
       codexAppServerFastMode,
       codexExecutionPermission,
+      codexPermissionProfileId: agentProvider === "codex" && typeof template.codexPermissionProfileId === "string" && template.codexPermissionProfileId.trim() && template.codexPermissionProfileId.length <= 512 && !template.codexPermissionProfileId.includes("\0") ? template.codexPermissionProfileId.trim() : undefined,
       ignoredCodexConfigWarnings: [...new Set((Array.isArray(template.ignoredCodexConfigWarnings) ? template.ignoredCodexConfigWarnings : []).filter(value => typeof value === "string" && value))],
       ...(codeBuddyGraphicalOptions && Object.keys(codeBuddyGraphicalOptions).length ? { codeBuddyGraphicalOptions } : {}),
       ...(openCodeGraphicalOptions && Object.keys(openCodeGraphicalOptions).length ? { openCodeGraphicalOptions } : {}),
@@ -343,6 +344,16 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     }
   }
 
+  function setCodexPermissionProfile(id, profileId) {
+    if (typeof profileId !== "string" || !profileId.trim() || profileId.length > 512 || profileId.includes("\0")) throw new Error("无效的权限档。");
+    const index = librarySessions.findIndex(template => template.id === id && template.agentProvider === "codex");
+    if (index < 0) throw new Error("Codex 会话模板不存在。");
+    const updated = [...librarySessions];
+    updated[index] = { ...updated[index], codexPermissionProfileId: profileId };
+    writeJson(dataStore, sessionsFile, updated); librarySessions = updated;
+    try { onChanged(); } catch (error) { console.error("Failed to notify library change:", error); }
+  }
+
   function setCodexExecutionPermission(id, permission) {
     if (!CODEX_EXECUTION_PERMISSIONS.has(permission)) throw new Error("无效的 Codex 执行权限。");
     const idx = librarySessions.findIndex(session => session.id === id);
@@ -351,7 +362,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     if (template.agentProvider !== "codex")
       throw new Error("会话模板不支持 Codex App Server。");
     const updated = [...librarySessions];
-    updated[idx] = { ...template, codexExecutionPermission: permission };
+    updated[idx] = { ...template, codexExecutionPermission: permission, codexPermissionProfileId: undefined };
     writeJson(dataStore, sessionsFile, updated);
     librarySessions = updated;
     try { onChanged(); }
@@ -440,6 +451,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
     duplicateInLibrary,
     updateLibrary,
     setCodexExecutionPermission,
+    setCodexPermissionProfile,
     getLibrary,
     exportLibrary,
     importLibrary,

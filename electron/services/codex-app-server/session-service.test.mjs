@@ -37,6 +37,105 @@ function fakeProcess(received, respond) {
   return child;
 }
 
+describe("Codex skill settings", () => {
+  const session = { id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" };
+  function fixture(respond, skillPath = "/remote/skills/review/SKILL.md") {
+    const received = [];
+    let enabled = true;
+    const child = fakeProcess(received, request => {
+      const custom = respond?.(request);
+      if (custom !== undefined) return custom;
+      if (request.method === "skills/list") return { data: [{ cwd: session.cwd, skills: [{ name: "review", path: skillPath, enabled }], errors: [] }] };
+      if (request.method === "skills/config/write") { enabled = request.params.enabled; return {}; }
+    });
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    return { received, child, service, skillPath };
+  }
+  it.each(["C:\\skills\\review\\SKILL.md", "/remote/skills/review/SKILL.md"])("saves both states using the server path %s and rejects disabled references", async skillPath => {
+    const f = fixture(undefined, skillPath);
+    try {
+      await f.service.start(session);
+      await f.service.setSkillEnabled(session.id, skillPath, false);
+      expect(await f.service.listSkills(session.id, true)).toMatchObject([{ enabled: false }]);
+      await expect(f.service.submit(session.id, "$review", [], [{ kind: "skill", name: "review", path: skillPath, token: "$review" }])).rejects.toThrow("已不可用");
+      await f.service.setSkillEnabled(session.id, skillPath, true);
+      expect(await f.service.listSkills(session.id, true)).toMatchObject([{ enabled: true }]);
+      expect(f.received.filter(value => value.method === "skills/config/write").map(value => value.params)).toEqual([
+        { path: skillPath, enabled: false }, { path: skillPath, enabled: true }]);
+      expect(f.received.filter(value => value.method === "skills/list").every(value => value.params.forceReload)).toBe(true);
+    } finally { f.service.shutdown(); }
+  });
+  it("rejects invalid parameters, unknown paths, other providers and unavailable sessions before writing", async () => {
+    const f = fixture();
+    try {
+      await f.service.start(session);
+      for (const args of [["", true], ["bad\0path", true], [f.skillPath, "false"], [null, false]])
+        await expect(f.service.setSkillEnabled(session.id, ...args)).rejects.toThrow("无效");
+      await expect(f.service.setSkillEnabled(session.id, "/unlisted", true)).rejects.toThrow("已不可用");
+      await f.service.submit(session.id, "working");
+      await expect(f.service.setSkillEnabled(session.id, f.skillPath, false)).rejects.toThrow("正在运行");
+      f.service.shutdown();
+      await f.service.start({ ...session, agentProvider: "opencode" });
+      await expect(f.service.setSkillEnabled(session.id, f.skillPath, false)).rejects.toThrow("仅 Codex");
+      expect(f.received.some(value => value.method === "skills/config/write")).toBe(false);
+    } finally { f.service.shutdown(); }
+  });
+  it("serializes writes, propagates errors and permits a later retry", async () => {
+    let reply;
+    let attempts = 0;
+    const f = fixture(request => request.method === "skills/config/write" && ++attempts === 1
+      ? new Promise(resolve => { reply = resolve; }) : undefined);
+    try {
+      await f.service.start(session);
+      const first = f.service.setSkillEnabled(session.id, f.skillPath, false);
+      const failed = expect(first).rejects.toThrow("write failed");
+      const second = f.service.setSkillEnabled(session.id, f.skillPath, true);
+      await vi.waitFor(() => expect(reply).toBeTypeOf("function"));
+      expect(attempts).toBe(1);
+      reply({ __error: "write failed" });
+      await failed; await second;
+      expect(attempts).toBe(2);
+    } finally { f.service.shutdown(); }
+  });
+  it.each(["archive", "compact"])("rejects skill writes during %s", async state => {
+    const f = fixture();
+    try {
+      await f.service.start(session);
+      f.child.stdout.write(`${JSON.stringify(state === "archive"
+        ? { method: "thread/archived", params: { threadId: "thread-1" } }
+        : { method: "item/started", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "compact", type: "contextCompaction" } } })}\n`);
+      await expect(f.service.setSkillEnabled(session.id, f.skillPath, false)).rejects.toThrow(/不可|正在运行/);
+      expect(f.received.some(value => value.method === "skills/config/write")).toBe(false);
+    } finally { f.service.shutdown(); }
+  });
+  it("does not write when forced skill discovery fails", async () => {
+    const f = fixture(request => request.method === "skills/list" ? { __error: "read failed" } : undefined);
+    try {
+      await f.service.start(session);
+      await expect(f.service.setSkillEnabled(session.id, f.skillPath, false)).rejects.toThrow("read failed");
+      expect(f.received.some(value => value.method === "skills/config/write")).toBe(false);
+    } finally { f.service.shutdown(); }
+  });
+  it("rejects stale skill discovery after switching threads", async () => {
+    let reply;
+    const f = fixture(request => {
+      if (request.method === "skills/list") return new Promise(resolve => { reply = resolve; });
+      if (request.method === "thread/read" || request.method === "thread/resume") return { thread: { id: request.params.threadId, cwd: session.cwd, turns: [] } };
+    });
+    try {
+      await f.service.start(session);
+      const writing = f.service.setSkillEnabled(session.id, f.skillPath, false);
+      const rejected = expect(writing).rejects.toThrow("已切换");
+      await vi.waitFor(() => expect(reply).toBeTypeOf("function"));
+      await f.service.resume(session.id, "thread-2");
+      reply({ data: [{ cwd: session.cwd, skills: [{ name: "review", path: f.skillPath }] }] });
+      await rejected;
+      expect(f.received.some(value => value.method === "skills/config/write")).toBe(false);
+    } finally { f.service.shutdown(); }
+  });
+});
+
 describe("Windows sandbox setup", () => {
   function fixture(respond) {
     const received = [];
@@ -55,6 +154,7 @@ describe("Windows sandbox setup", () => {
       expect(received.find(value => value.method === "windowsSandbox/setupStart").params).toEqual({ mode });
       await expect(service.setupWindowsSandbox("run-1", mode)).rejects.toThrow("正在初始化");
       await expect(service.submit("run-1", "hello")).rejects.toThrow("正在初始化");
+      await expect(service.setSkillEnabled("run-1", "/skills/review/SKILL.md", false)).rejects.toThrow("正在初始化");
       await expect(service.newThread("run-1")).rejects.toThrow("正在初始化");
       await expect(service.setFastMode("run-1", true)).rejects.toThrow("正在初始化");
       emit({ mode: mode === "elevated" ? "unelevated" : "elevated", success: true });
@@ -1308,7 +1408,7 @@ describe("Codex App Server session", () => {
       expect((await service.listHistory("run-1", null, true)).data[0]).toMatchObject({ archived: true, isPinned: true });
       expect(received.find(item => item.method === "thread/list" && !item.params.ancestorThreadId).params.archived).toBe(true);
       expect((await service.forkThread("run-1", "thread-1")).threadId).toBe("branch-1");
-      expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1" });
+      expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1", approvalPolicy: "on-request", sandbox: "workspace-write" });
       await expect(service.archiveThread("run-1", "branch-1")).rejects.toThrow("归档失败");
       expect(service.snapshot("run-1").archived).toBe(false);
       failArchive = false;
@@ -1373,7 +1473,7 @@ describe("Codex App Server session", () => {
       await expect(service.forkThread("run-1", "thread-1", "turn-2")).rejects.toThrow("所选回合");
       expect(received.some(item => item.method === "thread/fork")).toBe(false);
       expect((await service.forkThread("run-1", "thread-1", "turn-1")).threadId).toBe("branch-1");
-      expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1", lastTurnId: "turn-1" });
+      expect(received.find(item => item.method === "thread/fork").params).toEqual({ threadId: "thread-1", lastTurnId: "turn-1", approvalPolicy: "on-request", sandbox: "workspace-write" });
       expect(received.some(item => item.method === "thread/read" && item.params.includeTurns === true)).toBe(true);
     } finally { service.close("run-1"); }
   });
@@ -1525,16 +1625,16 @@ describe("Codex App Server session", () => {
     await service.start({ id: "run-1", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
     try {
       expect(service.snapshot("run-1").executionPermission).toBe("askApproval");
-      expect(() => service.setExecutionPermission("run-1", "invalid")).toThrow("无效");
-      service.setExecutionPermission("run-1", "readOnly");
+      await expect(service.setExecutionPermission("run-1", "invalid")).rejects.toThrow("无效");
+      await service.setExecutionPermission("run-1", "readOnly");
       await service.submit("run-1", "检查");
       expect(received.filter(item => item.method === "turn/start").at(-1).params).toMatchObject({
         approvalPolicy: "never", sandboxPolicy: { type: "readOnly" }
       });
-      expect(() => service.setExecutionPermission("run-1", "fullAccess")).toThrow("正在运行");
+      await expect(service.setExecutionPermission("run-1", "fullAccess")).rejects.toThrow("不可切换");
       await finishTurn("thread-1");
 
-      service.setExecutionPermission("run-1", "fullAccess");
+      await service.setExecutionPermission("run-1", "fullAccess");
       service.setMode("run-1", "plan");
       await service.submit("run-1", "制定计划");
       expect(received.filter(item => item.method === "turn/start").at(-1).params).toMatchObject({
@@ -1554,7 +1654,7 @@ describe("Codex App Server session", () => {
       expect(service.snapshot("run-1").executionPermission).toBe("fullAccess");
       await service.resume("run-1", "history-1");
       expect(service.snapshot("run-1").executionPermission).toBe("fullAccess");
-      service.setExecutionPermission("run-1", "askApproval");
+      await service.setExecutionPermission("run-1", "askApproval");
       await service.submit("run-1", "继续");
       expect(received.filter(item => item.method === "turn/start").at(-1).params).toMatchObject({
         approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite", writableRoots: ["C:\\project"], networkAccess: false }
@@ -1584,7 +1684,7 @@ describe("Codex App Server session", () => {
       await service.submit("run-2", "正在执行");
       const runningTurn = received.filter(item => item.method === "turn/start").at(-1);
       expect(runningTurn.params.sandboxPolicy.type).toBe("readOnly");
-      service.setExecutionPermission("run-1", "fullAccess");
+      await service.setExecutionPermission("run-1", "fullAccess");
       expect(sessionStore.setCodexExecutionPermission).toHaveBeenCalledWith(template.id, "fullAccess");
       expect(service.snapshot("run-2").executionPermission).toBe("fullAccess");
       expect(service.snapshot("other").executionPermission).toBe("askApproval");
@@ -1597,11 +1697,11 @@ describe("Codex App Server session", () => {
       await vi.waitFor(() => expect(service.snapshot("run-2").busy).toBe(false));
       await service.submit("run-2", "下一轮");
       expect(received.filter(item => item.method === "turn/start").at(-1).params.sandboxPolicy.type).toBe("dangerFullAccess");
-      service.setExecutionPermission("temporary", "readOnly");
+      await service.setExecutionPermission("temporary", "readOnly");
       expect(sessionStore.setCodexExecutionPermission).toHaveBeenCalledTimes(1);
       expect(service.snapshot("temporary").executionPermission).toBe("readOnly");
       sessionStore.setCodexExecutionPermission.mockImplementation(() => { throw new Error("disk full"); });
-      expect(() => service.setExecutionPermission("run-1", "askApproval")).toThrow("disk full");
+      await expect(service.setExecutionPermission("run-1", "askApproval")).rejects.toThrow("disk full");
       expect(service.snapshot("run-1").executionPermission).toBe("fullAccess");
       expect(service.snapshot("run-2").executionPermission).toBe("fullAccess");
     } finally {
@@ -1882,4 +1982,155 @@ describe("Codex sub-agent observation integration", () => {
       expect(received.filter(message => message.method === "thread/resume")).toEqual([]);
     } finally { service.shutdown(); }
   });
+});
+
+
+describe("configuration and named permissions", () => {
+  function fixture({ profile = null, denied = false, settingsError = false } = {}) {
+    const received = [];
+    const template = { id: "template", codexExecutionPermission: "askApproval", codexPermissionProfileId: profile };
+    const store = { getTemplate: () => template,
+      setCodexPermissionProfile: vi.fn((_id, value) => { template.codexPermissionProfileId = value; }),
+      setCodexExecutionPermission: vi.fn((_id, value) => { template.codexExecutionPermission = value; template.codexPermissionProfileId = undefined; }) };
+    const children = [];
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      sessionStore: store, terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {},
+      spawnProcess: () => {
+        const child = fakeProcess(received, request => {
+          if (request.method === "configRequirements/read") return { requirements: null };
+          if (request.method === "permissionProfile/list") return { data: [{ id: "project", allowed: !denied }] };
+          if (request.method === "config/read") return { config: { model: "test-model", api_key: "secret" }, layers: [] };
+          if (request.method === "thread/settings/update" && settingsError) return { __error: "denied" };
+          if (request.method === "thread/read") return { thread: { id: request.params.threadId, cwd: "C:\\project" } };
+          if (request.method === "thread/fork") return { thread: { id: "forked" } };
+          if (request.method === "thread/resume") return { thread: { id: request.params.threadId, turns: [] } };
+        });
+        children.push(child); return child;
+      } });
+    const start = id => service.start({ id, templateId: template.id, agentProvider: "codex", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+    const finish = (index = 0) => children[index].stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: service.snapshot(index ? "other" : "run").threadId, turn: { status: "completed" } } })}\n`);
+    return { service, received, start, store, finish, children };
+  }
+  it("applies and saves profiles after success without changing other running instances", async () => {
+    const f = fixture();
+    try {
+      await f.start("run"); await f.start("other");
+      await f.service.setPermissionProfile("run", "project");
+      expect(f.store.setCodexPermissionProfile).toHaveBeenCalledWith("template", "project");
+      expect(f.service.snapshot("other").permissionProfileId).toBeNull();
+      expect(f.received.find(v => v.method === "thread/settings/update").params).toEqual({ threadId: "thread-1", permissions: "project" });
+      await f.service.submit("run", "work");
+      const turn = f.received.filter(v => v.method === "turn/start").at(-1).params;
+      expect(turn.permissions).toBe("project"); expect(turn).not.toHaveProperty("sandboxPolicy"); expect(turn).not.toHaveProperty("approvalPolicy");
+      f.finish();
+      await f.service.newThread("run");
+      expect(f.received.filter(v => v.method === "thread/start").at(-1).params).toMatchObject({ permissions: "project" });
+      await f.service.forkThread("run", "thread-1");
+      expect(f.received.filter(v => v.method === "thread/fork").at(-1).params).toMatchObject({ permissions: "project" });
+      expect(f.received.filter(v => v.method === "thread/resume").at(-1).params).toMatchObject({ permissions: "project" });
+      await f.start("future");
+      expect(f.service.snapshot("future").permissionProfileId).toBe("project");
+    } finally { f.service.shutdown(); }
+  });
+  it("uses read-only for Plan and restores the profile for the next default turn", async () => {
+    const f = fixture({ profile: "project" });
+    try {
+      await f.start("run"); f.service.setMode("run", "plan");
+      await f.service.submit("run", "plan");
+      expect(f.received.filter(v => v.method === "turn/start").at(-1).params).toMatchObject({ approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } });
+      expect(f.received.filter(v => v.method === "turn/start").at(-1).params).not.toHaveProperty("permissions");
+      f.finish(); f.service.setMode("run", "default");
+      await f.service.submit("run", "implement");
+      expect(f.received.filter(v => v.method === "turn/start").at(-1).params.permissions).toBe("project");
+    } finally { f.service.shutdown(); }
+  });
+  it("keeps invalid saved profiles blocked and allows explicit legacy recovery", async () => {
+    const f = fixture({ profile: "missing" });
+    try {
+      expect((await f.start("run")).permissionError).toContain("不存在");
+      expect(f.received.some(v => v.method === "thread/start")).toBe(false);
+      const view = await f.service.readConfiguration("run");
+      expect(JSON.stringify(view)).not.toContain("secret");
+      expect(view.runtime.permissionProfileId).toBe("missing");
+      expect((await f.service.setExecutionPermission("run", "readOnly")).threadId).toBe("thread-1");
+      expect(f.service.snapshot("run").permissionProfileId).toBeNull();
+      expect(f.store.setCodexExecutionPermission).toHaveBeenCalledWith("template", "readOnly");
+    } finally { f.service.shutdown(); }
+  });
+  it("does not save denied profiles or server-rejected settings", async () => {
+    for (const options of [{ denied: true }, { settingsError: true }]) {
+      const f = fixture(options);
+      try {
+        await f.start("run");
+        await expect(f.service.setPermissionProfile("run", "project")).rejects.toThrow();
+        expect(f.store.setCodexPermissionProfile).not.toHaveBeenCalled();
+        expect(f.service.snapshot("run")).toMatchObject({ permissionProfileId: null, changingPermission: false });
+      } finally { f.service.shutdown(); }
+    }
+  });
+  it("restores runtime selection when saving the template fails", async () => {
+    const f = fixture();
+    try {
+      await f.start("run");
+      f.store.setCodexPermissionProfile.mockImplementation(() => { throw new Error("disk full"); });
+      await expect(f.service.setPermissionProfile("run", "project")).rejects.toThrow("disk full");
+      expect(f.service.snapshot("run")).toMatchObject({ permissionProfileId: null, executionPermission: "askApproval" });
+      expect(f.received.filter(v => v.method === "thread/settings/update").at(-1).params.sandboxPolicy.type).toBe("workspaceWrite");
+    } finally { f.service.shutdown(); }
+  });
+});
+
+
+describe("Codex image input capabilities", () => {
+  it.each([["text"], ["text", "image"], undefined, [], [null]])("checks images before mutating the turn for modalities %j", async modalities => {
+    const received = [];
+    const child = fakeProcess(received, request => request.method === "model/list"
+      ? { data: [{ id: "test-model", isDefault: true, inputModalities: modalities }] } : undefined);
+    const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {}, spawnProcess: () => child });
+    try {
+      await service.start({ id: "image-test", type: "windows", shell: "cmd.exe", cwd: "C:\\project" });
+      const image = "C:\\project\\clipboard.bmp";
+      service.allowPastedImage("image-test", image);
+      if (modalities?.length === 1 && modalities[0] === "text") {
+        const before = service.snapshot("image-test").items;
+        await expect(service.submit("image-test", "检查", [image])).rejects.toThrow("不支持图片输入");
+        expect(service.snapshot("image-test").items).toEqual(before);
+        expect(received.some(value => value.method === "turn/start")).toBe(false);
+        await service.submit("image-test", "纯文字");
+        await expect(service.submit("image-test", "追加", [image])).rejects.toThrow("不支持图片输入");
+        expect(received.some(value => value.method === "turn/steer")).toBe(false);
+        expect(service.snapshot("image-test").busy).toBe(true);
+      } else {
+        await service.submit("image-test", "检查", [image]);
+        expect(received.find(value => value.method === "turn/start").params.input).toContainEqual({ type: "localImage", path: image });
+      }
+    } finally { service.shutdown(); }
+  });
+});
+
+
+it("rejects a text-only default model before transferring a remote image", async () => {
+  const received = [];
+  const child = fakeProcess(received, request => request.method === "thread/start"
+    ? { thread: { id: "thread-1", model: null } }
+    : request.method === "model/list" ? { data: [{ id: "text", isDefault: true, inputModalities: ["text"] }] } : undefined);
+  const transport = new EventEmitter();
+  transport.write = data => child.stdin.write(data);
+  transport.close = () => transport.emit("close", 0);
+  child.stdout.on("data", data => transport.emit("stdout", data));
+  const sshFileSystem = { fastPut: vi.fn(), cwd: vi.fn(), mkdir: vi.fn() };
+  const service = createCodexAppServerSessionService({ environmentService: { resolve: () => ({}) },
+    terminalManager: { broadcastAgentStatus: () => {} }, broadcast: () => {},
+    sshAgentTransport: { createStdioTransport: async () => transport }, sshFileSystem });
+  try {
+    await service.start({ id: "remote-image", type: "ssh", cwd: "/srv/app" });
+    const image = "C:\\project\\photo.png";
+    service.allowFiles("remote-image", [image]);
+    await expect(service.submit("remote-image", "", [image])).rejects.toThrow("不支持图片输入");
+    expect(sshFileSystem.fastPut).not.toHaveBeenCalled();
+    expect(sshFileSystem.cwd).not.toHaveBeenCalled();
+    expect(service.snapshot("remote-image").items).toHaveLength(0);
+    expect(received.some(value => value.method === "turn/start")).toBe(false);
+  } finally { service.shutdown(); }
 });

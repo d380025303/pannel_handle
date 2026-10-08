@@ -38,6 +38,7 @@ describe("CodexAppServerSession", () => {
   const forkThread = vi.fn().mockResolvedValue({ threadId: "branch-1", mode: "default", busy: false, error: null, items: [], approvals: [] });
   const archiveThread = vi.fn().mockResolvedValue(undefined);
   const unarchiveThread = vi.fn().mockResolvedValue(undefined);
+  const setSkillEnabled = vi.fn();
   const listCapabilities = vi.fn().mockResolvedValue({ skills: [{ name: "review", path: "C:/skills/review/SKILL.md", description: "Review", enabled: true, scope: "user" }],
     apps: [{ id: "github", name: "GitHub", description: "Code", accessible: true, enabled: true, callable: true }],
     mcp: [{ name: "files", status: "connected", authStatus: "unsupported", toolsError: null,
@@ -76,6 +77,7 @@ describe("CodexAppServerSession", () => {
   const readInitialUserInput = vi.fn().mockResolvedValue(null);
 
   beforeEach(() => {
+    setSkillEnabled.mockReset().mockResolvedValue(undefined);
     HTMLElement.prototype.scrollIntoView = vi.fn();
     submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkTurnToNewSession.mockReset().mockResolvedValue({ id: "run-2" }); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
     revertThread.mockReset(); restoreThread.mockReset();
@@ -101,13 +103,52 @@ describe("CodexAppServerSession", () => {
     } });
     Object.defineProperty(window, "codexAppServerApi", { configurable: true, value: {
       snapshot: vi.fn().mockResolvedValue({ threadId: "thread-1", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] }),
-      revertThread, restoreThread, submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkTurnToNewSession, forkThread, archiveThread, unarchiveThread, listCapabilities,
+      revertThread, restoreThread, submit, interrupt: vi.fn(), resolveApproval, answerQuestion, cancelQuestion, resolveElicitation, listHistory, readInitialUserInput, renameThread, rewind, pinThread, forkTurnToNewSession, forkThread, archiveThread, unarchiveThread, listCapabilities, setSkillEnabled,
       resume, newThread, compactThread, listBackgroundTerminals, terminateBackgroundTerminal, cleanBackgroundTerminals, getGoal, setGoal, clearGoal, setMode, setNativeMode, setModel, listModelMetadata, setContextWindow, setEffort, setMultitask, sendTeamMessage, setFastMode, setExecutionPermission, chooseFiles, pasteImage, discardImage, executePlan, dismissPlan,
       readAccount: vi.fn().mockResolvedValue({ status: "signedOut" }),
       previewAttachment: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==" }),
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; },
       onDelta: () => () => {}
     } });
+  });
+
+  it("blocks image paste and keeps ordinary attachments on a text-only model", async () => {
+    vi.mocked(window.codexAppServerApi.snapshot).mockResolvedValueOnce({ threadId: "thread-1", mode: "default", busy: false,
+      error: null, executionPermission: "askApproval", pendingPlan: null, items: [], approvals: [], model: "text-only", models: [{ id: "text-only", displayName: "Text",
+        fastAvailable: false, defaultReasoningEffort: null, supportedReasoningEfforts: [], inputModalities: ["text"] }] });
+    chooseFiles.mockResolvedValueOnce(["C:\\project\\photo.bmp", "C:\\project\\notes.txt"]);
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    await screen.findByText("当前模型不支持图片输入");
+    fireEvent.change(input, { target: { value: "保留草稿" } });
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    expect(pasteImage).not.toHaveBeenCalled();
+    expect((input as HTMLTextAreaElement).value).toBe("保留草稿");
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "附加文件" }));
+    await screen.findByText("notes.txt");
+    expect(screen.queryByText("photo.bmp")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "保留草稿", ["C:\\project\\notes.txt"], []));
+  });
+
+  it("preserves desktop draft images when the model stops supporting them", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "保留草稿" } });
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.paste(input, { clipboardData: { items: [{ type: "image/png" }] } });
+    await screen.findByText("capture.png");
+    const draft = input.value;
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", executionPermission: "askApproval",
+      pendingPlan: null, busy: false, error: null, items: [], approvals: [], model: "text-only",
+      models: [{ id: "text-only", displayName: "Text", fastAvailable: false, defaultReasoningEffort: null,
+        supportedReasoningEfforts: [], inputModalities: ["text"] }] } }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(input.value).toBe(draft);
+    expect(screen.getByText("capture.png")).toBeTruthy();
+    expect(discardImage).not.toHaveBeenCalled();
   });
 
   it("keeps every graphical instance mounted and routes commands only to the visible one", async () => {
@@ -580,15 +621,15 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
     expect(screen.queryByRole("menu", { name: "会话操作" })).toBeNull();
-    expect(await screen.findByRole("button", { name: /review/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /review/ }));
+    expect(await screen.findByRole("button", { name: /^review/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^review/ }));
     const input = screen.getByPlaceholderText("向 Codex 发送消息") as HTMLTextAreaElement;
     expect(input.value).toContain("$review");
     fireEvent.change(input, { target: { value: "请检查" } });
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Skills、Apps 和 MCP" }));
     fireEvent.click(screen.getByRole("tab", { name: "Apps" }));
-    fireEvent.click(screen.getByRole("button", { name: /GitHub/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /GitHub/ }));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(submit).toHaveBeenCalledWith("run-1", "请检查 $github", [], [
       { kind: "app", name: "GitHub", path: "app://github", token: "$github" }
@@ -638,6 +679,62 @@ describe("CodexAppServerSession", () => {
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("disables and enables skills without changing the draft or closing the picker", async () => {
+    const caps = (enabled: boolean) => ({ skills: [{ name: "review", path: "C:/skills/review/SKILL.md", enabled, description: "Review", scope: "user" }], apps: [], mcp: [], errors: {} });
+    listCapabilities.mockResolvedValueOnce(caps(true)).mockResolvedValueOnce(caps(false)).mockResolvedValueOnce(caps(true));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/skills" } }); fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.change(input, { target: { value: "保留草稿" } });
+    fireEvent.click(await screen.findByRole("button", { name: "禁用技能 review" }));
+    await screen.findByRole("button", { name: "启用技能 review" });
+    expect(setSkillEnabled).toHaveBeenCalledWith("run-1", "C:/skills/review/SKILL.md", false);
+    expect((screen.getByText("已停用").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    expect((input as HTMLTextAreaElement).value).toBe("保留草稿");
+    fireEvent.click(screen.getByRole("button", { name: "启用技能 review" }));
+    await screen.findByRole("button", { name: "禁用技能 review" });
+    expect(setSkillEnabled).toHaveBeenLastCalledWith("run-1", "C:/skills/review/SKILL.md", true);
+    expect(screen.getByRole("dialog", { name: "选择会话能力" })).toBeTruthy();
+  });
+  it("keeps the old skill state on write failure and distinguishes refresh failure", async () => {
+    setSkillEnabled.mockRejectedValueOnce(new Error("保存失败"));
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/skills" } }); fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.click(await screen.findByRole("button", { name: "禁用技能 review" }));
+    await screen.findByText("保存失败");
+    expect(screen.getByRole("button", { name: "禁用技能 review" })).toBeTruthy();
+    listCapabilities.mockResolvedValueOnce({ skills: [], apps: [], mcp: [], errors: { skills: "读取失败" } });
+    fireEvent.click(screen.getByRole("button", { name: "禁用技能 review" }));
+    await screen.findByText("已保存，刷新失败：读取失败");
+    expect(setSkillEnabled).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "刷新能力" })).toBeTruthy();
+  });
+  it("guards duplicate skill writes and ignores completion after switching sessions", async () => {
+    let complete!: () => void;
+    setSkillEnabled.mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; }));
+    const view = render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/skills" } }); fireEvent.keyDown(input, { key: "Tab" });
+    const button = await screen.findByRole("button", { name: "禁用技能 review" });
+    fireEvent.click(button); fireEvent.click(button);
+    expect(setSkillEnabled).toHaveBeenCalledTimes(1);
+    view.rerender(<CodexAppServerSession sessionId="run-2" />);
+    const reads = listCapabilities.mock.calls.length;
+    await act(async () => complete());
+    expect(listCapabilities).toHaveBeenCalledTimes(reads);
+    expect(screen.queryByText(/已保存，刷新失败/)).toBeNull();
+  });
+  it("prevents skill setting changes while the conversation is running", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const input = await screen.findByPlaceholderText("向 Codex 发送消息");
+    fireEvent.change(input, { target: { value: "/skills" } }); fireEvent.keyDown(input, { key: "Tab" });
+    await screen.findByRole("button", { name: "禁用技能 review" });
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [], approvals: [] } }));
+    const button = screen.getByRole("button", { name: "禁用技能 review" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true); fireEvent.click(button);
+    expect(setSkillEnabled).not.toHaveBeenCalled();
+  });
   it("opens capability tabs and existing settings from slash suggestions", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     const input = await screen.findByPlaceholderText("向 Codex 发送消息");
@@ -645,7 +742,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.keyDown(input, { key: "Tab" });
     expect(await screen.findByRole("dialog", { name: "选择会话能力" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "MCP" }).getAttribute("aria-selected")).toBe("true");
-    expect(listCapabilities).toHaveBeenCalledWith("run-1", false);
+    expect(listCapabilities).toHaveBeenCalledWith("run-1", true);
     fireEvent.change(input, { target: { value: "/mode" } });
     fireEvent.click(screen.getByRole("option", { name: "/mode 模式" }));
     expect(screen.getByRole("dialog", { name: "模式" })).toBeTruthy();
@@ -2658,6 +2755,18 @@ describe("CodexAppServerSession", () => {
     fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
     expect((await screen.findByRole("alert")).textContent).toContain("模式切换失败");
     expect(screen.getByText("模式：Build")).toBeTruthy();
+  });
+
+  it.each([true, false])("reviews an idle CodeBuddy worker plan: execute=%s", async execute => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await screen.findByRole("textbox", { name: "图形对话输入" });
+    act(() => changed({ id: "run-1", snapshot: { threadId: "buddy-1", provider: "codebuddy", nativeMode: "default",
+      mode: "default", executionPermission: "askApproval", busy: false, error: null,
+      pendingPlan: { itemId: "worker-plan" }, items: [{ id: "worker-plan", type: "plan", text: "# Worker plan" }], approvals: [] } }));
+    expect(screen.getByText("确认后将允许请求方执行此计划。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: execute ? "执行计划" : "继续修改" }));
+    await waitFor(() => expect(execute ? executePlan : dismissPlan).toHaveBeenCalledWith("run-1", "worker-plan"));
+    expect(setNativeMode).not.toHaveBeenCalled();
   });
 
   it("keeps a busy CodeBuddy plan review actionable and blocks the mode shortcut until it is answered", async () => {

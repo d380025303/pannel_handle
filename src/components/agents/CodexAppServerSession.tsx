@@ -1,3 +1,5 @@
+import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../utils/codexImageInput";
+import { CodexConfigurationPanel } from "./CodexConfigurationPanel";
 import { CodeBuddyMcpDialog } from "./CodeBuddyMcpDialog";
 import { CodeBuddyMcpAppContext } from "./CodeBuddyMcpApp";
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -93,7 +95,7 @@ function validExecpolicyAmendment(value: unknown): value is string[] {
 }
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask" | "mainAgent";
 type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "opencode" | "qoder" | "gemini" | "grok" };
-const sendableImageFile = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
+const sendableImageFile = isCodexImageFile;
 const fileName = (filePath: string) => filePath.split(/[\\/]/).pop() || filePath;
 type InlineImage = { token: string; path: string | null };
 function orderedDraft(draft: string, images: InlineImage[]) {
@@ -189,6 +191,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [reviewOpen, setReviewOpen] = useState(false);
   const [codeBuddyMcpOpen, setCodeBuddyMcpOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
+  const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sandboxSetupOpen, setSandboxSetupOpen] = useState(false);
   const [backgroundTerminalsOpen, setBackgroundTerminalsOpen] = useState(false);
   const [codeBuddyJobsOpen, setCodeBuddyJobsOpen] = useState(false);
@@ -210,6 +213,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [capabilityQuery, setCapabilityQuery] = useState("");
   const [capabilities, setCapabilities] = useState<CodexSessionCapabilities | null>(null);
   const [capabilityLoading, setCapabilityLoading] = useState(false);
+  const [skillPendingPath, setSkillPendingPath] = useState<string | null>(null);
+  const capabilityRequestRef = useRef(0);
+  const skillWriteRef = useRef<object | null>(null);
   const [capabilityError, setCapabilityError] = useState("");
   const [capabilityDetail, setCapabilityDetail] = useState<CapabilityDetailTarget | null>(null);
   const [fileMention, setFileMention] = useState<FileMention | null>(null);
@@ -578,14 +584,40 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [capabilityOpen, isActive]);
 
-  async function loadCapabilities(refresh = false) {
+  useEffect(() => {
+    capabilityRequestRef.current += 1;
+    skillWriteRef.current = null;
+    setSkillPendingPath(null); setCapabilityLoading(false);
+    return () => { capabilityRequestRef.current += 1; skillWriteRef.current = null; };
+  }, [sessionId, snapshot.threadId]);
+  async function loadCapabilities(refresh = false, saved = false) {
     const threadId = snapshot.threadId;
+    const requestId = ++capabilityRequestRef.current;
+    const current = () => currentSessionRef.current === sessionId && timelineRef.current?.threadId === threadId
+      && capabilityRequestRef.current === requestId;
     setCapabilityLoading(true); setCapabilityError("");
     try {
       const value = await window.codexAppServerApi.listCapabilities(sessionId, refresh);
-      if (currentSessionRef.current === sessionId && timelineRef.current?.threadId === threadId) setCapabilities(value);
-    } catch (cause) { if (currentSessionRef.current === sessionId) setCapabilityError(message(cause)); }
-    finally { if (currentSessionRef.current === sessionId) setCapabilityLoading(false); }
+      if (saved && value.errors.skills) throw new Error(value.errors.skills);
+      if (current()) setCapabilities(value);
+    } catch (cause) { if (current()) setCapabilityError(`${saved ? "已保存，刷新失败：" : ""}${message(cause)}`); }
+    finally { if (current()) setCapabilityLoading(false); }
+  }
+  async function toggleSkill(skill: CodexSessionCapabilities["skills"][number]) {
+    if (skillWriteRef.current) return;
+    const operation = {};
+    const threadId = snapshot.threadId;
+    const current = () => currentSessionRef.current === sessionId && timelineRef.current?.threadId === threadId
+      && skillWriteRef.current === operation;
+    skillWriteRef.current = operation;
+    setSkillPendingPath(skill.path); setCapabilityError("");
+    try {
+      await window.codexAppServerApi.setSkillEnabled(sessionId, skill.path, !skill.enabled);
+      if (current()) await loadCapabilities(true, true);
+    } catch (cause) { if (current()) setCapabilityError(message(cause)); }
+    finally {
+      if (skillWriteRef.current === operation) { skillWriteRef.current = null; setSkillPendingPath(null); }
+    }
   }
   function insertCapability(token: string, reference?: CodexCapabilityReference) {
     if (reference && draftReferences.filter(value => draft.includes(value.token) && value.token !== token).length >= 10) {
@@ -666,6 +698,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     });
   }
   async function submit() {
+    if (snapshot.permissionError || snapshot.changingPermission || changingPermissionRef.current) return;
     if (btwMatch && snapshot.threadId) {
       openSideQuestion((btwMatch[1] || "").trim());
       setDraft(""); closeFileMention(); return;
@@ -677,6 +710,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     const knownErrorIds = new Set(snapshot.items.filter(item => item.type === "turnError").map(item => item.id));
     if (snapshot.windowsSandboxSetup?.status === "running" || mainAgentPending || snapshot.archived || snapshot.reviewing || snapshot.compacting || forkingTurnId || (!text && attachments.length === 0) || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || pastingRef.current) return;
+    if (!supportsCodexImageInput(timelineRef.current || snapshot) && attachments.some(sendableImageFile)) {
+      setError(`${IMAGE_INPUT_UNSUPPORTED}，请先移除图片附件。`); return;
+    }
     setSending(true);
     closeFileMention();
     setDraft(""); setError("");
@@ -841,7 +877,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     const end = input?.selectionEnd ?? start;
     try { const paths = await window.codexAppServerApi.chooseFiles(sessionId);
       if (currentSessionRef.current === sessionId) {
-        const added = paths.filter(filePath => !attachments.includes(filePath)).slice(0, Math.max(0, 10 - attachments.length));
+        const imagesAllowed = supportsCodexImageInput(timelineRef.current || snapshot);
+        if (!imagesAllowed && paths.some(sendableImageFile)) setError(IMAGE_INPUT_UNSUPPORTED);
+        const added = paths.filter(filePath => (imagesAllowed || !sendableImageFile(filePath)) && !attachments.includes(filePath)).slice(0, Math.max(0, 10 - attachments.length));
         setAttachments(current => [...new Set([...current, ...added])].slice(0, 10));
         let caret = start;
         for (const filePath of added.filter(sendableImageFile)) {
@@ -852,6 +890,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     catch (cause) { if (currentSessionRef.current === sessionId) setError(message(cause)); }
   }
   async function pasteImage() {
+    if (!supportsCodexImageInput(timelineRef.current || snapshot)) { setError(IMAGE_INPUT_UNSUPPORTED); return; }
     if (pastingRef.current || (snapshot.busy && snapshot.provider !== "codex" && snapshot.provider != null)
       || sending || !snapshot.threadId) return;
     if (attachments.length >= 10) { setError("最多附加 10 个文件。"); return; }
@@ -935,7 +974,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     finally { changingModeRef.current = false; if (currentSessionRef.current === sessionId) setChangingMode(false); }
   }
   async function changePermission(permission: CodexExecutionPermission) {
-    if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission) return false;
+    if (!snapshot.threadId || snapshot.busy || changingPermissionRef.current || permission === snapshot.executionPermission && !snapshot.permissionProfileId) return false;
     changingPermissionRef.current = true;
     setChangingPermission(true);
     setError("");
@@ -1197,8 +1236,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       description: value ? "用量成本更高" : undefined, selected: Boolean(snapshot.fastMode) === value,
       disabled: snapshot.busy || sending || changingModel || attachments.length > 0 || !currentModel?.fastAvailable }))
     : selectionKind === "permission" ? (["readOnly", "askApproval", "fullAccess"] as const).map(value => ({ value,
-      label: permissionLabels[value], description: permissionDescriptions[value], selected: snapshot.executionPermission === value,
-      disabled: snapshot.busy || changingPermission || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(value)) }))
+      label: permissionLabels[value], description: snapshot.permissionOptions?.find(option => option.id === value)?.reason || permissionDescriptions[value], selected: !snapshot.permissionProfileId && snapshot.executionPermission === value,
+      disabled: snapshot.permissionOptions?.some(option => option.id === value && !option.allowed) || snapshot.busy || changingPermission || snapshot.changingPermission || Boolean(snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(value)) }))
     : selectionKind === "contextWindow" ? (acpContextWindow?.options || []).map(option => ({ value: option.value,
       label: option.name, selected: acpContextWindow?.currentValue === option.value, disabled: snapshot.busy || changingModel }))
     : selectionKind === "multitask" ? [false, true].map(value => ({ value: String(value), label: value ? "开启" : "关闭",
@@ -1213,7 +1252,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }
   function openCapabilities(tab: "skills" | "apps" | "mcp") {
     setMenuOpen(false); setCapabilityTab(tab); setCapabilityQuery(""); setCapabilityOpen(true);
-    if (!capabilities || snapshot.provider === "opencode") void loadCapabilities();
+    void loadCapabilities(isCodex);
   }
   function openHistory() { setMenuOpen(false); setHistoryQuery(""); setCopyNotice(null); setHistoryOpen(true); }
   function openGoal() {
@@ -1263,6 +1302,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     : isCodex ? "codex" : null;
   const canCheckVersion = Boolean(snapshot.threadId && versionProvider
     && (!session || session.runtimeMode === "app-server" && session.agentProvider === versionProvider));
+  const imagesAllowed = supportsCodexImageInput(snapshot);
   const canAttach = (!snapshot.busy || canSendWhileBusy) && !sending && !pastingImage && attachments.length < 10;
   const reviewDisabled = !snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(snapshot.archived) || snapshot.account?.status === "signedOut";
   function openReview() { if (!reviewDisabled) { setMenuOpen(false); setReviewOpen(true); } }
@@ -1400,7 +1440,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               .map(file => <AttachmentTile key={file.path} sessionId={sessionId} file={file} onPreview={() => setPreviewFile(file)} />)}</div>}</>
             : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} linkActions />}
           {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
-            <p>计划已完成。确认后将在当前会话中执行。</p>
+            <p>{snapshot.provider === "codebuddy" ? "确认后将允许请求方执行此计划。" : "计划已完成。确认后将在当前会话中执行。"}</p>
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>{snapshot.provider === "codebuddy" ? "继续修改" : "暂不执行"}</button>
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
@@ -1418,7 +1458,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {item.explanation && <p>{item.explanation}</p>}
           <ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
           {snapshot.pendingPlan?.itemId === item.id && <div className="codex-app-server-plan-confirm" role="group" aria-label="确认执行计划">
-            <p>计划已完成。确认后将在当前会话中执行。</p>
+            <p>{snapshot.provider === "codebuddy" ? "确认后将允许请求方执行此计划。" : "计划已完成。确认后将在当前会话中执行。"}</p>
             <div><button type="button" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, false)}>暂不执行</button>
               <button type="button" className="primary" disabled={resolvingPlan} onClick={() => void resolvePlan(item.id, true)}>执行计划</button></div>
           </div>}
@@ -1479,6 +1519,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question}
           provider={snapshot.provider === "codebuddy" ? "codebuddy" : snapshot.provider === "claude" ? "claude" : snapshot.provider === "opencode" ? "opencode" : "codex"} />)}
       {snapshot.elicitations?.map(request => <McpElicitationCard key={request.requestId} sessionId={sessionId} request={request} />)}
+      {snapshot.permissionError && <div className="codex-app-server-error" role="alert"><span>{snapshot.permissionError}</span><button type="button" onClick={() => setConfigurationOpen(true)}>配置与权限</button></div>}
       {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
         <div className="codex-app-server-error" role="alert">
           <span>{error || snapshot.error}</span>
@@ -1495,6 +1536,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         if (command && !command.disabled) executeSlashCommand(command);
       } else void submit();
     }}>
+      {!imagesAllowed && <p role="status">{IMAGE_INPUT_UNSUPPORTED}</p>}
       {attachments.length > 0 && <div className="codex-app-server-attachments">{attachments.map(filePath => <AttachmentTile key={filePath} sessionId={sessionId}
         file={{ path: filePath, name: fileName(filePath) }} onPreview={() => setPreviewFile({ path: filePath, name: fileName(filePath) })}
         onRemove={() => void removeAttachment(filePath)} disabled={(snapshot.busy && !canSendWhileBusy) || sending || pastingImage} />)}</div>}
@@ -1606,7 +1648,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         placeholder={snapshot.account?.status === "signedOut" ? "请先登录 Codex 账号" : snapshot.archived ? "此会话已归档，请先恢复归档" : `向 ${agentName} 发送消息`} disabled={!snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || Boolean(forkingTurnId) || (snapshot.busy && !canSendWhileBusy && !canAskSideQuestion)} />
         <div className="codex-app-server-input-actions">
           <div className="codex-app-server-menu-anchor">
-            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={(!snapshot.threadId && !isOpenCode) || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
+            <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={(!snapshot.threadId && !isOpenCode && !isCodex) || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
             {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
               if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
               if (event.key === "Tab") setMenuOpen(false);
@@ -1646,7 +1688,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
               {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
               {isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setSandboxSetupOpen(true); }}>Windows 沙箱初始化</button>}
-              {!isAcp && <button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{permissionLabels[snapshot.executionPermission]}</small></button>}
+              {!isAcp && <><button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{snapshot.permissionProfileId || permissionLabels[snapshot.executionPermission]}</small></button><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfigurationOpen(true); }}>配置与权限</button></>}
               {(isCodex || isOpenCode) && <button type="button" role="menuitem" onClick={() => openCapabilities(isOpenCode && capabilityTab === "apps" ? "skills" : capabilityTab)}><BookOpen aria-hidden="true" />{isCodex ? "Skills、Apps 和 MCP" : "Skills 和 MCP"}</button>}
               <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
             </div>}
@@ -1658,16 +1700,20 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
                   onClick={() => { setCapabilityTab(tab); setCapabilityQuery(""); }}>{tab === "skills" ? "Skills" : tab === "apps" ? "Apps" : "MCP"}</button>)}
               </div>
               <div className="codex-app-server-capability-search"><input autoFocus type="search" value={capabilityQuery} onChange={event => setCapabilityQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} placeholder="搜索能力" aria-label="搜索能力" />
-                <button type="button" aria-label="刷新能力" title="刷新能力" disabled={capabilityLoading} onClick={() => void loadCapabilities(true)}><RefreshCw aria-hidden="true" /></button></div>
+                <button type="button" aria-label="刷新能力" title="刷新能力" disabled={capabilityLoading || Boolean(skillPendingPath)} onClick={() => void loadCapabilities(true)}><RefreshCw aria-hidden="true" /></button></div>
               <div className="codex-app-server-capability-list">
                 {capabilityLoading && <p>正在读取当前会话能力…</p>}
                 {capabilityError && <p role="alert">{capabilityError}</p>}
                 {capabilities?.errors[capabilityTab] && <p role="alert">{capabilities.errors[capabilityTab]}</p>}
+                {isCodex && capabilityTab === "skills" && <p>启停设置保存到当前运行环境的 Codex 配置，并非仅影响当前会话。</p>}
                 {!capabilityLoading && capabilityTab === "skills" && capabilities?.skills.filter(skill => matchesCapability(skill.name, skill.description)).map(skill =>
-                  <button key={skill.path || skill.id || skill.name} type="button" disabled={!skill.enabled} onClick={() => isOpenCode
+                  <div className="codex-capability-app-row" key={skill.path || skill.id || skill.name}><button type="button" disabled={!skill.enabled || Boolean(skillPendingPath)} onClick={() => isOpenCode
                     ? insertCapability(`请使用 skill 工具加载 ${skill.id || skill.name}`)
                     : insertCapability(`$${skill.name}`, { kind: "skill", name: skill.name, path: skill.path, token: `$${skill.name}` })}>
-                    <BookOpen aria-hidden="true" /><span><strong>{skill.name}</strong><small>{skill.description || skill.scope}</small></span>{!skill.enabled && <em>已停用</em>}</button>)}
+                    <BookOpen aria-hidden="true" /><span><strong>{skill.name}</strong><small>{skill.description || skill.scope}</small></span>{!skill.enabled && <em>已停用</em>}</button>
+                    {isCodex && <button type="button" className="codex-capability-detail-button" aria-label={`${skill.enabled ? "禁用" : "启用"}技能 ${skill.name}`}
+                      disabled={!snapshot.threadId || snapshot.busy || sending || Boolean(snapshot.archived || snapshot.compacting || snapshot.reviewing) || sandboxSettingUp || snapshot.account?.status === "signedOut" || Boolean(skillPendingPath)}
+                      onClick={() => void toggleSkill(skill)}>{skillPendingPath === skill.path ? "保存中…" : skill.enabled ? "禁用" : "启用"}</button>}</div>)}
                 {!capabilityLoading && capabilityTab === "apps" && capabilities?.apps.filter(app => matchesCapability(app.name, app.description)).map(app =>
                   <div className="codex-capability-app-row" key={app.id}><button type="button" disabled={!app.accessible || !app.enabled || !app.callable} onClick={() => insertCapability(`$${app.id}`, { kind: "app", name: app.name, path: `app://${app.id}`, token: `$${app.id}` })}>
                     <Globe2 aria-hidden="true" /><span><strong>{app.name}</strong><small>{app.description}</small></span>{(!app.accessible || !app.enabled || !app.callable) && <em>不可用</em>}</button>
@@ -1689,7 +1735,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           </div>
           {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <span className="codex-app-server-permission-status" data-permission={snapshot.executionPermission}>{isAcp
             ? `模式：${snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"}`
-            : `执行权限：${permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>}
+            : `执行权限：${snapshot.permissionProfileId || permissionLabels[snapshot.executionPermission] || "需要确认"}`}</span>}
           {isCodex && snapshot.goal && <button type="button" className="codex-app-server-goal-chip"
             title={snapshot.goal.objective} onClick={() => setGoalOpen(true)}><Target aria-hidden="true" />{snapshot.goal.status === "active" ? "目标进行中" : snapshot.goal.status === "paused" ? "目标已暂停" : "目标已结束"}</button>}
           {snapshot.provider === "codebuddy" && snapshot.codeBuddyGoal?.active && <button type="button" className="codex-app-server-goal-chip"
@@ -1701,10 +1747,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
           {mainAgent && <button type="button" className="codex-app-server-goal-chip" disabled={mainAgentPending} onClick={() => openSelection("mainAgent")} title={mainAgent.sessionBlank ? "选择主 Agent" : "新建对话后可切换主 Agent"}>主 Agent：{mainAgentLabel}{!mainAgent.sessionBlank && !mainAgent.error ? " · 已锁定" : ""}</button>}
           <span className="codex-app-server-shortcuts">Enter 发送 · Shift+Enter 换行{snapshot.provider === "codebuddy" ? " · Shift+Tab 切换 Plan / Full Access" : snapshot.provider === "opencode" ? " · Shift+Tab 切换 Build / Plan" : ""}</span>
           <div className="codex-app-server-input-primary">
-            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId)} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
+            <button type="button" className="codex-app-server-icon-button" title="新对话" aria-label="新对话" disabled={Boolean(snapshot.permissionError || snapshot.changingPermission || changingPermission) || sandboxSettingUp || !snapshot.threadId || snapshot.busy || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId)} onClick={startNewConversation}><Plus aria-hidden="true" /></button>
             {canAskSideQuestion && <button type="button" className="codebuddy-side-trigger" aria-label="旁问" title="独立旁问 /btw" disabled={!snapshot.threadId || mainAgentPending} onClick={() => openSideQuestion()}>旁问</button>}
             {snapshot.busy && <button type="button" className="codex-app-server-send" title="停止" aria-label="停止" onClick={() => void window.codexAppServerApi.interrupt(sessionId).catch(cause => setError(message(cause)))}><Square aria-hidden="true" /></button>}
-            {(!snapshot.busy || canSendWhileBusy || Boolean(btwMatch)) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={sandboxSettingUp || !snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId) || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
+            {(!snapshot.busy || canSendWhileBusy || Boolean(btwMatch)) && <button type="submit" className="codex-app-server-send" title="发送" aria-label="发送" disabled={Boolean(snapshot.permissionError || snapshot.changingPermission || changingPermission) || sandboxSettingUp || !snapshot.threadId || snapshot.account?.status === "signedOut" || snapshot.archived || mainAgentPending || sending || pastingImage || Boolean(forkingTurnId) || (!draft.trim() && attachments.length === 0)}><ArrowUp aria-hidden="true" /></button>}
           </div>
         </div>
       </div>
@@ -1796,6 +1842,33 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {pluginOpen && canManageCodeBuddyPlugins && <CodeBuddyPluginDialog key={sessionId} sessionId={sessionId} onClose={() => setPluginOpen(false)} />}
     {capabilityDetail && isCodex && <CodexCapabilityDetail key={`${sessionId}:${snapshot.threadId}:${capabilityDetail.kind}:${capabilityDetail.kind === "app" ? capabilityDetail.id : capabilityDetail.kind === "mcp" ? capabilityDetail.server.name : capabilityDetail.name}`}
       sessionId={sessionId} target={capabilityDetail} onClose={() => setCapabilityDetail(null)} />}
+    {configurationOpen && isCodex && <div className="modal-overlay codex-app-server-history-overlay" onClick={() => setConfigurationOpen(false)}>
+      <div className="modal-dialog codex-app-server-history-dialog" style={{ overflowY: "auto", padding: 20 }} role="dialog" aria-modal="true" aria-label="配置与权限" onKeyDown={event => {
+          if (event.key === "Escape") { event.stopPropagation(); setConfigurationOpen(false); menuButtonRef.current?.focus(); return; }
+          if (event.key !== "Tab") return;
+          const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), summary, [tabindex="0"]')];
+          if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus(); }
+          else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0]?.focus(); }
+        }} onClick={event => event.stopPropagation()}>
+        <div className="codex-app-server-history-header"><strong>配置与权限</strong><button type="button" autoFocus aria-label="关闭配置与权限" onClick={() => setConfigurationOpen(false)}><X /></button></div>
+        <CodexConfigurationPanel sessionKey={`${sessionId}:${snapshot.threadId || ""}`} locked={snapshot.account?.status === "signedOut" || snapshot.busy || sending || Boolean(snapshot.changingPermission || snapshot.archived || snapshot.compacting || snapshot.reviewing || snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length || snapshot.elicitations?.length || sandboxSettingUp)}
+          read={() => window.codexAppServerApi.readConfiguration(sessionId)}
+          selectProfile={async profileId => {
+            const expectedThread = snapshot.threadId; const expectedSession = sessionId;
+            changingPermissionRef.current = true; setChangingPermission(true);
+            try { const result = await window.codexAppServerApi.setPermissionProfile(sessionId, profileId);
+              if (currentSessionRef.current === expectedSession && timelineRef.current?.threadId === expectedThread) setSnapshot(result);
+              return result;
+            } finally { if (currentSessionRef.current === expectedSession) { changingPermissionRef.current = false; setChangingPermission(false); } }
+          }}
+          selectLegacy={async permission => {
+            const expectedSession = sessionId; changingPermissionRef.current = true; setChangingPermission(true);
+            try { const result = await window.codexAppServerApi.setExecutionPermission(sessionId, permission);
+              if (currentSessionRef.current === expectedSession) setSnapshot(result); return result;
+            } finally { if (currentSessionRef.current === expectedSession) { changingPermissionRef.current = false; setChangingPermission(false); } }
+          }} />
+      </div>
+    </div>}
     {sandboxSetupOpen && isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <CodexWindowsSandboxDialog
       key={sessionId} sessionId={sessionId} setup={snapshot.windowsSandboxSetup} disabled={snapshot.busy || sending || pastingImage}
       onClose={() => setSandboxSetupOpen(false)} />}

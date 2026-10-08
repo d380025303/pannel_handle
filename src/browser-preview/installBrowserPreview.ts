@@ -183,6 +183,7 @@ function createRouterState(modelId: string): { config: OpenRouterConfig; models:
 export function installBrowserPreview() {
   let sessions: TerminalSession[] = [];
   let previewExecutionPermission: CodexExecutionPermission = "askApproval";
+  let previewSkillEnabled = true;
   let library = copy(savedSessions);
   let config = copy(initialConfig);
   let transfers = copy(initialTransfers);
@@ -436,16 +437,19 @@ export function installBrowserPreview() {
     agentConversationApi: {
       setActiveSession: () => undefined,
       getSnapshot: async () => ({ activeSessionId: sessions[0]?.id || null, turn: sessions[0] ? { sessionId: sessions[0].id, sessionTitle: sessions[0].title, provider: "codex", status: "running", supported: true, messages: [{ id: "preview-message-1", provider: "codex", kind: "user", text: "请检查浏览器预览界面。", timestamp: now - 30_000 }, { id: "preview-message-2", provider: "codex", kind: "commentary", text: "正在核对布局和交互状态。", timestamp: now - 20_000 }] } : null }),
-      listHistory: async () => ({ items: [{ ref: "preview-conversation", provider: "codex", title: "浏览器预览验证", preview: "检查布局和交互状态", cwd: "C:\\workspace\\pannel-handle", createdAt: now - 86_400_000, updatedAt: now, archived: false }], nextCursor: null, errors: [] }),
+      listHistory: async ({ source }) => ({ items: [{ ref: source === "archive" ? "archive:00000000-0000-0000-0000-000000000001" : "preview-conversation", provider: "codex", title: "浏览器预览验证", preview: "检查布局和交互状态", cwd: "C:\\workspace\\pannel-handle", createdAt: now - 86_400_000, updatedAt: now, archived: false }], nextCursor: null, errors: [] }),
       getHistoryMessages: async ({ conversationRef }) => ({ conversationRef, messages: [{ id: "preview-history-message", provider: "codex", kind: "final", text: "预览数据加载完成。", timestamp: now }], nextCursor: null }),
       openExternal: async () => ({ ok: true }),
       onSnapshot: () => () => undefined
     } satisfies Window["agentConversationApi"],
     codexAppServerApi: {
+      readConfiguration: async () => ({ config: { status: "ready" as const, data: { values: { model: "preview-model", features: {} }, layers: [] } }, requirements: { status: "ready" as const, data: null }, profiles: { status: "ready" as const, data: [] }, legacy: [], cwd: "预览工作区", runtime: { executionPermission: "askApproval" as const, permissionProfileId: null, mode: "default" } }),
+      setPermissionProfile: async (_id: string, profileId: string) => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, permissionProfileId: profileId, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+
       setSubAgentView: async () => undefined,
       refreshSubAgents: async () => undefined,
       setupWindowsSandbox: async () => { throw new Error("浏览器预览不支持 Windows 沙箱初始化。"); },
-      snapshot: async () => ({ threadId: "preview-thread", mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
+      snapshot: async () => ({ threadId: "preview-thread", model: "preview-model", models: [{ id: "preview-model", displayName: "Preview", inputModalities: ["text", "image"], fastAvailable: false, defaultReasoningEffort: null, supportedReasoningEfforts: [] }], mode: "default", executionPermission: previewExecutionPermission, busy: false, error: null, pendingPlan: null, items: [], approvals: [] }),
       listModelMetadata: async () => [],
       readAccount: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: null, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
       startLogin: async () => ({ status: "signedOut", requiresOpenaiAuth: true, account: null, login: { type: "chatgpt", loginId: "preview", url: "https://example.com" }, rateLimits: null, usage: null, rateLimitsError: null, usageError: null, error: null }),
@@ -457,7 +461,11 @@ export function installBrowserPreview() {
       revertThread: async () => { throw new Error("预览模式不支持 OpenCode 回退。"); },
       restoreThread: async () => { throw new Error("预览模式不支持 OpenCode 恢复。"); },
       rewind: async () => { throw new Error("预览模式不支持 CodeBuddy 回退。"); },
-      listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: true, scope: "user" }],
+      setSkillEnabled: async (_id, path, enabled) => {
+        if (path !== "C:/preview/skills/ui-review/SKILL.md" || typeof enabled !== "boolean") throw new Error("无效的技能设置。");
+        previewSkillEnabled = enabled;
+      },
+      listCapabilities: async () => ({ skills: [{ name: "ui-review", path: "C:/preview/skills/ui-review/SKILL.md", description: "检查界面", enabled: previewSkillEnabled, scope: "user" }],
         apps: [{ id: "github", name: "GitHub", description: "代码托管", accessible: true, enabled: true, callable: true }],
         mcp: [{ name: "filesystem", status: "connected", authStatus: "unsupported", toolsError: null,
           resources: [], resourceTemplates: [], tools: [{ name: "read_file", description: "读取文件" }] }], errors: {} }),

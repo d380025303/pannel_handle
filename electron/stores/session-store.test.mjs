@@ -845,3 +845,18 @@ it("does not apply warning suppression when persistence fails", () => {
   expect(() => store.ignoreCodexConfigWarning("a", "warning")).toThrow("disk unavailable");
   expect(store.getTemplate("a").ignoredCodexConfigWarnings).toEqual([]);
 });
+
+
+it("persists named Codex permission profiles and clears them when choosing legacy permissions", () => {
+  const file = createTempSessionsFile();
+  const store = createStore(file);
+  store.loadLibrary();
+  store.addToLibrary({ id: "profile-template", type: "windows", cwd: "C:\\project", agentProvider: "codex" });
+  const id = store.getLibrary()[0].id;
+  store.setCodexPermissionProfile(id, "project");
+  const reopened = createStore(file); reopened.loadLibrary();
+  expect(reopened.getTemplate(id).codexPermissionProfileId).toBe("project");
+  expect(reopened.normalizeTemplate({ type: "windows", agentProvider: "other", codexPermissionProfileId: "project" }).codexPermissionProfileId).toBeUndefined();
+  reopened.setCodexExecutionPermission(id, "readOnly");
+  expect(reopened.getTemplate(id).codexPermissionProfileId).toBeUndefined();
+});

@@ -2,7 +2,7 @@
 function createMobileCodexHandlers({ graphicalService: service, codexPluginService: plugins, codexVersionService: version,
   projectSearchService: search, agentSessionLauncher: launcher, mcpConfigService: mcp, getCodexVerifiedModels }) {
   const commands = new Set(["version", "version-update", "models", "model-source", "fast-mode", "compact", "review", "goal.read", "goal.set", "goal.clear",
-    "capabilities", "app-detail", "plugin-detail", "plugin-skill", "mcp-resource", "mcp-login", "mcp-reload",
+    "configuration", "permission-profile", "permission-legacy", "capabilities", "skill-enable", "app-detail", "plugin-detail", "plugin-skill", "mcp-resource", "mcp-login", "mcp-reload",
     "terminals", "terminal-stop", "terminals-clean", "account.read", "account.login", "account.cancel", "account.logout",
     "history.rename", "history.pin", "history.archive", "history.unarchive", "history.fork", "history.initial",
     "fork-turn", "attachment-preview", "workspace-search", "subagents", "subagent-view", "sandbox", "elicitation",
@@ -25,6 +25,9 @@ function createMobileCodexHandlers({ graphicalService: service, codexPluginServi
     const configRequest = () => ({ provider: "codex", scope: scope(), sessionId: id,
       projectPath: service.getWorkspaceCwd(id) });
     switch (command) {
+      case "configuration": return service.readConfiguration(id);
+      case "permission-profile": return service.setPermissionProfile(id, text(p.profileId, 512));
+      case "permission-legacy": return service.setExecutionPermission(id, text(p.permission, 512));
       case "version": return version.check(id, p.force === true);
       case "version-update": idle(); return version.update(id);
       case "models": return session.type === "ssh" ? [] : getCodexVerifiedModels?.() || [];
@@ -56,6 +59,7 @@ function createMobileCodexHandlers({ graphicalService: service, codexPluginServi
       }
       case "goal.clear": return service.clearGoal(id);
       case "capabilities": return service.listCapabilities(id, p.refresh === true);
+      case "skill-enable": idle(); return service.setSkillEnabled(id, text(p.path), bool(p.enabled));
       case "app-detail": return service.readAppDetail(id, text(p.appId, 512));
       case "plugin-detail": return service.readPluginDetail(id, text(p.plugin, 512), text(p.marketplace, 512));
       case "plugin-skill": return service.readPluginSkill(id, text(p.plugin, 512), text(p.marketplace, 512), text(p.skill, 512));

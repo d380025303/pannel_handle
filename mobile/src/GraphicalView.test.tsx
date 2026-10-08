@@ -719,7 +719,7 @@ it("opens history and starts a new conversation from the single menu", () => {
   expect(within(menu).getByRole("group", { name: "会话模式" })).toBeTruthy();
   expect(within(menu).getByRole("button", { name: /历史记录/ }).querySelector("svg[aria-hidden='true']")).toBeTruthy();
   expect(within(menu).getAllByRole("button").map(button => button.textContent?.trim()))
-    .toEqual(["", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "Codex 版本", "Skills、Apps 和 MCP", "插件管理", "目标管理", "代码审查", "后台终端", "Codex 账号", "工作区文件", "MCP 配置", "压缩对话", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话"]);
+    .toEqual(["", "Plan", "Exec", "执行权限未提供", "切换模型未提供", "配置与权限", "Codex 版本", "Skills、Apps 和 MCP", "插件管理", "目标管理", "代码审查", "后台终端", "Codex 账号", "工作区文件", "MCP 配置", "压缩对话", "切换 AgentCodex", "历史记录查看并恢复对话", "新对话"]);
   expect(within(menu).getByLabelText("添加文件").closest("label")?.textContent).toBe("添加文件0/10");
   fireEvent.click(within(menu).getByRole("button", { name: /历史记录/ }));
   expect(screen.getByRole("dialog", { name: "历史对话" })).toBeTruthy();
@@ -996,6 +996,69 @@ it("loads Skills and sends a structured capability reference with the draft", as
   expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", references: [{ kind: "skill", name: "example", path: "/work/SKILL.md", token: "$example" }] }));
 });
 
+it("toggles Codex skills, prevents duplicate writes and refreshes the actual state", async () => {
+  const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
+  const caps = (enabled: boolean) => ({ skills: [{ name: "example", path: "/work/SKILL.md", description: "test", enabled, scope: "project" }], apps: [], mcp: [], errors: {} });
+  const reply = (type: string, result: unknown, error?: string) => {
+    const request = f.send.mock.calls.map(([value]) => value).filter(value => value.type === type).at(-1)! as { requestId: string };
+    if (error) f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: request.requestId, code: "COMMAND_FAILED", message: error });
+    else f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: snapshot.threadId, requestId: request.requestId, result });
+  };
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "保留草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" })); fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+  reply("graphical.codex.capabilities", caps(true));
+  const disable = await screen.findByRole("button", { name: "禁用技能 example" });
+  fireEvent.click(disable); fireEvent.click(disable);
+  expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.skill-enable")).toHaveLength(1);
+  expect(f.send).toHaveBeenLastCalledWith(expect.objectContaining({ type: "graphical.codex.skill-enable", input: { path: "/work/SKILL.md", enabled: false } }));
+  reply("graphical.codex.skill-enable", undefined);
+  await waitFor(() => expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.capabilities")).toHaveLength(2));
+  reply("graphical.codex.capabilities", caps(false));
+  const enable = await screen.findByRole("button", { name: "启用技能 example" });
+  expect((screen.getByRole("button", { name: "example · 已停用" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("保留草稿");
+  fireEvent.click(enable); reply("graphical.codex.skill-enable", undefined);
+  await waitFor(() => expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.capabilities")).toHaveLength(3));
+  reply("graphical.codex.capabilities", caps(true));
+  await screen.findByRole("button", { name: "禁用技能 example" });
+});
+
+it("preserves skill state on write failure and ignores a late write after switching threads", async () => {
+  const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" })); fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+  const reply = (type: string, result: unknown, error?: string) => {
+    const request = f.send.mock.calls.map(([value]) => value).filter(value => value.type === type).at(-1)! as { requestId: string };
+    if (error) f.emit({ v: PROTOCOL_VERSION, type: "error", requestId: request.requestId, code: "COMMAND_FAILED", message: error });
+    else f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: snapshot.threadId, requestId: request.requestId, result });
+  };
+  reply("graphical.codex.capabilities", { skills: [{ name: "example", path: "/work/SKILL.md", enabled: true, description: "test", scope: "project" }], apps: [], mcp: [], errors: {} });
+  fireEvent.click(await screen.findByRole("button", { name: "禁用技能 example" }));
+  reply("graphical.codex.skill-enable", undefined, "保存失败");
+  await screen.findByText("保存失败");
+  fireEvent.click(screen.getByRole("button", { name: "禁用技能 example" }));
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, threadId: "new" } });
+  reply("graphical.codex.skill-enable", undefined);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "禁用技能 example" })).toBeNull());
+  expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.capabilities")).toHaveLength(1);
+});
+
+it("reports a saved skill setting separately from a failed refresh", async () => {
+  const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
+  const reply = (type: string, result: unknown) => {
+    const request = f.send.mock.calls.map(([value]) => value).filter(value => value.type === type).at(-1)! as { requestId: string };
+    f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: snapshot.threadId, requestId: request.requestId, result });
+  };
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" })); fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
+  reply("graphical.codex.capabilities", { skills: [{ name: "example", path: "/work/SKILL.md", enabled: true, description: "test", scope: "project" }], apps: [], mcp: [], errors: {} });
+  fireEvent.click(await screen.findByRole("button", { name: "禁用技能 example" }));
+  reply("graphical.codex.skill-enable", undefined);
+  await waitFor(() => expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.capabilities")).toHaveLength(2));
+  reply("graphical.codex.capabilities", { skills: [], apps: [], mcp: [], errors: { skills: "读取失败" } });
+  await screen.findByText("已保存，刷新失败：读取失败");
+  fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+  expect(f.send.mock.calls.filter(([value]) => value.type === "graphical.codex.skill-enable")).toHaveLength(1);
+});
+
 it("ignores a late capabilities response after the conversation changes", async () => {
   const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
   fireEvent.click(screen.getByRole("button", { name: "更多操作" })); fireEvent.click(screen.getByRole("button", { name: "Skills、Apps 和 MCP" }));
@@ -1045,6 +1108,71 @@ it("opens Apps from the slash picker without sending the command as a message", 
   expect(f.send.mock.calls.some(([value]) => value.type === "graphical.submit")).toBe(false);
 });
 
+
+it.each([
+  { capabilities: null, type: "boolean", option: true },
+  { capabilities: {}, type: "boolean", option: true },
+  { capabilities: { multitask: false }, type: "boolean", option: true },
+  { capabilities: { multitask: true }, type: "select", option: true },
+  { capabilities: { multitask: true }, type: undefined, option: true },
+  { capabilities: { multitask: true }, type: "boolean", option: false }
+])("hides unsupported mobile Multitask controls: %j", ({ capabilities, type, option }) => {
+  const f = fixture({ ...session, agentProvider: "codebuddy" });
+  const buddy: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", codeBuddyMobile: true, capabilities,
+    acpOptions: option ? [{ id: "multitask", type, currentValue: true, options: [] }] : [] };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: buddy });
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "/multitask" } });
+  expect(screen.queryByRole("option", { name: /multitask/i })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: /会话配置/ }));
+  expect(screen.queryByRole("checkbox", { name: "Multitask" })).toBeNull();
+});
+
+it.each([true, false, "true"])("uses strict boolean mobile Multitask state: %j", currentValue => {
+  const f = fixture({ ...session, agentProvider: "codebuddy" });
+  const buddy: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", codeBuddyMobile: true, capabilities: { multitask: true },
+    acpOptions: [{ id: "multitask", type: "boolean", currentValue, options: [] }] };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: buddy });
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "/multitask" } });
+  fireEvent.click(screen.getByRole("option", { name: /multitask/i }));
+  const checkbox = screen.getByRole("checkbox", { name: "Multitask" }) as HTMLInputElement;
+  expect(checkbox.checked).toBe(currentValue === true);
+  fireEvent.click(checkbox);
+  expect(checkbox.disabled).toBe(true);
+  expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codebuddy.multitask", input: { enabled: currentValue !== true } }));
+});
+
+it("updates mobile Multitask availability and disables it during a turn", () => {
+  const f = fixture({ ...session, agentProvider: "codebuddy" });
+  const buddy: GraphicalSnapshot = { ...snapshot, provider: "codebuddy", codeBuddyMobile: true, capabilities: { multitask: true },
+    acpOptions: [{ id: "multitask", type: "boolean", currentValue: false, options: [] }] };
+  const emit = (value: GraphicalSnapshot) => f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: value });
+  emit(buddy);
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: /会话配置/ }));
+  emit({ ...buddy, busy: true });
+  const checkbox = screen.getByRole("checkbox", { name: "Multitask" }) as HTMLInputElement;
+  expect(checkbox.disabled).toBe(true);
+  checkbox.click();
+  expect(f.send.mock.calls.some(([message]) => message.type === "graphical.codebuddy.multitask")).toBe(false);
+  emit({ ...buddy, capabilities: { multitask: false } });
+  expect(screen.queryByRole("checkbox", { name: "Multitask" })).toBeNull();
+  emit(buddy);
+  expect((screen.getByRole("checkbox", { name: "Multitask" }) as HTMLInputElement).disabled).toBe(false);
+});
+
+it("keeps CLI advertised Multitask commands as drafts when the local control is unavailable", () => {
+  const f = fixture({ ...session, agentProvider: "codebuddy" });
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: {
+    ...snapshot, provider: "codebuddy", codeBuddyMobile: true, capabilities: { multitask: false },
+    availableCommands: [{ name: "multitask", description: "CLI command" }]
+  } });
+  const input = screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "/multitask" } });
+  fireEvent.click(screen.getByRole("option", { name: /multitask/i }));
+  expect(input.value).toBe("/multitask ");
+  expect(screen.queryByRole("dialog", { name: "CodeBuddy 会话配置" })).toBeNull();
+});
 
 it("offers complete CodeBuddy menus and leaves unsupported hosts compatible", () => {
   const { emit, send } = fixture({ ...session, agentProvider: "codebuddy" });
@@ -1101,7 +1229,7 @@ it("loads CodeBuddy verified service models and confirms a source restart", asyn
   const requests = send.mock.calls.map(([message]) => message);
   for (const request of requests.filter(message => message.type === "graphical.codebuddy.models" || message.type === "graphical.codebuddy.model-metadata")) {
     if (!("requestId" in request)) continue;
-    emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: request.requestId!, result: request.type === "graphical.codebuddy.models" ? [{ source: "minimax", id: "verified", name: "Verified Model" }] : [] });
+    emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: ("requestId" in request ? request.requestId : undefined)!, result: request.type === "graphical.codebuddy.models" ? [{ source: "minimax", id: "verified", name: "Verified Model" }] : [] });
   }
   await waitFor(() => expect(screen.getByRole("button", { name: "minimax · Verified Model" })).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: "minimax · Verified Model" }));
@@ -1233,4 +1361,86 @@ it("disables OpenCode mutations while waiting for a Question", () => {
   expect(screen.getByRole("button", { name: "Build" }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
   expect(within(screen.getByRole("dialog")).getByRole("button", { name: /登录 OpenCode/ }).hasAttribute("disabled")).toBe(true);
+});
+
+
+it("reads Codex configuration and selects named permissions through mobile commands", async () => {
+  const f = fixture();
+  const state = { ...snapshot, executionPermission: "askApproval", permissionProfileId: null };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: state });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(screen.getByRole("button", { name: "配置与权限" }));
+  const request = f.send.mock.calls.map(([m]) => m).find(m => m.type === "graphical.codex.configuration")! as Extract<ClientMessage, { type: `graphical.codex.${string}` }>;
+  expect(request).toMatchObject({ threadId: "thread-1", sessionId: session.id });
+  const result = { cwd: "/remote", config: { status: "ready", data: { values: { model: "test" }, layers: [] } },
+    requirements: { status: "ready", data: null }, profiles: { status: "ready", data: [{ id: "project", allowed: true, reason: null }, { id: "denied", allowed: false, reason: "管理员禁止" }] },
+    legacy: [{ id: "askApproval", allowed: true, reason: null }], runtime: { mode: "default", executionPermission: "askApproval", permissionProfileId: null } };
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: ("requestId" in request ? request.requestId : undefined)!, result });
+  await screen.findByText("工作区：/remote");
+  expect((screen.getByRole("button", { name: "denied" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "project" }));
+  await waitFor(() => expect(f.send.mock.calls.map(([m]) => m).some(m => m.type === "graphical.codex.permission-profile")).toBe(true));
+  const select = f.send.mock.calls.map(([m]) => m).find(m => m.type === "graphical.codex.permission-profile")! as Extract<ClientMessage, { type: `graphical.codex.${string}` }>;
+  expect(select).toMatchObject({ input: { profileId: "project" } });
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: ("requestId" in select ? select.requestId : undefined)!, result: {} });
+  await waitFor(() => expect(f.send.mock.calls.map(([m]) => m).filter(m => m.type === "graphical.codex.configuration")).toHaveLength(2));
+  const refresh = f.send.mock.calls.map(([m]) => m).filter(m => m.type === "graphical.codex.configuration").at(-1)! as Extract<ClientMessage, { type: `graphical.codex.${string}` }>;
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.result", sessionId: session.id, threadId: "thread-1", requestId: ("requestId" in refresh ? refresh.requestId : undefined)!, result: { ...result, runtime: { ...result.runtime, permissionProfileId: "project" } } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "project" }).getAttribute("aria-pressed")).toBe("true"));
+});
+
+it("exposes configuration recovery when a saved profile prevents creating a thread", async () => {
+  const f = fixture();
+  f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, threadId: null, permissionError: "权限档已失效" } });
+  expect(screen.getByRole("alert").textContent).toContain("权限档已失效");
+  fireEvent.click(screen.getByRole("button", { name: "配置与权限" }));
+  expect(f.send.mock.calls.map(([m]) => m).find(m => m.type === "graphical.codex.configuration")).toMatchObject({ threadId: null });
+});
+
+
+it("rejects phone images before upload while allowing ordinary files for a text-only model", async () => {
+  const { send, emit } = fixture();
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, model: "text", models: [{ id: "text", displayName: "Text", inputModalities: ["text"] }] } });
+  expect(screen.getByText("当前模型不支持图片输入")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  const picker = within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件") as HTMLInputElement;
+  fireEvent.change(picker, { target: { files: [new File(["image"], "photo.bmp"), new File(["hello"], "notes.txt")] } });
+  const prepares = send.mock.calls.map(([message]) => message).filter(message => message.type === "graphical.upload.prepare");
+  expect(prepares).toHaveLength(1);
+  expect(prepares[0]).toMatchObject({ name: "notes.txt" });
+  expect(screen.queryByText(/photo.bmp/)).toBeNull();
+});
+
+
+it("preserves the phone draft and uploaded image when model capabilities change", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+  const { send, emit } = fixture();
+  const update = (inputModalities: string[]) => emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id,
+    snapshot: { ...snapshot, model: "m", models: [{ id: "m", displayName: "M", inputModalities }] } });
+  update(["text", "image"]);
+  fireEvent.change(screen.getByRole("textbox", { name: "图形对话输入" }), { target: { value: "保留草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.change(within(screen.getByRole("dialog", { name: "更多操作" })).getByLabelText("添加文件"),
+    { target: { files: [new File(["image"], "photo.png", { type: "image/png" })] } });
+  const prepare = send.mock.calls.map(([m]) => m).find(m => m.type === "graphical.upload.prepare")!;
+  emit({ v: PROTOCOL_VERSION, type: "graphical.upload.ready", requestId: ("requestId" in prepare ? prepare.requestId : undefined)!, fileId: "image-1", url: "/upload" });
+  await screen.findByText(/photo.png · 已上传/);
+  update(["text"]);
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(send.mock.calls.some(([m]) => m.type === "graphical.submit")).toBe(false);
+  expect((screen.getByRole("textbox", { name: "图形对话输入" }) as HTMLTextAreaElement).value).toBe("保留草稿");
+  expect(screen.getByText(/photo.png · 已上传/)).toBeTruthy();
+});
+
+
+it.each([true, false])("reviews idle CodeBuddy worker plans on mobile: execute=%s", execute => {
+  const { send, emit } = fixture({ ...session, agentProvider: "codebuddy" });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1", snapshot: {
+    ...snapshot, provider: "codebuddy", mode: "default", nativeMode: "default", busy: false,
+    pendingPlan: { itemId: "worker-plan" }, items: [{ id: "worker-plan", type: "plan", text: "# Worker plan" }]
+  } });
+  expect(screen.getByText("# Worker plan")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: execute ? "执行计划" : "继续修改" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.plan", itemId: "worker-plan", execute }));
 });

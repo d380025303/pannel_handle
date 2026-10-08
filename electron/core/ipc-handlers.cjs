@@ -58,6 +58,8 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:account-cancel", (_event, id) => codexAppServerSessionService.cancelLogin(String(id || "")));
     ipcMain.handle("codex-app-server:account-logout", (_event, id) => codexAppServerSessionService.logout(String(id || "")));
     ipcMain.handle("codex-app-server:account-usage", (_event, id) => codexAppServerSessionService.refreshAccountUsage(String(id || "")));
+    ipcMain.handle("codex-app-server:configuration", (_event, id) => codexAppServerSessionService.readConfiguration(String(id || "")));
+    ipcMain.handle("codex-app-server:permission-profile", (_event, id, profileId) => codexAppServerSessionService.setPermissionProfile(String(id || ""), profileId));
     ipcMain.handle("codex-app-server:history", (_event, id, cursor, archived, isPinned) => codexAppServerSessionService.listHistory(String(id || ""), cursor, archived, isPinned));
     ipcMain.handle("codex-app-server:initial-user-input", (_event, id, threadId) => codexAppServerSessionService.readInitialUserInput(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:revert-thread", (_event, id, messageId) => codexAppServerSessionService.revertThread(String(id || ""), messageId));
@@ -71,6 +73,7 @@ function registerIpcHandlers({ environmentService, ipcMain = defaultIpcMain, ter
     ipcMain.handle("codex-app-server:archive-thread", (_event, id, threadId) => codexAppServerSessionService.archiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:unarchive-thread", (_event, id, threadId) => codexAppServerSessionService.unarchiveThread(String(id || ""), threadId));
     ipcMain.handle("codex-app-server:capabilities", (_event, id, refresh) => codexAppServerSessionService.listCapabilities(String(id || ""), refresh === true));
+    ipcMain.handle("codex-app-server:skill-enable", (_event, id, path, enabled) => codexAppServerSessionService.setSkillEnabled(String(id || ""), path, enabled));
     ipcMain.handle("codex-app-server:plugin-detail", (_event, id, plugin, marketplace) => codexAppServerSessionService.readPluginDetail(String(id || ""), plugin, marketplace));
     ipcMain.handle("codex-app-server:plugin-skill", (_event, id, plugin, marketplace, skill) => codexAppServerSessionService.readPluginSkill(String(id || ""), plugin, marketplace, skill));
     ipcMain.handle("codex-app-server:app-detail", (_event, id, appId) => codexAppServerSessionService.readAppDetail(String(id || ""), appId));

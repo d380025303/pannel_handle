@@ -1248,3 +1248,107 @@ describe("CodeBuddy ACP sessions", () => {
     service.shutdown();
   });
 });
+
+
+describe("detached worker plan review", () => {
+  async function fixture() {
+    const messages = [];
+    let push;
+    const child = fakeChild((message, emit) => {
+      messages.push(message); push = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: {} } });
+      else if (message.method === "session/new") emit({ id: message.id, result: { sessionId: "thread",
+        modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }, { id: "bypassPermissions" }] } } });
+      else if (message.method === "session/prompt") emit({ id: message.id, result: { stopReason: "end_turn" } });
+    });
+    const service = createCodeBuddyAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child });
+    await service.start({ id: "one", type: "windows", cwd: "C:\\work" });
+    await service.submit("one", "dispatch workers");
+    const plan = (id, changes = {}) => push({ id, method: "session/request_permission", params: {
+      sessionId: "thread", toolCall: { toolCallId: `worker-${id}`, _meta: {
+        "codebuddy.ai/toolName": "ExitPlanMode", "codebuddy.ai/plan": `Plan ${id}` } },
+      options: [{ kind: "allow_once", optionId: "execute" }, { kind: "reject_once", optionId: "revise" }], ...changes } });
+    const update = update => push({ method: "session/update", params: { sessionId: "thread", update } });
+    return { service, messages, child, plan, update };
+  }
+
+  it.each([true, false])("reviews idle worker plans and responds once: execute=%s", async execute => {
+    const f = await fixture();
+    try {
+      f.plan(501);
+      expect(f.service.snapshot("one")).toMatchObject({ busy: false, mode: "default", error: null,
+        pendingPlan: { itemId: "codebuddy-plan:501" } });
+      expect(f.service.snapshot("one").items.at(-1)).toMatchObject({ type: "plan", text: "Plan 501" });
+      if (execute) await f.service.executePlan("one", "codebuddy-plan:501");
+      else f.service.dismissPlan("one", "codebuddy-plan:501");
+      expect(f.messages.find(message => message.id === 501).result).toEqual({ outcome: {
+        outcome: "selected", optionId: execute ? "execute" : "revise" } });
+      await expect(f.service.executePlan("one", "codebuddy-plan:501")).rejects.toThrow("已失效");
+      expect(() => f.service.dismissPlan("one", "codebuddy-plan:501")).toThrow("已失效");
+      await f.service.submit("one", "next parent turn");
+      f.update({ sessionUpdate: "current_mode_update", currentModeId: "default" });
+      await Promise.resolve();
+      expect(f.messages.some(message => message.method === "session/set_mode")).toBe(false);
+      expect(f.messages.filter(message => message.id === 501)).toHaveLength(1);
+      expect(f.service.snapshot("one")).toMatchObject({ nativeMode: "default", executionPermission: "askApproval" });
+    } finally { f.service.shutdown(); }
+  });
+
+  it("preserves and queues plans across background summaries without replacing duplicate requests", async () => {
+    const f = await fixture();
+    try {
+      f.plan(501); f.plan(502); f.plan(501);
+      const meta = { "codebuddy.ai/requestId": "drain" };
+      f.update({ sessionUpdate: "session_info_update", _meta: { ...meta,
+        "codebuddy.ai/unsolicitedTurn": { requestId: "drain", reason: "background_drain" } } });
+      f.update({ sessionUpdate: "session_end", _meta: meta });
+      expect(f.service.snapshot("one")).toMatchObject({ busy: false, pendingPlan: { itemId: "codebuddy-plan:501" } });
+      expect(f.service.snapshot("one").items.filter(item => item.type === "plan")).toHaveLength(2);
+      await f.service.executePlan("one", "codebuddy-plan:501");
+      expect(f.service.snapshot("one").pendingPlan).toEqual({ itemId: "codebuddy-plan:502" });
+      expect(f.messages.some(message => message.id === 502)).toBe(false);
+      await expect(f.service.executePlan("one", "codebuddy-plan:501")).rejects.toThrow("已失效");
+      f.service.dismissPlan("one", "codebuddy-plan:502");
+      expect(f.service.snapshot("one").pendingPlan).toBeNull();
+      expect(f.messages.find(message => message.id === 502).result.outcome.optionId).toBe("revise");
+    } finally { f.service.shutdown(); }
+  });
+
+  it.each([
+    { sessionId: "other" },
+    { toolCall: { _meta: { "codebuddy.ai/toolName": "ExitPlanMode", "codebuddy.ai/plan": "  " } } },
+    { options: [{ kind: "reject_once", optionId: "revise" }] }
+  ])("rejects invalid worker plan requests: %j", async changes => {
+    const f = await fixture();
+    try {
+      f.plan(501, changes);
+      expect(f.service.snapshot("one").pendingPlan).toBeNull();
+      expect(f.messages.find(message => message.id === 501).result).toEqual({ outcome: { outcome: "cancelled" } });
+    } finally { f.service.shutdown(); }
+  });
+
+  it("blocks conversation switching while plans wait and invalidates them on close", async () => {
+    const f = await fixture();
+    try {
+      f.plan(501); f.plan(502);
+      await expect(f.service.newThread("one")).rejects.toThrow("尚未结束");
+      expect(f.service.snapshot("one").pendingPlan).toEqual({ itemId: "codebuddy-plan:501" });
+      f.service.close("one");
+      await expect(f.service.executePlan("one", "codebuddy-plan:501")).rejects.toThrow("不存在");
+      expect(() => f.service.dismissPlan("one", "codebuddy-plan:502")).toThrow("不存在");
+      expect(f.messages.some(message => message.id === 501 || message.id === 502)).toBe(false);
+    } finally { f.service.shutdown(); }
+  });
+
+  it("invalidates the full plan queue on a disconnected transport", async () => {
+    const f = await fixture();
+    try {
+      f.plan(501); f.plan(502);
+      f.child.emit("exit", 1);
+      expect(f.service.snapshot("one").pendingPlan).toBeNull();
+      await expect(f.service.executePlan("one", "codebuddy-plan:501")).rejects.toThrow("已失效");
+      expect(() => f.service.dismissPlan("one", "codebuddy-plan:502")).toThrow("已失效");
+    } finally { f.service.shutdown(); }
+  });
+});

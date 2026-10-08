@@ -923,6 +923,9 @@ describe("agent-session-launcher", () => {
     await mocks.launcher.createSession({ type: "windows", cwd: "C:\\work", agentProvider: "codebuddy", modelSource: "minimax", modelId: "MiniMax-M2", graphicalSessionEnabled: true });
     const runtime = codexAppServerSessionService.start.mock.calls[0][1];
     expect(runtime.runtimeEnv).toMatchObject({ CODEBUDDY_API_KEY: "private-key", CODEBUDDY_BASE_URL: launch.baseUrl, CODEBUDDY_MODEL: launch.model });
+    expect(JSON.parse(runtime.runtimeEnv.ACC_PRODUCT_CONFIG_V3).models).toContainEqual({
+      id: launch.model, name: launch.model, url: launch.baseUrl, tags: ["custom"]
+    });
     expect(mocks.terminalManager.createSession.mock.calls[0][0].runtimeInitialCommand).not.toContain("private-key");
   });
 

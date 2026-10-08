@@ -1,7 +1,9 @@
+import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../src/utils/codexImageInput";
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { CodexCapabilityReference } from "../../src/vite-env";
 import { createRequestId } from "./protocol";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
+import { codeBuddyMultitaskOption } from "./CodeBuddyOptions";
 import { canSwitchMode, modelOptions, openCodeEffortOption, openCodePlanReplyId, permissions } from "./GraphicalPresentation";
 import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type GraphicalSnapshot,
   type OpenCodeCommand, type CodeBuddyCommand, type CodexCommand, type GraphicalHistory, type QuickCommand, type RuntimeSession, type ServerMessage } from "./types";
@@ -19,7 +21,7 @@ export type GraphicalViewProps = {
   onSubmitRequest: (requestId: string) => void;
 };
 
-export type CodexSheet = "version" | "capabilities" | "plugins" | "goal" | "review" | "terminals" | "account" | "sandbox" | "workspace" | "mcp-config";
+export type CodexSheet = "configuration" | "version" | "capabilities" | "plugins" | "goal" | "review" | "terminals" | "account" | "sandbox" | "workspace" | "mcp-config";
 export type CodeBuddySheet = "buddy-goal" | "buddy-side" | "buddy-tasks" | "buddy-jobs" | "buddy-plugins" | "buddy-mcp" | "buddy-version" | "buddy-config";
 export type OpenCodeSheet = "opencode-capabilities" | "opencode-version" | "opencode-auth" | "opencode-revert";
 type ActionSheet = OpenCodeSheet | CodeBuddySheet | CodexSheet | "menu" | "agent" | "agent-confirm" | "model" | "effort" | "history" | "permission" | "native-mode" | null;
@@ -338,14 +340,14 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     if (provider === "codebuddy" && !current?.codeBuddyMobile) return Promise.reject(new Error("请更新桌面宿主后重试。"));
     if (!current || current.provider !== provider) return Promise.reject(new Error("图形会话不可用。"));
     if (provider === "codex" && rpcRef.current.size && !["models", "version", "capabilities", "workspace-search", "attachment-preview", "app-detail", "plugin-detail", "plugin-skill", "mcp-resource", "history.initial"].includes(command)) return Promise.reject(new Error("操作正在处理，请稍候。"));
-    const mutation = provider === "opencode" ? !["capabilities", "version", "attachment-preview", "auth-write", "auth-resize", "auth-cancel"].includes(command) : provider === "codebuddy" && !["version", "models", "model-metadata", "main-agents", "goal.read", "tasks", "jobs", "job-context", "job-history", "job-transcript", "plugins", "mcp-config", "mcp-runtime", "app-load", "app-read", "attachment-preview", "app-dispose", "side-cancel", "app-resolve"].includes(command);
+    const mutation = provider === "codex" ? ["permission-profile", "permission-legacy"].includes(command) : provider === "opencode" ? !["capabilities", "version", "attachment-preview", "auth-write", "auth-resize", "auth-cancel"].includes(command) : provider === "codebuddy" && !["version", "models", "model-metadata", "main-agents", "goal.read", "tasks", "jobs", "job-context", "job-history", "job-transcript", "plugins", "mcp-config", "mcp-runtime", "app-load", "app-read", "attachment-preview", "app-dispose", "side-cancel", "app-resolve"].includes(command);
     if (provider === "opencode" && mutation && (current.busy || current.pendingPlan || current.approvals.length || current.questions.length || isSending || attachmentsRef.current.length)) return Promise.reject(new Error("当前会话不可执行此操作。"));
     if (mutation && [...rpcRef.current.values()].some(value => value.mutation)) return Promise.reject(new Error("操作正在处理，请稍候。"));
     const requestId = createRequestId();
     if (provider === "codex" || mutation) setCodexPending(true); if (provider === "codex" || mutation) setError("");
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("请求超时，操作结果未确认，请刷新后核对。")); }, 120000);
-      rpcRef.current.set(requestId, { resolve: value => resolve(value as T), reject, timer, threadId: current.threadId, mutation, allowThreadChange: ["history.fork", "fast-mode", "model-source", "mcp-restart", "rewind", "reconnect", "auth-start", "revert", "restore"].includes(command) });
+      rpcRef.current.set(requestId, { resolve: value => resolve(value as T), reject, timer, threadId: current.threadId, mutation, allowThreadChange: ["permission-profile", "permission-legacy", "history.fork", "fast-mode", "model-source", "mcp-restart", "rewind", "reconnect", "auth-start", "revert", "restore"].includes(command) });
       if (!send({ v: PROTOCOL_VERSION, type: `graphical.${provider}.${command}`, sessionId: session.id, threadId: current.threadId, requestId, input } as ClientMessage)) {
         clearTimeout(timer); rpcRef.current.delete(requestId); setCodexPending(snapshotRef.current?.provider !== "codex" ? [...rpcRef.current.values()].some(value => value.mutation) : rpcRef.current.size > 0); reject(new Error("连接已断开，请重试。"));
       }
@@ -362,7 +364,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const slashCommands = snapshot?.provider === "opencode" ? [
     ["new", "新对话"], ["history", "历史会话"], ["mode", "模式"], ...(snapshot.acpOptions?.some(option => option.id === "model") ? [["model", "模型"]] : []), ...(openCodeEffortOption(snapshot) ? [["effort", "思考强度"]] : []), ["files", "附加文件"], ...(snapshot.availableCommands || []).map(command => [command.name, command.description || "OpenCode 命令"])
   ].filter((row, index, rows) => rows.findIndex(value => value[0] === row[0]) === index) : snapshot?.provider === "codebuddy" ? [
-    ["new", "新对话"], ["history", "历史会话"], ["mode", "模式"], ["model", "模型"], ...(snapshot.codeBuddyMobile ? [["mainAgent", "主 Agent"], ["multitask", "Multitask"], ["contextWindow", "上下文窗口"], ["goal", "目标管理"]] : []),
+    ["new", "新对话"], ["history", "历史会话"], ["mode", "模式"], ["model", "模型"], ...(snapshot.codeBuddyMobile ? [["mainAgent", "主 Agent"], ...(codeBuddyMultitaskOption(snapshot) ? [["multitask", "Multitask"]] : []), ["contextWindow", "上下文窗口"], ["goal", "目标管理"]] : []),
     ...(snapshot.capabilities?.sideQuestion ? [["btw", "独立旁问"]] : []),
     ...(session.type === "windows" && snapshot.codeBuddyMobile ? [["plugins", "插件管理"], ["codeBuddyJobs", "后台智能体"], ["tasks", "定时任务"], ["mcp", "MCP 管理"], ["version", "CLI 版本"]] : []),
     ...(snapshot.availableCommands || []).map(command => [command.name, command.description || "CodeBuddy 命令"])
@@ -384,7 +386,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       else if (command === "history") openHistory();
       else if (command === "model") setActiveSheet("model");
       else if (command === "mode") setActiveSheet("native-mode");
-      else if (["mainAgent", "multitask", "contextWindow"].includes(command)) setActiveSheet("buddy-config");
+      else if (["mainAgent", "contextWindow"].includes(command) || command === "multitask" && snapshot.codeBuddyMobile && codeBuddyMultitaskOption(snapshot)) setActiveSheet("buddy-config");
       else if (["goal", "btw", "plugins", "codeBuddyJobs", "tasks", "mcp", "version"].includes(command)) {
         const sheets: Record<string, CodeBuddySheet> = { goal: "buddy-goal", btw: "buddy-side", plugins: "buddy-plugins", codeBuddyJobs: "buddy-jobs", tasks: "buddy-tasks", mcp: "buddy-mcp", version: "buddy-version" };
         setActiveSheet(sheets[command]);
@@ -406,7 +408,11 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   const submit = () => {
     const text = draft.trim();
     if (!(snapshot?.provider === "opencode" && !["new", "history", "mode", "model", "effort", "files"].includes(text.slice(1))) && text.startsWith("/") && slashCommands.some(([id]) => id.toLowerCase() === text.slice(1).toLowerCase()) && invokeSlash(text.slice(1))) return;
+    if (!supportsCodexImageInput(snapshotRef.current) && attachments.some(item => isCodexImageFile(item.file.name))) {
+      setError(`${IMAGE_INPUT_UNSUPPORTED}，请先移除图片附件。`); return;
+    }
     const ready = attachments.filter(item => item.status === "ready" && item.fileId);
+    if (snapshot?.provider === "codex" && [...rpcRef.current.values()].some(value => value.mutation)) return;
     if ((!text && !ready.length) || attachments.some(item => item.status !== "ready") || !snapshot?.threadId || isSending || historyMutationRef.current || !graphicalInputPolicy(snapshot).canSubmit) return;
     submitIdRef.current = action({ type: "graphical.submit", text, fileIds: ready.map(item => item.fileId), references }) || null;
     if (submitIdRef.current) { onSubmitRequest(submitIdRef.current); setSending(true); }
@@ -443,6 +449,10 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
     if (effortIdRef.current) { setChangingEffort(true); setActiveSheet(null); }
   };
   const uploadFile = async (file: File, key: string) => {
+    if (!supportsCodexImageInput(snapshotRef.current) && isCodexImageFile(file.name)) {
+      setAttachments(current => current.map(item => item.key === key ? { ...item, status: "failed" } : item));
+      setError(IMAGE_INPUT_UNSUPPORTED); return;
+    }
     if (!snapshot?.threadId) return;
     const requestId = createRequestId();
     const prepared = new Promise<{ fileId: string; url: string }>((resolve, reject) => uploadRequests.current.set(requestId, { resolve, reject }));
@@ -459,6 +469,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
       const { fileId, url } = await prepared;
       uploadedId = fileId;
       pendingRef.current.delete(requestId);
+      if (!supportsCodexImageInput(snapshotRef.current) && isCodexImageFile(file.name)) throw new Error(IMAGE_INPUT_UNSUPPORTED);
       const response = await fetch(url, { method: "POST", body: file, cache: "no-store" });
       if (!response.ok) throw new Error("附件上传失败，请重试。");
       if (threadRef.current !== snapshot.threadId || cancelledUploads.current.has(key)) {
@@ -476,8 +487,11 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   };
   const addFiles = (files: FileList | null) => {
     if (!files) return;
-    const chosen = [...files].slice(0, Math.max(0, 10 - attachments.length));
-    if (chosen.length < files.length) setError("最多附加 10 个文件。");
+    const imagesAllowed = supportsCodexImageInput(snapshotRef.current);
+    const candidates = [...files].filter(file => imagesAllowed || !isCodexImageFile(file.name));
+    if (candidates.length < files.length) setError(IMAGE_INPUT_UNSUPPORTED);
+    const chosen = candidates.slice(0, Math.max(0, 10 - attachments.length));
+    if (chosen.length < candidates.length) setError("最多附加 10 个文件。");
     for (const file of chosen) {
       if (file.size > 10 * 1024 * 1024) { setError("单个附件必须在 10 MB 以内。"); continue; }
       const key = createRequestId();
@@ -500,7 +514,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   };
   const changePermission = (permission: typeof permissions[number]["value"]) => {
     if (!snapshot || snapshot.provider !== "codex" || !snapshot.threadId || snapshot.busy || permissionIdRef.current
-      || snapshot.executionPermission === permission || snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission)) return;
+      || snapshot.executionPermission === permission && !snapshot.permissionProfileId || snapshot.capabilities?.supportedPermissions && !snapshot.capabilities.supportedPermissions.includes(permission)) return;
     setError("");
     permissionIdRef.current = action({ type: "graphical.permission", permission }) || null;
     if (permissionIdRef.current) setChangingPermission(true);
@@ -576,7 +590,7 @@ export function useGraphicalSession({ session, connectionEpoch, send, onGraphica
   useEffect(() => {
     if (snapshot?.provider === "codex" && activeSheet === "history" && historyQuery.trim() && history?.nextCursor && !historyLoading) loadHistory(history.nextCursor);
   }, [activeSheet, historyQuery, history, historyLoading]);
-  return { openCodeRevertTarget, setOpenCodeRevertTarget, openCodeRequest, onGraphicalMessage, buddyModelMetadata, buddyRequest, session, capabilityTab, setCapabilityTab, slashCommands, invokeSlash, serviceModels, codexPending, references, setReferences, codexRequest, insertReference, historyArchived, historyQuery, setHistoryQuery, snapshot, isSending: isSending || Boolean(historyMutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
+  return { openCodeRevertTarget, setOpenCodeRevertTarget, openCodeRequest, onGraphicalMessage, buddyModelMetadata, buddyRequest, session, capabilityTab, setCapabilityTab, slashCommands, invokeSlash, serviceModels, codexPending, references, setReferences, codexRequest, insertReference, historyArchived, historyQuery, setHistoryQuery, snapshot, isSending: isSending || Boolean(historyMutation) || snapshot?.provider === "codex" && [...rpcRef.current.values()].some(value => value.mutation), error, setError, activeSheet, setActiveSheet, selectedProvider, setSelectedProvider,
     history, historyLoading, historyMutation, mutateHistory, expandedGroupId, setExpandedGroupId, changingMode, changingPermission, changingModel, changingEffort,
     attachments, setAttachments, switchingTo, scrollRef, moreButtonRef, sheetRef, action, submit,
     runQuickCommand, changeModel, changeEffort, uploadFile, addFiles, removeAttachment, changeMode, changePermission,

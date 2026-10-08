@@ -69,8 +69,8 @@ export type GraphicalApproval = { requestId: number | string; method: string; pa
 export type GraphicalQuestion = { requestId: number | string; submitting: boolean; params: {
   threadId: string; turnId: string; questions: Array<{ id: string; header: string; question: string;
     isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
-export type CodexCommand = "version" | "version-update" | "models" | "model-source" | "fast-mode" | "compact" | "review" | "goal.read" | "goal.set" | "goal.clear"
-  | "capabilities" | "app-detail" | "plugin-detail" | "plugin-skill" | "mcp-resource" | "mcp-login" | "mcp-reload"
+export type CodexCommand = "configuration" | "permission-profile" | "permission-legacy" | "version" | "version-update" | "models" | "model-source" | "fast-mode" | "compact" | "review" | "goal.read" | "goal.set" | "goal.clear"
+  | "capabilities" | "skill-enable" | "app-detail" | "plugin-detail" | "plugin-skill" | "mcp-resource" | "mcp-login" | "mcp-reload"
   | "terminals" | "terminal-stop" | "terminals-clean" | "account.read" | "account.login" | "account.cancel" | "account.logout"
   | "history.rename" | "history.pin" | "history.archive" | "history.unarchive" | "history.fork" | "history.initial"
   | "fork-turn" | "attachment-preview" | "workspace-search" | "subagents" | "subagent-view" | "sandbox" | "elicitation"
@@ -84,13 +84,15 @@ export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "acpAuth" | "openCo
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
   nativeModes?: Array<{ id: string; name?: string; description?: string }>;
   model?: string | null; effectiveModel?: string | null; backend?: string | null;
-  models?: Array<{ id: string; displayName: string; fastAvailable?: boolean; defaultReasoningEffort?: string | null; supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }> }>;
+  models?: Array<{ id: string; displayName: string; inputModalities?: string[]; fastAvailable?: boolean; defaultReasoningEffort?: string | null; supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }> }>;
   effort?: string | null; fastMode?: boolean; executionPermission?: string | null;
+  permissionProfileId?: string | null; permissionError?: string | null; changingPermission?: boolean;
+  permissionOptions?: Array<{ id: string; allowed: boolean; reason: string | null }>;
   openCodeMobile?: boolean;
   codeBuddyMobile?: boolean; modelSource?: string; serviceModelId?: string | null;
   contextUsage?: { used: number; size: number } | null;
   acpOptions?: Array<{ id: string; type?: string; currentValue?: string | boolean; options: Array<{ value: string; name: string; description?: string }> }>;
-  capabilities: { renameHistory?: boolean; revertHistory?: boolean; sideQuestion?: boolean; rewind?: boolean; history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
+  capabilities: { multitask?: boolean; renameHistory?: boolean; revertHistory?: boolean; sideQuestion?: boolean; rewind?: boolean; history?: boolean; forkHistory?: boolean; deleteHistory?: boolean; plan?: boolean; permissions?: boolean; supportedPermissions?: Array<"readOnly" | "askApproval" | "fullAccess"> } | null; pendingPlan: { itemId: string } | null;
   items: GraphicalItem[]; diagnostics?: Array<{ id: string; turnId: string | null; at: number;
     message: string; kind: string | null; httpStatusCode: number | null; additionalDetails: unknown }>;
   approvals: GraphicalApproval[]; questions: GraphicalQuestion[] };

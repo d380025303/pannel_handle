@@ -4,7 +4,7 @@ export function graphicalInputPolicy(snapshot: GraphicalSnapshot, historyMutatio
   const canSendWhileBusy = snapshot.provider === "codex" && !snapshot.compacting && !snapshot.reviewing;
   const canInput = !(snapshot.provider === "opencode" && ["running", "reconnecting"].includes(snapshot.acpAuth?.status || "")) && Boolean(snapshot.threadId) && !snapshot.signedOut && !snapshot.archived && !historyMutation
     && (!snapshot.busy || canSendWhileBusy);
-  const canSubmit = canInput && !snapshot.compacting && !snapshot.reviewing && !snapshot.sandboxSettingUp && !snapshot.mainAgentChanging;
+  const canSubmit = canInput && !snapshot.permissionError && !snapshot.changingPermission && !snapshot.compacting && !snapshot.reviewing && !snapshot.sandboxSettingUp && !snapshot.mainAgentChanging;
   return { canInput, canSubmit };
 }
 export function graphicalPermissionStatus(snapshot: GraphicalSnapshot) {

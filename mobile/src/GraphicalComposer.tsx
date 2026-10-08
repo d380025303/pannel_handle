@@ -1,3 +1,4 @@
+import { IMAGE_INPUT_UNSUPPORTED, supportsCodexImageInput } from "../../src/utils/codexImageInput";
 import type { WorkspaceEntrySearchResult, WorkspaceEntrySearchResponse } from "../../src/vite-env";
 import { useEffect, useState } from "react";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
@@ -27,6 +28,7 @@ export function GraphicalComposer({ snapshot, controller, draft, setDraft }: {
   const openCodeBlocked = snapshot.provider === "opencode" && (controller.codexPending || controller.isSending || !!snapshot.pendingPlan || !!snapshot.approvals.length || !!snapshot.questions.length || ["running", "reconnecting"].includes(snapshot.acpAuth?.status || ""));
   const effectivePlan = snapshot.mode === "plan";
   return (    <form className="graphical-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
+      {!supportsCodexImageInput(snapshot) && <p role="status">{IMAGE_INPUT_UNSUPPORTED}</p>}
       {controller.references.length > 0 && <div className="graphical-attachments">{controller.references.map(reference => <button type="button" key={reference.path} onClick={() => controller.setReferences(current => current.filter(value => value.path !== reference.path))}>{reference.name} ×</button>)}</div>}
       {preview && <div className="graphical-card"><strong>{preview.name}</strong><button type="button" onClick={() => setPreview(null)}>关闭预览</button>{preview.url ? <img className="graphical-preview-image" src={preview.url} alt={preview.name} /> : <pre>{preview.text}</pre>}</div>}
       {attachments.length > 0 && <div className="graphical-attachments">{attachments.map(item => <div key={item.key}>

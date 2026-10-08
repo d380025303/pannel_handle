@@ -135,7 +135,7 @@ async function createRemoteChild(transportService, session, environment, provide
   return child;
 }
 
-function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, historyService,
+function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, historyService, conversationArchive,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
   httpTransportFactory = createCodeBuddyHttpTransport, openCodeQuestionBridgeFactory = createOpenCodeQuestionBridge, workBuddyModelCatalogService,
   onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl,
@@ -652,16 +652,20 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const call = message.params.toolCall || {};
       if (provider === "codebuddy" && call._meta?.["codebuddy.ai/toolName"] === "ExitPlanMode") {
         const plan = call._meta["codebuddy.ai/plan"];
-        if (entry.mode !== "plan" || typeof plan !== "string" || !plan.trim() || !allowed?.optionId) {
+        if (typeof plan !== "string" || !plan.trim() || !allowed?.optionId) {
           entry.error = "CodeBuddy 未提供可审阅的计划，无法批准执行。";
           send(entry, { id: message.id, result: { outcome: { outcome: "cancelled" } } });
           publish(id);
           return;
         }
+        if ([entry.pendingPlan, ...entry.queuedPlans].some(plan => plan?.requestId === message.id)) return;
         const itemId = `codebuddy-plan:${message.id}`;
         entry.items.push({ id: itemId, type: "plan", turnId: entry.turnId, text: plan });
-        entry.pendingPlan = { itemId, requestId: message.id, threadId: entry.threadId,
+        const pending = { itemId, requestId: message.id, threadId: entry.threadId,
+          promoteParent: entry.mode === "plan",
           allowedOptionId: allowed.optionId, declinedOptionId: declined?.optionId };
+        if (entry.pendingPlan) entry.queuedPlans.push(pending);
+        else entry.pendingPlan = pending;
         status(id, entry, "e_prompt", "审阅执行计划");
         publish(id);
         return;
@@ -744,7 +748,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (loginClosed()) { openCodeQuestionBridge?.close(); stopAgentChild(child, provider); throw new Error("原图形会话已关闭。"); }
     entry = { child, session, runtime, environment, openCodeQuestionBridge, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
-      error: null, pendingPlan: null, items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
+      error: null, pendingPlan: null, queuedPlans: [], items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       authMethods: [], authRequired: false,
       codeBuddyGoal: emptyGoalState(),
       contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
@@ -775,7 +779,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.busy = false; entry.error = error.message;
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
       entry.openCodeQuestionBridge?.cancelAll();
-      entry.pending.clear(); entry.approvals.clear(); entry.questions.clear(); entry.pendingPlan = null; publish(session.id);
+      entry.pending.clear(); entry.approvals.clear(); entry.questions.clear(); entry.pendingPlan = null; entry.queuedPlans = [];
+      entry.executePlanInFullAccess = false; publish(session.id);
       status(session.id, entry, "exited", error.message);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "disconnected");
     }
@@ -901,6 +906,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
     entry.pending.clear();
     entry.questions.clear();
+    entry.pendingPlan = null; entry.queuedPlans = [];
+    entry.executePlanInFullAccess = false;
     entry.openCodeQuestionBridge?.close();
     const finish = () => {
       entry.httpForwarder?.close();
@@ -1202,7 +1209,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.forkReplay = null;
       entry.threadId = forkId; entry.loadingThreadId = forkId;
       entry.items = []; entry.team = null; entry.contextUsage = null; entry.availableCommands = [];
-      entry.modes = []; entry.nativeMode = null; entry.error = null; entry.pendingPlan = null; entry.turnId = null;
+      entry.modes = []; entry.nativeMode = null; entry.error = null; entry.pendingPlan = null; entry.queuedPlans = []; entry.turnId = null;
       entry.capabilities = { ...entry.capabilities };
       applySessionOptions(entry, result);
       for (const value of replay) if (value.sessionId === forkId) onUpdate(id, entry, value);
@@ -1280,6 +1287,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const previousItems = entry.items;
     const previousThreadId = entry.threadId;
     if (provider === "codebuddy") entry.codeBuddyGoal = emptyGoalState();
+    conversationArchive?.pause(id);
     entry.loadingThreadId = threadId;
     entry.availableCommands = []; entry.earlyCommands.clear(); entry.awaitingSession = true;
     entry.items = [];
@@ -1296,7 +1304,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       throw error;
     } finally { entry.loadingThreadId = null; }
     sideQuestions?.clear(id);
-    entry.threadId = result.sessionId || threadId; entry.error = null; entry.pendingPlan = null;
+    entry.threadId = result.sessionId || threadId; entry.error = null; entry.pendingPlan = null; entry.queuedPlans = [];
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
     entry.earlyCommands.clear(); entry.awaitingSession = false;
     applySessionOptions(entry, result);
@@ -1329,7 +1337,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     sideQuestions?.clear(id);
     entry.threadId = result.sessionId;
-    entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.contextUsage = null;
+    entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.queuedPlans = []; entry.contextUsage = null;
     if (provider === "opencode") {
       entry.openCodeRevert = null;
       if (entry.runtime.openCodeQuestions || openCodeControl) await refreshOpenCodeHistoryState(entry);
@@ -1356,7 +1364,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (native.id === entry.nativeMode) return snapshot(id);
     if ((provider === "opencode" || provider === "qoder") && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", native.id);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId: native.id });
-    entry.mode = mode; entry.nativeMode = native.id; entry.pendingPlan = null;
+    entry.mode = mode; entry.nativeMode = native.id; entry.pendingPlan = null; entry.queuedPlans = [];
     reflectNativeMode(entry);
     saveOption(entry, "mode", native.id);
     publish(id); return snapshot(id);
@@ -1369,7 +1377,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (modeId === entry.nativeMode) return snapshot(id);
     if ((provider === "opencode" || provider === "qoder") && entry.configOptions.some(option => option.id === "mode")) return setConfigOption(id, "mode", modeId);
     await request(entry, "session/set_mode", { sessionId: entry.threadId, modeId });
-    entry.nativeMode = modeId; entry.pendingPlan = null;
+    entry.nativeMode = modeId; entry.pendingPlan = null; entry.queuedPlans = [];
     reflectNativeMode(entry); saveOption(entry, "mode", modeId); publish(id);
     return snapshot(id);
   }
@@ -1529,6 +1537,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function submit(id, text, files = [], _references = [], orderedContent) {
     const entry = entryFor(id);
+    conversationArchive?.baseline(id, snapshot(id));
     if (entry.mainAgentChanging) throw new Error("主 Agent 正在切换，请稍后重试。");
     if (!entry.threadId || entry.busy || entry.pendingPlan) throw new Error(`${agentName} 会话未就绪或正在运行。`);
     if (!String(text || "").trim() && !files.length) throw new Error("请输入消息或添加附件。");
@@ -1586,7 +1595,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     let settlePrompt;
     entry.promptCompletion = new Promise(resolve => { settlePrompt = resolve; });
     if (entry.mainAgent) entry.mainAgent.sessionBlank = false;
-    entry.turnId = provider === "codebuddy" ? createConversationRequestId() : randomUUID(); entry.pendingPlan = null;
+    entry.turnId = provider === "codebuddy" ? createConversationRequestId() : randomUUID(); entry.pendingPlan = null; entry.queuedPlans = [];
     entry.items.push({ id: randomUUID(), type: "userMessage", turnId: entry.turnId, text: String(text || "").trim(), attachments,
       ...(orderedContent ? { parts: orderedContent.map(part => part.type === "text" ? part : {
         type: "image", path: attachments[files.indexOf(part.path)].path, name: attachments[files.indexOf(part.path)].name }) } : {}) });
@@ -1787,9 +1796,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       throw new Error("计划确认已失效。");
     send(entry, { id: plan.requestId, result: { outcome: plan.declinedOptionId
       ? { outcome: "selected", optionId: plan.declinedOptionId } : { outcome: "cancelled" } } });
-    entry.pendingPlan = null;
+    entry.pendingPlan = entry.queuedPlans.shift() || null;
     publish(id);
-    status(id, entry, "running");
+    status(id, entry, entry.pendingPlan ? "e_prompt" : "running");
     return snapshot(id);
   }
   async function executePlan(id, itemId) {
@@ -1823,10 +1832,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (provider !== "codebuddy" || !plan || plan.itemId !== itemId || plan.threadId !== entry.threadId)
       throw new Error("计划确认已失效。");
     send(entry, { id: plan.requestId, result: { outcome: { outcome: "selected", optionId: plan.allowedOptionId } } });
-    entry.pendingPlan = null;
-    entry.executePlanInFullAccess = true;
+    entry.pendingPlan = entry.queuedPlans.shift() || null;
+    if (plan.promoteParent) entry.executePlanInFullAccess = true;
     publish(id);
-    status(id, entry, "running");
+    status(id, entry, entry.pendingPlan ? "e_prompt" : "running");
   }
   return { start: startWithHistoryReservation, restart: guardHistoryOperation(restart), close, shutdown, snapshot, listModelMetadata, pluginRuntime, pluginRequest, getWorkspaceCwd: id => workspace(entryFor(id)), resetUsageBaselines, listHistory, renameThread: provider === "opencode" ? (id, threadId, name) => withHistoryOperation(id, threadId, () => renameThread(id, threadId, name)) : renameThread,
     revertThread: (id, messageId) => withHistoryOperation(id, null, () => changeOpenCodeRevert(id, messageId)),

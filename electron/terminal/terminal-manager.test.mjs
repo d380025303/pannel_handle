@@ -127,6 +127,16 @@ afterEach(() => {
 });
 
 describe("terminal-manager", () => {
+  it("notifies archive creation before PTY startup and reports a failed launch", () => {
+    const onSessionCreated = vi.fn();
+    const onSessionStartFailed = vi.fn();
+    const { manager } = createManager({ onSessionCreated, onSessionStartFailed,
+      pty: { spawn: () => { expect(onSessionCreated).toHaveBeenCalledOnce(); throw new Error("spawn failed"); } } });
+    expect(() => manager.createSession({ agentProvider: "codex", cwd: "C:\\work", persist: false })).toThrow("spawn failed");
+    expect(onSessionCreated.mock.calls[0][0].agentProvider).toBe("codex");
+    expect(onSessionStartFailed).toHaveBeenCalledWith(onSessionCreated.mock.calls[0][0].id);
+    expect(manager.listSessions()).toEqual([]);
+  });
   it("runs session closing cleanup while the session is still addressable", () => {
     let manager;
     const onSessionClosing = vi.fn(id => expect(manager.getSession(id)).toBeDefined());

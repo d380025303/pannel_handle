@@ -265,6 +265,8 @@ function createTerminalManager({
   broadcast,
   getHookUrl,
   onSessionClosed,
+  onSessionCreated,
+  onSessionStartFailed,
   onSessionClosing,
   onAgentStatusChanged,
   knownHostStore,
@@ -754,11 +756,13 @@ function createTerminalManager({
 
     sessions.set(id, session);
     sessionOrder.push(id);
+    onSessionCreated?.(session);
     try {
       if (!options.deferTerminalStart) {
         spawnPty(session, options);
       }
     } catch (err) {
+      onSessionStartFailed?.(id);
       sessions.delete(id);
       const orderIndex = sessionOrder.indexOf(id);
       if (orderIndex >= 0) {
@@ -776,6 +780,7 @@ function createTerminalManager({
     try {
       spawnPty(session, options);
     } catch (err) {
+      onSessionStartFailed?.(id);
       sessions.delete(id);
       const orderIndex = sessionOrder.indexOf(id);
       if (orderIndex >= 0) sessionOrder.splice(orderIndex, 1);

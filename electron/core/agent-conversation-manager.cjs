@@ -1,4 +1,4 @@
-function createAgentConversationManager({ broadcast }) {
+function createAgentConversationManager({ broadcast, conversationArchive }) {
   const turns = new Map();
   let activeSessionId = null;
 
@@ -98,6 +98,7 @@ function createAgentConversationManager({ broadcast }) {
 
   return {
     setActiveSession,
+    bindThread: (id, provider, threadId) => conversationArchive?.bindThread(id, provider, threadId),
     startTurn,
     appendMessages,
     completeTurn,
