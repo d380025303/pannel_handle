@@ -97,8 +97,18 @@ describe("PostgreSQL backup service", () => {
     let oldPrimaryKey = true;
     let existingHash = null;
     let failNextMessage = true;
+    let policyVersion = 0;
+    const policyWrites = [];
     const client = { release() {}, async query(sql, parameters = []) {
       queries.push(sql);
+      if (sql.includes("SELECT version FROM ph_conversation_rules")) return { rows: [{ version: policyVersion }] };
+      if (sql.includes("SELECT source_key, conversation_ref, message_hash, data FROM ph_messages"))
+        return { rows: parameters.length > 1 ? [] : [
+          { source_key: "source", conversation_ref: "ref", message_hash: "a", data: { id: "answer", kind: "reply", text: "answer", item: { type: "agentMessage", output: "secret" } } },
+          { source_key: "source", conversation_ref: "ref", message_hash: "b", data: { id: "tool", kind: "tool", text: "secret" } }
+        ] };
+      if (sql.includes("UPDATE ph_messages SET data") || sql.includes("DELETE FROM ph_messages WHERE device_id")) policyWrites.push({ sql, parameters });
+      if (sql.includes("INSERT INTO ph_conversation_rules")) policyVersion = parameters[1];
       if (sql.includes("pg_get_constraintdef")) return { rows: [{ definition: oldPrimaryKey
         ? "PRIMARY KEY (device_id, source_key, conversation_ref, message_id)"
         : "PRIMARY KEY (device_id, source_key, conversation_ref, message_hash)" }] };
@@ -120,7 +130,7 @@ describe("PostgreSQL backup service", () => {
       terminalManager: { listSessions: () => [session], getSession: () => session },
       historyService: {
         listHistoryForSession: async () => ({ items: [{ ref: "codex:conversation", updatedAt: 1 }], nextCursor: null }),
-        getHistoryMessagesForSession: async () => ({ messages: [{ id: longId, text: "content", timestamp: 1 }], nextCursor: null })
+        getHistoryMessagesForSession: async () => ({ messages: [{ id: longId, kind: "user", text: "content", timestamp: 1 }], nextCursor: null })
       }, PoolClass: FakePool, now: () => 1234 });
     try {
       service.load();
@@ -136,6 +146,9 @@ describe("PostgreSQL backup service", () => {
       expect(second.lastError).toBe("");
       expect(second.pendingSources).toEqual(["example.org · /work"]);
       expect(existingHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(policyWrites).toHaveLength(2);
+      expect(policyWrites.every(write => write.parameters[0] === second.deviceId)).toBe(true);
+      expect(policyWrites[0].parameters[4].item).toBeUndefined();
       expect(inserted).toHaveLength(1);
       expect(inserted[0][3]).toBe(longId);
       expect(inserted[0][4]).toBe(existingHash);

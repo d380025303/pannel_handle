@@ -1,3 +1,4 @@
+const { savedMessage, SAVED_MESSAGE_VERSION } = require("../conversation-history/saved-message.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -143,6 +144,8 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
         FOREIGN KEY(device_id, source_key, conversation_ref)
           REFERENCES ph_conversations(device_id, source_key, conversation_ref) ON DELETE CASCADE
       );`);
+    await client.query("CREATE TABLE IF NOT EXISTS ph_conversation_rules (device_id UUID PRIMARY KEY, version INTEGER NOT NULL)");
+    await client.query("ALTER TABLE ph_conversations ADD COLUMN IF NOT EXISTS message_rule_version INTEGER NOT NULL DEFAULT 0");
     await client.query("BEGIN");
     try {
       await client.query("SELECT pg_advisory_xact_lock(317109, 1)");
@@ -163,6 +166,25 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
         await client.query("ALTER TABLE ph_messages DROP CONSTRAINT ph_messages_pkey");
         await client.query(`ALTER TABLE ph_messages ADD CONSTRAINT ph_messages_pkey
           PRIMARY KEY(device_id, source_key, conversation_ref, message_hash)`);
+      }
+      const rule = await client.query("SELECT version FROM ph_conversation_rules WHERE device_id=$1", [state.deviceId]);
+      if (Number(rule.rows[0]?.version || 0) < SAVED_MESSAGE_VERSION) {
+        let cursor = null;
+        while (true) {
+          const rows = (await client.query(`SELECT source_key, conversation_ref, message_hash, data FROM ph_messages
+            WHERE device_id=$1 ${cursor ? "AND (source_key, conversation_ref, message_hash) > ($2,$3,$4)" : ""}
+            ORDER BY source_key, conversation_ref, message_hash LIMIT 500`, [state.deviceId, ...(cursor || [])])).rows;
+          if (!rows.length) break;
+          for (const row of rows) {
+            const message = savedMessage(row.data);
+            const key = [state.deviceId, row.source_key, row.conversation_ref, row.message_hash];
+            if (message) await client.query("UPDATE ph_messages SET data=$5 WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3 AND message_hash=$4", [...key, message]);
+            else await client.query("DELETE FROM ph_messages WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3 AND message_hash=$4", key);
+          }
+          cursor = [rows.at(-1).source_key, rows.at(-1).conversation_ref, rows.at(-1).message_hash];
+        }
+        await client.query(`INSERT INTO ph_conversation_rules VALUES($1,$2)
+          ON CONFLICT(device_id) DO UPDATE SET version=excluded.version`, [state.deviceId, SAVED_MESSAGE_VERSION]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }
@@ -263,9 +285,9 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
           const page = await historyService.listHistoryForSession(session, { scope: "cwd", includeArchived: true, cursor, limit: 200 });
           if (page.errors?.length) failed.push(...page.errors.map(error => `${key}: ${error.message}`));
           for (const item of page.items) {
-            const old = await client.query("SELECT updated_at FROM ph_conversations WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3",
+            const old = await client.query("SELECT updated_at, message_rule_version FROM ph_conversations WHERE device_id=$1 AND source_key=$2 AND conversation_ref=$3",
               [state.deviceId, key, item.ref]);
-            if (Number(old.rows[0]?.updated_at) === item.updatedAt) continue;
+            if (Number(old.rows[0]?.updated_at) === item.updatedAt && Number(old.rows[0]?.message_rule_version) === SAVED_MESSAGE_VERSION) continue;
             await client.query("BEGIN");
             try {
               await client.query(`INSERT INTO ph_conversations(device_id,source_key,conversation_ref,metadata,updated_at)
@@ -276,7 +298,9 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
               do {
                 const messages = await historyService.getHistoryMessagesForSession(session, {
                   conversationRef: item.ref, cursor: messageCursor, limit: 200 });
-                for (const message of messages.messages) {
+                for (const value of messages.messages) {
+                  const message = savedMessage(value);
+                  if (!message) continue;
                   await client.query(`INSERT INTO ph_messages(device_id,source_key,conversation_ref,message_id,message_hash,data)
                     VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(device_id,source_key,conversation_ref,message_hash)
                     DO UPDATE SET message_id=excluded.message_id,data=excluded.data`,
@@ -285,6 +309,7 @@ function createPostgresBackupService({ userData, safeStorage, sessionStore, stat
                 }
                 messageCursor = messages.nextCursor;
               } while (messageCursor);
+              await client.query("UPDATE ph_conversations SET message_rule_version=$1 WHERE device_id=$2 AND source_key=$3 AND conversation_ref=$4", [SAVED_MESSAGE_VERSION, state.deviceId, key, item.ref]);
               await client.query("COMMIT");
             } catch (error) { await client.query("ROLLBACK"); throw error; }
           }

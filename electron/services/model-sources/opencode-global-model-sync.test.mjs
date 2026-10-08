@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { parse } = require("jsonc-parser");
 const { createOpenCodeGlobalModelSync } = require("./opencode-global-model-sync.cjs");
 const directories = [];
 afterEach(() => { while (directories.length) rmSync(directories.pop(), { recursive: true, force: true }); });
@@ -30,6 +31,37 @@ function fixture() {
 }
 
 describe("OpenCode global model sync", () => {
+  it("updates managed context limits while preserving model settings and comments", () => {
+    const f = fixture();
+    f.state.models[0].contextLength = 1000000;
+    f.sync.syncWindows();
+    let config = readFileSync(f.config, "utf8");
+    expect(parse(config).providers.openrouter.models["vendor/coder"].limit.context).toBe(1000000);
+    config = config.replace('"context": 1000000', '"context": 1000000,\n          // user output limit\n          "output": 8192');
+    writeFileSync(f.config, config);
+    f.state.models[0].contextLength = 200000;
+    f.sync.syncWindows();
+    config = readFileSync(f.config, "utf8");
+    expect(parse(config).providers.openrouter.models["vendor/coder"].limit).toEqual({ context: 200000, output: 8192 });
+    expect(config).toContain("// user output limit");
+    expect(config).toContain("// user setting");
+  });
+
+  it.each([undefined, 0, 0.5, -1, NaN, Infinity])("omits invalid context limits (%s)", contextLength => {
+    const f = fixture();
+    f.state.models[0].contextLength = contextLength;
+    f.sync.syncWindows();
+    expect(parse(readFileSync(f.config, "utf8")).providers.openrouter.models["vendor/coder"].limit).toBeUndefined();
+  });
+
+  it("does not overwrite unmanaged models", () => {
+    const f = fixture();
+    writeFileSync(f.config, JSON.stringify({ providers: { openrouter: { models: { "vendor/coder": { limit: { context: 32768 } } } } } }));
+    f.state.models[0].contextLength = 1000000;
+    expect(() => f.sync.syncWindows()).toThrow("用户模型");
+    expect(parse(readFileSync(f.config, "utf8")).providers.openrouter.models["vendor/coder"].limit.context).toBe(32768);
+  });
+
   it("registers verified models without favorites and preserves user configuration and credentials", () => {
     const f = fixture();
     f.sync.syncWindows();
@@ -83,12 +115,13 @@ describe("OpenCode global model sync", () => {
   });
   it("registers MiniMax with the native credential name", () => {
     const f = fixture();
-    const minimax = { getCachedModels: () => [{ id: "MiniMax-M2.7-highspeed", name: "MiniMax-M2.7-highspeed" }],
-      getAgentModelVerifications: () => ({ "MiniMax-M2.7-highspeed": { status: "passed" } }), getApiKey: () => "secret" };
+    const minimax = { getCachedModels: () => [{ id: "MiniMax-M3", name: "MiniMax-M3", contextLength: 1000000 }],
+      getAgentModelVerifications: () => ({ "MiniMax-M3": { status: "passed" } }), getApiKey: () => "secret" };
     const empty = { getCachedModels: () => [], getAgentModelVerifications: () => ({}), getApiKey: () => "" };
     createOpenCodeGlobalModelSync({ home: path.join(f.root, "home"), userDataDir: path.join(f.root, "app2"),
       stores: { openrouter: empty, nararouter: empty, minimax } }).syncWindows();
     expect(readFileSync(f.config, "utf8")).toContain('"MINIMAX_API_KEY"');
+    expect(parse(readFileSync(f.config, "utf8")).providers.minimax.models["MiniMax-M3"].limit.context).toBe(1000000);
     expect(readFileSync(f.config, "utf8")).not.toContain("secret");
   });
 });

@@ -21,6 +21,47 @@ afterEach(() => {
 });
 
 describe("local conversation archive", () => {
+  it("migrates existing payloads once without changing launch recency", () => {
+    const userData = fixture();
+    const store = createConversationArchiveStore({ userData, now: () => 1000 });
+    const id = store.start(session);
+    store.close();
+    const { DatabaseSync } = require("node:sqlite");
+    let db = new DatabaseSync(path.join(userData, "agent-conversations.sqlite3"));
+    db.exec("DELETE FROM archive_migrations");
+    const insert = db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)");
+    insert.run(id, "thread", "answer", 1, JSON.stringify({ id: "answer", kind: "reply", text: "answer", timestamp: 2, item: { type: "agentMessage", raw: "secret" } }));
+    insert.run(id, "thread", "tool", 2, JSON.stringify({ id: "tool", kind: "tool", text: "secret" }));
+    insert.run(id, "thread", "progress", 3, JSON.stringify({ id: "progress", kind: "reply", text: "progress", item: { type: "agentMessage", phase: "commentary" } }));
+    db.close();
+    for (let i = 0; i < 2; i++) {
+      const reopened = createConversationArchiveStore({ userData, now: () => 1000 });
+      expect(reopened.read({ conversationRef: `archive:${id}` }).messages).toEqual([
+        expect.objectContaining({ text: "answer" })]);
+      expect(reopened.read({ conversationRef: `archive:${id}` }).messages[0].item).toBeUndefined();
+      expect(reopened.list({ scope: "all" }).items[0].updatedAt).toBe(1000);
+      reopened.close();
+    }
+  });
+
+  it("rolls back migration if an existing row is corrupt", () => {
+    const userData = fixture();
+    const store = createConversationArchiveStore({ userData });
+    const id = store.start(session); store.close();
+    const { DatabaseSync } = require("node:sqlite");
+    const file = path.join(userData, "agent-conversations.sqlite3");
+    let db = new DatabaseSync(file);
+    db.exec("DELETE FROM archive_migrations");
+    const insert = db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)");
+    insert.run(id, "t", "tool", 1, JSON.stringify({ id: "tool", kind: "tool", text: "output" }));
+    insert.run(id, "t", "bad", 2, "invalid"); db.close();
+    expect(() => createConversationArchiveStore({ userData })).toThrow();
+    db = new DatabaseSync(file);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM messages").get().count).toBe(2);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM archive_migrations").get().count).toBe(0);
+    db.close();
+  });
+
   it("queries saved history without a running panel or remote transport", async () => {
     const archive = { list: vi.fn(() => ({ items: [], nextCursor: null, errors: [] })), read: vi.fn(() => ({ messages: [], nextCursor: null })) };
     const terminalManager = { getSession: vi.fn(() => { throw new Error("offline"); }) };
@@ -37,9 +78,9 @@ describe("local conversation archive", () => {
     const first = store.start(session);
     const second = store.start(session);
     store.associate(first, "cli-1");
-    store.save(first, "cli-1", [{ id: "m", text: "partial", timestamp: 1000 }]);
-    store.save(first, "cli-1", [{ id: "m", text: "complete", timestamp: 1000 }]);
-    store.save(first, "cli-2", [{ id: "m", text: "other thread", timestamp: 1000 }]);
+    store.save(first, "cli-1", [{ id: "m", kind: "reply", text: "partial", timestamp: 1000 }]);
+    store.save(first, "cli-1", [{ id: "m", kind: "reply", text: "complete", timestamp: 1000 }]);
+    store.save(first, "cli-2", [{ id: "m", kind: "reply", text: "other thread", timestamp: 1000 }]);
     store.finish(first);
     store.close();
     store = createConversationArchiveStore({ userData });
@@ -56,7 +97,7 @@ describe("local conversation archive", () => {
     expect(() => store.read({ conversationRef: "archive:../../x" })).toThrow();
   });
 
-  it("excludes replayed history, keeps tools and reasoning, and updates streamed messages", () => {
+  it("excludes replayed history, rejects tools and reasoning, and updates streamed messages", () => {
     const userData = fixture();
     const archive = createConversationArchiveService({ userData, getHistoryService: () => null, now: () => 1000 });
     closers.push(() => archive.shutdown());
@@ -72,9 +113,9 @@ describe("local conversation archive", () => {
     archive.finish("panel");
     const row = archive.list({ scope: "all" }).items[0];
     const messages = archive.read({ conversationRef: row.ref }).messages;
-    expect(messages).toHaveLength(3);
-    expect(messages.map(message => message.text)).toEqual(["pwd\n\nC:/work", "thought", "complete"]);
-    expect(messages[0].item.aggregatedOutput).toBe("C:/work");
+    expect(messages).toHaveLength(1);
+    expect(messages.map(message => message.text)).toEqual(["complete"]);
+    expect(messages[0].item).toBeUndefined();
     expect(row.status).toBe("ended");
   });
 
@@ -83,7 +124,7 @@ describe("local conversation archive", () => {
     let answer = "partial";
     const history = {
       listHistoryForSession: vi.fn(async () => ({ items: [{ ref: "codex:bound", updatedAt: 1000 }, { ref: "codex:unrelated", updatedAt: 1000 }], errors: [], nextCursor: null })),
-      getHistoryMessagesForSession: vi.fn(async () => ({ messages: [{ id: "old", text: "before launch", timestamp: 1 }, { id: "new", text: answer, timestamp: 1001 }], nextCursor: null }))
+      getHistoryMessagesForSession: vi.fn(async () => ({ messages: [{ id: "old", kind: "user", text: "before launch", timestamp: 1 }, { id: "new", kind: "final", text: answer, timestamp: 1001 }], nextCursor: null }))
     };
     const archive = createConversationArchiveService({ userData, getHistoryService: () => history, now: () => 1000 });
     closers.push(() => archive.shutdown());

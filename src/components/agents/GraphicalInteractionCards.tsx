@@ -46,13 +46,14 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
     for (const [index, question] of questions.entries()) {
       const choice = choices[question.id] || [];
       const note = notes[question.id]?.trim();
-      if (!choice.length && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
-      if (question.options?.length && !choice.length && !question.isOther) {
+      if (question.required !== false && !choice.length && !note) { setActiveIndex(index); setError(`请回答「${question.header || question.question}」。`); return; }
+      if (question.required !== false && question.options?.length && !choice.length && !question.isOther) {
         setActiveIndex(index); setError(`请选择「${question.header || question.question}」的选项。`); return;
       }
       answers[question.id] = { answers: provider === "codebuddy" || provider === "claude" || provider === "opencode"
         ? [...(question.multiSelect ? choice : note ? [] : choice), ...(note ? [note] : [])]
-        : [...choice, ...(note ? [`user_note: ${note}`] : [])] };
+        : [...choice, ...(note ? [`user_note: ${note}`] : [])],
+        ...(provider === "opencode" && note && question.options?.length ? { customAnswer: note } : {}) };
     }
     setSending(true); setError("");
     try { await window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers); }

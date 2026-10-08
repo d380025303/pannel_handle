@@ -68,7 +68,7 @@ export type GraphicalApproval = { requestId: number | string; method: string; pa
   choices?: Array<{ id: string; label: string }> } };
 export type GraphicalQuestion = { requestId: number | string; submitting: boolean; params: {
   threadId: string; turnId: string; questions: Array<{ id: string; header: string; question: string;
-    isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
+    isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; required?: boolean; options?: Array<{ label: string; description: string }> | null }> } };
 export type CodexCommand = "configuration" | "permission-profile" | "permission-legacy" | "version" | "version-update" | "models" | "model-source" | "fast-mode" | "compact" | "review" | "goal.read" | "goal.set" | "goal.clear"
   | "capabilities" | "skill-enable" | "app-detail" | "plugin-detail" | "plugin-skill" | "mcp-resource" | "mcp-login" | "mcp-reload"
   | "terminals" | "terminal-stop" | "terminals-clean" | "account.read" | "account.login" | "account.cancel" | "account.logout"
@@ -165,7 +165,7 @@ export type ClientMessage =
   | { v: 8; type: "graphical.delete"; sessionId: string; threadId: string | null; targetThreadId: string; requestId: string }
   | { v: 8; type: "graphical.approval"; sessionId: string; threadId: string | null; approvalId: number | string; decision: boolean | string; requestId: string }
   | { v: 8; type: "graphical.answer"; sessionId: string; threadId: string | null; questionId: number | string;
-    answers: Record<string, { answers: string[] }>; requestId: string }
+    answers: Record<string, { answers: string[]; customAnswer?: string }>; requestId: string }
   | { v: 8; type: "graphical.cancelQuestion"; sessionId: string; threadId: string | null; questionId: number | string; requestId: string }
   | { v: 8; type: "graphical.plan"; sessionId: string; threadId: string | null; itemId: string; execute: boolean; requestId: string }
   | { v: 8; type: "graphical.mode"; sessionId: string; threadId: string | null; mode: "default" | "plan"; requestId: string }

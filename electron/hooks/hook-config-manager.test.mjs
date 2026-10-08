@@ -12,6 +12,8 @@ const pty = require("node-pty");
 
 const assetsDir = path.join(import.meta.dirname, "hook-assets");
 const tempDirs = [];
+// Exact previously deployed plugin, retained only as migration test data.
+const legacyQuestionPlugin = fs.readFileSync(new URL("./fixtures/legacy-opencode-question.txt", import.meta.url), "utf8");
 
 function createProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pannel-hooks-"));
@@ -168,6 +170,32 @@ afterEach(() => {
 });
 
 describe("hook-config-manager", () => {
+  it("removes the unmodified retired OpenCode question plugin during repair", () => {
+    const projectPath = createProject();
+    const target = { type: "windows", path: projectPath };
+    const manager = createHookConfigManager({ assetsDir });
+    manager.install(target, ["opencode"]);
+    const legacyPath = path.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js");
+    fs.writeFileSync(legacyPath, legacyQuestionPlugin.replace(/\n/g, "\r\n"));
+    expect(manager.inspect(target, ["opencode"]).providers.opencode.status).toBe("needs_repair");
+    expect(manager.install(target, ["opencode"]).providers.opencode.status).toBe("installed");
+    expect(fs.existsSync(legacyPath)).toBe(false);
+  });
+
+  it("preserves modified legacy plugins and reports the conflicting path", () => {
+    const projectPath = createProject();
+    const target = { type: "windows", path: projectPath };
+    const legacyPath = path.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js");
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    const custom = legacyQuestionPlugin + "\n// user modification\n";
+    fs.writeFileSync(legacyPath, custom);
+    const manager = createHookConfigManager({ assetsDir });
+    expect(manager.inspect(target, ["opencode"])).toMatchObject({ ok: false, error: expect.stringContaining(legacyPath) });
+    expect(manager.install(target, ["opencode"])).toMatchObject({ ok: false, error: expect.stringContaining(legacyPath) });
+    expect(fs.readFileSync(legacyPath, "utf8")).toBe(custom);
+    expect(fs.existsSync(path.join(path.dirname(legacyPath), "pannel-handle-notification.js"))).toBe(false);
+  });
+
   it("installs Grok hooks in the user-level directory without touching project config", () => {
     const projectPath = createProject();
     const homePath = createProject();
@@ -205,8 +233,7 @@ describe("hook-config-manager", () => {
     expect(fs.existsSync(path.join(projectPath, ".codebuddy", "settings.local.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".codebuddy", "pannel-handle-codebuddy-hook.ps1"))).toBe(true);
     expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-notification.js"))).toBe(true);
-    expect(fs.readFileSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js"), "utf8"))
-      .toContain('id: "pannel-handle-graphical-question"');
+    expect(fs.existsSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js"))).toBe(false);
     expect(fs.readFileSync(path.join(projectPath, ".opencode", "plugins", "pannel-handle-capabilities.js"), "utf8"))
       .toContain('id: "pannel-handle-capabilities"');
     expect(fs.existsSync(path.join(projectPath, ".qoder", "settings.json"))).toBe(true);

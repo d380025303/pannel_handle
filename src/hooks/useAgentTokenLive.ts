@@ -7,6 +7,10 @@ export type AgentTokenLiveViewState =
   | { status: "waiting"; provider: "codex" | "claude" | "codebuddy" | "opencode" | "qoder" | "copilot" | "gemini" | "grok" }
   | { status: "ready"; snapshot: AgentTokenLiveSnapshot };
 
+export function usesGraphicalTokenLive(provider: TerminalSession["agentProvider"]) {
+  return provider === "codebuddy" || provider === "opencode";
+}
+
 export function useAgentTokenLive(session?: TerminalSession) {
   const provider =
     session?.agentProvider === "codex" ||

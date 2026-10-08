@@ -3,7 +3,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentTokenLiveSnapshot, TerminalSession } from "../vite-env";
-import { useAgentTokenLive } from "./useAgentTokenLive";
+import { useAgentTokenLive, usesGraphicalTokenLive } from "./useAgentTokenLive";
 
 function session(id: string, provider: TerminalSession["agentProvider"] = "codex", type: TerminalSession["type"] = "windows"): TerminalSession {
   return {
@@ -33,6 +33,42 @@ describe("useAgentTokenLive", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("routes graphical OpenCode and CodeBuddy to live usage while retaining Codex App Server usage", () => {
+    expect(usesGraphicalTokenLive("opencode")).toBe(true);
+    expect(usesGraphicalTokenLive("codebuddy")).toBe(true);
+    expect(usesGraphicalTokenLive("codex")).toBe(false);
+    expect(usesGraphicalTokenLive(undefined)).toBe(false);
+  });
+
+  it("receives graphical OpenCode completion usage and isolates session changes", async () => {
+    const listeners: ((value: AgentTokenLiveSnapshot) => void)[] = [];
+    const remove = vi.fn();
+    window.agentTokenStatsApi = {
+      getDashboard: vi.fn(), clear: vi.fn(), onChanged: vi.fn(),
+      getLive: vi.fn(async () => null),
+      onLiveChanged: vi.fn(callback => { listeners.push(callback); return remove; })
+    };
+    const graphicalSession = (id: string): TerminalSession => ({ ...session(id, "opencode"), runtimeMode: "app-server" });
+    const { result, rerender } = renderHook(({ active }) => useAgentTokenLive(
+      active.runtimeMode === "app-server" && !usesGraphicalTokenLive(active.agentProvider) ? undefined : active
+    ), { initialProps: { active: graphicalSession("open-1") } });
+    await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "opencode" }));
+    expect(window.agentTokenStatsApi.getLive).toHaveBeenCalledWith("open-1");
+    const completed = { ...snapshot("open-1"), provider: "opencode" as const, state: "completed" as const,
+      models: ["openai/gpt-5"], updatedAt: 1234 };
+    act(() => listeners[0](completed));
+    expect(result.current).toEqual({ status: "ready", snapshot: completed });
+
+    rerender({ active: graphicalSession("open-2") });
+    await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "opencode" }));
+    expect(remove).toHaveBeenCalledOnce();
+    act(() => { listeners[0](completed); listeners[1](completed); });
+    expect(result.current).toEqual({ status: "waiting", provider: "opencode" });
+    const next = { ...completed, panelSessionId: "open-2" };
+    act(() => listeners[1](next));
+    expect(result.current).toEqual({ status: "ready", snapshot: next });
   });
 
   it("loads the active snapshot and ignores events from other sessions", async () => {

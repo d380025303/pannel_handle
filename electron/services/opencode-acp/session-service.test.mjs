@@ -221,7 +221,7 @@ describe("OpenCode ACP sessions", () => {
   it("launches the official ACP command on Windows and WSL", () => {
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, {}, {}).args.at(-1)).toContain("opencode acp");
     expect(buildInvocation({ type: "windows", cwd: "C:\\work", shell: "powershell.exe" },
-      { openCodeQuestions: true }, {}).args.at(-1)).not.toContain("--port");
+      { openCodeHistoryControl: true }, {}).args.at(-1)).not.toContain("--port");
     const wsl = buildInvocation({ type: "wsl", cwd: "/work", wslDistro: "Ubuntu" }, {}, {});
     expect(wsl.executable).toBe("wsl.exe");
     expect(wsl.args.at(-1)).toContain("exec opencode acp");
@@ -244,58 +244,6 @@ describe("OpenCode ACP sessions", () => {
     expect(service.snapshot("ssh").provider).toBe("opencode");
     service.close("ssh");
     expect(transport.close).toHaveBeenCalledOnce();
-  });
-
-  it("registers a question MCP server and returns user answers to its pending tool", async () => {
-    let onQuestion;
-    let onCancel;
-    const broadcastAgentStatus = vi.fn();
-    const questionBridge = { url: "http://127.0.0.1:1234/mcp", token: "secret",
-      answer: vi.fn(), cancel: vi.fn(), close: vi.fn() };
-    const child = fakeChild((message, emit) => {
-      if (message.method === "initialize") emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: {} } });
-      else if (message.method === "session/new") {
-        expect(message.params.mcpServers).toEqual([{ name: "pannel_handle_question", type: "http",
-          url: questionBridge.url, headers: [{ name: "Authorization", value: "Bearer secret" }] }]);
-        emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: "thread" } });
-      }
-    });
-    const spawnProcess = vi.fn(() => child);
-    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
-      terminalManager: { broadcastAgentStatus }, broadcast: vi.fn(), spawnProcess,
-      openCodeQuestionBridgeFactory: async ({ onQuestion: questionCallback, onCancel: cancelCallback }) => {
-        onQuestion = questionCallback; onCancel = cancelCallback; return questionBridge;
-      } });
-    await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" }, { openCodeQuestions: true });
-    expect(spawnProcess.mock.calls[0][2].env.OPENCODE_ENABLE_QUESTION_TOOL).toBe("0");
-    expect(spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_URL).toBe(questionBridge.url);
-    expect(spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN).toBe(questionBridge.token);
-    onQuestion({ requestId: "question-1", questions: [{ id: "plan", header: "方案", question: "选择方案",
-      options: [{ label: "方案甲" }], isOther: true }] });
-    expect(service.snapshot("one").questions).toHaveLength(1);
-    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-      id: "one", provider: "opencode", status: "e_prompt", eventName: "AcpQuestion", activitySummary: "选择方案"
-    }));
-    await service.answerQuestion("one", "question-1", { plan: { answers: ["方案甲"] } });
-    expect(questionBridge.answer).toHaveBeenCalledWith("question-1", { plan: ["方案甲"] });
-    expect(service.snapshot("one").questions).toHaveLength(0);
-    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-      status: "running", eventName: "AcpTurn"
-    }));
-    onQuestion({ requestId: "question-2", questions: [{ id: "reason", question: "原因", isOther: true }] });
-    await service.cancelQuestion("one", "question-2");
-    expect(questionBridge.cancel).toHaveBeenCalledWith("question-2");
-    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-      status: "running", eventName: "AcpTurn"
-    }));
-    onQuestion({ requestId: "question-3", questions: [{ id: "next", question: "继续？", isOther: true }] });
-    onCancel("question-3");
-    expect(service.snapshot("one").questions).toHaveLength(0);
-    expect(broadcastAgentStatus).toHaveBeenLastCalledWith(expect.objectContaining({
-      status: "running", eventName: "AcpTurn"
-    }));
-    service.shutdown();
-    expect(questionBridge.close).toHaveBeenCalledOnce();
   });
 
   it("uses advertised model and effort options and handles a streamed turn", async () => {
@@ -341,6 +289,9 @@ describe("OpenCode ACP sessions", () => {
       update: { sessionUpdate: "usage_update", used, size } } });
     update("thread-1", 50000, 200000);
     expect(service.snapshot("one").contextUsage).toMatchObject({ used: 50000, size: 200000, categories: {} });
+    emitUpdate({ method: "session/update", params: { sessionId: "thread-1",
+      update: { sessionUpdate: "config_option_update", configOptions } } });
+    expect(service.snapshot("one").contextUsage.used).toBe(50000);
     update("thread-1", -1, 200000);
     expect(service.snapshot("one").contextUsage.used).toBe(50000);
     await service.setModel("one", "openai/gpt-5.5");

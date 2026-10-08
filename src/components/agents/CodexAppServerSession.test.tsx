@@ -1749,7 +1749,7 @@ describe("CodexAppServerSession", () => {
     expect(screen.getByRole("article", { name: "OpenCode 提问" })).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "补充说明或自定义回答" }), { target: { value: "乙" } });
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
-    await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", "question-1", { plan: { answers: ["乙"] } }));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith("run-1", "question-1", { plan: { answers: ["乙"], customAnswer: "乙" } }));
     fireEvent.click(screen.getByRole("button", { name: "取消提问" }));
     await waitFor(() => expect(cancelQuestion).toHaveBeenCalledWith("run-1", "question-1"));
   });

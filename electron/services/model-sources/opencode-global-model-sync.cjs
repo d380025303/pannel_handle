@@ -95,7 +95,10 @@ function createOpenCodeGlobalModelSync({ userDataDir, stores, home = os.homedir(
         for (const model of wanted) {
           if (provider?.models?.[model.id] && !oldIds.includes(model.id))
             throw new Error(`OpenCode 已有用户模型 ${id}/${model.id}，无法自动覆盖。`);
-          configChanges.push([["providers", id, "models", model.id], { name: model.name || model.id }]);
+          configChanges.push([["providers", id, "models", model.id, "name"], model.name || model.id]);
+          if (Number.isFinite(model.contextLength) && model.contextLength >= 1) {
+            configChanges.push([["providers", id, "models", model.id, "limit", "context"], Math.trunc(model.contextLength)]);
+          }
         }
       }
       if (authOwned && auth[id]?.type === "api" && auth[id].key === source.key) authChanges.push([[id], undefined]);

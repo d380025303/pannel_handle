@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { assertManagedLegacyQuestion } = require("./legacy-opencode-question.cjs");
 
 const PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"];
 const PROVIDER_CONFIG = {
@@ -150,9 +151,7 @@ const PROVIDER_CONFIG = {
   opencode: {
     scriptPath: [".opencode", "plugins", "pannel-handle-notification.js"],
     asset: "pannel-handle-opencode-plugin.js",
-    extraScripts: [{ scriptPath: [".opencode", "plugins", "pannel-handle-question.js"],
-      asset: "pannel-handle-opencode-question.js" },
-    { scriptPath: [".opencode", "plugins", "pannel-handle-capabilities.js"],
+    extraScripts: [{ scriptPath: [".opencode", "plugins", "pannel-handle-capabilities.js"],
       asset: "pannel-handle-opencode-capabilities.js" }]
   }
 };
@@ -444,6 +443,7 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
       configPath: definition.configPath ? projectPathApi.join(rootPath, ...definition.configPath) : undefined,
       scriptPath: projectPathApi.join(rootPath, ...(definition.scriptPath || (isWsl ? definition.wslScriptPath : definition.windowsScriptPath))),
       assetPath: path.join(assetsDir, definition.asset || (isWsl ? definition.wslAsset : definition.windowsAsset)),
+      legacyQuestionPath: provider === "opencode" ? projectPathApi.join(rootPath, ".opencode", "plugins", "pannel-handle-question.js") : undefined,
       extraScripts: (definition.extraScripts || []).map(extra => ({
         scriptPath: projectPathApi.join(rootPath, ...extra.scriptPath), assetPath: path.join(assetsDir, extra.asset)
       }))
@@ -468,6 +468,8 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
       const result = {};
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, target, provider);
+        const hasLegacyQuestion = paths.legacyQuestionPath && targetFsApi.existsSync(paths.legacyQuestionPath);
+        if (hasLegacyQuestion) assertManagedLegacyQuestion(targetFsApi.readFileSync(paths.legacyQuestionPath, "utf-8"), paths.legacyQuestionPath);
         const expectedScript = targetFsApi.readFileSync(paths.assetPath, "utf-8");
         const scriptMatches = targetFsApi.existsSync(paths.scriptPath) && targetFsApi.readFileSync(paths.scriptPath, "utf-8") === expectedScript
           && paths.extraScripts.every(extra => targetFsApi.existsSync(extra.scriptPath)
@@ -478,7 +480,7 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
         const expectedCount = PROVIDER_CONFIG[provider].events?.length || 1;
         const configMatches = config ? JSON.stringify(config.value) === JSON.stringify(expectedConfig) : true;
         result[provider] = {
-          status: configMatches && scriptMatches ? "installed" : managedCount > 0 || targetFsApi.existsSync(paths.scriptPath) ? "needs_repair" : "not_installed",
+          status: hasLegacyQuestion ? "needs_repair" : configMatches && scriptMatches ? "installed" : managedCount > 0 || targetFsApi.existsSync(paths.scriptPath) ? "needs_repair" : "not_installed",
           ...(paths.configPath ? { configPath: paths.configPath } : {}),
           scriptPath: paths.scriptPath,
           managedHookCount: managedCount,
@@ -504,8 +506,14 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
         throw new Error("Project path is not a directory.");
       }
       const writes = [];
+      const removals = [];
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, target, provider);
+        if (paths.legacyQuestionPath && targetFsApi.existsSync(paths.legacyQuestionPath)) {
+          const content = targetFsApi.readFileSync(paths.legacyQuestionPath, "utf-8");
+          assertManagedLegacyQuestion(content, paths.legacyQuestionPath);
+          removals.push({ filePath: paths.legacyQuestionPath, exists: true, content });
+        }
         const script = targetFsApi.readFileSync(paths.assetPath, "utf-8");
         if (paths.configPath) {
           const config = readJsonFile(targetFsApi, paths.configPath);
@@ -521,6 +529,10 @@ function createHookConfigManager({ assetsDir = path.join(__dirname, "hook-assets
           content: targetFsApi.existsSync(filePath) ? targetFsApi.readFileSync(filePath, "utf-8") : undefined
         });
         atomicWrite(targetFsApi, filePath, content);
+      }
+      for (const removal of removals) {
+        snapshots.push(removal);
+        targetFsApi.unlinkSync(removal.filePath);
       }
       return inspect(target, selected);
     } catch (err) {

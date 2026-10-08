@@ -1,19 +1,13 @@
 const { createConversationArchiveStore } = require("./conversation-archive-store.cjs");
 
+const { savedMessage } = require("./saved-message.cjs");
 function graphicalMessage(item, provider, timestamp) {
-  if (!item?.id) return null;
-  const kind = item.type === "userMessage" ? "user" : item.type === "agentMessage" ? "reply"
-    : item.type === "reasoning" ? "reasoning" : "tool";
-  let text = item.text;
-  if (typeof text !== "string") {
-    text = item.type === "reasoning" ? [...(item.summary || []), ...(item.content || [])].map(value => typeof value === "string" ? value : value.text || "").join("\n")
-      : item.type === "questionAnswer" ? (item.questions || []).map(value => `${value.question}\n${(value.answers || []).join("\n")}`).join("\n\n")
-        : [item.command || item.toolName || item.type, item.aggregatedOutput || item.output,
-          item.changes ? JSON.stringify(item.changes) : null, item.plan ? JSON.stringify(item.plan) : null].filter(Boolean).join("\n\n");
-  }
-  if (item.attachments?.length) text = `${text || ""}\n${item.attachments.map(file => `[附件] ${file.name || file.path}`).join("\n")}`;
-  return { id: item.id, provider, kind, text: text || "", timestamp,
-    itemType: item.type, turnId: item.turnId, status: item.status, item: { ...item } };
+  if (!["userMessage", "agentMessage"].includes(item?.type)) return null;
+  let text = typeof item.text === "string" ? item.text : "";
+  if (item.type === "userMessage" && item.attachments?.length)
+    text += `\n${item.attachments.map(file => `[附件] ${file.name || file.path}`).join("\n")}`;
+  return savedMessage({ id: item.id, provider, kind: item.type === "userMessage" ? "user" : "reply",
+    text, timestamp, turnId: item.turnId, phase: item.phase });
 }
 
 function createConversationArchiveService({ userData, getHistoryService, store, now = Date.now }) {

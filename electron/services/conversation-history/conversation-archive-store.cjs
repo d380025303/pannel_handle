@@ -1,3 +1,4 @@
+const { savedMessage, SAVED_MESSAGE_VERSION } = require("./saved-message.cjs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
@@ -23,6 +24,19 @@ function createConversationArchiveStore({ userData, Database = DatabaseSync, now
     launch_id TEXT NOT NULL REFERENCES launches(id), thread_id TEXT NOT NULL,
     PRIMARY KEY(launch_id,thread_id)
   );`);
+  db.exec("CREATE TABLE IF NOT EXISTS archive_migrations (version INTEGER PRIMARY KEY)");
+  if (!db.prepare("SELECT 1 FROM archive_migrations WHERE version=?").get(SAVED_MESSAGE_VERSION)) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const row of db.prepare("SELECT rowid, data_json FROM messages").all()) {
+        const message = savedMessage(JSON.parse(row.data_json));
+        if (message) db.prepare("UPDATE messages SET data_json=? WHERE rowid=?").run(JSON.stringify(message), row.rowid);
+        else db.prepare("DELETE FROM messages WHERE rowid=?").run(row.rowid);
+      }
+      db.prepare("INSERT INTO archive_migrations VALUES(?)").run(SAVED_MESSAGE_VERSION);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); db.close(); throw error; }
+  }
   db.prepare("UPDATE launches SET status='interrupted', ended_at=?, updated_at=? WHERE status='running'").run(now(), now());
   function start(session) {
     const id = randomUUID();
@@ -52,8 +66,9 @@ function createConversationArchiveStore({ userData, Database = DatabaseSync, now
         ON CONFLICT(launch_id,thread_id,message_id) DO UPDATE SET data_json=excluded.data_json
         WHERE messages.data_json<>excluded.data_json`);
       let changed = false;
-      for (const message of messages) {
-        if (!message?.id) continue;
+      for (const value of messages) {
+        const message = savedMessage(value);
+        if (!message) continue;
         changed = Boolean(write.run(id, String(threadId || ""), message.id, id, JSON.stringify(message)).changes) || changed;
       }
       if (changed) db.prepare("UPDATE launches SET updated_at=?, capture_status='supported', error=NULL WHERE id=?").run(now(), id);

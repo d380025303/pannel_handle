@@ -18,7 +18,6 @@ function fixture({ capabilities = { fork: {}, delete: {} }, intercept = () => fa
   const service = createOpenCodeAcpSessionService({
     environmentService: { resolve: () => ({}) }, terminalManager: { broadcastAgentStatus: vi.fn() },
     broadcast, onTokenUsageCheckpoint: checkpoint,
-    openCodeQuestionBridgeFactory: async () => ({ url: "http://127.0.0.1:1234/mcp", token: "test-token", close: vi.fn() }),
     spawnProcess: () => {
       const child = new EventEmitter();
       child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = vi.fn();
@@ -54,15 +53,15 @@ function fixture({ capabilities = { fork: {}, delete: {} }, intercept = () => fa
 }
 
 describe("OpenCode graphical history actions", () => {
-  it("forks with MCP context, retains early replay, establishes usage baseline, and leaves source intact", async () => {
-    const f = fixture({ runtime: { openCodeQuestions: true } });
+  it("forks with native ACP context, retains early replay, establishes usage baseline, and leaves source intact", async () => {
+    const f = fixture();
     await f.start();
     const next = await f.service.forkThread("one", "history");
     expect(next).toMatchObject({ threadId: "branch", busy: false, nativeMode: "build", capabilities: { forkHistory: true, deleteHistory: true } });
     expect(next.items.map(item => item.text)).toEqual(["original prompt", "original answer"]);
     expect(next.availableCommands).toEqual([{ name: "compact", description: "" }]);
     expect(f.calls.find(value => value.method === "session/fork").params).toMatchObject({ sessionId: "history", cwd: "C:\\work",
-      mcpServers: [{ name: "pannel_handle_question", type: "http" }] });
+      mcpServers: [] });
     expect(f.checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "branch", resumed: true }));
     expect((await f.service.listHistory("one")).data.map(row => row.id)).toContain("history");
     await f.service.submit("one", "continue");

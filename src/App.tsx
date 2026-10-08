@@ -41,7 +41,7 @@ import { SkillsManager } from "./components/skills/SkillsManager";
 import { McpManager } from "./components/mcp/McpManager";
 import { useRemoteSystemMetrics } from "./hooks/useRemoteSystemMetrics";
 import { useAgentUsage } from "./hooks/useAgentUsage";
-import { useAgentTokenLive } from "./hooks/useAgentTokenLive";
+import { useAgentTokenLive, usesGraphicalTokenLive } from "./hooks/useAgentTokenLive";
 import { useCodexAppServerFooter } from "./hooks/useCodexAppServerFooter";
 import { useAgentConversation } from "./hooks/useAgentConversation";
 import { useRightToolsResize } from "./hooks/useRightToolsResize";
@@ -192,7 +192,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const agentConversation = useAgentConversation(terminalSessions.activeId, rightTool === "conversation");
   const agentUsage = useAgentUsage(terminalSessions.activeSession, terminalSessions.activeAgentStatus);
   const agentTokenLive = useAgentTokenLive(terminalSessions.activeSession?.runtimeMode === "app-server"
-    && terminalSessions.activeSession.agentProvider !== "codebuddy" ? undefined : terminalSessions.activeSession);
+    && !usesGraphicalTokenLive(terminalSessions.activeSession.agentProvider) ? undefined : terminalSessions.activeSession);
   const remoteSystemMetrics = useRemoteSystemMetrics(
     terminalSessions.activeSession,
     terminalSessions.sessions.map((session) => session.id)
@@ -1042,8 +1042,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                     <SessionModeSwitch session={terminalSessions.activeSession} onOpenOtherMode={terminalSessions.openOtherSessionMode} />
                     <AgentSwitcher session={terminalSessions.activeSession} onSwitch={terminalSessions.switchAgent} />
                     <AgentTokenLiveStatus
-                      state={terminalSessions.activeSession?.agentProvider === "codebuddy" ? agentTokenLive : appServerFooter.tokenState}
-                      source={terminalSessions.activeSession?.agentProvider === "codebuddy" ? "transcript" : "app-server"}
+                      state={usesGraphicalTokenLive(terminalSessions.activeSession?.agentProvider) ? agentTokenLive : appServerFooter.tokenState}
+                      source={usesGraphicalTokenLive(terminalSessions.activeSession?.agentProvider) ? "transcript" : "app-server"}
                     />
                     {appServerFooter.contextUsage !== undefined && <CodeBuddyContextUsage usage={appServerFooter.contextUsage}
                       provider={terminalSessions.activeSession?.agentProvider === "opencode" ? "opencode" : "codebuddy"} />}

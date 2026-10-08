@@ -8,6 +8,7 @@ const {
   isManagedCommand
 } = require("./hook-config-manager.cjs");
 const { createSshSessionRuntime } = require("../ssh/ssh-session-runtime.cjs");
+const { assertManagedLegacyQuestion } = require("./legacy-opencode-question.cjs");
 
 const SSH_PROVIDERS = ["claude", "codex", "codebuddy", "opencode", "qoder"];
 
@@ -45,6 +46,7 @@ function getProviderPaths(projectPath, provider) {
     configPath: definition.configPath ? posix.join(projectPath, ...definition.configPath) : undefined,
     scriptPath: posix.join(projectPath, ...(definition.scriptPath || definition.wslScriptPath)),
     assetPath: path.join(__dirname, "hook-assets", definition.asset || definition.wslAsset),
+    legacyQuestionPath: provider === "opencode" ? posix.join(projectPath, ".opencode", "plugins", "pannel-handle-question.js") : undefined,
     extraScripts: (definition.extraScripts || []).map(extra => ({
       scriptPath: posix.join(projectPath, ...extra.scriptPath),
       assetPath: path.join(__dirname, "hook-assets", extra.asset)
@@ -146,6 +148,8 @@ function createRemoteHookConfigService({
 
   async function inspectProvider(sftp, projectPath, provider, hookUrl, sessionId) {
     const paths = getProviderPaths(projectPath, provider);
+    const legacyQuestion = paths.legacyQuestionPath ? await readRemoteText(sftp, paths.legacyQuestionPath) : { exists: false };
+    if (legacyQuestion.exists) assertManagedLegacyQuestion(legacyQuestion.content, paths.legacyQuestionPath);
     const expectedScript = fs.readFileSync(paths.assetPath, "utf-8");
     const script = await readRemoteText(sftp, paths.scriptPath);
     const extras = await Promise.all(paths.extraScripts.map(async extra => ({
@@ -154,7 +158,7 @@ function createRemoteHookConfigService({
     const extraMatches = extras.every(extra => extra.actual.exists && extra.actual.content === extra.expected);
     if (!paths.configPath) {
       return {
-        status: script.exists && script.content === expectedScript && extraMatches ? "installed"
+        status: legacyQuestion.exists ? "needs_repair" : script.exists && script.content === expectedScript && extraMatches ? "installed"
           : script.exists || extras.some(extra => extra.actual.exists) ? "needs_repair" : "not_installed",
         scriptPath: paths.scriptPath,
         managedHookCount: script.exists ? 1 : 0,
@@ -227,6 +231,8 @@ function createRemoteHookConfigService({
 
       for (const provider of selected) {
         const paths = getProviderPaths(projectPath, provider);
+        const legacyQuestion = paths.legacyQuestionPath ? await readRemoteText(sftp, paths.legacyQuestionPath) : { exists: false };
+        if (legacyQuestion.exists) assertManagedLegacyQuestion(legacyQuestion.content, paths.legacyQuestionPath);
         const expectedScript = fs.readFileSync(paths.assetPath, "utf-8");
         if (paths.configPath) {
           const configFile = await readRemoteText(sftp, paths.configPath);
@@ -237,6 +243,10 @@ function createRemoteHookConfigService({
         await writeRemoteText(sftp, paths.scriptPath, expectedScript, snapshots);
         for (const extra of paths.extraScripts)
           await writeRemoteText(sftp, extra.scriptPath, fs.readFileSync(extra.assetPath, "utf-8"), snapshots);
+        if (legacyQuestion.exists) {
+          snapshots.push({ remotePath: paths.legacyQuestionPath, ...legacyQuestion });
+          await sftp.delete(paths.legacyQuestionPath);
+        }
       }
 
       await sftp.end();

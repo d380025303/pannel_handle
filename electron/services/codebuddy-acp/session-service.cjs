@@ -14,7 +14,7 @@ const { normalizeCwd } = require("../conversation-history/history-values.cjs");
 const { runOpenCodeHistoryControl, isOpenCodeMessageId } = require("../opencode-acp/history-control.cjs");
 const { isRewindMessageId, runRewindControl } = require("./rewind-control.cjs");
 const { emptyGoalState, applyGoalUpdate } = require("./goal-state.cjs");
-const { createOpenCodeQuestionBridge } = require("../opencode-acp/question-bridge.cjs");
+const { readFormQuestions, formAnswerContent } = require("../opencode-acp/form-questions.cjs");
 const { readAuthMethods, createOpenCodeAuthService } = require("../opencode-acp/auth-service.cjs");
 const { fileResourceLink, applyStructuredToolUpdate, resourceAttachment } = require("../opencode-acp/content-values.cjs");
 const { createScheduledTasksService } = require("./scheduled-tasks-service.cjs");
@@ -137,7 +137,7 @@ async function createRemoteChild(transportService, session, environment, provide
 
 function createCodeBuddyAcpSessionService({ environmentService, terminalManager, sessionStore, broadcast, sshAgentTransport, sshFileSystem, historyService, conversationArchive,
   spawnProcess = spawn, provider = "codebuddy", resolveHttpEndpoint = waitForEndpoint,
-  httpTransportFactory = createCodeBuddyHttpTransport, openCodeQuestionBridgeFactory = createOpenCodeQuestionBridge, workBuddyModelCatalogService,
+  httpTransportFactory = createCodeBuddyHttpTransport, workBuddyModelCatalogService,
   onTokenUsageCheckpoint = () => {}, onTokenLiveEvent = () => {}, rewindControl = runRewindControl,
   spawnAuthTerminal, clearCapabilityEndpoint, openCodeControl }) {
   const sessions = new Map();
@@ -255,11 +255,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   const workspace = entry => entry.runtime.workspaceCwd || entry.session.cwd;
   function sessionParams(entry, threadId) {
     const params = { ...(threadId ? { sessionId: threadId } : {}), cwd: workspace(entry), mcpServers: [] };
-    if (provider === "opencode" && entry.openCodeQuestionBridge) {
-      const bridge = entry.openCodeQuestionBridge;
-      params.mcpServers.push({ name: "pannel_handle_question", type: "http", url: bridge.url,
-        headers: [{ name: "Authorization", value: `Bearer ${bridge.token}` }] });
-    }
     if ((provider === "claude" || provider === "qoder") && entry.runtime.remoteBridge) {
       const bridge = entry.runtime.remoteBridge;
       params.mcpServers = [{ name: "pannel_handle_remote", type: "http", url: bridge.url,
@@ -595,6 +590,15 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     if (sessions.get(id) !== entry) return;
     if (message.method === "session/update") return onUpdate(id, entry, message.params);
+    if (provider === "opencode" && message.method === "$/cancel_request") {
+      const requestId = message.params?.requestId;
+      if (entry.questions.get(requestId)?.openCodeForm) {
+        send(entry, { id: requestId, result: { action: "cancel" } });
+        entry.questions.delete(requestId);
+        publish(id);
+      }
+      return;
+    }
     if (provider === "codebuddy" && message.method === "_codebuddy.ai/question") {
       const params = message.params || {};
       const prompts = params.schema?.questions;
@@ -612,6 +616,21 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             .map(option => ({ label: option.label, description: typeof option.description === "string" ? option.description : "" })) : null }))
       } });
       status(id, entry, "e_prompt", prompts[0].question);
+      publish(id);
+      return;
+    }
+    if (provider === "opencode" && message.method === "elicitation/create") {
+      if (typeof message.id !== "number" && typeof message.id !== "string") return;
+      if (entry.questions.has(message.id)) return;
+      const params = message.params || {};
+      const form = !entry.transportClosed && entry.threadId && params.mode === "form" && params.sessionId === entry.threadId
+        ? readFormQuestions(params.requestedSchema) : null;
+      if (!form) { send(entry, { id: message.id, result: { action: "cancel" } }); return; }
+      if (form.questions.length === 1 && !params.requestedSchema.properties[form.questions[0].id].description)
+        form.questions[0].question = params.message || form.questions[0].question;
+      entry.questions.set(message.id, { requestId: message.id, submitting: false, openCodeForm: form,
+        params: { threadId: entry.threadId, turnId: entry.turnId || "", itemId: params.toolCallId, questions: form.questions } });
+      status(id, entry, "e_prompt", params.message || form.questions[0].question, "AcpQuestion");
       publish(id);
       return;
     }
@@ -702,25 +721,6 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     }
     if (Object.hasOwn(message, "id")) send(entry, { id: message.id, error: { code: -32601, message: "Unsupported client method" } });
   }
-  async function connectOpenCodeQuestions(id, session, getEntry) {
-    return openCodeQuestionBridgeFactory({ session, sshAgentTransport,
-      onQuestion: ({ requestId, questions }) => {
-        const entry = getEntry();
-        if (!entry || sessions.get(id) !== entry || !entry.threadId) throw new Error("图形会话已关闭。");
-        entry.questions.set(requestId, { requestId, submitting: false, bridge: true,
-          params: { threadId: entry.threadId, turnId: entry.turnId || "", questions } });
-        publish(id);
-        status(id, entry, "e_prompt", questions[0].question, "AcpQuestion");
-      },
-      onCancel: requestId => {
-        const entry = getEntry();
-        if (!entry || sessions.get(id) !== entry) return;
-        entry.questions.delete(requestId);
-        publish(id);
-        if (!entry.questions.size) status(id, entry, "running");
-      }
-    });
-  }
   async function start(session, runtime = {}) {
     await closingSessions.get(session.id);
     const authGeneration = runtime.authGeneration;
@@ -729,24 +729,13 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (loginClosed()) throw new Error("原图形会话已关闭。");
     if ((provider === "claude" || provider === "qoder") && runtime.localBridge && (!runtime.remoteBridge?.url || !runtime.remoteBridge?.token || !runtime.remoteBridge?.instructions))
       throw new Error(`${agentName} SSH 本机桥接缺少受限远端工具配置。`);
-    const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}),
-      ...(provider === "opencode" && runtime.openCodeQuestions ? { OPENCODE_ENABLE_QUESTION_TOOL: "0" } : {}) };
-    let entry;
-    let openCodeQuestionBridge;
-    let child;
-    try {
-      if (provider === "opencode" && runtime.openCodeQuestions) {
-        openCodeQuestionBridge = await connectOpenCodeQuestions(session.id, session, () => entry);
-        environment.PANNEL_HANDLE_OPENCODE_QUESTION_URL = openCodeQuestionBridge.url;
-        environment.PANNEL_HANDLE_OPENCODE_QUESTION_TOKEN = openCodeQuestionBridge.token;
-      }
-      child = isRemote({ session, runtime })
-        ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
-        : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
-          return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
-    } catch (error) { openCodeQuestionBridge?.close(); throw error; }
-    if (loginClosed()) { openCodeQuestionBridge?.close(); stopAgentChild(child, provider); throw new Error("原图形会话已关闭。"); }
-    entry = { child, session, runtime, environment, openCodeQuestionBridge, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
+    const environment = { ...environmentService.resolve(session), ...(runtime.runtimeEnv || {}) };
+    const child = isRemote({ session, runtime })
+      ? await createRemoteChild(sshAgentTransport, session, environment, provider, runtime)
+      : (() => { const invocation = buildInvocation(session, runtime, environment, provider);
+        return spawnProcess(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }); })();
+    if (loginClosed()) { stopAgentChild(child, provider); throw new Error("原图形会话已关闭。"); }
+    const entry = { child, session, runtime, environment, nextId: 0, pending: new Map(), approvals: new Map(), questions: new Map(), allowedFiles: new Set(), pastedImages: new Set(), uploadedFiles: new Set(),
       threadId: null, loadingThreadId: runtime.resumeThreadId || null, turnId: null, mode: "default", nativeMode: null, modes: [], executionPermission: "askApproval", busy: false, foregroundBusy: false, unsolicitedTurns: new Set(), multitaskSupport: false,
       error: null, pendingPlan: null, queuedPlans: [], items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       authMethods: [], authRequired: false,
@@ -777,8 +766,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         return;
       }
       entry.busy = false; entry.error = error.message;
+      if (provider === "opencode") entry.transportClosed = true;
       for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
-      entry.openCodeQuestionBridge?.cancelAll();
       entry.pending.clear(); entry.approvals.clear(); entry.questions.clear(); entry.pendingPlan = null; entry.queuedPlans = [];
       entry.executePlanInFullAccess = false; publish(session.id);
       status(session.id, entry, "exited", error.message);
@@ -808,7 +797,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
         transport.on("error", fail);
         await transport.connect();
       }
-      const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } }, _meta: { "codebuddy.ai": { question: true, goalSnapshotReplay: true, ...(!runtime.localBridge && !runtime.requiredMode ? { mainAgentSupport: true } : {}) } } } : provider === "claude" ? { elicitation: { form: {} } } : provider === "opencode" ? { auth: { terminal: true } } : {} });
+      const initialized = await request(entry, "initialize", { protocolVersion: 1, clientInfo: { name: "pannel_handle", version: "1.0.0" }, clientCapabilities: provider === "codebuddy" ? { session: { configOptions: { boolean: {} } }, _meta: { "codebuddy.ai": { question: true, goalSnapshotReplay: true, ...(!runtime.localBridge && !runtime.requiredMode ? { mainAgentSupport: true } : {}) } } } : provider === "claude" ? { elicitation: { form: {} } } : provider === "opencode" ? { auth: { terminal: true }, elicitation: { form: {} } } : {} });
       if (provider === "opencode") entry.authMethods = readAuthMethods(initialized?.authMethods);
       if (provider === "qoder" && runtime.localBridge && initialized?.agentCapabilities?.mcpCapabilities?.http !== true)
         throw new Error("Qoder ACP 不支持 SSH 本机桥接所需的 HTTP MCP 通道。");
@@ -858,7 +847,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
             : entry.configOptions.map(item => item.id === "model" ? { ...item, currentValue: runtime.openCodeModel } : item);
         }
       }
-      if (provider === "opencode" && (runtime.openCodeQuestions || openCodeControl)) await refreshOpenCodeHistoryState(entry);
+      if (provider === "opencode" && (runtime.openCodeHistoryControl || openCodeControl)) await refreshOpenCodeHistoryState(entry);
       await restoreOptions(entryFor(session.id));
       await refreshMainAgents(entry);
       publish(session.id);
@@ -885,10 +874,10 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     sessions.delete(id);
     if (provider !== "opencode" || !entry.supportsClose || !entry.threadId || !entry.child.stdin.writable
       || entry.child.exitCode != null || entry.child.signalCode != null) { disposeEntry(entry); return; }
-    entry.openCodeQuestionBridge?.cancelAll();
     for (const requestId of entry.approvals.keys()) {
       try { send(entry, { id: requestId, result: { outcome: { outcome: "cancelled" } } }); } catch {}
     }
+    cancelOpenCodeForms(entry);
     entry.approvals.clear(); entry.questions.clear();
     const closing = request(entry, "session/close", { sessionId: entry.threadId }, 3000)
       .catch(() => {}).finally(() => {
@@ -903,12 +892,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     try { await request(entry, "session/close", { sessionId: threadId }, 3000); } catch {}
   }
   function disposeEntry(entry) {
+    cancelOpenCodeForms(entry);
     for (const pending of entry.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("会话已关闭。")); }
     entry.pending.clear();
     entry.questions.clear();
     entry.pendingPlan = null; entry.queuedPlans = [];
     entry.executePlanInFullAccess = false;
-    entry.openCodeQuestionBridge?.close();
     const finish = () => {
       entry.httpForwarder?.close();
       stopAgentChild(entry.child, provider);
@@ -1017,7 +1006,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return result;
   }
   async function updateOpenCodeMessageIds(entry) {
-    if (!(entry.runtime.openCodeQuestions || openCodeControl)) return;
+    if (!(entry.runtime.openCodeHistoryControl || openCodeControl)) return;
     const target = entry.items.findLast(item => item.type === "userMessage" && item.turnId === entry.turnId);
     if (!target || target.rewindMessageId) return;
     try {
@@ -1312,7 +1301,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     catch (error) { close(id); throw error; }
     if (provider === "opencode") {
       await restoreOptions(entry);
-      if (entry.runtime.openCodeQuestions || openCodeControl) await refreshOpenCodeHistoryState(entry);
+      if (entry.runtime.openCodeHistoryControl || openCodeControl) await refreshOpenCodeHistoryState(entry);
     }
     await refreshMainAgents(entry);
     publish(id);
@@ -1340,7 +1329,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     entry.items = []; entry.team = null; entry.error = null; entry.pendingPlan = null; entry.queuedPlans = []; entry.contextUsage = null;
     if (provider === "opencode") {
       entry.openCodeRevert = null;
-      if (entry.runtime.openCodeQuestions || openCodeControl) await refreshOpenCodeHistoryState(entry);
+      if (entry.runtime.openCodeHistoryControl || openCodeControl) await refreshOpenCodeHistoryState(entry);
     }
     if (provider === "codebuddy") entry.codeBuddyGoal = emptyGoalState();
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
@@ -1605,6 +1594,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       const result = await request(entry, "session/prompt", { sessionId: entry.threadId, prompt,
         ...(provider === "codebuddy" ? { _meta: { "codebuddy.ai/conversationRequestId": entry.turnId } } : {}) }, 60 * 60 * 1000);
       if (sessions.get(id) !== entry) return;
+      cancelOpenCodeForms(entry);
       for (const file of files) entry.allowedFiles.delete(file);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       for (const item of entry.items) if (item.turnId === entry.turnId) delete item.streaming;
@@ -1621,6 +1611,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       void recordTokenUsage(entry);
     } catch (error) {
       if (sessions.get(id) !== entry) throw error;
+      cancelOpenCodeForms(entry);
       entry.foregroundBusy = false; entry.busy = entry.unsolicitedTurns.size > 0;
       entry.error = appendTurnError(entry, entry.turnId, error.message) ? null : error.message;
       if (provider === "opencode") await updateOpenCodeMessageIds(entry);
@@ -1684,7 +1675,15 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     return startGoalCommand(id, "/goal clear", "clear");
   }
   function refreshGoal(id) { return startGoalCommand(id, "/goal", "inspect"); }
-  function interrupt(id) { const entry = entryFor(id); entry.openCodeQuestionBridge?.cancelAll();
+  function cancelOpenCodeForms(entry) {
+    if (provider !== "opencode") return;
+    for (const [requestId, question] of entry.questions) {
+      if (!question.openCodeForm) continue;
+      try { send(entry, { id: requestId, result: { action: "cancel" } }); } catch {}
+      entry.questions.delete(requestId);
+    }
+  }
+  function interrupt(id) { const entry = entryFor(id); cancelOpenCodeForms(entry); publish(id);
     send(entry, { method: "session/cancel", params: { sessionId: entry.threadId } }); }
   function resolveApproval(id, requestId, approved) {
     const entry = entryFor(id); const approval = entry.approvals.get(requestId);
@@ -1706,16 +1705,16 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     const question = entry.questions.get(requestId);
     if (!question || question.submitting || question.params.threadId !== entry.threadId) throw new Error("问题请求已失效。");
     const prompts = question.params.questions;
-    if (!answers || typeof answers !== "object" || Array.isArray(answers)
+    if (!question.openCodeForm && (!answers || typeof answers !== "object" || Array.isArray(answers)
       || Object.keys(answers).length !== prompts.length || prompts.some(prompt => {
         const values = answers[prompt.id]?.answers;
         return !Array.isArray(values) || !values.length || values.some(value => typeof value !== "string" || !value.trim())
           || (!prompt.multiSelect && values.length > 1);
-      })) throw new Error("问题答案无效。");
+      }))) throw new Error("问题答案无效。");
     question.submitting = true; publish(id);
     try {
-      if (question.bridge) {
-        entry.openCodeQuestionBridge.answer(requestId, Object.fromEntries(prompts.map(prompt => [prompt.id, answers[prompt.id].answers])));
+      if (question.openCodeForm) {
+        send(entry, { id: requestId, result: { action: "accept", content: formAnswerContent(question.openCodeForm, answers) } });
       } else if (question.elicitation) {
         const content = {};
         for (const prompt of prompts) {
@@ -1759,7 +1758,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.questions.delete(requestId);
       entry.items.push({ id: `question-answer:${question.params.turnId}:${requestId}`, type: "questionAnswer", status: "submitted",
         turnId: question.params.turnId, questions: prompts.map(prompt => ({ id: prompt.id, header: prompt.header,
-          question: prompt.question, answers: answers[prompt.id].answers })) });
+          question: prompt.question, answers: answers[prompt.id]?.answers || [] })) });
       publish(id); status(id, entry, "running");
     } catch (error) { question.submitting = false; publish(id); throw error; }
   }
@@ -1770,9 +1769,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     if (!question || question.submitting || question.params.threadId !== entry.threadId) throw new Error("问题请求已失效。");
     question.submitting = true; publish(id);
     try {
-      if (question.bridge) {
-        entry.openCodeQuestionBridge.cancel(requestId);
-      } else if (question.elicitation) {
+      if (question.openCodeForm || question.elicitation) {
         send(entry, { id: requestId, result: { action: "cancel" } });
       } else if (question.permissionRequest) {
         const result = await request(entry, "_codebuddy.ai/resolveInterruption", { sessionId: entry.threadId,

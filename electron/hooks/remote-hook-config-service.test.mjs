@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -7,6 +8,9 @@ const {
   createRemoteHookConfigService,
   normalizeRemotePath
 } = require("./remote-hook-config-service.cjs");
+
+// Exact retired plugin used only to verify remote migration.
+const legacyQuestionPlugin = fs.readFileSync(new URL("./fixtures/legacy-opencode-question.txt", import.meta.url), "utf8");
 
 function createMemorySftp(files = {}) {
   const store = new Map(Object.entries(files));
@@ -83,6 +87,28 @@ function createService(sftp, tunnel = { hookUrl: "http://127.0.0.1:31847/claude-
 }
 
 describe("remote-hook-config-service", () => {
+  it("cleans the exact retired plugin over SSH and keeps notification/capability plugins", async () => {
+    const legacyPath = "/srv/app/.opencode/plugins/pannel-handle-question.js";
+    const sftp = createMemorySftp({ [legacyPath]: legacyQuestionPlugin });
+    const service = createService(sftp);
+    const target = { sessionId: "run-1", path: "/srv/app" };
+    expect((await service.inspect(target, ["opencode"])).providers.opencode.status).toBe("needs_repair");
+    expect((await service.install(target, ["opencode"])).providers.opencode.status).toBe("installed");
+    expect(sftp.read(legacyPath)).toBeUndefined();
+    expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-capabilities.js")).toContain("pannel-handle-capabilities");
+  });
+
+  it("preserves a modified SSH question plugin and reports its path", async () => {
+    const legacyPath = "/srv/app/.opencode/plugins/pannel-handle-question.js";
+    const modified = legacyQuestionPlugin + "\n// user edit";
+    const sftp = createMemorySftp({ [legacyPath]: modified });
+    const service = createService(sftp);
+    const target = { sessionId: "run-1", path: "/srv/app" };
+    expect(await service.install(target, ["opencode"])).toMatchObject({ ok: false, error: expect.stringContaining(legacyPath) });
+    expect(sftp.read(legacyPath)).toBe(modified);
+    expect(sftp.put).not.toHaveBeenCalled();
+  });
+
   it("normalizes absolute Linux paths and rejects relative paths", () => {
     expect(normalizeRemotePath("/srv/app/")).toBe("/srv/app");
     expect(() => normalizeRemotePath("srv/app")).toThrow("absolute Linux path");
@@ -213,8 +239,7 @@ describe("remote-hook-config-service", () => {
     expect(result.ok).toBe(true);
     expect(result.providers.opencode.status).toBe("installed");
     expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-notification.js")).toContain("PANNEL_HANDLE_HOOK_URL");
-    expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-question.js"))
-      .toContain('id: "pannel-handle-graphical-question"');
+    expect(sftp.read("/srv/app/.opencode/plugins/pannel-handle-question.js")).toBeUndefined();
     expect(sftp.read("/srv/app/opencode.json")).toBeUndefined();
   });
 

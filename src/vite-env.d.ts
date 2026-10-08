@@ -1024,10 +1024,10 @@ export type CodexConfigurationView = {
   permissionError?: string | null;
 };
 export type CodexExecutionPermission = "readOnly" | "askApproval" | "fullAccess";
-export type CodexQuestionAnswer = { answers: string[] };
+export type CodexQuestionAnswer = { answers: string[]; customAnswer?: string };
 export type CodexQuestionRequest = { requestId: number | string; submitting: boolean; params: {
   threadId: string; turnId: string; itemId?: string; isBlocking?: boolean; autoResolutionMs?: number | null;
-  questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean; multiSelect?: boolean;
+  questions: Array<{ id: string; header: string; question: string; isOther?: boolean; isSecret?: boolean; multiSelect?: boolean; required?: boolean;
     options?: Array<{ label: string; description: string }> | null }>;
 } };
 export type CodexMcpElicitation = { requestId: number | string; submitting: boolean; params: {

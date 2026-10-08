@@ -166,7 +166,7 @@ it("retains auth-required startup, negotiates terminal auth, restores the origin
   const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) }, broadcast: vi.fn(),
     terminalManager: { getSession: () => session, listSessions: () => [session] }, spawnProcess: spawn, spawnAuthTerminal: () => term });
   await service.start(session, { resumeThreadId: "original" });
-  expect(messages[0].params.clientCapabilities).toEqual({ auth: { terminal: true } });
+  expect(messages[0].params.clientCapabilities).toEqual({ auth: { terminal: true }, elicitation: { form: {} } });
   expect(service.snapshot("one")).toMatchObject({ threadId: null, acpAuth: { required: true, methods: [{ id: method.id }] } });
   expect(service.snapshot("one").acpAuth.methods[0]).not.toHaveProperty("args");
   await service.startAcpLogin("one", method.id);
