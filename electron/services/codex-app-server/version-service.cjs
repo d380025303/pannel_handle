@@ -9,26 +9,29 @@ const REGISTRY_URL = "https://registry.npmjs.org/@openai%2fcodex/latest";
 const INSTALL_SH = "https://chatgpt.com/codex/install.sh";
 const INSTALL_PS1 = "https://chatgpt.com/codex/install.ps1";
 
-const bashProbe = `command -v codex >/dev/null 2>&1 || exit 2
+const bashProbe = `command -v codex >/dev/null 2>&1 || { echo "Codex CLI 命令不存在。" >&2; exit 2; }
 codex_path=$(command -v codex)
 resolved_path=$(readlink -f "$codex_path" 2>/dev/null || printf '%s' "$codex_path")
-version=$(codex --version) || exit 3
+version=$(codex --version) || { echo "Codex CLI 版本命令执行失败。" >&2; exit 3; }
 npm_root=$(npm root -g 2>/dev/null || true)
 install_dir=\${CODEX_INSTALL_DIR:-$HOME/.local/bin}
 codex_home=\${CODEX_HOME:-$HOME/.codex}
 if [ -n "$npm_root" ] && [ -d "$npm_root/@openai/codex" ]; then npm_owned=1; else npm_owned=0; fi
 if [ -d "$codex_home/packages/standalone" ]; then standalone_owned=1; else standalone_owned=0; fi
-printf '%s\\n' "$version" "$codex_path" "$resolved_path" "$npm_root" "$install_dir" "$codex_home" "$npm_owned" "$standalone_owned"`;
+printf '%s\\n' '__PANNEL_CODEX_PROBE_BEGIN__' '__PANNEL_CODEX_VERSION_BEGIN__' "$version" '__PANNEL_CODEX_VERSION_END__'
+printf 'commandPath=%s\\nresolvedPath=%s\\nnpmRoot=%s\\ninstallDir=%s\\ncodexHome=%s\\nnpmOwned=%s\\nstandaloneOwned=%s\\n' "$codex_path" "$resolved_path" "$npm_root" "$install_dir" "$codex_home" "$npm_owned" "$standalone_owned"
+printf '%s\\n' '__PANNEL_CODEX_PROBE_END__'`;
 const powerShellProbe = `$ErrorActionPreference = 'Stop'
 $command = Get-Command codex -ErrorAction Stop | Select-Object -First 1
-$version = & $command.Source --version
+$version = (& $command.Source --version) -join [Environment]::NewLine
+if ($LASTEXITCODE -ne 0) { throw 'Codex CLI 版本命令执行失败。' }
 $npmRoot = try { (& npm.cmd root -g 2>$null | Select-Object -First 1) } catch { '' }
 $installDir = if ($env:CODEX_INSTALL_DIR) { $env:CODEX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\\OpenAI\\Codex\\bin' }
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
 $npmPackage = if ($npmRoot) { Join-Path $npmRoot '@openai\\codex' } else { '' }
 $npmOwned = if ($npmPackage -and (Test-Path $npmPackage) -and (Select-String -LiteralPath $command.Source -Pattern '@openai/codex' -Quiet -ErrorAction SilentlyContinue)) { '1' } else { '0' }
 $standaloneOwned = if (Test-Path (Join-Path $codexHome 'packages\\standalone')) { '1' } else { '0' }
-@($version, $command.Source, $command.Source, $npmRoot, $installDir, $codexHome, $npmOwned, $standaloneOwned) -join [Environment]::NewLine`;
+@('__PANNEL_CODEX_PROBE_BEGIN__', '__PANNEL_CODEX_VERSION_BEGIN__', $version, '__PANNEL_CODEX_VERSION_END__', "commandPath=$($command.Source)", "resolvedPath=$($command.Source)", "npmRoot=$npmRoot", "installDir=$installDir", "codexHome=$codexHome", "npmOwned=$npmOwned", "standaloneOwned=$standaloneOwned", '__PANNEL_CODEX_PROBE_END__') -join [Environment]::NewLine`;
 
 function quoteBash(value) { return `'${String(value).replace(/'/g, "'\\''")}'`; }
 function parseVersion(value) {
@@ -36,6 +39,29 @@ function parseVersion(value) {
   return match ? { text: `${match[1]}.${match[2]}.${match[3]}${match[4] ? `-${match[4]}` : ""}`,
     parts: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: Boolean(match[4]) } : null;
 }
+function parseProbe(output) {
+  const lines = String(output).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").split(/\r?\n/).map(line => line.trim());
+  const begin = lines.indexOf("__PANNEL_CODEX_PROBE_BEGIN__");
+  const end = lines.indexOf("__PANNEL_CODEX_PROBE_END__", begin + 1);
+  const versionBegin = lines.indexOf("__PANNEL_CODEX_VERSION_BEGIN__", begin + 1);
+  const versionEnd = lines.indexOf("__PANNEL_CODEX_VERSION_END__", versionBegin + 1);
+  const incomplete = () => { throw new Error("Codex 版本检测返回内容不完整。"); };
+  if (begin < 0 || end < 0 || versionBegin !== begin + 1 || versionEnd <= versionBegin || versionEnd >= end) incomplete();
+  const fields = new Map();
+  for (const line of lines.slice(versionEnd + 1, end)) {
+    const separator = line.indexOf("=");
+    if (separator < 0 || fields.has(line.slice(0, separator))) incomplete();
+    fields.set(line.slice(0, separator), line.slice(separator + 1));
+  }
+  const keys = ["commandPath", "resolvedPath", "npmRoot", "installDir", "codexHome", "npmOwned", "standaloneOwned"];
+  if (keys.some(key => !fields.has(key)) || !fields.get("commandPath") || !fields.get("resolvedPath") || !fields.get("installDir")) incomplete();
+  const versionLines = lines.slice(versionBegin + 1, versionEnd);
+  const version = versionLines.find(line => /^codex-cli\s+v?\d+\.\d+\.\d+/.test(line))
+    || versionLines.find(line => /^v?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(line));
+  if (!version) throw new Error("无法识别 Codex CLI 版本。");
+  return [version, ...keys.map(key => fields.get(key))];
+}
+
 function isNewer(current, latest) {
   for (let index = 0; index < 3; index += 1) {
     if (latest.parts[index] !== current.parts[index]) return latest.parts[index] > current.parts[index];
@@ -93,13 +119,12 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
     if (executeCommand) return executeCommand(targetValue, script, timeoutMs, onOutput);
     if (targetValue.session.type === "ssh" && targetValue.session.agentLocation !== "local")
       return sshAgentTransport.exec(targetValue.session.id, `bash -lic ${quoteBash(script)}`, { actionName: "Codex version update", timeoutMs, onStdout: onOutput, onStderr: onOutput });
-    if (targetValue.platform === "linux") return runProcess("wsl.exe", ["-d", targetValue.session.wslDistro, "--", "bash", "-lic", script], { timeoutMs, spawnProcess, onOutput });
+    if (targetValue.platform === "linux") return runProcess("wsl.exe", ["-d", targetValue.session.wslDistro, "--exec", "bash", "-lic", script], { timeoutMs, spawnProcess, onOutput });
     return runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs, spawnProcess, onOutput });
   }
   async function probe(targetValue) {
     const output = await run(targetValue, targetValue.platform === "windows" ? powerShellProbe : bashProbe, CHECK_TIMEOUT_MS);
-    const lines = String(output).trim().split(/\r?\n/).map(line => line.trim());
-    if (lines.length < 8) throw new Error("Codex 版本检测返回内容不完整。");
+    const lines = parseProbe(output);
     const current = parseVersion(lines[0]);
     if (!current) throw new Error("无法识别 Codex CLI 版本。");
     return { currentVersion: current.text, commandPath: lines[1], method: installation(lines, targetValue.platform) };
@@ -179,4 +204,4 @@ function createCodexVersionService({ terminalManager, sshAgentTransport, spawnPr
   return { check, update };
 }
 
-module.exports = { createCodexVersionService, parseVersion, isNewer, installation };
+module.exports = { createCodexVersionService, parseVersion, isNewer, installation, parseProbe };
