@@ -77,6 +77,10 @@ describe("CodexAppServerSession", () => {
   const readInitialUserInput = vi.fn().mockResolvedValue(null);
 
   beforeEach(() => {
+    Object.defineProperty(window, "terminalApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ graphicalMenuSecondaryActions: {} }),
+      onGraphicalMenuConfigChanged: () => () => {}
+    } });
     setSkillEnabled.mockReset().mockResolvedValue(undefined);
     HTMLElement.prototype.scrollIntoView = vi.fn();
     submit.mockClear(); resolveApproval.mockClear(); answerQuestion.mockReset().mockResolvedValue(undefined); cancelQuestion.mockReset().mockResolvedValue(undefined); resolveElicitation.mockReset().mockResolvedValue(undefined); openExternal.mockReset().mockResolvedValue(undefined); listHistory.mockReset().mockResolvedValue({ data: [], nextCursor: null }); renameThread.mockClear(); rewind.mockReset(); pinThread.mockReset().mockImplementation(async (_id, _threadId, isPinned) => ({ isPinned })); forkTurnToNewSession.mockReset().mockResolvedValue({ id: "run-2" }); forkThread.mockClear(); archiveThread.mockClear(); listCapabilities.mockClear(); newThread.mockClear(); compactThread.mockClear(); getGoal.mockClear(); setGoal.mockReset(); clearGoal.mockReset(); resume.mockClear(); setMode.mockClear(); setNativeMode.mockClear(); setModel.mockReset(); listModelMetadata.mockReset().mockResolvedValue([]); setContextWindow.mockReset(); setEffort.mockReset(); setMultitask.mockReset(); sendTeamMessage.mockReset().mockResolvedValue(undefined); setFastMode.mockReset(); setExecutionPermission.mockClear(); chooseFiles.mockClear(); searchWorkspaceEntries.mockReset().mockResolvedValue({ root: "C:\\work", results: [] }); pasteImage.mockClear(); discardImage.mockClear(); executePlan.mockClear(); dismissPlan.mockClear();
@@ -110,6 +114,26 @@ describe("CodexAppServerSession", () => {
       onChanged: (callback: typeof changed) => { changed = callback; return () => {}; },
       onDelta: () => () => {}
     } });
+  });
+
+
+  it("shares per-provider menu layout, applies live changes, and keeps nested action handlers", async () => {
+    let configChanged: (config: Record<string, string[]>) => void = () => {};
+    Object.defineProperty(window, "terminalApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ graphicalMenuSecondaryActions: { codex: ["history", "compact"] } }),
+      onGraphicalMenuConfigChanged: (callback: typeof configChanged) => { configChanged = callback; return () => {}; }
+    } });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("menuitem", { name: "压缩对话" })).toBeNull();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "其他操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "压缩对话" }));
+    await waitFor(() => expect(compactThread).toHaveBeenCalledWith("run-1"));
+    act(() => configChanged({ codex: [] }));
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.queryByRole("menuitem", { name: "其他操作" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "历史会话" })).toBeTruthy();
   });
 
   it("blocks image paste and keeps ordinary attachments on a text-only model", async () => {

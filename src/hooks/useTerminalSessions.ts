@@ -12,6 +12,7 @@ type CreateSessionOptions = EnvironmentSelection & {
   agentProvider?: AgentProvider;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  openCodeAdditionalDirectories?: string[];
   codexBackend?: CodexBackend;
   modelSource?: AgentModelSource;
   modelId?: string;
@@ -133,7 +134,7 @@ export function useTerminalSessions() {
     };
   }, []);
 
-  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides }: CreateSessionOptions) => {
+  const createSession = useCallback(async ({ selectedShellId, title, cwd, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, tags, persist, environmentProfileId, environmentOverrides, openCodeAdditionalDirectories }: CreateSessionOptions) => {
     const isWsl = selectedShellId.startsWith("wsl:");
     const isSsh = selectedShellId === "ssh";
     const session = await window.terminalApi.createSession({
@@ -150,6 +151,7 @@ export function useTerminalSessions() {
       ...(!isSsh && agentProvider === "codex" ? { codexBackend: codexBackend || "openai" } : {}),
       ...(!isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") ? { modelSource: modelSource || "native", modelId } : {}),
       graphicalSessionEnabled: graphicalSessionEnabled !== false,
+      ...(agentProvider === "opencode" ? { openCodeAdditionalDirectories } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && codexModel ? { codexModel } : {}),
       ...(!isSsh && agentProvider === "codex" && (codexBackend === "openrouter" || codexBackend === "nararouter" || codexBackend === "minimax") && codexModel && codexExperimentalAcknowledged ? { codexExperimentalAcknowledged: true } : {}),
       tags,
@@ -183,9 +185,10 @@ export function useTerminalSessions() {
     }));
   }, [activeAgentWarning]);
 
-  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string) => {
+  const updateSession = useCallback(async (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string, openCodeAdditionalDirectories?: string[]) => {
     await window.terminalApi.updateSession(id, {
       ...environment,
+      ...(openCodeAdditionalDirectories !== undefined ? { openCodeAdditionalDirectories } : {}),
       title,
       cwd,
       initialCommand: initialCommand.trim(),

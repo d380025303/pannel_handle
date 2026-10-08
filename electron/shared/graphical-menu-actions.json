@@ -1,0 +1,322 @@
+{
+  "providers": [
+    "codex",
+    "codebuddy",
+    "opencode",
+    "claude",
+    "qoder",
+    "gemini",
+    "grok"
+  ],
+  "actions": [
+    {
+      "id": "mode",
+      "label": "会话模式",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Session mode"
+    },
+    {
+      "id": "model",
+      "label": "模型",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Model"
+    },
+    {
+      "id": "effort",
+      "label": "思考强度",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Reasoning effort"
+    },
+    {
+      "id": "history",
+      "label": "历史会话",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Conversation history"
+    },
+    {
+      "id": "attachments",
+      "label": "添加文件",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Attach files"
+    },
+    {
+      "id": "agent",
+      "label": "切换 Agent",
+      "platform": "mobile",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "Switch Agent"
+    },
+    {
+      "id": "new-thread",
+      "label": "新对话",
+      "platform": "mobile",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode",
+        "claude",
+        "qoder",
+        "gemini",
+        "grok"
+      ],
+      "labelEn": "New conversation"
+    },
+    {
+      "id": "permission",
+      "label": "执行权限",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Execution permissions"
+    },
+    {
+      "id": "fast-mode",
+      "label": "快速模式",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Fast mode"
+    },
+    {
+      "id": "configuration",
+      "label": "配置与权限",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Configuration and permissions"
+    },
+    {
+      "id": "capabilities",
+      "label": "Skills、Apps 和 MCP",
+      "providers": [
+        "codex",
+        "opencode"
+      ],
+      "labelEn": "Skills, Apps and MCP"
+    },
+    {
+      "id": "plugins",
+      "label": "插件管理",
+      "providers": [
+        "codex",
+        "codebuddy"
+      ],
+      "labelEn": "Plugins"
+    },
+    {
+      "id": "terminals",
+      "label": "后台终端",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Background terminals"
+    },
+    {
+      "id": "compact",
+      "label": "压缩对话",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Compact conversation"
+    },
+    {
+      "id": "review",
+      "label": "代码审查",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Code review"
+    },
+    {
+      "id": "goal",
+      "label": "目标管理",
+      "providers": [
+        "codex",
+        "codebuddy"
+      ],
+      "labelEn": "Goals"
+    },
+    {
+      "id": "sandbox",
+      "label": "Windows 沙箱初始化",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Initialize Windows sandbox"
+    },
+    {
+      "id": "version",
+      "label": "CLI 版本",
+      "platform": "mobile",
+      "providers": [
+        "codex",
+        "codebuddy",
+        "opencode"
+      ],
+      "labelEn": "CLI version"
+    },
+    {
+      "id": "account",
+      "label": "Codex 账号",
+      "platform": "mobile",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Codex account"
+    },
+    {
+      "id": "workspace",
+      "label": "工作区文件",
+      "platform": "mobile",
+      "providers": [
+        "codex"
+      ],
+      "labelEn": "Workspace files"
+    },
+    {
+      "id": "mcp-config",
+      "label": "MCP 管理",
+      "providers": [
+        "codex",
+        "codebuddy"
+      ],
+      "platforms": {
+        "codex": "mobile"
+      },
+      "labelEn": "MCP management"
+    },
+    {
+      "id": "main-agent",
+      "label": "主 Agent",
+      "platform": "desktop",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Main Agent"
+    },
+    {
+      "id": "multitask",
+      "label": "Multitask",
+      "platform": "desktop",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Multitask"
+    },
+    {
+      "id": "context-window",
+      "label": "上下文窗口",
+      "platform": "desktop",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Context window"
+    },
+    {
+      "id": "session-config",
+      "label": "会话配置 · 主 Agent / Multitask / 上下文",
+      "platform": "mobile",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Session configuration · Main Agent / Multitask / Context"
+    },
+    {
+      "id": "side-question",
+      "label": "独立旁问",
+      "platform": "mobile",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Side question"
+    },
+    {
+      "id": "tasks",
+      "label": "定时任务",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Scheduled tasks"
+    },
+    {
+      "id": "jobs",
+      "label": "后台智能体",
+      "providers": [
+        "codebuddy"
+      ],
+      "labelEn": "Background agents"
+    },
+    {
+      "id": "login",
+      "label": "登录 OpenCode",
+      "providers": [
+        "opencode"
+      ],
+      "labelEn": "Sign in to OpenCode"
+    },
+    {
+      "id": "revert",
+      "label": "撤销上一轮 / 回退与恢复",
+      "providers": [
+        "opencode"
+      ],
+      "labelEn": "Undo last turn / Revert and restore"
+    },
+    {
+      "id": "reconnect-models",
+      "label": "重新连接以更新模型",
+      "providers": [
+        "opencode"
+      ],
+      "labelEn": "Reconnect to update models"
+    }
+  ]
+}

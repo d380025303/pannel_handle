@@ -272,7 +272,9 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   const discovery = { publish: vi.fn(() => advertisement), destroy: vi.fn() };
   const broadcast = vi.fn();
   const createHttpServer = vi.fn().mockReturnValueOnce(localServer).mockReturnValueOnce(server);
+  let menuConfig = { codex: ["plugins"] };
   const service = createMobileRemoteService({
+    getGraphicalMenuConfig: () => menuConfig,
     terminalManager: f.terminalManager, stateHub: f.stateHub, accessStore: f.accessStore,
     agentSessionLauncher: {}, sessionStore: { getLibrary: () => [] },
     getStaticRoot: () => ".", desktopBroadcast: broadcast,
@@ -280,6 +282,8 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
     networkInterfaces: () => ({ LAN: [{ family: "IPv4", address: "192.168.1.1", internal: false }] }),
     createHttpServer, createWebSocketServer: () => wss, createDiscovery: () => discovery
   });
+  service.broadcastGraphicalMenuConfig();
+  expect(client.send).not.toHaveBeenCalled();
   await service.start();
   await service.start();
   expect(createHttpServer).toHaveBeenCalledTimes(2);
@@ -291,6 +295,13 @@ it("assembles mobile resources, forwards terminal events and stops repeatedly wi
   expect(wss.handleUpgrade).toHaveBeenCalledTimes(2);
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "password.login", password: "correct-password", deviceName: "Phone" }));
   await vi.advanceTimersByTimeAsync(0);
+  const readyMessage = client.send.mock.calls.map(([raw]) => JSON.parse(raw)).find(message => message.type === "ready");
+  expect(readyMessage.payload.graphicalMenuSecondaryActions).toEqual(menuConfig);
+  expect(readyMessage.payload).not.toHaveProperty("config");
+  menuConfig = { codex: ["model"] };
+  service.broadcastGraphicalMenuConfig();
+  expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "graphical-menu.changed", config: menuConfig }));
+
   expect(client.send).toHaveBeenCalledWith(JSON.stringify({ v: PROTOCOL_VERSION, type: "session.overview",
     overview: { sessionId: "run-1", status: "运行中", summary: "暂无最近内容" } }));
   client.emit("message", JSON.stringify({ v: PROTOCOL_VERSION, type: "terminal.subscribe", sessionId: "run-1", lastSeq: 0 }));

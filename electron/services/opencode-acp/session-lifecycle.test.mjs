@@ -8,8 +8,8 @@ const { createOpenCodeAcpSessionService } = require("./session-service.cjs");
 const services = [];
 afterEach(async () => { await Promise.all(services.splice(0).map(service => service.shutdown())); });
 
-function fixture({ capabilities = { resume: {}, close: {} }, intercept = () => false } = {}) {
-  const session = { id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" };
+function fixture({ capabilities = { resume: {}, close: {} }, intercept = () => false, directories } = {}) {
+  const session = { id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe", openCodeAdditionalDirectories: directories };
   const calls = [], children = [], emitters = [];
   const checkpoint = vi.fn();
   const broadcast = vi.fn();
@@ -32,14 +32,15 @@ function fixture({ capabilities = { resume: {}, close: {} }, intercept = () => f
         else if (message.method === "session/list") reply({ sessions: [{ sessionId: "saved", cwd: session.cwd }] });
         else if (message.method === "session/load") {
           update(emit, message.params.sessionId, "saved message"); reply({});
-        } else if (message.method === "session/resume" || message.method === "session/close") reply({});
+        } else if (message.method === "session/fork") reply({ sessionId: "branch" });
+        else if (message.method === "session/resume" || message.method === "session/close") reply({});
         else if (message.method === "session/prompt") reply({ stopReason: "end_turn" });
       });
       return child;
     }
   });
   services.push(service);
-  return { service, calls, children, emitters, checkpoint, broadcast, start: runtime => service.start(session, runtime) };
+  return { service, calls, children, emitters, checkpoint, broadcast, session, start: runtime => service.start(session, runtime) };
 }
 function update(emit, sessionId, text) {
   emit({ method: "session/update", params: { sessionId, update: {
@@ -171,5 +172,43 @@ describe("OpenCode ACP lifecycle", () => {
     const closing = f.service.close("one"); complete();
     await closing; await observed;
     expect(f.broadcast).toHaveBeenCalledTimes(count);
+  });
+});
+
+
+describe("OpenCode additional directory requests", () => {
+  it("replaces grants on new, load, resume and fork using the current configuration", async () => {
+    const f = fixture({ capabilities: { additionalDirectories: {}, resume: {}, close: {}, fork: {} }, directories: ["C:\\shared"] });
+    await f.start();
+    expect(f.calls.find(call => call.method === "session/new").params).toMatchObject({ cwd: "C:\\work", additionalDirectories: ["C:\\shared"], mcpServers: [] });
+    await f.service.listHistory("one");
+    f.session.openCodeAdditionalDirectories = ["C:\\next"];
+    await f.service.resume("one", "saved");
+    expect(f.calls.find(call => call.method === "session/load").params.additionalDirectories).toEqual(["C:\\next"]);
+    await f.service.restart("one");
+    expect(f.calls.find(call => call.method === "session/resume").params.additionalDirectories).toEqual(["C:\\next"]);
+    await f.service.listHistory("one");
+    f.session.openCodeAdditionalDirectories = [];
+    await f.service.forkThread("one", "saved");
+    expect(f.calls.find(call => call.method === "session/fork").params.additionalDirectories).toEqual([]);
+    await f.service.newThread("one");
+    expect(f.calls.filter(call => call.method === "session/new").at(-1).params.additionalDirectories).toEqual([]);
+  });
+  it("sends an explicit empty list for supported Agents with no saved configuration", async () => {
+    const f = fixture({ capabilities: { additionalDirectories: {} } });
+    await f.start({ resumeThreadId: "saved" });
+    expect(f.calls.find(call => call.method === "session/load").params.additionalDirectories).toEqual([]);
+  });
+  it("keeps older Agents compatible with empty configuration", async () => {
+    const f = fixture(); await f.start();
+    expect(f.calls.find(call => call.method === "session/new").params).not.toHaveProperty("additionalDirectories");
+    f.session.openCodeAdditionalDirectories = ["C:\\shared"];
+    await expect(f.service.newThread("one")).rejects.toThrow("不支持额外目录授权");
+    expect(f.service.snapshot("one").threadId).toBe("active-1");
+  });
+  it("fails before session creation when configured grants are unsupported", async () => {
+    const f = fixture({ directories: ["C:\\shared"] });
+    await expect(f.start()).rejects.toThrow("不支持额外目录授权");
+    expect(f.calls.some(call => call.method === "session/new")).toBe(false);
   });
 });

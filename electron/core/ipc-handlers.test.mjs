@@ -172,3 +172,9 @@ it("broadcasts template warning suppression only after successful persistence", 
   expect(() => handlers.get("sessions:ignore-config-warning")({}, "a", "other")).toThrow("disk unavailable");
   expect(broadcast).not.toHaveBeenCalled();
 });
+
+it("forwards explicit OpenCode directory clearing through session IPC", () => {
+  const terminalManager = { updateSession: vi.fn() };
+  updateSessionFromIpc(terminalManager, { id: "open", openCodeAdditionalDirectories: [] });
+  expect(terminalManager.updateSession).toHaveBeenCalledWith("open", expect.objectContaining({ openCodeAdditionalDirectories: [] }));
+});

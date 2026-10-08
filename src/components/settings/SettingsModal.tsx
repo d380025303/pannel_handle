@@ -15,6 +15,7 @@ import { PostgresBackupSettings } from "./PostgresBackupSettings";
 import { WINDOWS_SHELL_OPTIONS } from "../../utils/windowsShell";
 import { screenshotShortcutFromKeyboardEvent } from "../../utils/screenshotShortcut";
 import { getTerminalBackgroundUrl } from "../../utils/terminalBackground";
+import { GraphicalMenuSettings } from "./GraphicalMenuSettings";
 import { TitleBarActionSettings } from "./TitleBarActionSettings";
 
 type SettingsModalProps = {
@@ -590,6 +591,7 @@ export function SettingsModal({
                 </div>
               </div>
               <div className="settings-general-column">
+                <GraphicalMenuSettings />
                 <TitleBarActionSettings order={titleBarActionOrder} hidden={titleBarHiddenActions} screenshotEnabled={screenshotEnabled} onChange={onTitleBarActionsChange} />
                 <div className="settings-section screenshot-settings">
                   <div className="settings-card-header">

@@ -44,6 +44,7 @@ export type TerminalSnapshot = {
 };
 
 export type ReadyPayload = {
+  graphicalMenuSecondaryActions?: import("../../src/utils/graphicalMenu").GraphicalMenuConfig;
   deviceId: string;
   deviceName: string;
   sessions: RuntimeSession[];
@@ -54,7 +55,8 @@ export type SessionOverview = { sessionId: string; status: "运行中" | "空闲
 export type ComputerFileEntry = { name: string; path: string; type: "drive" | "directory" | "file"; size: number | null };
 
 export type GraphicalItem = { rewindMessageId?: string; mcpApp?: { serverName: string; resourceUri: string; revision?: number }; id: string; type: string; turnId?: string; text?: string; command?: string;
-  summary?: Array<string | { text?: string }>; senderThreadId?: string; receiverThreadId?: string; prompt?: string; agentStatus?: string;
+  summary?: Array<string | { text?: string }>;
+    compactionId?: string; compactionSummary?: unknown[]; compactionError?: string; compactionSource?: string; senderThreadId?: string; receiverThreadId?: string; prompt?: string; agentStatus?: string;
   output?: string; status?: string; toolName?: string; toolKind?: string; explanation?: string;
   tool?: string; server?: string; query?: string; arguments?: unknown; result?: unknown;
   changes?: unknown; toolContent?: unknown[]; locations?: Array<{ path?: string; uri?: string; line?: number }>;
@@ -78,7 +80,7 @@ export type CodexCommand = "configuration" | "permission-profile" | "permission-
   | "plugin-config" | "plugin-enable" | "mcp-config" | "mcp-save" | "mcp-remove";
 export type CodeBuddyCommand = "attachment-preview" | "version" | "version-update" | "models" | "model-metadata" | "model-source" | "main-agents" | "main-agent" | "multitask" | "context-window" | "effort" | "side-question" | "side-cancel" | "team-message" | "goal.read" | "goal.refresh" | "goal.set" | "goal.clear" | "history.rename" | "rewind" | "tasks" | "task-create" | "task-delete" | "jobs" | "job-context" | "job-history" | "job-dispatch" | "job-resume" | "job-transcript" | "job-action" | "plugins" | "plugin-reload" | "plugin-install" | "plugin-uninstall" | "plugin-enable" | "plugin-disable" | "plugin-update" | "marketplace-add" | "marketplace-refresh" | "marketplace-remove" | "marketplace-auto" | "mcp-config" | "mcp-save" | "mcp-remove" | "mcp-reveal" | "mcp-runtime" | "mcp-restart" | "app-load" | "app-read" | "app-prepare" | "app-resolve" | "app-dispose" | "app-images";
 export type OpenCodeCommand = "capabilities" | "version" | "version-update" | "reconnect" | "history.rename" | "revert" | "restore" | "attachment-preview" | "auth-start" | "auth-cancel" | "auth-write" | "auth-resize";
-export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "acpAuth" | "openCodeRevert" | "historyActionsError" | "mainAgent" | "team" | "codeBuddyGoal" | "sideQuestion" | "availableCommands" | "goal" | "goalLoading" | "goalError" | "account" | "windowsSandboxSetup" | "subAgents" | "turnDiffs" | "tokenUsage" | "turnOutputTokens" | "outputTokensPerSecond" | "outputRateAvailable" | "mcpRuntime" | "mcpLogins" | "mcpReload" | "elicitations"> & { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
+export type GraphicalSnapshot = Pick<CodexAppServerSnapshot, "acpAuth" | "openCodeRetry" | "openCodeRevert" | "historyActionsError" | "mainAgent" | "team" | "codeBuddyGoal" | "sideQuestion" | "availableCommands" | "goal" | "goalLoading" | "goalError" | "account" | "windowsSandboxSetup" | "subAgents" | "turnDiffs" | "tokenUsage" | "turnOutputTokens" | "outputTokensPerSecond" | "outputRateAvailable" | "mcpRuntime" | "mcpLogins" | "mcpReload" | "elicitations"> & { threadId: string | null; provider: AgentProvider; busy: boolean; archived: boolean;
   signedOut?: boolean; compacting?: boolean; reviewing?: boolean; sandboxSettingUp?: boolean; mainAgentChanging?: boolean;
   streamId?: string; revision?: number;
   error: string | null; mode: "default" | "plan"; nativeMode: string | null;
@@ -111,6 +113,7 @@ export type GraphicalUsage = { provider: "codex" | "codebuddy" | "minimax" | "qo
   limits: GraphicalUsageLimit[] };
 
 export type ServerMessage =
+  | { v: 8; type: "graphical-menu.changed"; config: import("../../src/utils/graphicalMenu").GraphicalMenuConfig }
   | { v: 8; type: "graphical.opencode.auth-data"; id: string; generation: number; seq: number; data: string }
   | ({ v: 8; type: "graphical.opencode.auth-state"; id: string } & import("../../src/vite-env").OpenCodeAuthState)
   | { v: 8; type: "graphical.result"; requestId: string; sessionId: string; threadId: string | null; result: unknown }

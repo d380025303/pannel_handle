@@ -1,6 +1,7 @@
 const { normalizeEntries } = require("../services/environment/index.cjs");
 const { readJson, writeJson } = require("./business-store-io.cjs");
 const os = require("node:os");
+const { normalizeAdditionalDirectories } = require("../services/opencode-acp/additional-directories.cjs");
 
 const AGENT_PROVIDERS = new Set(["claude", "codex", "codebuddy", "opencode", "qoder", "copilot", "gemini", "grok"]);
 const LOCAL_BRIDGE_PROVIDERS = new Set(["codex", "codebuddy", "opencode", "claude", "qoder"]);
@@ -178,6 +179,7 @@ function createSessionStore({ environmentService, sessionsFile, getDefaultShell,
       createdAt: template.createdAt,
       initialCommand: template.initialCommand,
       agentProvider,
+      ...(agentProvider === "opencode" ? { openCodeAdditionalDirectories: normalizeAdditionalDirectories(template.openCodeAdditionalDirectories, { ...template, agentLocation }) } : {}),
       agentLocation,
       localAgentCwd,
       modelSource,

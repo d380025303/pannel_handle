@@ -16,6 +16,7 @@ function createSettingsModule({
   workBuddyAutoCheckinService,
   qoderAutoCheckinService,
   getMobileRemoteService,
+  desktopBroadcast,
   openRouterConfigStore,
   naraRouterConfigStore,
   miniMaxConfigStore,
@@ -91,6 +92,7 @@ function createSettingsModule({
     miniMaxService,
     miniMaxConfigStore,
     getMobileRemoteService,
+    desktopBroadcast,
     dialog,
     getWindowFromEvent,
     userDataDir

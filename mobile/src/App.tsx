@@ -50,7 +50,7 @@ export default function App() {
     {filesOpen ? <ComputerFiles connectionEpoch={remote.connectionEpoch} send={remote.send} onFileMessage={remote.onFileMessage} onClose={() => setFilesOpen(false)} />
       : view === "home" ? <SessionHome sessions={remote.sessions} overviews={remote.overviews} activeId={activeId}
         onOpen={openSession} onAction={dialog.open} onChooseTemplate={chooseTemplate} />
-      : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession}
+      : activeSession?.runtimeMode === "app-server" ? <GraphicalView key={activeSession.id} session={activeSession} graphicalMenuConfig={remote.graphicalMenuConfig}
         connectionEpoch={remote.status === "connected" ? remote.connectionEpoch : 0} send={remote.send} onGraphicalMessage={remote.onGraphicalMessage}
         draft={drafts.graphicalDrafts[activeSession.id]?.text ?? ""}
         setDraft={update => drafts.updateGraphicalDraft(activeSession.id, update)}

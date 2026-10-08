@@ -73,6 +73,7 @@ function registerSettingsIpcHandlers({
   miniMaxConfigStore,
   miniMaxUsageOptions = {},
   getMobileRemoteService,
+  desktopBroadcast,
   dialog,
   getWindowFromEvent,
   userDataDir
@@ -97,6 +98,9 @@ function registerSettingsIpcHandlers({
     }
     if (partial && typeof partial.graphicalSessionMinimalMode === "boolean") {
       updates.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
+    }
+    if (partial && Object.hasOwn(partial, "graphicalMenuSecondaryActions")) {
+      updates.graphicalMenuSecondaryActions = partial.graphicalMenuSecondaryActions;
     }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
@@ -148,7 +152,7 @@ function registerSettingsIpcHandlers({
         || Object.hasOwn(updates, "terminalBackgroundPositionY");
       const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
         || Object.hasOwn(updates, "titleBarHiddenActions");
-      if (changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode")) {
+      if (changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
         configStore.updateConfig(updates, { throwOnSaveError: true });
       } else {
         configStore.updateConfig(updates);
@@ -160,6 +164,10 @@ function registerSettingsIpcHandlers({
     }
     if (Object.prototype.hasOwnProperty.call(updates, "autoQoderCheckin")) {
       qoderAutoCheckinService?.setEnabled(config.autoQoderCheckin);
+    }
+    if (Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
+      desktopBroadcast?.("config:graphical-menu-changed", config.graphicalMenuSecondaryActions);
+      getMobileRemoteService?.()?.broadcastGraphicalMenuConfig?.();
     }
     return config;
   });

@@ -49,6 +49,7 @@ export type TerminalSession = EnvironmentSelection & {
   runtimeMode?: "terminal" | "app-server";
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  openCodeAdditionalDirectories?: string[];
   codexBackend?: CodexBackend;
   codexModel?: string;
   modelSource?: AgentModelSource;
@@ -115,6 +116,7 @@ export type AppConfig = {
   autoCollapseFileChains: boolean;
   debugMode: boolean;
   graphicalSessionMinimalMode: boolean;
+  graphicalMenuSecondaryActions?: import("./utils/graphicalMenu").GraphicalMenuConfig;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
   titleBarActionOrder: TitleBarActionId[];
@@ -1119,6 +1121,7 @@ export type CodexAppServerSnapshot = {
   acpOptions?: Array<{ id: string; name: string; description?: string; category?: string; type: string; currentValue?: string | boolean; options?: Array<{ value: string; name: string; description?: string }> }>;
   availableCommands?: Array<{ name: string; description: string }>;
   contextUsage?: { used: number; size: number; categories: Partial<Record<"systemPrompt" | "tools" | "conversation" | "mcp" | "skills", number>>; updatedAt: number } | null;
+  openCodeRetry?: { attempt: number; nextRetryAt: string | null; error: { type: string; message: string; status?: number } } | null;
   openCodeRevert?: { messageID: string; files?: unknown[] } | null;
   historyActionsError?: string | null;
   capabilities?: { history: boolean; forkHistory?: boolean; deleteHistory?: boolean; renameHistory?: boolean; revertHistory?: boolean; plan: boolean; attachments: boolean; permissions: boolean; multitask?: boolean; sideQuestion?: boolean; rewind?: boolean; supportedPermissions?: CodexExecutionPermission[] };
@@ -1156,6 +1159,7 @@ export type CodexAppServerSnapshot = {
   items: Array<{ id: string; type: string; turnId?: string; rewindMessageId?: string; text?: string; command?: string; output?: string; status?: string; changes?: unknown;
     toolName?: string; toolKind?: string; tool?: string; server?: string; query?: string; arguments?: unknown;
     summary?: Array<string | { text?: string }>;
+    compactionId?: string; compactionSummary?: unknown[]; compactionError?: string; compactionSource?: string;
     review?: string; path?: string; senderThreadId?: string; receiverThreadId?: string; newThreadId?: string;
     prompt?: string; agentStatus?: string;
     mcpApp?: { serverName: string; resourceUri: string; revision?: number };
@@ -1386,8 +1390,8 @@ export type CodexAccountState = {
 };
 export type TerminalApi = {
   listSessions: () => Promise<TerminalSession[]>;
-  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; modelSource?: AgentModelSource; modelId?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
-  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; modelSource?: AgentModelSource | null; modelId?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
+  createSession: (options?: EnvironmentSelection & { title?: string; shell?: string; windowsShell?: WindowsShell; cwd?: string; cols?: number; rows?: number; initialCommand?: string; agentProvider?: AgentProvider; agentLocation?: AgentLocation; localAgentCwd?: string; openCodeAdditionalDirectories?: string[]; modelSource?: AgentModelSource; modelId?: string; codexBackend?: CodexBackend; codexModel?: string; codexExperimentalAcknowledged?: boolean; graphicalSessionEnabled?: boolean; type?: 'windows' | 'wsl' | 'ssh'; wslDistro?: string; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[]; persist?: boolean }) => Promise<TerminalSession>;
+  updateSession: (id: string, updates: EnvironmentSelection & { title?: string; cwd?: string; fileSort?: FileSort; preferredDiskMountPoint?: string; initialCommand?: string; agentProvider?: AgentProvider | null; agentLocation?: AgentLocation | null; localAgentCwd?: string | null; openCodeAdditionalDirectories?: string[]; modelSource?: AgentModelSource | null; modelId?: string | null; codexBackend?: CodexBackend | null; codexModel?: string | null; codexExperimentalAcknowledged?: boolean | null; graphicalSessionEnabled?: boolean; sshConfig?: SshConfig; quickCommands?: QuickCommand[]; tags?: string[] }) => Promise<TerminalSession[]>;
   switchAgent: (id: string, provider: AgentProvider) => Promise<TerminalSession>;
   switchModelSource: (id: string, source: AgentModelSource, restart?: boolean, modelId?: string) => Promise<TerminalSession>;
   closeSession: (id: string) => Promise<TerminalSession[]>;
@@ -1418,6 +1422,7 @@ export type TerminalApi = {
   reorderRunningSessions: (orderedIds: string[]) => Promise<TerminalSession[]>;
   getConfig: () => Promise<AppConfig>;
   setConfig: (partial: Partial<AppConfig>) => Promise<AppConfig>;
+  onGraphicalMenuConfigChanged: (callback: (config: import("./utils/graphicalMenu").GraphicalMenuConfig) => void) => () => void;
   chooseTerminalBackgroundImage: () => Promise<
     { canceled: true } | { canceled: false; name?: string; error?: string }
   >;

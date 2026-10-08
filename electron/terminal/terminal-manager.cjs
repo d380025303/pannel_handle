@@ -1,5 +1,6 @@
 const { mergeEnvironment } = require("../services/environment/index.cjs");
 const os = require("node:os");
+const { normalizeAdditionalDirectories } = require("../services/opencode-acp/additional-directories.cjs");
 const path = require("node:path");
 const { execFileSync, execSync } = require("node:child_process");
 const nodePty = require("node-pty");
@@ -336,6 +337,7 @@ function createTerminalManager({
       runtimeMode: session.runtimeMode,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      openCodeAdditionalDirectories: session.openCodeAdditionalDirectories,
       modelSource: session.modelSource,
       modelId: session.modelId,
       codexBackend: session.codexBackend,
@@ -820,6 +822,7 @@ function createTerminalManager({
       agentProvider: options.agentProvider,
       agentLocation: options.agentLocation,
       localAgentCwd: options.localAgentCwd,
+      ...(options.agentProvider === "opencode" ? { openCodeAdditionalDirectories: normalizeAdditionalDirectories(options.openCodeAdditionalDirectories, { ...options, type, cwd }) } : {}),
       modelSource: options.modelSource,
       modelId: options.modelId,
       codexBackend: options.codexBackend,
@@ -886,7 +889,7 @@ function createTerminalManager({
     return listSessions();
   }
 
-  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides }) {
+  function updateSession(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides, openCodeAdditionalDirectories }) {
     const session = sessions.get(id);
     if (!session) {
       environmentService?.resolve({ ...sessionStore.getTemplate(id),
@@ -895,7 +898,7 @@ function createTerminalManager({
         ...(environmentProfileId !== undefined ? { environmentProfileId } : {}),
         ...(environmentOverrides !== undefined ? { environmentOverrides } : {})
       });
-      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides });
+      sessionStore.updateLibrary(id, { title, cwd, fileSort, preferredDiskMountPoint, initialCommand, agentProvider, agentLocation, localAgentCwd, modelSource, modelId, codexBackend, codexModel, codexExperimentalAcknowledged, graphicalSessionEnabled, sshConfig, quickCommands, tags, environmentProfileId, environmentOverrides, openCodeAdditionalDirectories });
       if (typeof tags !== "undefined") {
         const normalizedTags = sessionStore.getTemplate(id)?.tags || [];
         for (const runningSession of sessions.values()) {
@@ -907,6 +910,15 @@ function createTerminalManager({
       }
       return listSessions();
     }
+    const nextDirectorySession = { ...session,
+      ...(agentProvider !== undefined ? { agentProvider } : {}),
+      ...(agentLocation !== undefined ? { agentLocation } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(sshConfig !== undefined ? { sshConfig: { ...session.sshConfig, ...sshConfig } } : {})
+    };
+    const nextDirectories = nextDirectorySession.agentProvider === "opencode"
+      ? normalizeAdditionalDirectories(openCodeAdditionalDirectories === undefined ? session.openCodeAdditionalDirectories : openCodeAdditionalDirectories, nextDirectorySession)
+      : undefined;
     const templateId = session.templateId;
     const template = templateId ? sessionStore.getTemplate(templateId) : undefined;
     const previousTitle = session.title;
@@ -953,6 +965,9 @@ function createTerminalManager({
       session.localAgentCwd = localAgentCwd || undefined;
       libraryUpdates.localAgentCwd = localAgentCwd || null;
     }
+    session.openCodeAdditionalDirectories = nextDirectories;
+    if (openCodeAdditionalDirectories !== undefined || agentProvider !== undefined || agentLocation !== undefined || sshConfig !== undefined)
+      libraryUpdates.openCodeAdditionalDirectories = nextDirectories || [];
     if (typeof modelSource !== "undefined" || typeof modelId !== "undefined" || typeof agentProvider !== "undefined") {
       const { normalizeModelSelection } = require("../services/model-sources/model-selection.cjs");
       const selection = normalizeModelSelection({ ...session, modelSource: modelSource === undefined ? session.modelSource : modelSource,

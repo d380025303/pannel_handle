@@ -25,6 +25,7 @@ let remote: ReturnType<typeof useRemoteConnection>;
 
 beforeEach(() => {
   remote = {
+    graphicalMenuConfig: {},
     status: "connected", statusMessage: "已连接", sessions: [first, second], overviews: {}, templates: [],
     device: null, lastLaunchedId: null, commandError: "", storageWarning: "", connectionEpoch: 1,
     send: vi.fn(() => true), retry: vi.fn(), login: vi.fn(),

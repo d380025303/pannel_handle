@@ -860,3 +860,28 @@ it("persists named Codex permission profiles and clears them when choosing legac
   reopened.setCodexExecutionPermission(id, "readOnly");
   expect(reopened.getTemplate(id).codexPermissionProfileId).toBeUndefined();
 });
+
+
+describe("OpenCode directory persistence", () => {
+  it("round-trips grants, preserves partial edits, clears and removes provider-specific configuration", () => {
+    const file = createTempSessionsFile();
+    const store = createStore(file);
+    store.addToLibrary({ id: "open", type: "windows", cwd: "C:\\work", agentProvider: "opencode", graphicalSessionEnabled: true, openCodeAdditionalDirectories: [" C:\\shared ", "c:/SHARED/"] });
+    expect(createStore(file).loadLibrary()[0].openCodeAdditionalDirectories).toEqual(["C:\\shared"]);
+    store.updateLibrary("open", { title: "renamed", openCodeAdditionalDirectories: undefined });
+    expect(store.getTemplate("open").openCodeAdditionalDirectories).toEqual(["C:\\shared"]);
+    store.updateLibrary("open", { openCodeAdditionalDirectories: [] });
+    expect(createStore(file).loadLibrary()[0].openCodeAdditionalDirectories).toEqual([]);
+    store.updateLibrary("open", { openCodeAdditionalDirectories: ["C:\\other"] });
+    store.updateLibrary("open", { agentProvider: "codex" });
+    expect(store.getTemplate("open")).not.toHaveProperty("openCodeAdditionalDirectories");
+    expect(JSON.parse(readFileSync(file, "utf8"))[0]).not.toHaveProperty("openCodeAdditionalDirectories");
+  });
+  it("rejects invalid configuration without changing saved grants", () => {
+    const file = createTempSessionsFile(); const store = createStore(file);
+    store.addToLibrary({ id: "open", type: "wsl", cwd: "/work", agentProvider: "opencode", openCodeAdditionalDirectories: ["/shared"] });
+    expect(() => store.updateLibrary("open", { openCodeAdditionalDirectories: ["relative"] })).toThrow("绝对路径");
+    expect(store.getTemplate("open").openCodeAdditionalDirectories).toEqual(["/shared"]);
+    expect(createStore(file).loadLibrary()[0].openCodeAdditionalDirectories).toEqual(["/shared"]);
+  });
+});

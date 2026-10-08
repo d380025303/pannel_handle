@@ -71,6 +71,7 @@ function createHarness(overrides = {}) {
   const naraRouterService = createRouterService("nararouter");
   const miniMaxService = createRouterService("minimax");
   const mobileRemoteService = {
+    broadcastGraphicalMenuConfig: vi.fn(),
     getState: vi.fn(() => "mobile-state"),
     updateConfig: vi.fn(input => input),
     setPassword: vi.fn(() => "password-state"),
@@ -98,6 +99,7 @@ function createHarness(overrides = {}) {
     miniMaxConfigStore,
     miniMaxUsageOptions,
     getMobileRemoteService: () => mobileRemoteService,
+    desktopBroadcast: overrides.desktopBroadcast,
     dialog: overrides.dialog,
     getWindowFromEvent: overrides.getWindowFromEvent,
     userDataDir: overrides.userDataDir
@@ -362,4 +364,20 @@ it("propagates graphical minimal mode persistence failures", () => {
   const harness = createHarness();
   harness.configStore.updateConfig.mockImplementation(() => { throw new Error("disk failure"); });
   expect(() => harness.ipcMain.handlers.get("config:set")({}, { graphicalSessionMinimalMode: true })).toThrow("disk failure");
+});
+
+
+it("broadcasts graphical menu settings after saving and never broadcasts failed saves", () => {
+  const desktopBroadcast = vi.fn();
+  const harness = createHarness({ desktopBroadcast });
+  const handler = harness.ipcMain.handlers.get("config:set");
+  const config = { codex: ["plugins"], opencode: ["login"] };
+  handler({}, { graphicalMenuSecondaryActions: config });
+  expect(harness.configStore.updateConfig).toHaveBeenCalledWith({ graphicalMenuSecondaryActions: config }, { throwOnSaveError: true });
+  expect(desktopBroadcast).toHaveBeenCalledWith("config:graphical-menu-changed", config);
+  expect(harness.mobileRemoteService.broadcastGraphicalMenuConfig).toHaveBeenCalledOnce();
+  harness.configStore.updateConfig.mockImplementationOnce(() => { throw new Error("disk unavailable"); });
+  expect(() => handler({}, { graphicalMenuSecondaryActions: {} })).toThrow("disk unavailable");
+  expect(desktopBroadcast).toHaveBeenCalledTimes(1);
+  expect(harness.mobileRemoteService.broadcastGraphicalMenuConfig).toHaveBeenCalledTimes(1);
 });

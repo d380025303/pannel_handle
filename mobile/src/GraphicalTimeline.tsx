@@ -1,3 +1,4 @@
+import { CompactionCard } from "../../src/components/shared/CompactionCard";
 import { TeamMemberTimeline, teamStatusLabels } from "../../src/components/agents/GraphicalTimeline";
 import { CodeBuddyMcpApp } from "../../src/components/agents/CodeBuddyMcpApp";
 import { copyMobileText } from "./clipboard";
@@ -59,6 +60,7 @@ export function GraphicalTimeline({ snapshot, controller }: { snapshot: Graphica
             {openCodePlanItemId === item.id && openCodeBuildMode && <div className="graphical-actions">
               <button type="button" className="primary" disabled={changingMode} onClick={() => executeOpenCodePlan(item.id)}>执行计划</button>
             </div>}</article>;
+        if (snapshot.provider === "opencode" && item.type === "contextCompaction") return <CompactionCard key={item.id} item={item} className="graphical-card" />;
         if (snapshot.provider === "codex" && item.type === "reasoning") return <details className="graphical-card" key={item.id}><summary>思考过程</summary><pre>{codexReasoningSummary(item)}</pre></details>;
         if (item.type === "reasoning" || item.type === "collabAgentToolCall" || item.type === "contextCompaction" || item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return <details className="graphical-card" key={item.id}><summary>{item.type === "reasoning" ? "思考过程" : item.type === "collabAgentToolCall" ? "子 Agent" : item.type === "contextCompaction" ? "上下文压缩" : "代码审查"}</summary><pre>{item.text || item.summary?.map(value => typeof value === "string" ? value : value.text || "").join("\n") || item.prompt || item.agentStatus || "状态已更新"}</pre></details>;
         if (item.type === "questionAnswer") return <article className="graphical-card" key={item.id}><strong>已回答问题</strong>{item.questions?.map(value => <p key={value.id}>{value.question}：{value.answers.join("、")}</p>)}</article>;

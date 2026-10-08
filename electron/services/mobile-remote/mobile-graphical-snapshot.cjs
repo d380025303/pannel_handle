@@ -31,6 +31,8 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
     ...(snapshot.streamId ? { streamId: snapshot.streamId, revision: snapshot.revision } : {}),
     provider: snapshot.provider || "codex",
     ...(snapshot.provider === "opencode" ? { openCodeMobile: true, acpAuth: snapshot.acpAuth ? { status: snapshot.acpAuth.status, generation: snapshot.acpAuth.generation, error: snapshot.acpAuth.error, required: snapshot.acpAuth.required, methods: (snapshot.acpAuth.methods || []).map(({ id, name, description }) => ({ id, name, description })) } : null,
+      openCodeRetry: snapshot.openCodeRetry ? { attempt: snapshot.openCodeRetry.attempt, nextRetryAt: snapshot.openCodeRetry.nextRetryAt,
+        error: { type: snapshot.openCodeRetry.error.type, message: snapshot.openCodeRetry.error.message, status: snapshot.openCodeRetry.error.status } } : null,
       openCodeRevert: snapshot.openCodeRevert ? { messageID: snapshot.openCodeRevert.messageID } : null, historyActionsError: snapshot.historyActionsError || null,
       availableCommands: (snapshot.availableCommands || []).map(({ name, description }) => ({ name, description })) } : {}),
     busy: Boolean(snapshot.busy),
@@ -75,6 +77,7 @@ function toMobileGraphicalSnapshot(value, modelOptions, session) {
     items: (snapshot.items || []).map(item => ({
       rewindMessageId: item.rewindMessageId, mcpApp: item.mcpApp ? { serverName: item.mcpApp.serverName, resourceUri: item.mcpApp.resourceUri, revision: item.mcpApp.revision } : undefined,
       id: item.id, type: item.type, turnId: item.turnId, text: item.text,
+      compactionId: item.compactionId, compactionSummary: item.compactionSummary, compactionError: item.compactionError, compactionSource: item.compactionSource,
       summary: item.summary, senderThreadId: item.senderThreadId, receiverThreadId: item.receiverThreadId, prompt: item.prompt, agentStatus: item.agentStatus,
       command: item.command, output: item.output, status: item.status,
       toolName: item.toolName, toolKind: item.toolKind, explanation: item.explanation,

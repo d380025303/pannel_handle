@@ -25,6 +25,7 @@ function createMobileRemoteService({
   stateHub,
   getStaticRoot,
   desktopBroadcast,
+  getGraphicalMenuConfig = () => ({}),
   notifyConnection,
   now = () => Date.now(),
   networkInterfaces = () => os.networkInterfaces(),
@@ -58,7 +59,7 @@ function createMobileRemoteService({
   });
   const socketHandlers = createMobileSocketHandlers({
     terminalManager, sessionStore, agentSessionLauncher, graphicalService, codexPluginService, codexVersionService, projectSearchService, mcpConfigService, getAgentUsage, getOpenCodeVerifiedModels, getCodexVerifiedModels, getCodeBuddyVerifiedModels, codeBuddyPluginService, codeBuddyVersionService, openCodeVersionService, stateHub, now,
-    auth, sizes, uploads, files, send, sendError,
+    auth, sizes, uploads, files, send, sendError, getGraphicalMenuConfig,
     getAgentStatus: sessionId => agentStatuses.get(sessionId)
   });
   const { verifyRequestHost, handleHttp } = createMobileHttpHandler({
@@ -325,6 +326,12 @@ function createMobileRemoteService({
     updateConfig,
     setPassword,
     getState: currentState,
+    broadcastGraphicalMenuConfig: () => {
+      const config = getGraphicalMenuConfig();
+      for (const client of auth.getClients()) {
+        if (client.socket.authenticated) send(client.socket, { type: "graphical-menu.changed", config });
+      }
+    },
     listAudit: accessStore.listAudit,
     disconnectConnection: auth.disconnectClient,
     resizeFromDesktop: sizes.resizeFromDesktop,

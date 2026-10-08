@@ -90,6 +90,7 @@ function createManager(overrides = {}) {
       initialCommand: template.initialCommand,
       agentProvider: template.agentProvider,
       agentLocation: template.agentLocation,
+      openCodeAdditionalDirectories: template.openCodeAdditionalDirectories,
       modelSource: template.modelSource,
       modelId: template.modelId,
       codexBackend: template.codexBackend,
@@ -1295,4 +1296,32 @@ describe("terminal-manager", () => {
     expect(pty.spawn).not.toHaveBeenCalled();
     expect(ssh2TerminalFactory).not.toHaveBeenCalled();
   });
+});
+
+
+it("validates and updates OpenCode directory grants without restarting the running terminal", () => {
+  const { manager, pty, sessionStore } = createManager();
+  const session = manager.createSession({ agentProvider: "opencode", cwd: "C:\\work", openCodeAdditionalDirectories: [" C:\\shared ", "c:/shared/"] });
+  expect(session.openCodeAdditionalDirectories).toEqual(["C:\\shared"]);
+  expect(sessionStore.getTemplate(session.templateId).openCodeAdditionalDirectories).toEqual(["C:\\shared"]);
+  manager.updateSession(session.id, { title: "renamed" });
+  expect(manager.getSession(session.id).openCodeAdditionalDirectories).toEqual(["C:\\shared"]);
+  const spawns = pty.spawn.mock.calls.length;
+  manager.updateSession(session.id, { openCodeAdditionalDirectories: ["C:\\next"] });
+  expect(manager.listSessions()[0].openCodeAdditionalDirectories).toEqual(["C:\\next"]);
+  expect(sessionStore.getTemplate(session.templateId).openCodeAdditionalDirectories).toEqual(["C:\\next"]);
+  expect(pty.spawn).toHaveBeenCalledTimes(spawns);
+  expect(() => manager.updateSession(session.id, { title: "invalid", openCodeAdditionalDirectories: ["relative"] })).toThrow("绝对路径");
+  expect(manager.getSession(session.id).title).toBe("renamed");
+  expect(manager.getSession(session.id).openCodeAdditionalDirectories).toEqual(["C:\\next"]);
+  manager.updateSession(session.id, { openCodeAdditionalDirectories: [] });
+  expect(manager.getSession(session.id).openCodeAdditionalDirectories).toEqual([]);
+  manager.updateSession(session.id, { agentProvider: "codex" });
+  expect(manager.getSession(session.id).openCodeAdditionalDirectories).toBeUndefined();
+});
+
+it("rejects invalid OpenCode directory grants before starting a terminal", () => {
+  const { manager, pty } = createManager();
+  expect(() => manager.createSession({ agentProvider: "opencode", cwd: "C:\\work", openCodeAdditionalDirectories: ["/shared"] })).toThrow("绝对路径");
+  expect(pty.spawn).not.toHaveBeenCalled();
 });

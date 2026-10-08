@@ -104,6 +104,7 @@ describe("config-store", () => {
       autoCollapseFileChains: true,
       debugMode: false,
       graphicalSessionMinimalMode: false,
+      graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
@@ -303,6 +304,7 @@ describe("config-store", () => {
       autoRestore: false,
       debugMode: true,
       graphicalSessionMinimalMode: false,
+      graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       themeId: "light",
@@ -326,6 +328,7 @@ describe("config-store", () => {
       autoCollapseFileChains: true,
       debugMode: true,
       graphicalSessionMinimalMode: false,
+      graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
@@ -405,3 +408,33 @@ describe("default Windows shell", () => {
    store.loadConfig();
    expect(store.getConfig().graphicalSessionMinimalMode).toBe(false);
  });
+
+
+describe("graphical menu preferences", () => {
+  it("defaults all actions to primary and persists normalized per-provider settings", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    expect(Object.values(store.getConfig().graphicalMenuSecondaryActions).every(value => value.length === 0)).toBe(true);
+    store.updateConfig({ graphicalMenuSecondaryActions: { codex: ["plugins", "plugins", "unknown", "login"], opencode: ["login"], unknown: ["model"] } });
+    const config = store.getConfig().graphicalMenuSecondaryActions;
+    expect(config.codex).toEqual(["plugins"]);
+    expect(config.opencode).toEqual(["login"]);
+    expect(config.unknown).toBeUndefined();
+    config.codex.push("model");
+    expect(store.getConfig().graphicalMenuSecondaryActions.codex).toEqual(["plugins"]);
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().graphicalMenuSecondaryActions).toEqual(store.getConfig().graphicalMenuSecondaryActions);
+  });
+
+  it("keeps the previous menu layout when persistence fails", () => {
+    const configFile = createTempConfigPath();
+    let fail = false;
+    const dataStore = { write: () => { if (fail) throw new Error("disk unavailable"); } };
+    const store = createConfigStore({ configFile, dataStore });
+    store.updateConfig({ graphicalMenuSecondaryActions: { codex: ["plugins"] } });
+    fail = true;
+    expect(() => store.updateConfig({ graphicalMenuSecondaryActions: { codex: ["model"] } }, { throwOnSaveError: true })).toThrow("disk unavailable");
+    expect(store.getConfig().graphicalMenuSecondaryActions.codex).toEqual(["plugins"]);
+  });
+});

@@ -1,3 +1,5 @@
+import { GraphicalActionMenu } from "../../src/components/shared/GraphicalActionMenu";
+import type { GraphicalMenuConfig } from "../../src/utils/graphicalMenu";
 import { OpenCodePanel } from "./OpenCodePanel";
 import { CodeBuddyPanel } from "./CodeBuddyPanel";
 import { copyMobileText } from "./clipboard";
@@ -9,8 +11,8 @@ import { type useGraphicalSession } from "./useGraphicalSession";
 import type { GraphicalSnapshot, RuntimeSession } from "./types";
 
 type Controller = ReturnType<typeof useGraphicalSession>;
-export function GraphicalActionSheet({ snapshot, session, controller }: {
-  snapshot: GraphicalSnapshot; session: RuntimeSession; controller: Controller;
+export function GraphicalActionSheet({ snapshot, session, controller, graphicalMenuConfig = {} }: {
+  snapshot: GraphicalSnapshot; session: RuntimeSession; controller: Controller; graphicalMenuConfig?: GraphicalMenuConfig;
 }) {
   const { activeSheet, setActiveSheet, selectedProvider, setSelectedProvider, error, setError,
     history, historyLoading, changingMode, changingPermission, changingModel, changingEffort, attachments, switchingTo, sheetRef,
@@ -48,8 +50,8 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
         {activeSheet.startsWith("opencode-") && <OpenCodePanel key={`${activeSheet}:${session.id}:${activeSheet === "opencode-auth" ? "auth" : snapshot.threadId}`} controller={controller} />}
         {advanced && <CodexAdvancedSheet key={`${advanced}:${snapshot.threadId}`} sheet={advanced} snapshot={snapshot} controller={controller} />}
         {error && <p className="graphical-sheet-error" role="alert">{error}</p>}
-        {activeSheet === "menu" && <div className="graphical-sheet-list">
-          {(snapshot.provider === "codex" || snapshot.provider === "codebuddy" || snapshot.provider === "claude") && <div className="graphical-menu-mode" role="group" aria-label="会话模式">
+        {activeSheet === "menu" && <GraphicalActionMenu key={snapshot.provider} mobile secondaryActions={graphicalMenuConfig[snapshot.provider]} onClose={() => setActiveSheet(null)}>
+          {(snapshot.provider === "codex" || snapshot.provider === "codebuddy" || snapshot.provider === "claude") && <div data-action="mode" className="graphical-menu-mode" role="group" aria-label="会话模式">
             <span>会话模式</span>
             <div className="graphical-mode-switch">
               <button type="button" aria-pressed={effectivePlan}
@@ -61,37 +63,37 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
             </div>
           </div>}
           {snapshot.provider === "codex"
-            ? <button type="button"
+            ? <button data-action="permission" type="button"
               onClick={() => { setError(""); setActiveSheet("permission"); }}><span><GraphicalIcon name="shield" />执行权限</span><small>{snapshot.permissionProfileId || permissionLabel(snapshot.executionPermission) || "未提供"}</small></button>
-            : snapshot.nativeModes?.length ? <button type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
+            : snapshot.nativeModes?.length ? <button data-action="mode" type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || snapshot.archived || changingMode}
               onClick={() => { setError(""); setActiveSheet("native-mode"); }}><span><GraphicalIcon name="mode" />切换模式</span><small>{snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "未提供"}</small></button> : null}
-          <button type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
+          <button data-action="model" type="button" disabled={modelDisabled} onClick={() => setActiveSheet("model")}><span><GraphicalIcon name="model" />切换模型</span><small>{modelLabel(snapshot)}</small></button>
           {snapshot.provider === "opencode" && <>
-            <button disabled={!snapshot.openCodeMobile || !snapshot.threadId} onClick={() => setActiveSheet("opencode-capabilities")}>Skills 和 MCP</button>
-            <button disabled={!snapshot.openCodeMobile || snapshot.busy || isSending || controller.codexPending || !!snapshot.pendingPlan || !!snapshot.approvals.length || !!snapshot.questions.length} onClick={() => setActiveSheet("opencode-auth")}>登录 OpenCode</button>
-            <button disabled={!snapshot.openCodeMobile} onClick={() => setActiveSheet("opencode-version")}>CLI 版本</button>
-            <button disabled={!snapshot.openCodeMobile || !snapshot.capabilities?.revertHistory || historyDisabled} onClick={() => { controller.setOpenCodeRevertTarget(null); setActiveSheet("opencode-revert"); }}>撤销上一轮 / 回退与恢复</button>
-            {session.type !== "ssh" && <button disabled={!snapshot.openCodeMobile || historyDisabled} onClick={() => { void controller.openCodeRequest("reconnect").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>重新连接以更新模型</button>}
+            <button data-action="capabilities" disabled={!snapshot.openCodeMobile || !snapshot.threadId} onClick={() => setActiveSheet("opencode-capabilities")}>Skills 和 MCP</button>
+            <button data-action="login" disabled={!snapshot.openCodeMobile || snapshot.busy || isSending || controller.codexPending || !!snapshot.pendingPlan || !!snapshot.approvals.length || !!snapshot.questions.length} onClick={() => setActiveSheet("opencode-auth")}>登录 OpenCode</button>
+            <button data-action="version" disabled={!snapshot.openCodeMobile} onClick={() => setActiveSheet("opencode-version")}>CLI 版本</button>
+            <button data-action="revert" disabled={!snapshot.openCodeMobile || !snapshot.capabilities?.revertHistory || historyDisabled} onClick={() => { controller.setOpenCodeRevertTarget(null); setActiveSheet("opencode-revert"); }}>撤销上一轮 / 回退与恢复</button>
+            {session.type !== "ssh" && <button data-action="reconnect-models" disabled={!snapshot.openCodeMobile || historyDisabled} onClick={() => { void controller.openCodeRequest("reconnect").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>重新连接以更新模型</button>}
             {!snapshot.openCodeMobile && <p>更新桌面宿主后可使用完整 OpenCode 功能。</p>}
           </>}
           {snapshot.provider === "codebuddy" && snapshot.codeBuddyMobile && <>
-            <button onClick={() => setActiveSheet("buddy-config")} disabled={!snapshot.threadId}>会话配置 · 主 Agent / Multitask / 上下文</button>
-            <button onClick={() => setActiveSheet("buddy-goal")} disabled={!snapshot.threadId}>目标管理</button>
-            {snapshot.capabilities?.sideQuestion && <button onClick={() => setActiveSheet("buddy-side")} disabled={!snapshot.threadId}>独立旁问</button>}
-            <button onClick={() => setActiveSheet("buddy-version")} disabled={!snapshot.threadId}>CLI 版本</button>
-            {session.type === "windows" && <><button onClick={() => setActiveSheet("buddy-plugins")}>插件管理</button><button onClick={() => setActiveSheet("buddy-tasks")}>定时任务</button><button onClick={() => setActiveSheet("buddy-jobs")}>后台智能体</button><button onClick={() => setActiveSheet("buddy-mcp")}>MCP 管理</button></>}
+            <button data-action="session-config" onClick={() => setActiveSheet("buddy-config")} disabled={!snapshot.threadId}>会话配置 · 主 Agent / Multitask / 上下文</button>
+            <button data-action="goal" onClick={() => setActiveSheet("buddy-goal")} disabled={!snapshot.threadId}>目标管理</button>
+            {snapshot.capabilities?.sideQuestion && <button data-action="side-question" onClick={() => setActiveSheet("buddy-side")} disabled={!snapshot.threadId}>独立旁问</button>}
+            <button data-action="version" onClick={() => setActiveSheet("buddy-version")} disabled={!snapshot.threadId}>CLI 版本</button>
+            {session.type === "windows" && <><button data-action="plugins" onClick={() => setActiveSheet("buddy-plugins")}>插件管理</button><button data-action="tasks" onClick={() => setActiveSheet("buddy-tasks")}>定时任务</button><button data-action="jobs" onClick={() => setActiveSheet("buddy-jobs")}>后台智能体</button><button data-action="mcp-config" onClick={() => setActiveSheet("buddy-mcp")}>MCP 管理</button></>}
           </>}
           {snapshot.provider === "codebuddy" && !snapshot.codeBuddyMobile && <p>更新桌面宿主后可使用完整 CodeBuddy 功能。</p>}
           {snapshot.provider === "codex" && <>
-            {snapshot.backend === "openai" && <button type="button" disabled={controller.codexPending || !snapshot.threadId || snapshot.busy || snapshot.archived} onClick={() => { void controller.codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause))); }}><span>快速模式</span><small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
-            {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button type="button" key={key} disabled={key !== "configuration" && !snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
-            <button type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || isSending || snapshot.compacting} onClick={() => { void controller.codexRequest("compact").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>压缩对话</button>
+            {snapshot.backend === "openai" && <button data-action="fast-mode" type="button" disabled={controller.codexPending || !snapshot.threadId || snapshot.busy || snapshot.archived} onClick={() => { void controller.codexRequest("fast-mode", { enabled: !snapshot.fastMode }).catch(cause => setError(String(cause))); }}><span>快速模式</span><small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+            {(Object.entries(codexSheetTitles) as Array<[CodexSheet, string]>).filter(([key]) => key !== "sandbox" || session.type === "windows" && snapshot.windowsSandboxSetup?.available).map(([key, label]) => <button data-action={key} type="button" key={key} disabled={key !== "configuration" && !snapshot.threadId || (key === "review" || key === "workspace") && (snapshot.busy || snapshot.archived)} onClick={() => { setError(""); setActiveSheet(key); }}>{label}</button>)}
+            <button data-action="compact" type="button" disabled={!snapshot.threadId || snapshot.busy || snapshot.archived || isSending || snapshot.compacting} onClick={() => { void controller.codexRequest("compact").then(() => setActiveSheet(null)).catch(cause => setError(String(cause))); }}>压缩对话</button>
           </>}
-          {effortOption && <button type="button" disabled={effortDisabled} onClick={() => setActiveSheet("effort")}><span><GraphicalIcon name="mode" />思考强度</span><small>{effortLabel(snapshot)}</small></button>}
-          <button type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span><GraphicalIcon name="agent" />切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
-          <button type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span><GraphicalIcon name="history" />历史记录</span><small>查看并恢复对话</small></button>
-          <button type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || Boolean(historyMutation)} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span><GraphicalIcon name="new" />新对话</span></button>
-          <label className={`graphical-file-picker${addFileDisabled ? " is-disabled" : ""}`}>
+          {effortOption && <button data-action="effort" type="button" disabled={effortDisabled} onClick={() => setActiveSheet("effort")}><span><GraphicalIcon name="mode" />思考强度</span><small>{effortLabel(snapshot)}</small></button>}
+          <button data-action="agent" type="button" disabled={agentDisabled} onClick={() => setActiveSheet("agent")}><span><GraphicalIcon name="agent" />切换 Agent</span><small>{providerLabel(snapshot.provider)}</small></button>
+          <button data-action="history" type="button" disabled={snapshot.busy || snapshot.capabilities?.history === false} onClick={openHistory}><span><GraphicalIcon name="history" />历史记录</span><small>查看并恢复对话</small></button>
+          <button data-action="new-thread" type="button" disabled={openCodeBlocked || !snapshot.threadId || snapshot.busy || Boolean(historyMutation)} onClick={() => { if (action({ type: "graphical.new-thread" })) setActiveSheet(null); }}><span><GraphicalIcon name="new" />新对话</span></button>
+          <label data-action="attachments" className={`graphical-file-picker${addFileDisabled ? " is-disabled" : ""}`}>
             <span><GraphicalIcon name="file" />添加文件</span><small>{attachments.length}/10</small>
             <input aria-label="添加文件" type="file" multiple disabled={addFileDisabled}
               onChange={event => {
@@ -102,7 +104,7 @@ export function GraphicalActionSheet({ snapshot, session, controller }: {
                 event.currentTarget.value = "";
               }} />
           </label>
-        </div>}
+        </GraphicalActionMenu>}
         {activeSheet === "agent" && <div className="graphical-sheet-list">
           {graphicalProviders.filter(provider => session.type !== "ssh" || provider !== "gemini" && provider !== "grok").map(provider => <button type="button" key={provider} disabled={agentDisabled || provider === snapshot.provider}
             aria-pressed={provider === snapshot.provider} onClick={() => { setSelectedProvider(provider); setActiveSheet("agent-confirm"); }}>

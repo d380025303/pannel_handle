@@ -258,3 +258,22 @@ it("keeps the connection usable when browser storage rejects writes", () => {
   expect(hook.result.current.storageWarning).toContain("无法保存密码");
   setItem.mockRestore();
 });
+
+
+it("loads shared menu settings, accepts live updates, and replaces them on reconnect", () => {
+  localStorage.setItem(passwordKey, "correct-password");
+  const hook = setup();
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket.open());
+  act(() => socket.receive("ready", { payload: { deviceId: "phone-1", deviceName: "Phone", sessions: [], templates: [], graphicalMenuSecondaryActions: { codex: ["plugins", "invalid"], opencode: ["login"] } } }));
+  expect(hook.result.current.graphicalMenuConfig.codex).toEqual(["plugins"]);
+  act(() => socket.receive("graphical-menu.changed", { config: { codex: ["model"], opencode: ["login"] } }));
+  expect(hook.result.current.graphicalMenuConfig.codex).toEqual(["model"]);
+  expect(hook.result.current.graphicalMenuConfig.opencode).toEqual(["login"]);
+  act(() => socket.close());
+  act(() => hook.result.current.retry());
+  const reconnected = FakeWebSocket.instances.at(-1)!;
+  act(() => reconnected.open());
+  ready(reconnected);
+  expect(hook.result.current.graphicalMenuConfig.codex).toEqual([]);
+});

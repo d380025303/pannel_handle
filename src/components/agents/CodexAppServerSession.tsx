@@ -1,3 +1,7 @@
+import { GraphicalActionMenu } from "../shared/GraphicalActionMenu";
+import { useGraphicalMenuConfig } from "../../utils/useGraphicalMenuConfig";
+import { OpenCodeRetryStatus } from "./OpenCodeRetryStatus";
+import { CompactionCard } from "../shared/CompactionCard";
 import { IMAGE_INPUT_UNSUPPORTED, isCodexImageFile, supportsCodexImageInput } from "../../utils/codexImageInput";
 import { CodexConfigurationPanel } from "./CodexConfigurationPanel";
 import { CodeBuddyMcpDialog } from "./CodeBuddyMcpDialog";
@@ -196,6 +200,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [backgroundTerminalsOpen, setBackgroundTerminalsOpen] = useState(false);
   const [codeBuddyJobsOpen, setCodeBuddyJobsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const { config: graphicalMenuConfig } = useGraphicalMenuConfig();
   const [selectionKind, setSelectionKind] = useState<SelectionKind | null>(null);
   const [selectionError, setSelectionError] = useState("");
   const [selectionPending, setSelectionPending] = useState(false);
@@ -1476,6 +1481,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </p>)}
           </div>)}
         </article>;
+        if (item.type === "contextCompaction" && snapshot.provider === "opencode") return <CompactionCard key={item.id} item={item} className="codex-app-server-message contextCompaction" />;
         if (item.type === "contextCompaction" && isCodex) return null;
         if (item.type === "contextCompaction") return <article className="codex-app-server-message contextCompaction" key={item.id} role="status">
           {item.status === "failed" ? "上下文压缩失败" : item.status === "completed" ? "上下文压缩完成" : "正在压缩上下文…"}
@@ -1519,6 +1525,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question}
           provider={snapshot.provider === "codebuddy" ? "codebuddy" : snapshot.provider === "claude" ? "claude" : snapshot.provider === "opencode" ? "opencode" : "codex"} />)}
       {snapshot.elicitations?.map(request => <McpElicitationCard key={request.requestId} sessionId={sessionId} request={request} />)}
+      {isOpenCode && <OpenCodeRetryStatus retry={snapshot.openCodeRetry} className="codex-app-server-compaction-status" />}
       {snapshot.permissionError && <div className="codex-app-server-error" role="alert"><span>{snapshot.permissionError}</span><button type="button" onClick={() => setConfigurationOpen(true)}>配置与权限</button></div>}
       {(error || (snapshot.error !== dismissedSnapshotError && snapshot.error)) &&
         <div className="codex-app-server-error" role="alert">
@@ -1649,49 +1656,42 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         <div className="codex-app-server-input-actions">
           <div className="codex-app-server-menu-anchor">
             <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={(!snapshot.threadId && !isOpenCode && !isCodex) || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
-            {menuOpen && <div ref={menuRef} className="codex-app-server-menu" role="menu" aria-label="会话操作" onKeyDown={event => {
-              if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); menuButtonRef.current?.focus(); }
-              if (event.key === "Tab") setMenuOpen(false);
-              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-              event.preventDefault();
-              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
-              const index = items.indexOf(document.activeElement as HTMLButtonElement);
-              items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-            }}>
-              {snapshot.provider === "codebuddy" && sessionType === "windows" && session && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyMcpOpen(true); }}>MCP 管理</button>}
-              {isOpenCode && <button type="button" role="menuitem" disabled={snapshot.busy || sending || Boolean(snapshot.pendingPlan) || snapshot.approvals.length > 0 || Boolean(snapshot.questions?.length)} onClick={() => { setMenuOpen(false); setOpenCodeLoginOpen(true); }}>登录 OpenCode</button>}
-              <button type="button" role="menuitem" disabled={!snapshot.threadId || snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
+            {menuOpen && <GraphicalActionMenu key={snapshot.provider} menuRef={menuRef} secondaryActions={graphicalMenuConfig[snapshot.provider || "codex"]}
+              onClose={() => { setMenuOpen(false); menuButtonRef.current?.focus(); }}>
+              {snapshot.provider === "codebuddy" && sessionType === "windows" && session && <button data-action="mcp-config" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyMcpOpen(true); }}>MCP 管理</button>}
+              {isOpenCode && <button data-action="login" type="button" role="menuitem" disabled={snapshot.busy || sending || Boolean(snapshot.pendingPlan) || snapshot.approvals.length > 0 || Boolean(snapshot.questions?.length)} onClick={() => { setMenuOpen(false); setOpenCodeLoginOpen(true); }}>登录 OpenCode</button>}
+              <button data-action="history" type="button" role="menuitem" disabled={!snapshot.threadId || snapshot.busy || snapshot.capabilities?.history === false} title={snapshot.capabilities?.history === false ? `当前 ${agentName} CLI 不支持历史会话恢复` : undefined} onClick={openHistory}><History aria-hidden="true" />历史会话</button>
               {isCodex && <>
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
-                <button type="button" role="menuitem" disabled={!snapshot.threadId} onClick={() => { setMenuOpen(false); setBackgroundTerminalsOpen(true); }}><Terminal aria-hidden="true" />后台终端</button>
-                <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
-                <button type="button" role="menuitem" disabled={reviewDisabled} onClick={openReview}><FileIcon aria-hidden="true" />代码审查</button>
-                <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
+                <button data-action="plugins" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>
+                <button data-action="terminals" type="button" role="menuitem" disabled={!snapshot.threadId} onClick={() => { setMenuOpen(false); setBackgroundTerminalsOpen(true); }}><Terminal aria-hidden="true" />后台终端</button>
+                <button data-action="compact" type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={compactConversation}><Minimize2 aria-hidden="true" />压缩对话</button>
+                <button data-action="review" type="button" role="menuitem" disabled={reviewDisabled} onClick={openReview}><FileIcon aria-hidden="true" />代码审查</button>
+                <button data-action="goal" type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>
               </>}
-              {snapshot.provider === "opencode" && <button type="button" role="menuitem"
+              {snapshot.provider === "opencode" && <button data-action="revert" type="button" role="menuitem"
                 title={snapshot.historyActionsError || undefined}
                 disabled={!snapshot.capabilities?.revertHistory || snapshot.busy || sending || rewindPending || Boolean(snapshot.pendingPlan || snapshot.approvals.length || snapshot.questions?.length) || !snapshot.items.some(item => item.type === "userMessage" && item.rewindMessageId)}
                 onClick={() => { const target = [...snapshot.items].reverse().find(item => item.type === "userMessage" && item.rewindMessageId);
                   if (target?.rewindMessageId) { setRewindTarget({ messageId: target.rewindMessageId, text: target.text || "" }); setRewindError(""); setMenuOpen(false); }
                 }}>撤销上一轮</button>}
-              {snapshot.provider === "codebuddy" && <button type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>}
-              {canManageCodeBuddyPlugins && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>}
-              {canManageCodeBuddyPlugins && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setScheduledTasksOpen(true); }}>定时任务</button>}
-              {canManageCodeBuddyJobs && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyJobsOpen(true); }}>后台智能体</button>}
-              {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <button type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"
+              {snapshot.provider === "codebuddy" && <button data-action="goal" type="button" role="menuitem" onClick={openGoal}><Target aria-hidden="true" />目标管理</button>}
+              {canManageCodeBuddyPlugins && <button data-action="plugins" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPluginOpen(true); }}><Package aria-hidden="true" />插件管理</button>}
+              {canManageCodeBuddyPlugins && <button data-action="tasks" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setScheduledTasksOpen(true); }}>定时任务</button>}
+              {canManageCodeBuddyJobs && <button data-action="jobs" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyJobsOpen(true); }}>后台智能体</button>}
+              {(!isAcp || Boolean(snapshot.nativeModes?.length)) && <button data-action="mode" type="button" role="menuitem" onClick={() => openSelection("mode")}>模式 <small>{isAcp ? snapshot.nativeModes?.find(mode => mode.id === snapshot.nativeMode)?.name || snapshot.nativeMode || "默认"
                 : snapshot.mode === "plan" ? "Plan" : "Exec"}</small></button>}
-              {mainAgent && <button type="button" role="menuitem" disabled={mainAgentPending} onClick={() => openSelection("mainAgent")}>主 Agent <small>{mainAgentLabel}</small></button>}
-              {multitaskOption && <button type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
-              {(acpModel || codeBuddyUnifiedModel || codexUnifiedModel || (!isAcp && snapshot.backend === "openai")) && <button type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{codexUnifiedModel ? codexCurrentName : codeBuddyUnifiedModel ? codeBuddyCurrentName : acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
-              {snapshot.provider === "opencode" && sessionType !== "ssh" && onReconnectModels && <button type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={() => { setMenuOpen(false); void onReconnectModels(sessionId).catch(cause => setError(message(cause))); }}>重新连接以更新模型</button>}
-              {acpContextWindow && <button type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
-              {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
-              {!isAcp && snapshot.backend === "openai" && <button type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
-              {isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setSandboxSetupOpen(true); }}>Windows 沙箱初始化</button>}
-              {!isAcp && <><button type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{snapshot.permissionProfileId || permissionLabels[snapshot.executionPermission]}</small></button><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfigurationOpen(true); }}>配置与权限</button></>}
-              {(isCodex || isOpenCode) && <button type="button" role="menuitem" onClick={() => openCapabilities(isOpenCode && capabilityTab === "apps" ? "skills" : capabilityTab)}><BookOpen aria-hidden="true" />{isCodex ? "Skills、Apps 和 MCP" : "Skills 和 MCP"}</button>}
-              <button type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
-            </div>}
+              {mainAgent && <button data-action="main-agent" type="button" role="menuitem" disabled={mainAgentPending} onClick={() => openSelection("mainAgent")}>主 Agent <small>{mainAgentLabel}</small></button>}
+              {multitaskOption && <button data-action="multitask" type="button" role="menuitem" onClick={() => openSelection("multitask")}>Multitask <small>{multitaskOption.currentValue === true ? "开启" : "关闭"}</small></button>}
+              {(acpModel || codeBuddyUnifiedModel || codexUnifiedModel || (!isAcp && snapshot.backend === "openai")) && <button data-action="model" type="button" role="menuitem" onClick={() => openSelection("model")}>模型 <small>{codexUnifiedModel ? codexCurrentName : codeBuddyUnifiedModel ? codeBuddyCurrentName : acpModel ? acpModel.options?.find(option => option.value === acpModel.currentValue)?.name || acpModel.currentValue : currentModel?.displayName || "默认模型"}</small></button>}
+              {snapshot.provider === "opencode" && sessionType !== "ssh" && onReconnectModels && <button data-action="reconnect-models" type="button" role="menuitem" disabled={snapshot.busy || sending} onClick={() => { setMenuOpen(false); void onReconnectModels(sessionId).catch(cause => setError(message(cause))); }}>重新连接以更新模型</button>}
+              {acpContextWindow && <button data-action="context-window" type="button" role="menuitem" onClick={() => openSelection("contextWindow")}>上下文窗口 <small>{acpContextWindow.options?.find(option => option.value === acpContextWindow.currentValue)?.name || acpContextWindow.currentValue}</small></button>}
+              {(acpEffort || (!isAcp && snapshot.backend === "openai" && Boolean(currentModel?.supportedReasoningEfforts?.length))) && <button data-action="effort" type="button" role="menuitem" onClick={() => openSelection("effort")}>思考强度 <small>{acpEffort ? acpEffort.options?.find(option => option.value === acpEffort.currentValue)?.name || acpEffort.currentValue : snapshot.effort ? effortLabel(snapshot.effort) : "默认"}</small></button>}
+              {!isAcp && snapshot.backend === "openai" && <button data-action="fast-mode" type="button" role="menuitem" onClick={() => openSelection("fastMode")}>快速模式 <small>{snapshot.fastMode ? "开启" : "关闭"}</small></button>}
+              {isCodex && sessionType === "windows" && snapshot.windowsSandboxSetup?.available && <button data-action="sandbox" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setSandboxSetupOpen(true); }}>Windows 沙箱初始化</button>}
+              {!isAcp && <><button data-action="permission" type="button" role="menuitem" onClick={() => openSelection("permission")}>执行权限 <small>{snapshot.permissionProfileId || permissionLabels[snapshot.executionPermission]}</small></button><button data-action="configuration" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfigurationOpen(true); }}>配置与权限</button></>}
+              {(isCodex || isOpenCode) && <button data-action="capabilities" type="button" role="menuitem" onClick={() => openCapabilities(isOpenCode && capabilityTab === "apps" ? "skills" : capabilityTab)}><BookOpen aria-hidden="true" />{isCodex ? "Skills、Apps 和 MCP" : "Skills 和 MCP"}</button>}
+              <button data-action="attachments" type="button" role="menuitem" disabled={!canAttach} onClick={() => { setMenuOpen(false); textareaRef.current?.focus(); void addFiles(); }}><Paperclip aria-hidden="true" />附加文件</button>
+            </GraphicalActionMenu>}
             {(isCodex || isOpenCode) && capabilityOpen && <div ref={capabilityRef} className="codex-app-server-capability-picker" role="dialog" aria-label="选择会话能力" onKeyDown={event => {
               if (event.key === "Escape") { event.preventDefault(); setCapabilityOpen(false); menuButtonRef.current?.focus(); }
             }}>

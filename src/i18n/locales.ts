@@ -141,6 +141,16 @@ export type TranslationKey =
   | "usage.qoderAddOn"
   | "usage.qoderAccountChanged"
   | "usage.qoderCheckinFailed"
+  | "settings.graphicalMenuTitle"
+  | "settings.graphicalMenuHint"
+  | "settings.graphicalMenuAgent"
+  | "settings.graphicalMenuReset"
+  | "settings.graphicalMenuCollect"
+  | "settings.graphicalMenuMobileOnly"
+  | "settings.graphicalMenuDesktopOnly"
+  | "graphicalMenu.other"
+  | "graphicalMenu.back"
+  | "graphicalMenu.actions"
   | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
   | "settings.screenshotTitle"
@@ -337,6 +347,11 @@ export type TranslationKey =
   | "session.localAgentCwd"
   | "session.localAgentCwdPlaceholder"
   | "session.localAgentCwdHint"
+  | "session.openCodeAdditionalDirectories"
+  | "session.openCodeDirectoriesWindows"
+  | "session.openCodeDirectoriesPosix"
+  | "session.openCodeDirectoriesHint"
+  | "session.openCodeDirectoriesInvalid"
   | "session.initialCommand"
   | "session.initialCommandPlaceholder"
   | "session.agentCli"
@@ -1167,6 +1182,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder 桌面 App 账号已变化，请刷新额度后重试。",
     "usage.qoderCheckinFailed": "Qoder 签到查询失败，请稍后重试。",
     "settings.graphicalSessionMinimalMode": "图形会话极简模式",
+    "settings.graphicalMenuTitle": "图形模式菜单",
+    "settings.graphicalMenuHint": "勾选要收纳到“其他操作”的项目。同一 Agent 的桌面端和移动端共享配置；具体可用项取决于当前会话。",
+    "settings.graphicalMenuAgent": "配置 Agent",
+    "settings.graphicalMenuReset": "恢复当前 Agent 默认",
+    "settings.graphicalMenuCollect": "将{name}收纳到其他操作",
+    "settings.graphicalMenuMobileOnly": "仅移动端菜单",
+    "settings.graphicalMenuDesktopOnly": "仅桌面端菜单",
+    "graphicalMenu.other": "其他操作",
+    "graphicalMenu.back": "返回更多操作",
+    "graphicalMenu.actions": "会话操作",
+
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
     "settings.titleBarActionsTitle": "顶部图标",
@@ -1362,6 +1388,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.localAgentCwd": "本机 Agent 工作目录（可选）",
     "session.localAgentCwdPlaceholder": "未选择时使用应用临时目录",
     "session.localAgentCwdHint": "本机 Agent 将从此目录启动；远端操作范围仍由远端工作目录决定。",
+    "session.openCodeAdditionalDirectories": "额外授权目录",
+    "session.openCodeDirectoriesWindows": "每行一个 Windows 绝对路径（盘符或 UNC）；SSH 本机 Agent 使用本机路径。",
+    "session.openCodeDirectoriesPosix": "每行一个 OpenCode 所在 WSL 或 SSH 环境中的 POSIX 绝对路径。",
+    "session.openCodeDirectoriesHint": "仍遵循读写和 Shell 权限。修改在新建、加载、恢复、分叉或重连时生效；清空会替换历史授权。",
+    "session.openCodeDirectoriesInvalid": "额外目录必须是运行环境中的绝对路径，不能包含通配符、换行或 NUL 字符。",
     "session.initialCommand": "初始命令",
     "session.initialCommandPlaceholder": "输入初始命令（可选），如：{example}",
     "session.agentCli": "Agent CLI",
@@ -2184,6 +2215,17 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder desktop account changed. Refresh quota and retry.",
     "usage.qoderCheckinFailed": "Qoder check-in failed. Please retry.",
     "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
+    "settings.graphicalMenuTitle": "Graphical mode menu",
+    "settings.graphicalMenuHint": "Select actions to move into Other actions. Desktop and mobile share settings for each Agent; available actions depend on the current session.",
+    "settings.graphicalMenuAgent": "Configure Agent",
+    "settings.graphicalMenuReset": "Reset this Agent",
+    "settings.graphicalMenuCollect": "Move {name} into Other actions",
+    "settings.graphicalMenuMobileOnly": "Mobile menu only",
+    "settings.graphicalMenuDesktopOnly": "Desktop menu only",
+    "graphicalMenu.other": "Other actions",
+    "graphicalMenu.back": "Back to more actions",
+    "graphicalMenu.actions": "Session actions",
+
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",
     "settings.titleBarActionsTitle": "Title bar icons",
@@ -2379,6 +2421,11 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "session.localAgentCwd": "Local Agent working directory (optional)",
     "session.localAgentCwdPlaceholder": "Use the app-managed temporary directory when empty",
     "session.localAgentCwdHint": "The local Agent starts here; remote operations remain scoped to the remote working directory.",
+    "session.openCodeAdditionalDirectories": "Additional authorized directories",
+    "session.openCodeDirectoriesWindows": "One absolute Windows path per line (drive or UNC). A local SSH Agent uses local paths.",
+    "session.openCodeDirectoriesPosix": "One absolute POSIX path per line in the WSL or SSH environment running OpenCode.",
+    "session.openCodeDirectoriesHint": "Read, write and shell permissions still apply. Changes take effect on new, load, resume, fork or reconnect; clearing replaces historical grants.",
+    "session.openCodeDirectoriesInvalid": "Additional directories must be absolute paths in the Agent environment, without wildcards, line breaks or NUL characters.",
     "session.initialCommand": "Initial command",
     "session.initialCommandPlaceholder": "Enter an optional initial command, for example: {example}",
     "session.agentCli": "Agent CLI",

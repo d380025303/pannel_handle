@@ -1,6 +1,8 @@
 const { readJson, writeJson } = require("./business-store-io.cjs");
 const { DEFAULT_SCREENSHOT_SHORTCUT, normalizeScreenshotShortcut } = require("../services/screenshot/screenshot-shortcut.cjs");
 
+const { normalizeGraphicalMenuConfig } = require("../shared/graphical-menu-config.cjs");
+
 const DEFAULT_THEME_ID = "dark-slate";
 const VALID_THEME_IDS = new Set(["dark-slate", "dark-blue", "dark-green", "light"]);
 const DEFAULT_LOCALE = "zh-CN";
@@ -75,6 +77,7 @@ function createConfigStore({ configFile, dataStore }) {
     autoCollapseFileChains: true,
     debugMode: false,
     graphicalSessionMinimalMode: false,
+    graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(),
     screenshotEnabled: true,
     screenshotShortcut: DEFAULT_SCREENSHOT_SHORTCUT,
     titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
@@ -100,6 +103,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
+      graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: config.titleBarActionOrder,
@@ -130,6 +134,7 @@ function createConfigStore({ configFile, dataStore }) {
           autoCollapseFileChains: typeof parsed.autoCollapseFileChains === "boolean" ? parsed.autoCollapseFileChains : true,
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           graphicalSessionMinimalMode: typeof parsed.graphicalSessionMinimalMode === "boolean" ? parsed.graphicalSessionMinimalMode : false,
+          graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(parsed.graphicalMenuSecondaryActions),
           screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
           screenshotShortcut: normalizeScreenshotShortcut(parsed.screenshotShortcut) || DEFAULT_SCREENSHOT_SHORTCUT,
           titleBarActionOrder: normalizeTitleBarActionOrder(parsed.titleBarActionOrder),
@@ -176,6 +181,7 @@ function createConfigStore({ configFile, dataStore }) {
       autoCollapseFileChains: config.autoCollapseFileChains,
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
+      graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: [...config.titleBarActionOrder],
@@ -213,6 +219,9 @@ function createConfigStore({ configFile, dataStore }) {
       }
       if (typeof partial.graphicalSessionMinimalMode === "boolean") {
         config.graphicalSessionMinimalMode = partial.graphicalSessionMinimalMode;
+      }
+      if (Object.hasOwn(partial, "graphicalMenuSecondaryActions")) {
+        config.graphicalMenuSecondaryActions = normalizeGraphicalMenuConfig(partial.graphicalMenuSecondaryActions);
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;

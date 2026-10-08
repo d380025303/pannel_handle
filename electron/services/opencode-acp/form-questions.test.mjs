@@ -42,7 +42,7 @@ function schema(multiple = false, custom = false) {
 
 it("advertises native forms without injecting a question MCP or disabling the built-in tool", async () => {
   const f = await fixture();
-  expect(f.messages[0].params.clientCapabilities).toEqual({ auth: { terminal: true }, elicitation: { form: {} } });
+  expect(f.messages[0].params.clientCapabilities).toEqual({ auth: { terminal: true }, elicitation: { form: {} }, session: { compaction: {} } });
   expect(f.messages.find(message => message.method === "session/new").params.mcpServers).toEqual([]);
   expect(f.spawnProcess.mock.calls[0][2].env.OPENCODE_ENABLE_QUESTION_TOOL).toBeUndefined();
   expect(f.spawnProcess.mock.calls[0][2].env.PANNEL_HANDLE_OPENCODE_QUESTION_URL).toBeUndefined();

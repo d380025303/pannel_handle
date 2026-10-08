@@ -1,3 +1,4 @@
+import { normalizeGraphicalMenuConfig, type GraphicalMenuConfig } from "../../src/utils/graphicalMenu";
 import { useCallback, useRef, useState } from "react";
 import { useRemoteTransport } from "./useRemoteTransport";
 import type { RuntimeSession, SavedTemplate, ServerMessage, SessionOverview } from "./types";
@@ -9,6 +10,7 @@ type GraphicalMessage = Extract<ServerMessage,
 type FileMessage = Extract<ServerMessage, { type: "files.list.result" | "files.download.ready" | "error" }>;
 
 export function useRemoteConnection() {
+  const [graphicalMenuConfig, setGraphicalMenuConfig] = useState<GraphicalMenuConfig>({});
   const [sessions, setSessions] = useState<RuntimeSession[]>([]);
   const [overviews, setOverviews] = useState<Record<string, SessionOverview>>({});
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
@@ -20,7 +22,11 @@ export function useRemoteConnection() {
 
   const onMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
+      case "graphical-menu.changed":
+        setGraphicalMenuConfig(normalizeGraphicalMenuConfig(message.config));
+        break;
       case "ready":
+        setGraphicalMenuConfig(normalizeGraphicalMenuConfig(message.payload.graphicalMenuSecondaryActions));
         setSessions(message.payload.sessions);
         setOverviews({});
         setTemplates(message.payload.templates);
@@ -84,6 +90,6 @@ export function useRemoteConnection() {
     return () => fileListenersRef.current.delete(listener);
   }, []);
 
-  return { ...transport, sessions, overviews, templates, lastLaunchedId, commandError,
+  return { ...transport, graphicalMenuConfig, sessions, overviews, templates, lastLaunchedId, commandError,
     onTerminalMessage, onGraphicalMessage, onFileMessage };
 }

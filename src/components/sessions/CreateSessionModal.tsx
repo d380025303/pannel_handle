@@ -9,6 +9,8 @@ import { AgentLocationSelect } from "./AgentLocationSelect";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentSessionModeCheckbox } from "./AgentSessionModeCheckbox";
 import { AgentModelSourceFields } from "./AgentModelSourceFields";
+import { OpenCodeAdditionalDirectoriesField } from "./OpenCodeAdditionalDirectoriesField";
+import { openCodeUsesWindowsPaths, parseOpenCodeAdditionalDirectories } from "../../utils/openCodeAdditionalDirectories";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { supportsLocalBridge } from "./agentProviders";
 import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
@@ -22,6 +24,7 @@ export type CreateSessionRequest = EnvironmentSelection & {
   graphicalSessionEnabled?: boolean;
   agentLocation?: AgentLocation;
   localAgentCwd?: string;
+  openCodeAdditionalDirectories?: string[];
   codexBackend?: CodexBackend;
   modelSource?: AgentModelSource;
   modelId?: string;
@@ -45,6 +48,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
   const [commandInput, setCommandInput] = useState("");
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>();
   const [agentLocation, setAgentLocation] = useState<AgentLocation>("local");
+  const [additionalDirectoriesText, setAdditionalDirectoriesText] = useState("");
   const [localAgentCwd, setLocalAgentCwd] = useState("");
   const [graphicalSessionEnabled, setGraphicalSessionEnabled] = useState(true);
   const [modelSource, setModelSource] = useState<AgentModelSource>("native");
@@ -63,6 +67,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
   const [submitting, setSubmitting] = useState(false);
 
   const isSsh = selectedShellId === "ssh";
+  const directoryEnvironment = { type: isSsh ? "ssh" as const : selectedShellId.startsWith("wsl:") ? "wsl" as const : "windows" as const, agentLocation, cwd, sshConfig: { remotePlatform: remotePlatform === "auto" ? undefined : remotePlatform } };
   const environmentConfigured = Boolean(environment.environmentProfileId || environment.environmentOverrides?.length);
   const advancedSshConfigured = Boolean(sshIdentityFile.trim() || sshRemark.trim() || remotePlatform !== "auto");
   useEffect(() => {
@@ -78,6 +83,8 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
     setError(null);
     setSubmitting(true);
     try {
+      const directories = agentProvider === "opencode" ? parseOpenCodeAdditionalDirectories(additionalDirectoriesText, directoryEnvironment) : undefined;
+      if (directories === null) throw new Error(t("session.openCodeDirectoriesInvalid"));
       await window.environmentApi?.preview({ ...environment, type: isSsh ? "ssh" : selectedShellId.startsWith("wsl:") ? "wsl" : "windows", agentProvider, agentLocation });
       await onCreate({
         ...environment,
@@ -92,6 +99,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
         modelSource: !isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") ? modelSource : undefined,
         modelId: !isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy") && modelSource !== "native" ? modelId : undefined,
         graphicalSessionEnabled,
+        ...(agentProvider === "opencode" ? { openCodeAdditionalDirectories: directories } : {}),
         tags,
         sshConfig: isSsh ? { host: sshHost.trim(), username: sshUsername.trim() || undefined, port: Number(sshPort) || 22, identityFile: sshIdentityFile.trim() || undefined, secret: sshSecret || undefined, remark: sshRemark.trim() || undefined, remotePlatform } : undefined
       });
@@ -134,6 +142,7 @@ export function CreateSessionModal({ defaultWindowsShell, wslDistros, tagSuggest
       {(agentProvider === "codex" || agentProvider === "codebuddy" || agentProvider === "opencode" || agentProvider === "claude" || agentProvider === "qoder" || agentProvider === "gemini" || agentProvider === "grok") && <AgentSessionModeCheckbox provider={agentProvider} checked={graphicalSessionEnabled} onChange={setGraphicalSessionEnabled} />}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
+      {agentProvider === "opencode" && graphicalSessionEnabled && <OpenCodeAdditionalDirectoriesField value={additionalDirectoriesText} onChange={setAdditionalDirectoriesText} windows={openCodeUsesWindowsPaths(directoryEnvironment)} disabled={submitting} />}
       {agentProvider && !cwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}
     </SessionFormSection>
 

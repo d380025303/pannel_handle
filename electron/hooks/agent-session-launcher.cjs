@@ -831,6 +831,7 @@ function createAgentSessionLauncher({
       agentProvider: provider,
       agentLocation: session.agentLocation,
       localAgentCwd: session.localAgentCwd,
+      ...(provider === "opencode" && session.agentProvider === "opencode" ? { openCodeAdditionalDirectories: session.openCodeAdditionalDirectories } : {}),
       modelSource: provider === session.agentProvider ? session.modelSource : "native",
       modelId: provider === session.agentProvider ? session.modelId : undefined,
       codexBackend: provider === "codex" ? session.codexBackend : undefined,

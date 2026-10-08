@@ -22,3 +22,11 @@ ACP 继续负责会话与消息。历史控制通过目标环境的官方 `openc
 参考：[OpenCode ACP 表单提问](https://opencode.ai/v2/docs/cli/acp/#questions)。
 
 参考：[原生撤销语义](https://opencode.ai/v2/docs/cli/tui/)、[V2 API](https://opencode.ai/v2/docs/api)。
+
+## 额外目录授权
+
+桌面新建或编辑 OpenCode 图形会话时，可在“额外授权目录”中每行填写一个绝对路径。Windows 和 SSH 本机 Agent 使用盘符或 UNC 路径；WSL、Linux SSH 使用对应环境中的 POSIX 路径。路径不会自动转换或展开，不能包含通配符。授权仍受 OpenCode 的读写和 Shell 权限约束。
+
+配置保存在本应用的会话库中，移动端沿用同一配置。编辑保存不会打断当前任务；下一次新建、加载、恢复、分叉或重新连接时，通过 ACP `additionalDirectories` 应用当前列表。空列表会替换历史会话原有授权。旧版 CLI 未声明该能力时，空配置继续兼容；非空配置明确报错，需升级 CLI 或清空配置。
+
+参考：[OpenCode ACP 额外目录](https://opencode.ai/v2/docs/cli/acp/#additional-directories)。

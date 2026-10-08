@@ -260,3 +260,20 @@ describe("Windows shell selection", () => {
     await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ selectedShellId: "default" })));
   });
 });
+
+
+it("configures OpenCode directories and rejects relative paths before creating", async () => {
+  const onCreate = vi.fn(async () => undefined);
+  render(<I18nProvider locale="zh-CN"><CreateSessionModal defaultWindowsShell="cmd" wslDistros={[]} tagSuggestions={[]} onCreate={onCreate} onCancel={() => undefined} /></I18nProvider>);
+  expect(screen.queryByRole("textbox", { name: /额外授权目录/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "OpenCode" }));
+  fireEvent.change(screen.getByLabelText("工作目录"), { target: { value: "C:\\work" } });
+  const field = screen.getByRole("textbox", { name: /额外授权目录/ });
+  fireEvent.change(field, { target: { value: "relative" } });
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await screen.findByText(/额外目录必须是运行环境中的绝对路径/);
+  expect(onCreate).not.toHaveBeenCalled();
+  fireEvent.change(field, { target: { value: " C:\\shared \n\\\\server\\share\n" } });
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await vi.waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ openCodeAdditionalDirectories: ["C:\\shared", "\\\\server\\share"] })));
+});

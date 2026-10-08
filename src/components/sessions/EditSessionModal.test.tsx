@@ -162,3 +162,24 @@ describe("EditSessionModal", () => {
     expect(advancedDetails?.textContent).toContain("已配置");
   });
 });
+
+
+it("shows saved OpenCode directories and submits an explicit empty list when cleared", async () => {
+  const onSave = vi.fn(async () => undefined);
+  render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, agentProvider: "opencode", openCodeAdditionalDirectories: ["C:\\shared"] }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+  const field = screen.getByRole("textbox", { name: /额外授权目录/ });
+  expect(field).toHaveProperty("value", "C:\\shared");
+  fireEvent.change(field, { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+  expect((onSave.mock.calls[0] as unknown[])[17]).toEqual([]);
+});
+
+it("uses local Windows paths for an SSH local OpenCode Agent", async () => {
+  const onSave = vi.fn(async () => undefined);
+  render(<I18nProvider locale="zh-CN"><EditSessionModal session={{ ...session, type: "ssh", cwd: "/srv/work", agentProvider: "opencode", agentLocation: "local", sshConfig: { host: "example.com" } }} tagSuggestions={[]} onSave={onSave} onCancel={() => undefined} /></I18nProvider>);
+  fireEvent.change(screen.getByRole("textbox", { name: /额外授权目录/ }), { target: { value: "C:\\local-shared" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
+  expect((onSave.mock.calls[0] as unknown[])[17]).toEqual(["C:\\local-shared"]);
+});

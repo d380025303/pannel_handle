@@ -11,6 +11,8 @@ import { AgentLocationSelect } from "./AgentLocationSelect";
 import { AgentProviderSelect } from "./AgentProviderSelect";
 import { AgentSessionModeCheckbox } from "./AgentSessionModeCheckbox";
 import { AgentModelSourceFields } from "./AgentModelSourceFields";
+import { OpenCodeAdditionalDirectoriesField } from "./OpenCodeAdditionalDirectoriesField";
+import { openCodeUsesWindowsPaths, parseOpenCodeAdditionalDirectories } from "../../utils/openCodeAdditionalDirectories";
 import { LocalAgentWorkingDirectoryField } from "./LocalAgentWorkingDirectoryField";
 import { supportsLocalBridge } from "./agentProviders";
 import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
@@ -18,7 +20,7 @@ import { SessionFormSection, SessionModalLayout } from "./SessionModalLayout";
 type EditSessionModalProps = {
   session: TerminalSession;
   tagSuggestions: string[];
-  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string) => Promise<void>;
+  onSave: (id: string, title: string, cwd: string, initialCommand: string, agentProvider?: AgentProvider, agentLocation?: AgentLocation, localAgentCwd?: string, codexBackend?: CodexBackend, codexModel?: string, quickCommands?: QuickCommand[], sshConfig?: SshConfig, tags?: string[], codexExperimentalAcknowledged?: boolean, environment?: EnvironmentSelection, graphicalSessionEnabled?: boolean, modelSource?: AgentModelSource, modelId?: string, openCodeAdditionalDirectories?: string[]) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -30,6 +32,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [editCommand, setEditCommand] = useState(session.initialCommand || session.sshConfig?.remoteCommand || "");
   const [agentProvider, setAgentProvider] = useState<AgentProvider | undefined>(session.agentProvider);
   const [agentLocation, setAgentLocation] = useState<AgentLocation>(session.agentLocation || "remote");
+  const [additionalDirectoriesText, setAdditionalDirectoriesText] = useState(session.openCodeAdditionalDirectories?.join("\n") || "");
   const [localAgentCwd, setLocalAgentCwd] = useState(session.localAgentCwd || "");
   const [graphicalSessionEnabled, setGraphicalSessionEnabled] = useState(session.graphicalSessionEnabled !== false);
   const [modelSource, setModelSource] = useState<AgentModelSource>(session.modelSource || "native");
@@ -49,6 +52,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
   const [remotePlatform, setRemotePlatform] = useState<RemotePlatform>(session.sshConfig?.remotePlatform || "auto");
   const [tags, setTags] = useState<string[]>(session.tags ?? []);
   const isSsh = session.type === "ssh";
+  const directoryEnvironment = { type: session.type, agentLocation, cwd: editCwd, sshConfig: { remotePlatform: remotePlatform === "auto" ? undefined : remotePlatform } };
   const environmentConfigured = Boolean(environment.environmentProfileId || environment.environmentOverrides?.length);
   const advancedSshConfigured = Boolean(sshIdentityFile.trim() || sshRemark.trim() || sshExtraArgs.trim() || remotePlatform !== "auto");
 
@@ -60,6 +64,8 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
     setSubmitting(true);
     setError(null);
     try {
+      const directories = agentProvider === "opencode" ? parseOpenCodeAdditionalDirectories(additionalDirectoriesText, directoryEnvironment) : undefined;
+      if (directories === null) throw new Error(t("session.openCodeDirectoriesInvalid"));
       await window.environmentApi?.preview({ ...environment, type: session.type, agentProvider, agentLocation });
       const codexBackend = !isSsh && agentProvider === "codex"
         ? session.agentProvider === "codex" ? session.codexBackend || "openai" : "openai"
@@ -83,6 +89,10 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
         graphicalSessionEnabled
       ];
       if (!isSsh && (agentProvider === "opencode" || agentProvider === "codebuddy")) saveArgs.push(modelSource, modelSource === "native" ? undefined : modelId);
+      if (agentProvider === "opencode") {
+        if (isSsh) saveArgs.push(undefined, undefined);
+        saveArgs.push(directories);
+      }
       await onSave(...saveArgs);
     } catch (err: any) {
       setError(err?.message || t("session.updateFailed"));
@@ -119,6 +129,7 @@ export function EditSessionModal({ session, tagSuggestions, onSave, onCancel }: 
       {(agentProvider === "codex" || agentProvider === "codebuddy" || agentProvider === "opencode" || agentProvider === "claude" || agentProvider === "qoder" || agentProvider === "gemini" || agentProvider === "grok") && <AgentSessionModeCheckbox provider={agentProvider} checked={graphicalSessionEnabled} onChange={setGraphicalSessionEnabled} />}
       {isSsh && agentProvider && <AgentLocationSelect value={agentLocation} provider={agentProvider} onChange={setAgentLocation} />}
       {isSsh && supportsLocalBridge(agentProvider) && agentLocation === "local" && <LocalAgentWorkingDirectoryField value={localAgentCwd} onChange={setLocalAgentCwd} />}
+      {agentProvider === "opencode" && graphicalSessionEnabled && <OpenCodeAdditionalDirectoriesField value={additionalDirectoriesText} onChange={setAdditionalDirectoriesText} windows={openCodeUsesWindowsPaths(directoryEnvironment)} disabled={submitting} />}
       {agentProvider && !editCwd.trim() && <div className="modal-error">{t("session.agentCwdRequired")}</div>}
     </SessionFormSection>
 

@@ -349,6 +349,11 @@ contextBridge.exposeInMainWorld("terminalApi", {
     ipcRenderer.on("sessions:select-requested", listener);
     return () => ipcRenderer.removeListener("sessions:select-requested", listener);
   },
+  onGraphicalMenuConfigChanged: callback => {
+    const listener = (_event, config) => callback(config);
+    ipcRenderer.on("config:graphical-menu-changed", listener);
+    return () => ipcRenderer.removeListener("config:graphical-menu-changed", listener);
+  },
   getConfig: () => ipcRenderer.invoke("config:get"),
   setConfig: (partial) => ipcRenderer.invoke("config:set", partial),
   chooseTerminalBackgroundImage: () => ipcRenderer.invoke("terminal-background:choose-image")

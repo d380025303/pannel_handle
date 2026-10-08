@@ -175,3 +175,22 @@ describe("useTerminalSessions", () => {
     expect(result.current.activeAgentWarning).toMatchObject({ id: "run-2", timestamp: 12 });
   });
 });
+
+
+it("forwards OpenCode grants through create and edit without clearing them during partial edits", async () => {
+  window.terminalApi = {
+    loadSavedSessions: vi.fn(async () => []),
+    getConfig: vi.fn(async () => ({ autoRestore: false, lastActiveSessionIds: [] })),
+    onSessionsChanged: vi.fn(() => () => {}), onAgentStatus: vi.fn(() => () => {}),
+    createSession: vi.fn(async () => session("open", "opencode")),
+    updateSession: vi.fn(async () => [])
+  } as unknown as typeof window.terminalApi;
+  window.launchTemplateApi = { list: vi.fn(async () => []) } as unknown as typeof window.launchTemplateApi;
+  const { result } = renderHook(() => useTerminalSessions());
+  await act(async () => result.current.createSession({ selectedShellId: "default", agentProvider: "opencode", openCodeAdditionalDirectories: ["C:\\shared"] }));
+  expect(window.terminalApi.createSession).toHaveBeenCalledWith(expect.objectContaining({ openCodeAdditionalDirectories: ["C:\\shared"] }));
+  await act(async () => result.current.updateSession("open", "renamed", "C:\\work", "", "opencode"));
+  expect(vi.mocked(window.terminalApi.updateSession).mock.calls[0][1]).not.toHaveProperty("openCodeAdditionalDirectories");
+  await act(async () => result.current.updateSession("open", "renamed", "C:\\work", "", "opencode", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, true, undefined, undefined, []));
+  expect(window.terminalApi.updateSession).toHaveBeenLastCalledWith("open", expect.objectContaining({ openCodeAdditionalDirectories: [] }));
+});

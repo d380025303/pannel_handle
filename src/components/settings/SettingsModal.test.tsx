@@ -67,6 +67,10 @@ describe("SettingsModal navigation", () => {
   });
 
   beforeEach(() => {
+    Object.defineProperty(window, "terminalApi", { configurable: true, value: {
+      getConfig: vi.fn().mockResolvedValue({ graphicalMenuSecondaryActions: {} }),
+      onGraphicalMenuConfigChanged: () => () => {}
+    } });
     Object.defineProperty(window, "dingTalkApi", {
       configurable: true,
       value: {

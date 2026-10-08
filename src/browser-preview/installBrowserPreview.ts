@@ -83,6 +83,7 @@ const initialConfig: AppConfig = {
   autoCollapseFileChains: true,
   debugMode: false,
   graphicalSessionMinimalMode: false,
+  graphicalMenuSecondaryActions: {},
   screenshotEnabled: true,
   screenshotShortcut: "Ctrl+Shift+A",
   titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
@@ -214,6 +215,7 @@ export function installBrowserPreview() {
 
   const sessionsChanged = createChannel<TerminalSession[]>();
   const terminalData = createChannel<{ id: string; data: string }>();
+  const graphicalMenuChanged = createChannel<import("../utils/graphicalMenu").GraphicalMenuConfig>();
   const sizeOwnerChanged = createChannel<{ sessionId: string; owner: string; cols: number; rows: number }>();
   const mobileChanged = createChannel<MobileAccessState>();
   const transfersChanged = createChannel<FileTransferTask[]>();
@@ -351,7 +353,8 @@ export function installBrowserPreview() {
     },
     reorderRunningSessions: async (orderedIds) => { sessions = orderedIds.map((id) => sessions.find((session) => session.id === id)).filter(Boolean) as TerminalSession[]; emitSessions(); return copy(sessions); },
     getConfig: async () => copy(config),
-    setConfig: async (partial) => { config = { ...config, ...partial }; return copy(config); },
+    onGraphicalMenuConfigChanged: graphicalMenuChanged.subscribe,
+    setConfig: async (partial) => { config = { ...config, ...partial }; if (partial.graphicalMenuSecondaryActions) graphicalMenuChanged.emit(copy(partial.graphicalMenuSecondaryActions)); return copy(config); },
     chooseTerminalBackgroundImage: async () => ({ canceled: true as const })
   };
 

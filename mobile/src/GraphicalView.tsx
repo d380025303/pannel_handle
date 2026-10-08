@@ -1,3 +1,4 @@
+import { OpenCodeRetryStatus } from "../../src/components/agents/OpenCodeRetryStatus";
 import { CodeBuddyMcpAppContext } from "../../src/components/agents/CodeBuddyMcpApp";
 import { useCodeBuddyApi } from "./useCodeBuddyApi";
 import { graphicalInputPolicy } from "./GraphicalInputPolicy";
@@ -71,6 +72,7 @@ export function GraphicalView(props: GraphicalViewProps) {
       {switchingTo && <span className="graphical-switching">切换中…</span>}
     </header>
     <GraphicalUsage sessionId={session.id} sessionType={session.type} snapshot={snapshot} send={send} onGraphicalMessage={onGraphicalMessage} />
+    {snapshot.provider === "opencode" && <OpenCodeRetryStatus retry={snapshot.openCodeRetry} className="graphical-usage-status" />}
     {snapshot.permissionError && <div className="graphical-error" role="alert">{snapshot.permissionError}<button type="button" onClick={() => controller.setActiveSheet("configuration")}>配置与权限</button></div>}
     {snapshot.error && <div className="graphical-error" role="alert">{snapshot.error}</div>}
     {error && !activeSheet && <div className="graphical-error" role="alert">{error}</div>}
@@ -80,6 +82,6 @@ export function GraphicalView(props: GraphicalViewProps) {
     {snapshot.provider === "codex" && snapshot.goal && <button className="graphical-goal-chip" title={snapshot.goal.objective} onClick={() => setActiveSheet("goal")}>目标：{snapshot.goal.objective} · {snapshot.goal.status}</button>}
     {snapshot.provider === "codebuddy" && snapshot.codeBuddyGoal?.active && <button className="graphical-goal-chip" onClick={() => setActiveSheet("buddy-goal")}>目标：{snapshot.codeBuddyGoal.active.condition} · {snapshot.codeBuddyGoal.active.paused ? "已暂停" : "进行中"}</button>}
     <GraphicalComposer snapshot={snapshot} controller={controller} draft={draft} setDraft={setDraft} />
-    <GraphicalActionSheet snapshot={snapshot} session={session} controller={controller} />
+    <GraphicalActionSheet snapshot={snapshot} session={session} controller={controller} graphicalMenuConfig={props.graphicalMenuConfig} />
   </section></CodeBuddyMcpAppContext.Provider>;
 }

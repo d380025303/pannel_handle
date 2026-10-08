@@ -11,6 +11,7 @@ import { PROTOCOL_VERSION, type AgentProvider, type ClientMessage, type Graphica
 type GraphicalMessage = Extract<ServerMessage,
   { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
 export type GraphicalViewProps = {
+  graphicalMenuConfig?: import("../../src/utils/graphicalMenu").GraphicalMenuConfig;
   session: RuntimeSession;
   connectionEpoch: number;
   send: (message: ClientMessage) => boolean;

@@ -14,6 +14,16 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+it("shows and clears OpenCode retry status from remote snapshots", () => {
+  const { emit } = fixture({ ...session, agentProvider: "opencode" });
+  const current = { ...snapshot, provider: "opencode" as const, busy: true,
+    openCodeRetry: { attempt: 3, nextRetryAt: null, error: { type: "rate-limit", message: "稍后重试", status: 429 } } };
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: current });
+  expect(screen.getByText(/等待第 3 次自动重试/).textContent).toContain("HTTP 429 · 稍后重试");
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...current, openCodeRetry: null } });
+  expect(screen.queryByText(/等待第 3 次自动重试/)).toBeNull();
+});
+
 it("shows OpenCode structured results and preserves expanded details on updates", async () => {
   const { emit } = fixture();
   const value = { ...snapshot, provider: "opencode" as const, items: [{ id: "tool", type: "toolCall", toolName: "Edit",
@@ -44,7 +54,7 @@ const snapshot: GraphicalSnapshot = {
   items: [{ id: "m1", type: "agentMessage", text: "**完成**" }], approvals: [], questions: []
 };
 
-function fixture(viewSession = session) {
+function fixture(viewSession = session, graphicalMenuConfig: import("../../src/utils/graphicalMenu").GraphicalMenuConfig = {}) {
   const send = vi.fn((_message: ClientMessage) => true);
   type GraphicalMessage = Extract<ServerMessage,
     { type: "graphical.snapshot" | "graphical.delta" | "graphical.usage" | "graphical.history" | "graphical.upload.ready" | "graphical.result" | "graphical.opencode.auth-data" | "graphical.opencode.auth-state" | "command.ok" | "error" }>;
@@ -55,7 +65,7 @@ function fixture(viewSession = session) {
     const [draft, setDraft] = useState("");
     const [epoch, setEpoch] = useState(1);
     changeEpoch = setEpoch;
-    return <GraphicalView session={viewSession} connectionEpoch={epoch} send={send}
+    return <GraphicalView session={viewSession} connectionEpoch={epoch} send={send} graphicalMenuConfig={graphicalMenuConfig}
       onGraphicalMessage={subscribe}
       draft={draft} setDraft={setDraft} submissionPending={false} onSubmitRequest={() => {}} />;
   }
@@ -1443,4 +1453,21 @@ it.each([true, false])("reviews idle CodeBuddy worker plans on mobile: execute=%
   expect(screen.getByText("# Worker plan")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: execute ? "执行计划" : "继续修改" }));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.plan", itemId: "worker-plan", execute }));
+});
+
+
+it("uses host menu settings, returns to primary, and preserves nested new-thread handling", () => {
+  const { emit, send } = fixture(session, { codex: ["new-thread", "model"] });
+  emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot });
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  const sheet = screen.getByRole("dialog", { name: "更多操作" });
+  expect(within(sheet).queryByRole("button", { name: "新对话" })).toBeNull();
+  fireEvent.click(within(sheet).getByRole("button", { name: "其他操作" }));
+  expect(within(sheet).getByRole("button", { name: /切换模型/ }).hasAttribute("disabled")).toBe(false);
+  fireEvent.click(within(sheet).getByRole("button", { name: /返回更多操作/ }));
+  expect(within(sheet).queryByRole("button", { name: "新对话" })).toBeNull();
+  fireEvent.click(within(sheet).getByRole("button", { name: "其他操作" }));
+  fireEvent.click(within(sheet).getByRole("button", { name: "新对话" }));
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.new-thread", sessionId: session.id, threadId: snapshot.threadId }));
+  expect(screen.queryByRole("dialog", { name: "更多操作" })).toBeNull();
 });

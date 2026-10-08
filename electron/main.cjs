@@ -449,6 +449,7 @@ if (!gotSingleInstanceLock) {
       workBuddyAutoCheckinService,
     qoderAutoCheckinService,
       getMobileRemoteService: () => mobileRemoteService,
+      desktopBroadcast: windowManager.broadcast,
       openRouterConfigStore,
       naraRouterConfigStore,
       miniMaxConfigStore,
@@ -527,6 +528,7 @@ if (!gotSingleInstanceLock) {
       agentSessionLauncher
     });
     mobileRemoteService = createMobileRemoteService({
+      getGraphicalMenuConfig: () => configStore.getConfig().graphicalMenuSecondaryActions,
       terminalManager,
       agentSessionLauncher,
       sessionStore,

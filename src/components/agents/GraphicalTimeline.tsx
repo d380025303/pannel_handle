@@ -22,7 +22,7 @@ function reasoningSummary(item: SessionItem) {
 function groupTools(items: SessionItem[], showCodexEvents = false, minimalMode = false): ToolDisplayItem[] {
   const result: ToolDisplayItem[] = [];
   const isHidden = (item: SessionItem) => !showCodexEvents && !isTool(item)
-    && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError"].includes(item.type);
+    && !["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "backgroundTurn", "turnError", "contextCompaction"].includes(item.type);
   const sameTurn = (first: SessionItem, second: SessionItem) => !first.turnId || !second.turnId || first.turnId === second.turnId;
   for (const item of items) {
     if (isHidden(item) || item.type === "reasoning" && (minimalMode || !reasoningSummary(item))) continue;
