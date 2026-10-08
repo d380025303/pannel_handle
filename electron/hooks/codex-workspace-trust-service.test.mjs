@@ -27,6 +27,68 @@ async function fixture() {
 }
 
 describe("Codex graphical workspace trust", () => {
+  it("retains reviewed trust and checks real Hook status on subsequent starts", async () => {
+    const { root, workspacePath } = await fixture();
+    process.env.CODEX_HOME = path.join(root, "codex-home");
+    let trusted = true;
+    const listHooks = vi.fn(async () => [{ source: "project", sourcePath: path.win32.join(workspacePath, ".codex", "hooks.json"),
+      trustStatus: trusted ? "trusted" : "untrusted" }]);
+    const service = createCodexWorkspaceTrustService({ broadcast: vi.fn(), listHooks });
+    const waiting = service.request({ sessionId: "one", workspacePath, persistent: true });
+    await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
+    await service.approveProject("one");
+    expect(await service.finishHooks("one")).toBe(true);
+    await waiting;
+    await service.release("one");
+    expect(await fs.readFile(path.join(process.env.CODEX_HOME, "config.toml"), "utf8")).toContain('trust_level = "trusted"');
+    const next = createCodexWorkspaceTrustService({ broadcast: vi.fn(), listHooks });
+    await next.request({ sessionId: "two", workspacePath, persistent: true });
+    expect(next.listPending()).toEqual([]);
+    trusted = false;
+    const revoked = next.request({ sessionId: "three", workspacePath, persistent: true });
+    const rejected = expect(revoked).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(next.listPending()[0]?.ready).toBe(true));
+    expect(next.listPending()[0].phase).toBe("hooks");
+    expect(await next.finishHooks("three")).toBe(false);
+    next.cancel("three");
+    await rejected;
+    trusted = true;
+    await fs.writeFile(path.join(workspacePath, ".codex", "pannel-handle-hook.ps1"), "changed script");
+    const changed = next.request({ sessionId: "four", workspacePath, persistent: true });
+    const canceled = expect(changed).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(next.listPending()[0]?.ready).toBe(true));
+    expect(next.listPending()[0].phase).toBe("hooks");
+    next.cancel("four");
+    await canceled;
+  });
+
+  it("blocks startup on a failed probe and allows checking again", async () => {
+    const { workspacePath } = await fixture();
+    const listHooks = vi.fn().mockRejectedValueOnce(new Error("probe failed")).mockResolvedValue([
+      { source: "project", sourcePath: path.win32.join(workspacePath, ".codex", "hooks.json"), trustStatus: "trusted" }
+    ]);
+    const service = createCodexWorkspaceTrustService({ broadcast: vi.fn(), listHooks, projectTrusted: async () => true });
+    const waiting = service.request({ sessionId: "retry", workspacePath, persistent: true });
+    await vi.waitFor(() => expect(service.listPending()[0]?.error).toBe("probe failed"));
+    expect(service.listPending()[0].phase).toBe("hooks");
+    expect(await service.finishHooks("retry")).toBe(true);
+    await waiting;
+  });
+
+  it("rolls back a new project grant when persistent review is canceled", async () => {
+    const { root, workspacePath } = await fixture();
+    process.env.CODEX_HOME = path.join(root, "codex-home");
+    const service = createCodexWorkspaceTrustService({ broadcast: vi.fn() });
+    const waiting = service.request({ sessionId: "cancel", workspacePath, persistent: true });
+    const rejected = expect(waiting).rejects.toThrow("已取消");
+    await vi.waitFor(() => expect(service.listPending()[0]?.ready).toBe(true));
+    await service.approveProject("cancel");
+    service.cancel("cancel");
+    await rejected;
+    await service.release("cancel");
+    expect(await fs.readFile(path.join(process.env.CODEX_HOME, "config.toml"), "utf8")).not.toContain('trust_level = "trusted"');
+  });
+
   it("adds and removes only the current project while preserving unrelated config", async () => {
     const { root, workspacePath } = await fixture();
     process.env.CODEX_HOME = path.join(root, "codex-home");

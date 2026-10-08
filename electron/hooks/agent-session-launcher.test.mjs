@@ -1133,7 +1133,7 @@ describe("agent-session-launcher", () => {
     let approve;
     const codexWorkspaceTrustService = { request: vi.fn(() => new Promise(resolve => { approve = resolve; })) };
     const remoteAgentBridgeService = {
-      createBinding: vi.fn(async () => ({ workspacePath: "C:\\runtime\\run-1", managedWorkspace: true,
+      createBinding: vi.fn(async () => ({ workspacePath: "C:\\runtime\\run-1", managedWorkspace: true, persistentWorkspace: true,
         url: "http://127.0.0.1:4568/mcp", token: "secret-token", tokenEnv: "PANNEL_HANDLE_REMOTE_AGENT_TOKEN" })),
       closeBinding: vi.fn(async () => {})
     };
@@ -1142,7 +1142,7 @@ describe("agent-session-launcher", () => {
     const launch = mocks.launcher.createSession({ type: "ssh", cwd: "/srv/app", agentProvider: "codex",
       agentLocation: "local", graphicalSessionEnabled: true, sshConfig: { host: "example.com" } });
     await vi.waitFor(() => expect(codexWorkspaceTrustService.request).toHaveBeenCalledWith({
-      sessionId: "run-1", title: undefined, workspacePath: "C:\\runtime\\run-1"
+      sessionId: "run-1", title: undefined, workspacePath: "C:\\runtime\\run-1", persistent: true
     }));
     expect(codexAppServerSessionService.start).not.toHaveBeenCalled();
     approve();

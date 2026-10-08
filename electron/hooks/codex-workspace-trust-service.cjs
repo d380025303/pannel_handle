@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const nodePty = require("node-pty");
 const { parse: parseToml } = require("smol-toml");
 
@@ -95,6 +95,23 @@ async function removeAddedTrust(grant) {
   }
 }
 
+async function isProjectTrusted(workspacePath) {
+  const source = await fs.promises.readFile(configPath(), "utf8").catch(error => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  });
+  return Boolean(source && parseToml(source).projects?.[projectKey(workspacePath)]?.trust_level === "trusted");
+}
+
+function projectHooksTrusted(hooks, workspacePath) {
+  const expected = path.win32.join(workspacePath, ".codex", "hooks.json").toLowerCase();
+  const projectHooks = hooks.filter(hook => hook.source === "project" && String(hook.sourcePath || "").toLowerCase() === expected);
+  return projectHooks.length > 0 && projectHooks.every(hook => hook.trustStatus === "trusted");
+}
+
+function scriptDigest(source) { return createHash("sha256").update(source).digest("hex"); }
+function approvalPath(workspacePath) { return path.join(workspacePath, ".codex", "pannel-handle-trust.json"); }
+
 function probeHooks(workspacePath) {
   return new Promise((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "& codex app-server --stdio"],
@@ -133,12 +150,12 @@ function probeHooks(workspacePath) {
   });
 }
 
-function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty, trustProject = setProjectTrust, listHooks = probeHooks }) {
+function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty, trustProject = setProjectTrust, listHooks = probeHooks, projectTrusted = isProjectTrusted }) {
   const pending = new Map();
   const grants = new Map();
   const publish = request => broadcast("codex-workspace-trust:changed", publicRequest(request));
   const publicRequest = request => ({ id: request.id, sessionId: request.sessionId, title: request.title,
-    workspacePath: request.workspacePath, phase: request.phase, ready: request.ready, terminalOpen: Boolean(request.terminal), configPreview: request.configPreview,
+    workspacePath: request.workspacePath, persistent: Boolean(request.persistent), phase: request.phase, ready: request.ready, terminalOpen: Boolean(request.terminal), configPreview: request.configPreview,
     scriptPreview: request.scriptPreview, output: request.output, error: request.error });
 
   function listPending() { return [...pending.values()].map(publicRequest); }
@@ -147,10 +164,10 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     if (!request) throw new Error("Codex 工作区信任请求已失效。");
     return request;
   }
-  function request({ sessionId, title, workspacePath }) {
+  function request({ sessionId, title, workspacePath, persistent = false }) {
     if (pending.has(sessionId)) throw new Error("该会话已有待处理的信任请求。");
     return new Promise((resolve, reject) => {
-      const entry = { id: sessionId, sessionId, title, workspacePath, phase: "project", error: "", output: "",
+      const entry = { id: sessionId, sessionId, title, workspacePath, persistent, phase: "project", error: "", output: "",
         configPreview: "", scriptPreview: "", ready: false, resolve, reject, terminal: null };
       pending.set(sessionId, entry);
       void (async () => {
@@ -163,8 +180,25 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
           if (pending.get(sessionId) !== entry) return;
           entry.configPreview = configPreview.slice(0, MAX_PREVIEW);
           entry.scriptPreview = scriptPreview.slice(0, MAX_PREVIEW);
+          entry.scriptHash = scriptDigest(scriptPreview);
           entry.ready = true;
-          publish(entry);
+          if (persistent && await projectTrusted(workspacePath)) {
+            entry.phase = "hooks";
+            let approvedHash;
+            try { approvedHash = JSON.parse(await fsApi.promises.readFile(approvalPath(workspacePath), "utf8")).scriptHash; }
+            catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
+            try {
+              const hooks = await listHooks(workspacePath);
+              if (pending.get(sessionId) !== entry) return;
+              if (approvedHash === entry.scriptHash && projectHooksTrusted(hooks, workspacePath)) {
+                pending.delete(sessionId);
+                broadcast("codex-workspace-trust:resolved", { id: sessionId });
+                resolve();
+                return;
+              }
+            } catch (error) { entry.error = error.message || String(error); }
+          }
+          if (pending.get(sessionId) === entry) publish(entry);
         } catch (error) {
           if (pending.get(sessionId) !== entry) return;
           pending.delete(sessionId);
@@ -232,25 +266,33 @@ function createCodexWorkspaceTrustService({ broadcast, fsApi = fs, pty = nodePty
     if (entry.phase !== "hooks") throw new Error("请先信任当前工作区。");
     if (entry.finishBusy) throw new Error("正在检查 Hook 信任状态。");
     entry.finishBusy = true;
-    let hooks;
-    try { hooks = await listHooks(entry.workspacePath); }
-    finally { entry.finishBusy = false; }
-    if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
-    const expected = path.win32.join(entry.workspacePath, ".codex", "hooks.json").toLowerCase();
-    const projectHooks = hooks.filter(hook => hook.source === "project" && String(hook.sourcePath || "").toLowerCase() === expected);
-    if (!projectHooks.length || projectHooks.some(hook => hook.trustStatus !== "trusted")) {
-      entry.error = "当前工作区的 Hook 尚未全部受信任，请在 /hooks 中完成审核。";
-      publish(entry);
-      return false;
-    }
-    const terminal = entry.terminal;
-    entry.terminal = null;
-    terminal?.kill();
-    pending.delete(entry.id);
-    broadcast("codex-workspace-trust:resolved", { id: entry.id });
-    entry.resolve();
-    return true;
+    try {
+      const hooks = await listHooks(entry.workspacePath);
+      if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
+      const script = await fsApi.promises.readFile(path.join(entry.workspacePath, ".codex", "pannel-handle-hook.ps1"), "utf8");
+      if (scriptDigest(script) !== entry.scriptHash) throw new Error("Hook 脚本已变化，请取消并重新启动会话后审核。");
+      if (entry.persistent && !await projectTrusted(entry.workspacePath)) throw new Error("当前工作区信任已被撤销，请取消并重新启动会话。");
+      if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
+      if (!projectHooksTrusted(hooks, entry.workspacePath)) {
+        entry.error = "当前工作区的 Hook 尚未全部受信任，请在 /hooks 中完成审核。";
+        publish(entry);
+        return false;
+      }
+      if (entry.persistent) {
+        await fsApi.promises.writeFile(approvalPath(entry.workspacePath), JSON.stringify({ scriptHash: entry.scriptHash }), "utf8");
+        if (pending.get(entry.id) !== entry) throw new Error("Codex 工作区信任请求已失效。");
+        grants.delete(entry.sessionId);
+      }
+      const terminal = entry.terminal;
+      entry.terminal = null;
+      terminal?.kill();
+      pending.delete(entry.id);
+      broadcast("codex-workspace-trust:resolved", { id: entry.id });
+      entry.resolve();
+      return true;
+    } finally { entry.finishBusy = false; }
   }
+
   function cancel(id) {
     const entry = get(id);
     const terminal = entry.terminal;

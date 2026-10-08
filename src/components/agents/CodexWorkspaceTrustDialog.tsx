@@ -72,12 +72,12 @@ export function CodexWorkspaceTrustDialog() {
         <h2 id="codex-trust-title">Codex 工作区信任</h2>
         <span>{current.title || current.sessionId}</span>
       </header>
-      <p>本机 Agent 将在以下临时工作区运行。请核对路径与 Hook 内容后继续。</p>
+      <p>本机 Agent 将在以下桥接工作区运行。请核对路径与 Hook 内容后继续。</p>
       <code className="codex-trust-path">{current.workspacePath}</code>
       {!current.ready && <p role="status">正在读取 Hook 内容…</p>}
       {current.ready && <><details><summary>查看 Hook 配置</summary><pre>{current.configPreview}</pre></details>
       <details><summary>查看 Hook 脚本</summary><pre>{current.scriptPreview}</pre></details></>}
-      {current.phase === "project" ? <p>信任只应用于这个工作区；关闭会话后，应用新增的项目配置会清理。</p> : <>
+      {current.phase === "project" ? <p>{current.persistent ? "当前桥接工作区的信任会保留，供后续会话复用；新并发工作区需首次审核。" : "信任只应用于这个工作区；关闭会话后，应用新增的项目配置会清理。"}</p> : <>
         <p>打开 Codex 后，先完成可能出现的启动提示，再点击“发送 /hooks”审核并信任 Hook。完成后点击“检查并启动”。</p>
         <div ref={hostRef} className="codex-trust-terminal" aria-label="Codex Hook 审核终端" />
       </>}

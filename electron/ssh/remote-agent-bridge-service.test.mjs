@@ -15,7 +15,7 @@ const {
 
 const tempDirs = [];
 
-function createHarness(sessionOverrides = {}) {
+function createHarness(sessionOverrides = {}, serviceOverrides = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "pannel-handle-remote-agent-"));
   tempDirs.push(tempDir);
   const session = {
@@ -55,9 +55,10 @@ function createHarness(sessionOverrides = {}) {
     dialog,
     windowManager: { focusWindow: vi.fn(() => undefined) },
     workspacesRoot: path.join(tempDir, "workspaces"),
-    broadcast
+    broadcast,
+    ...serviceOverrides
   });
-  return { service, sshSessionRuntime, remoteFileService, sftp, dialog, broadcast, tempDir };
+  return { session, service, sshSessionRuntime, remoteFileService, sftp, dialog, broadcast, tempDir };
 }
 
 async function post(binding, message, token = binding.token) {
@@ -77,6 +78,30 @@ afterEach(() => {
 });
 
 describe("remote-agent-bridge-service", () => {
+  it("reuses persistent Codex slots while isolating concurrent sessions and projects", async () => {
+    const harness = createHarness({ agentProvider: "codex" });
+    const first = await harness.service.createBinding("run-1");
+    expect(first.persistentWorkspace).toBe(true);
+    harness.session.id = "run-2";
+    const second = await harness.service.createBinding("run-2");
+    expect(second.workspacePath).not.toBe(first.workspacePath);
+    await harness.service.closeBinding("run-1");
+    expect(existsSync(first.workspacePath)).toBe(true);
+    harness.session.id = "run-3";
+    const reused = await harness.service.createBinding("run-3");
+    expect(reused.workspacePath).toBe(first.workspacePath);
+    expect(reused.token).not.toBe(first.token);
+    expect((await post(first, { id: 1, method: "tools/list" })).status).toBe(401);
+    harness.session.cwd = "/srv/other";
+    const other = await harness.service.createBinding("run-4");
+    expect(other.workspacePath).not.toBe(first.workspacePath);
+    await harness.service.shutdown();
+    const fresh = createHarness({ agentProvider: "codex" }, { workspacesRoot: path.join(harness.tempDir, "workspaces") });
+    const restarted = await fresh.service.createBinding("run-5");
+    expect(restarted.workspacePath).toBe(first.workspacePath);
+    await fresh.service.shutdown();
+  });
+
   it("keeps tool paths inside the configured workspace", () => {
     expect(normalizeToolPath("/srv/app", "src/main.ts")).toBe("/srv/app/src/main.ts");
     expect(() => normalizeToolPath("/srv/app", "../secret")).toThrow("工作目录内");

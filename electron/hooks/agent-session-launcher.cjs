@@ -651,7 +651,7 @@ function createAgentSessionLauncher({
       if (session.agentProvider !== "claude" && session.agentProvider !== "qoder") await ensureLocalHookAt(binding.workspacePath, session.agentProvider);
       if (session.agentProvider === "codex" && binding.managedWorkspace) {
         if (!codexWorkspaceTrustService) throw new Error("Codex 工作区信任服务不可用。");
-        await codexWorkspaceTrustService.request({ sessionId: session.id, title: session.title, workspacePath: binding.workspacePath });
+        await codexWorkspaceTrustService.request({ sessionId: session.id, title: session.title, workspacePath: binding.workspacePath, persistent: binding.persistentWorkspace });
       }
       const codeBuddyInstructions = session.agentProvider === "codebuddy"
         ? binding.runtimeInstructions || binding.developerInstructions : undefined;

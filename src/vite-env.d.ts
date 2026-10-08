@@ -973,6 +973,7 @@ export type CodexWorkspaceTrustRequest = {
   sessionId: string;
   title: string;
   workspacePath: string;
+  persistent?: boolean;
   phase: "project" | "hooks";
   ready: boolean;
   terminalOpen: boolean;

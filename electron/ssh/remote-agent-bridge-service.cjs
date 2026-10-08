@@ -154,6 +154,7 @@ function createRemoteAgentBridgeService({
 }) {
   const bindingsByToken = new Map();
   const bindingsBySession = new Map();
+  const workspaceLeases = new Set();
   const auditBySession = new Map();
   const pendingApprovals = new Map();
   let server = null;
@@ -731,6 +732,7 @@ function createRemoteAgentBridgeService({
     const configuredLocalAgentCwd = String(session.localAgentCwd || "").trim();
     let workspacePath;
     let managedWorkspace = false;
+    let persistentWorkspace = false;
     let developerInstructions;
     if (configuredLocalAgentCwd) {
       if (!path.win32.isAbsolute(configuredLocalAgentCwd)) {
@@ -748,14 +750,29 @@ function createRemoteAgentBridgeService({
       }
       developerInstructions = runtimeInstructions;
     } else {
-      workspacePath = path.resolve(workspacesRoot, sessionId);
+      persistentWorkspace = session.agentProvider === "codex";
+      if (persistentWorkspace) {
+        const key = crypto.createHash("sha256").update(JSON.stringify([
+          String(session.sshConfig?.host || "").toLowerCase(), Number(session.sshConfig?.port || 22),
+          session.sshConfig?.username || "", platform, platform === "windows" ? realRoot.toLowerCase() : realRoot
+        ])).digest("hex");
+        let slot = 1;
+        do { workspacePath = path.resolve(workspacesRoot, "codex", key, `slot-${slot++}`); }
+        while (workspaceLeases.has(workspacePath));
+        workspaceLeases.add(workspacePath);
+      } else workspacePath = path.resolve(workspacesRoot, sessionId);
       const relativeWorkspace = path.relative(path.resolve(workspacesRoot), workspacePath);
       if (!relativeWorkspace || relativeWorkspace.startsWith("..") || path.isAbsolute(relativeWorkspace)) {
         throw new Error("本地 Agent 临时目录无效。");
       }
-      await fsApi.promises.rm(workspacePath, { recursive: true, force: true });
-      await fsApi.promises.mkdir(workspacePath, { recursive: true });
-      await fsApi.promises.writeFile(path.join(workspacePath, "AGENTS.md"), runtimeInstructions, "utf-8");
+      try {
+        if (!persistentWorkspace) await fsApi.promises.rm(workspacePath, { recursive: true, force: true });
+        await fsApi.promises.mkdir(workspacePath, { recursive: true });
+        await fsApi.promises.writeFile(path.join(workspacePath, "AGENTS.md"), runtimeInstructions, "utf-8");
+      } catch (error) {
+        workspaceLeases.delete(workspacePath);
+        throw error;
+      }
       managedWorkspace = true;
     }
     const token = crypto.randomBytes(32).toString("base64url");
@@ -767,6 +784,7 @@ function createRemoteAgentBridgeService({
       realRoot,
       workspacePath,
       managedWorkspace,
+      persistentWorkspace,
       developerInstructions,
       sshSecret: sshSessionRuntime.getSecret(session.sshConfig),
       activeCommands: new Map(),
@@ -779,6 +797,7 @@ function createRemoteAgentBridgeService({
     return {
       workspacePath,
       managedWorkspace,
+      persistentWorkspace,
       developerInstructions,
       runtimeInstructions,
       url: `http://127.0.0.1:${port}/mcp`,
@@ -817,7 +836,8 @@ function createRemoteAgentBridgeService({
     auditBySession.delete(binding.sessionId);
     for (const handle of binding.activeCommands.values()) handle.cancel();
     binding.activeCommands.clear();
-    if (binding.managedWorkspace) {
+    workspaceLeases.delete(binding.workspacePath);
+    if (binding.managedWorkspace && !binding.persistentWorkspace) {
       const root = path.resolve(workspacesRoot);
       const target = path.resolve(binding.workspacePath);
       const relative = path.relative(root, target);
