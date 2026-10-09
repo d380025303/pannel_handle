@@ -35,6 +35,42 @@ describe("RemoteFilePanel directory navigation", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps keyboard navigation and range selection across a large virtual directory", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.list = vi.fn(async () => Array.from({ length: 10000 }, (_, index) => {
+      const name = `file-${String(index).padStart(5, "0")}.txt`;
+      return { name, path: `${rootPath}\\${name}`, type: "file" as const, size: 10, modifiedAt: 1 };
+    }));
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = { id: "large-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" };
+    render(<RemoteFilePanel session={session} />);
+    const first = await screen.findByText("file-00000.txt");
+    fireEvent.click(first);
+    expect(screen.getAllByRole("treeitem").length).toBeLessThan(40);
+    fireEvent.scroll(screen.getByRole("tree"), { target: { scrollTop: 310031 } });
+    const last = screen.getByText("file-09999.txt");
+    fireEvent.click(last, { shiftKey: true });
+    expect(last.closest("button")?.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(last.closest("button")!, { key: "ArrowLeft" });
+    expect(document.activeElement?.getAttribute("aria-level")).toBe("1");
+    fireEvent.scroll(screen.getByRole("tree"), { target: { scrollTop: 0 } });
+    expect(screen.getByText("file-00000.txt").closest("button")?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("skips file row rendering on unrelated parent updates but handles session changes", async () => {
+    const remoteFileApi = createRemoteFileApi();
+    remoteFileApi.list = vi.fn(async () => [{ name: "test.txt", path: `${rootPath}\\test.txt`, type: "file" as const, size: 10, modifiedAt: 1 }]);
+    window.remoteFileApi = remoteFileApi;
+    const session: TerminalSession = { id: "memo-session", title: "Windows", shell: "powershell.exe", cwd: rootPath, createdAt: 1, type: "windows" };
+    const view = render(<RemoteFilePanel session={session} />);
+    await screen.findByText("test.txt");
+    const format = vi.spyOn(Date.prototype, "toLocaleString");
+    view.rerender(<RemoteFilePanel session={session} />);
+    expect(format).not.toHaveBeenCalled();
+    view.rerender(<RemoteFilePanel session={{ ...session, id: "other-session" }} />);
+    await waitFor(() => expect(remoteFileApi.list).toHaveBeenCalledWith("other-session", rootPath));
+  });
+
   it("ignores legacy file roots and exposes a temporary root change action", async () => {
     const remoteFileApi = createRemoteFileApi();
     remoteFileApi.chooseRoot = vi.fn(async () => ({ canceled: true as const }));

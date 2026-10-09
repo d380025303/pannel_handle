@@ -317,6 +317,16 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
     setWorkspaceTab("search");
   }, [filePanelPath, terminalSessions.activeSession]);
 
+  const handleAddFileToGraphicalInput = useCallback((sessionId: string, path: string) => {
+    if (terminalSessions.activeSession?.id !== sessionId) return;
+    setWorkspaceTab("terminal");
+    appServerSessionRefs.current.get(sessionId)?.appendFilePath(path);
+  }, [terminalSessions.activeSession?.id]);
+  const handleShowFileTransfers = useCallback(() => setWorkspaceTab("transfers"), []);
+  const handleRegisterFileSaveAll = useCallback((handler: (() => Promise<boolean>) | null) => {
+    saveAllRemoteFilesRef.current = handler;
+  }, []);
+
   const handleFilePanelPathChange = useCallback((path: string) => {
     if (activeSessionId) setFilePanelPath({ sessionId: activeSessionId, path });
   }, [activeSessionId]);
@@ -1170,14 +1180,10 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
                   autoCollapseFileChains={autoCollapseFileChains}
                   onToggleAutoCollapseFileChains={handleToggleAutoCollapseFileChains}
                   onFocusTerminal={terminalInstances.focusActiveTerminal}
-                  onAddToGraphicalInput={(sessionId, path) => {
-                    if (terminalSessions.activeSession?.id !== sessionId) return;
-                    setWorkspaceTab("terminal");
-                    appServerSessionRefs.current.get(sessionId)?.appendFilePath(path);
-                  }}
+                  onAddToGraphicalInput={handleAddFileToGraphicalInput}
                   transfers={fileTransfers}
-                  onShowTransfers={() => setWorkspaceTab("transfers")}
-                  onRegisterSaveAll={(handler) => { saveAllRemoteFilesRef.current = handler; }}
+                  onShowTransfers={handleShowFileTransfers}
+                  onRegisterSaveAll={handleRegisterFileSaveAll}
                 />
               ) : activeRightTool === "git" && showFilesPanel ? (
                 <GitStatusPanel

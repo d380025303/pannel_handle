@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { VirtualFileTree, type VirtualFileTreeHandle } from "./VirtualFileTree";
 import { createPortal } from "react-dom";
 import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Copy, Download, Eye, File, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, ListTree, LoaderCircle, Move, Pencil, RefreshCw, Save, Search, SquarePen, Terminal as TerminalIcon, Trash2, Upload, Video, X } from "lucide-react";
@@ -252,7 +253,7 @@ function scrollTextareaMatchIntoView(textarea: HTMLTextAreaElement, start: numbe
   mirror.remove();
 }
 
-export function RemoteFilePanel({
+function RemoteFilePanelComponent({
   session,
   rememberedNavigationState,
   onNavigationStateChange,
@@ -340,6 +341,7 @@ export function RemoteFilePanel({
   const directoryRequestRef = useRef(new Map<string, number>());
   const directoryPendingRef = useRef(new Map<string, { sessionId: string; requestId: number; promise: Promise<RemoteFileEntry[] | undefined> }>());
   const directoryRequestSequenceRef = useRef(0);
+  const virtualTreeRef = useRef<VirtualFileTreeHandle | null>(null);
   const treeRowRefs = useRef(new Map<string, HTMLButtonElement>());
   const downloadTransferRef = useRef<DownloadTransferState | null>(null);
   const pathHistoryIndexRef = useRef(-1);
@@ -390,9 +392,10 @@ export function RemoteFilePanel({
   const selectedEntries = useMemo(() => {
     const entries = [treeRoot, ...Object.values(directories).flatMap((directory) => directory.entries)]
       .filter((entry): entry is RemoteFileEntry => Boolean(entry));
-    return entries.filter((entry) => selectedPaths.has(entry.path)
-      && !entries.some((parent) => parent.type === "directory" && parent.path !== entry.path
-        && selectedPaths.has(parent.path) && isPathInside(entry.path, parent.path)));
+    const selected = entries.filter((entry) => selectedPaths.has(entry.path));
+    const parents = selected.filter((entry) => entry.type === "directory");
+    return selected.filter((entry) => !parents.some((parent) => parent.path !== entry.path
+      && isPathInside(entry.path, parent.path)));
   }, [directories, selectedPaths, treeRoot]);
   const mutableSelectedEntries = useMemo(() => {
     const entries = [treeRoot, ...Object.values(directories).flatMap((directory) => directory.entries)]
@@ -1886,7 +1889,7 @@ export function RemoteFilePanel({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const nextIndex = Math.max(0, Math.min(visibleTreeNodes.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
-      treeRowRefs.current.get(visibleTreeNodes[nextIndex]?.entry.path)?.focus();
+      virtualTreeRef.current?.focus(nextIndex);
       return;
     }
     if (event.key === "ArrowRight" && node.entry.type === "directory" && !expandedPaths.has(node.entry.path)) {
@@ -1899,7 +1902,7 @@ export function RemoteFilePanel({
       if (node.entry.type === "directory" && expandedPaths.has(node.entry.path)) {
         void handleOpenEntry(node.entry);
       } else if (node.parentPath) {
-        treeRowRefs.current.get(node.parentPath)?.focus();
+        virtualTreeRef.current?.focus(visibleTreeNodes.findIndex((candidate) => candidate.entry.path === node.parentPath));
       }
     }
   };
@@ -2070,15 +2073,15 @@ export function RemoteFilePanel({
         </div>
       )}
 
-      <div className="remote-file-list" role="tree" aria-busy={loading} onScroll={closeFileContextMenu}>
-        {loading ? (
-          <div className="remote-file-empty">{t("files.loading")}</div>
-        ) : !treeRoot && !error ? (
-          <div className="remote-file-empty">{t("files.emptyDirectory")}</div>
-        ) : visibleTreeNodes.length === 0 ? (
-          <div className="remote-file-empty">{t("files.noMatches")}</div>
-        ) : (
-          visibleTreeNodes.map((node, index) => {
+      <VirtualFileTree
+        paths={loading ? [] : visibleTreeNodes.map((node) => node.entry.path)}
+        resetKey={`${sessionId}:${navigationRoot}:${normalizedSearchQuery}`}
+        handleRef={virtualTreeRef}
+        busy={loading}
+        onScroll={closeFileContextMenu}
+        empty={<div className="remote-file-empty">{loading ? t("files.loading") : !treeRoot && !error ? t("files.emptyDirectory") : t("files.noMatches")}</div>}
+        renderRow={(index) => {
+            const node = visibleTreeNodes[index];
             const { entry, depth } = node;
             const directoryState = entry.type === "directory" ? directories[entry.path] : undefined;
             const expanded = entry.type === "directory" && expandedPaths.has(entry.path);
@@ -2155,9 +2158,8 @@ export function RemoteFilePanel({
                 )}
               </div>
             );
-          })
-        )}
-      </div>
+        }}
+      />
 
       {fileContextMenu && contextEntry && (
         <div
@@ -2538,3 +2540,5 @@ export function RemoteFilePanel({
     </>
   );
 }
+
+export const RemoteFilePanel = memo(RemoteFilePanelComponent);
