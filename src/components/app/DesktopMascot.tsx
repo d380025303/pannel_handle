@@ -170,7 +170,7 @@ export function DesktopMascot({ locale }: {
       onKeyDownCapture={() => { keyboardInteraction.current = true; setFocused(true); }}
       onFocus={event => { if (keyboardInteraction.current || event.target.matches(":focus-visible")) setFocused(true); }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
       {!preferences.collapsed && <div className="desktop-mascot-controls" hidden={!hovered && !focused}>
-        <button type="button" aria-label={text("收起看板娘", "Minimize companion")} onClick={() => setPreferences(current => ({ ...current, collapsed: true }))}><Minus size={14} /></button>
+        <button type="button" aria-label={text("收起看板娘", "Minimize companion")} onClick={() => setPreferences(current => ({ ...current, collapsed: true }))}><Minus size={18} /></button>
       </div>}
       <button type="button" className="desktop-mascot-character" aria-label={preferences.collapsed ? text("展开看板娘", "Expand companion") : text("拖动看板娘（方向键移动）", "Move companion (arrow keys)")}
         title={text("长按拖动位置，或使用方向键", "Hold to drag or use arrow keys")}
