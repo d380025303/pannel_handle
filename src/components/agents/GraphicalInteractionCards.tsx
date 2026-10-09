@@ -256,7 +256,7 @@ export function ApprovalCard({ approval, items, isCodex, onResolve }: {
       && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
       && approvalAllows(approval, "acceptWithExecpolicyAmendment")
       && <p>建议放行的命令前缀：<code>{JSON.stringify(approval.params.proposedExecpolicyAmendment)}</code></p>}
-    <div>{!isCodex && approval.params.choices?.length ? approval.params.choices.map(choice =>
+    <div className="codex-app-server-approval-actions">{!isCodex && approval.params.choices?.length ? approval.params.choices.map(choice =>
       <button type="button" key={choice.id} disabled={sending} onClick={() => void respond(choice.id)}>{choice.label}</button>) : <>
       {(!isCodex || approvalAllows(approval, "decline")) && <button type="button" disabled={sending} onClick={() => void respond(isCodex ? "decline" : false)}>拒绝</button>}
       {isCodex && approval.method !== "item/permissions/requestApproval" && approvalAllows(approval, "cancel") &&

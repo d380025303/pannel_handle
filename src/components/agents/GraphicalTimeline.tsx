@@ -111,17 +111,19 @@ export function ToolGroup({ items, expanded, onToggle, codeBuddy = false }: { it
   </section>;
 }
 
+export const timelineItemClass = (type: string) => type.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+
 const standardItemTypes = new Set(["userMessage", "agentMessage", "plan", "turnPlan", "questionAnswer", "contextCompaction"]);
 export function CodexEventCard({ item }: { item: SessionItem }) {
-  if (item.type === "sleep" || item.type === "imageGeneration") return <CodexActivityEvent item={item} className="codex-app-server-message codexEvent" />;
+  if (item.type === "sleep" || item.type === "imageGeneration") return <CodexActivityEvent item={item} className="codex-app-server-message codex-event" />;
   if (item.type === "reasoning") {
     const summary = reasoningSummary(item);
     if (!summary) return null;
-    return <article className="codex-app-server-message codexEvent" key={item.id}>
+    return <article className="codex-app-server-message codex-event" key={item.id}>
       <strong>推理摘要</strong><MarkdownBlock className="codex-app-server-markdown" content={summary} />
     </article>;
   }
-  if (item.type === "collabToolCall" || item.type === "collabAgentToolCall") return <article className="codex-app-server-message codexEvent" key={item.id}>
+  if (item.type === "collabToolCall" || item.type === "collabAgentToolCall") return <article className="codex-app-server-message codex-event" key={item.id}>
     <strong>协作调用 · {item.tool || "协作工具"}</strong>
     <p>{statusLabel(item.status)}{item.agentStatus ? ` · 成员${item.agentStatus}` : ""}</p>
     {item.senderThreadId && <p>发起线程：{item.senderThreadId}</p>}
@@ -129,15 +131,15 @@ export function CodexEventCard({ item }: { item: SessionItem }) {
     {item.newThreadId && <p>新线程：{item.newThreadId}</p>}
     {item.prompt && <details><summary>查看任务内容</summary><p>{item.prompt}</p></details>}
   </article>;
-  if (item.type === "imageView") return <article className="codex-app-server-message codexEvent" key={item.id}>
+  if (item.type === "imageView") return <article className="codex-app-server-message codex-event" key={item.id}>
     <strong>查看图片</strong><p>{item.path || "未提供图片路径"}</p>
   </article>;
-  if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return <article className="codex-app-server-message codexEvent" key={item.id}>
+  if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return <article className="codex-app-server-message codex-event" key={item.id}>
     <strong>{item.type === "enteredReviewMode" ? "开始代码审查" : "代码审查完成"}</strong>
     {item.review && <MarkdownBlock className="codex-app-server-markdown" content={item.review} />}
   </article>;
   if (standardItemTypes.has(item.type)) return null;
-  return <article className="codex-app-server-message codexEvent" key={item.id}>
+  return <article className="codex-app-server-message codex-event" key={item.id}>
     <strong>Codex 事件</strong><p>未识别的事件类型：{item.type}</p>
   </article>;
 }
@@ -158,11 +160,11 @@ export function TeamMemberTimeline({ member, onLinkClick, onCopyLink, codeBuddy 
           onToggle={() => setExpandedGroupId(current => current === groupId ? null : groupId)} />;
       }
       const item = entry.item;
-      if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
+      if (item.type === "userMessage" || item.type === "agentMessage") return <article className={`codex-app-server-message ${timelineItemClass(item.type)}`} key={item.id}>
         {item.type === "userMessage" ? <p>{item.text}</p>
           : item.text && <MarkdownBlock className="codex-app-server-markdown" content={item.text} externalLinks={!onLinkClick} onLinkClick={onLinkClick} onCopyLink={onCopyLink} linkActions />}
       </article>;
-      if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
+      if (item.type === "turnPlan") return <article className="codex-app-server-message turn-plan" key={item.id}>
         <strong>计划进度</strong><ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
       </article>;
       return codeBuddy ? null : <CodexEventCard key={item.id} item={item} />;

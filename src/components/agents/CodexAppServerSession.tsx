@@ -28,7 +28,7 @@ import { CodexBackgroundTerminalsDialog } from "./CodexBackgroundTerminalsDialog
 import { CodeBuddyJobsDialog } from "./CodeBuddyJobsDialog";
 import { OpenCodeAuthDialog } from "./OpenCodeAuthDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
-import { CodexEventCard, DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
+import { CodexEventCard, DiagnosticCard, groupTimeline, timelineItemClass, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
 import { AttachmentTile, ApprovalCard, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
 import { subscribeGraphicalSession } from "./graphicalSessionSubscription";
 
@@ -1444,10 +1444,10 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         }
         const item = entry.item;
         if (item.type === "backgroundTurn") return <div className="codex-app-server-background-turn" key={item.id} role="status">后台任务汇总</div>;
-        if (item.type === "turnError") return <article className="codex-app-server-message turnError" key={item.id} role="alert">
+        if (item.type === "turnError") return <article className="codex-app-server-message turn-error" key={item.id} role="alert">
           <strong>CodeBuddy 运行错误</strong><p>{item.text}</p>
         </article>;
-        if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${item.type}`} key={item.id}>
+        if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "plan") return <article className={`codex-app-server-message ${timelineItemClass(item.type)}`} key={item.id}>
           {item.type === "plan" && <strong>计划</strong>}
           {item.type === "userMessage" ? <>{item.parts?.length ? item.parts.map((part, index) => part.type === "text"
             ? <p key={`text-${index}`}>{part.text}</p>
@@ -1471,7 +1471,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
               setRewindScope("CodeAndConversation"); setRewindError("");
             }}>回退到此处</button>}
         </article>;
-        if (item.type === "turnPlan") return <article className="codex-app-server-message turnPlan" key={item.id}>
+        if (item.type === "turnPlan") return <article className="codex-app-server-message turn-plan" key={item.id}>
           <strong>计划进度</strong>
           {item.explanation && <p>{item.explanation}</p>}
           <ol>{item.plan?.map((step, index) => <li key={index}>{step.step} <span>{statusLabel(step.status)}</span></li>)}</ol>
@@ -1484,7 +1484,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             <button type="button" className="primary" disabled={resolvingPlan || changingMode} onClick={() => void resolvePlan(item.id, true)}>执行计划</button>
           </div>}
         </article>;
-        if (item.type === "questionAnswer") return <article className="codex-app-server-message questionAnswer" key={item.id} aria-label={`已回答的 ${agentName} 提问`}>
+        if (item.type === "questionAnswer") return <article className="codex-app-server-message question-answer" key={item.id} aria-label={`已回答的 ${agentName} 提问`}>
           <strong>{agentName} 提问与回答{item.status === "submitted" ? snapshot.provider === "codebuddy" ? " · 已发送" : " · 正在确认" : item.status === "failed" ? " · 轮次失败" : ""}</strong>
           {item.questions?.map(question => <div className="codex-app-server-answered-question" key={question.id}>
             {question.header && <small>{question.header}</small>}
@@ -1494,9 +1494,9 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
             </p>)}
           </div>)}
         </article>;
-        if (item.type === "contextCompaction" && snapshot.provider === "opencode") return <CompactionCard key={item.id} item={item} className="codex-app-server-message contextCompaction" />;
+        if (item.type === "contextCompaction" && snapshot.provider === "opencode") return <CompactionCard key={item.id} item={item} className="codex-app-server-message context-compaction" />;
         if (item.type === "contextCompaction" && isCodex) return null;
-        if (item.type === "contextCompaction") return <article className="codex-app-server-message contextCompaction" key={item.id} role="status">
+        if (item.type === "contextCompaction") return <article className="codex-app-server-message context-compaction" key={item.id} role="status">
           {item.status === "failed" ? "上下文压缩失败" : item.status === "completed" ? "上下文压缩完成" : "正在压缩上下文…"}
         </article>;
         if (isCodex) return <CodexEventCard key={item.id} item={item} />;

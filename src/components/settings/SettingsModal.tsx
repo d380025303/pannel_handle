@@ -440,7 +440,7 @@ export function SettingsModal({
               <p>{activeMetadata.description}</p>
             </div>
 
-            <section id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general" hidden={activeCategory !== "general"} className="settings-page">
+            <section id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general" hidden={activeCategory !== "general"} className="settings-page settings-page-general">
               <div className="settings-general-column">
                 <div className="settings-section general-settings">
                   <label className="settings-field">

@@ -586,7 +586,7 @@ describe("CodexAppServerSession", () => {
       busy: status === "running", compacting: status === "running", compactionStatus: status, error: null,
       items: [{ id: "compact-1", type: "contextCompaction", status: status === "running" ? "inProgress" : status }], approvals: [] } }));
     const messages = document.querySelector(".codex-app-server-messages")!;
-    expect(messages.querySelector(".contextCompaction")).toBeNull();
+    expect(messages.querySelector(".context-compaction")).toBeNull();
     expect(screen.queryByText("上下文压缩完成")).toBeNull();
     const bottomStatus = messages.querySelector(".codex-app-server-compaction-status");
     if (status === "completed") expect(bottomStatus).toBeNull();
@@ -1569,9 +1569,9 @@ describe("CodexAppServerSession", () => {
     });
     const { container } = render(<CodexAppServerSession sessionId="run-1" />);
     expect(await screen.findByText("继续检查")).toBeTruthy();
-    expect(container.querySelector(".codex-app-server-message.userMessage")?.textContent).toBe("检查项目");
-    expect(container.querySelector(".codex-app-server-message.agentMessage")?.textContent).toBe("开始检查");
-    expect(Array.from(container.querySelectorAll(".codex-app-server-message.agentMessage")).map(node => node.textContent))
+    expect(container.querySelector(".codex-app-server-message.user-message")?.textContent).toBe("检查项目");
+    expect(container.querySelector(".codex-app-server-message.agent-message")?.textContent).toBe("开始检查");
+    expect(Array.from(container.querySelectorAll(".codex-app-server-message.agent-message")).map(node => node.textContent))
       .toEqual(["开始检查", "继续检查"]);
     expect(container.querySelector(".codex-app-server-message.plan > strong")?.textContent).toBe("计划");
   });
@@ -2978,7 +2978,7 @@ describe("CodexAppServerSession", () => {
       error: null, approvals: [], items: [{ id: "user-1", type: "userMessage", text: "甲乙丙",
         attachments: [first, second], parts: [{ type: "text", text: "甲" }, { type: "image", ...first },
           { type: "text", text: "乙" }, { type: "image", ...second }, { type: "text", text: "丙" }] }] } }));
-    await waitFor(() => expect(document.querySelector(".codex-app-server-message.userMessage")?.textContent)
+    await waitFor(() => expect(document.querySelector(".codex-app-server-message.user-message")?.textContent)
       .toBe("甲first.png乙second.png丙"));
     expect(screen.getAllByRole("button", { name: /预览 (first|second)\.png/ })).toHaveLength(2);
   });
