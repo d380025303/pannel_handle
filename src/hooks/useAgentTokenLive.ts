@@ -8,7 +8,7 @@ export type AgentTokenLiveViewState =
   | { status: "ready"; snapshot: AgentTokenLiveSnapshot };
 
 export function usesGraphicalTokenLive(provider: TerminalSession["agentProvider"]) {
-  return provider === "codebuddy" || provider === "opencode";
+  return provider === "codebuddy";
 }
 
 export function useAgentTokenLive(session?: TerminalSession) {

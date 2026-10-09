@@ -69,9 +69,13 @@ async function readOpenCodeExport({ threadId, session, cwd, environment = {}, ss
   if (!SESSION_ID.test(String(threadId || ""))) throw new Error("Invalid OpenCode session ID.");
   const directory = cwd || session.cwd;
   const args = `session export --sanitize --standalone ${bashQuote(threadId)}`;
+  const exportEnvironment = Object.fromEntries(Object.entries(environment).filter(([name]) => !name.startsWith("PANNEL_HANDLE_")));
+  const env = { ...process.env, ...exportEnvironment };
+  // Export processes must not load the managed session's hooks or replace its capability endpoint.
+  for (const name of Object.keys(env)) if (name.startsWith("PANNEL_HANDLE_")) delete env[name];
   let output;
   if (session.type === "ssh" && session.agentLocation !== "local") {
-    const exports = Object.entries(environment).map(([name, value]) => {
+    const exports = Object.entries(exportEnvironment).map(([name, value]) => {
       if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(name)) throw new Error("Invalid OpenCode environment variable.");
       return `export ${name}=${bashQuote(value)}`;
     });
@@ -81,13 +85,13 @@ async function readOpenCodeExport({ threadId, session, cwd, environment = {}, ss
     const script = `cd ${bashQuote(directory)} && opencode ${args}`;
     const inherited = String(process.env.WSLENV || "").split(":").filter(Boolean);
     const names = new Set(inherited.map(value => value.split("/")[0]));
-    for (const name of Object.keys(environment)) if (!names.has(name)) inherited.push(`${name}/u`);
+    for (const name of Object.keys(exportEnvironment)) if (!names.has(name)) inherited.push(`${name}/u`);
     output = await run("wsl.exe", ["-d", session.wslDistro, "--", "bash", "-lic", script],
-      { env: { ...process.env, ...environment, WSLENV: inherited.join(":") } }, spawn);
+      { env: { ...env, WSLENV: inherited.filter(value => !value.startsWith("PANNEL_HANDLE_")).join(":") } }, spawn);
   } else {
     const command = `& opencode session export --sanitize --standalone ${powershellQuote(threadId)}`;
     output = await run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
-      { cwd: directory, env: { ...process.env, ...environment } }, spawn);
+      { cwd: directory, env }, spawn);
   }
   if (Buffer.byteLength(output, "utf-8") > MAX_EXPORT_BYTES) throw new Error("OpenCode session export exceeded the size limit.");
   return parseOpenCodeExport(output, threadId);

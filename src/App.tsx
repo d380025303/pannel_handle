@@ -201,7 +201,8 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   );
   const activeTheme = getAppTheme(themeId);
   const isAppServerSession = terminalSessions.activeSession?.runtimeMode === "app-server";
-  const appServerFooter = useCodexAppServerFooter(isAppServerSession ? terminalSessions.activeId : undefined);
+  const appServerFooter = useCodexAppServerFooter(isAppServerSession ? terminalSessions.activeId : undefined,
+    terminalSessions.activeSession?.agentProvider);
   const activeTerminalId = isAppServerSession ? undefined : terminalSessions.activeId;
   useEffect(() => {
     if (workspaceTab === "session-shell" && (!isAppServerSession || !terminalSessions.activeId || !openedShellIds.has(terminalSessions.activeId))) {

@@ -201,13 +201,14 @@ function createAgentTokenStatsService({
         if (baseline || !state.initialized) {
           statsStore.setBaseline("opencode", threadId, result.tokens);
           state.initialized = true;
-          return;
+          return result;
         }
         const record = statsStore.update({ provider: "opencode", agentSessionId: threadId,
           panelSessionId: session.id, templateId: session.templateId, title: session.title,
           cwd: cwd || session.cwd, location: session.type,
           models: result.models.length ? result.models : [model].filter(Boolean), tokens: result.tokens });
         if (record) liveModule.setCompletedSnapshot(session.id, record);
+        return result;
       } catch (error) {
         console.error("Failed to collect graphical OpenCode token statistics:", error);
       }

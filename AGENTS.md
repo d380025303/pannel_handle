@@ -20,6 +20,11 @@
 - 渲染进程新增桌面能力时，通过 `electron/preload.cjs` 暴露受控 API，并同步更新 `src/vite-env.d.ts`；不要向 React 暴露原始 Node 或 Electron API。
 - 保持 Electron 窗口的 `contextIsolation: true` 和 `nodeIntegration: false`。本地凭据与配置留在 Electron `userData`，不要提交机器本地数据。
 
+## CSS 与界面样式
+
+- 新增、修改或审查 CSS、主题、布局和界面视觉样式时，先读取项目技能 `.agents/skills/pannel-css/SKILL.md`，再按其指引读取 `docs/css-style-guide.md`。
+- 不涉及界面样式的任务无需加载该技能；现有样式按任务范围渐进整理，不进行无关的全量迁移。
+
 ## 提交
 
 提交前检查 `git status --short`，仅暂存本次任务的文件。提交信息使用简短中文；未经要求不要推送。

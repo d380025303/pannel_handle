@@ -32,17 +32,40 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   let roamingDirection = "left";
   let showingNotification = false, showingRequest = false;
   let expandedId = null, presentationPaused = false;
-  const notifications = createMascotNotifications({ terminalManager, graphicalService, conversationManager, stateHub, openExternal,
-    onChanged: snapshot => {
-      const showing = Boolean(snapshot.notification);
-      const expansionChanged = expandedId !== null && (snapshot.notification?.id !== expandedId || snapshot.notification?.action);
-      if (expansionChanged) expandedId = null;
-      const dimensionsChanged = Boolean(snapshot.notification?.action) !== showingRequest || expansionChanged;
-      if (showing !== showingNotification || dimensionsChanged) {
-        showingNotification = showing; showingRequest = Boolean(snapshot.notification?.action); regions = []; correct(true);
-      }
-      if (alive()) win.webContents.send("desktop-mascot:notifications", snapshot);
+  let mainWindow, mainFocused = false, presentationRevision = 0;
+  const presentationSnapshot = () => ({ ...notifications.snapshot(), revision: presentationRevision,
+    notification: mainFocused ? null : notifications.snapshot().notification });
+  function updateNotifications() {
+    presentationRevision++;
+    const snapshot = presentationSnapshot();
+    if (mainFocused) {
+      presentationPaused = false;
+      const current = notifications.snapshot().notification;
+      if (current) notifications.setPresentation(current.id, true);
     }
+    const showing = Boolean(snapshot.notification);
+    const expansionChanged = expandedId !== null && (snapshot.notification?.id !== expandedId || snapshot.notification?.action);
+    if (expansionChanged) expandedId = null;
+    const dimensionsChanged = Boolean(snapshot.notification?.action) !== showingRequest || expansionChanged;
+    if (showing !== showingNotification || dimensionsChanged) {
+      showingNotification = showing; showingRequest = Boolean(snapshot.notification?.action); regions = []; correct(true);
+    }
+    if (alive()) win.webContents.send("desktop-mascot:notifications", snapshot);
+  }
+  function setMainFocused(value) {
+    if (mainFocused === value) return;
+    mainFocused = value;
+    updateNotifications();
+  }
+  const mainFocus = () => setMainFocused(true);
+  const mainBlur = () => setMainFocused(false);
+  function removeMainListeners() {
+    mainWindow?.removeListener?.("focus", mainFocus);
+    mainWindow?.removeListener?.("blur", mainBlur);
+    mainWindow = undefined;
+  }
+  const notifications = createMascotNotifications({ terminalManager, graphicalService, conversationManager, stateHub, openExternal,
+    onChanged: updateNotifications
   });
   const characterSize = () => state.collapsed ? { width: 52, height: 52 } : { width: 192, height: 232 };
   const bubbleHeight = () => notifications.snapshot().notification?.action ? 388 : 188;
@@ -54,7 +77,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     return showingNotification ? { width: 320, height: characterSize().height + bubbleHeight() } : characterSize();
   };
   const alive = () => win && !win.isDestroyed();
-  const publish = () => { if (alive()) win.webContents.send("desktop-mascot:state", { ...state, roaming, roamingDirection, notifications: notifications.snapshot() }); };
+  const publish = () => { if (alive()) win.webContents.send("desktop-mascot:state", { ...state, roaming, roamingDirection, notifications: presentationSnapshot() }); };
   function persist() {
     if (!alive()) return;
     const bounds = win.getBounds();
@@ -122,7 +145,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     win.setIgnoreMouseEvents(!hit && !drag, { forward: true });
   }
   function authorized(event) { return alive() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame; }
-  ipcMain.handle("desktop-mascot:state", event => authorized(event) ? { ...state, roaming, roamingDirection, notifications: notifications.snapshot() } : null);
+  ipcMain.handle("desktop-mascot:state", event => authorized(event) ? { ...state, roaming, roamingDirection, notifications: presentationSnapshot() } : null);
   ipcMain.handle("desktop-mascot:action", (event, id, operation) => {
     if (!authorized(event)) throw new Error("无权处理看板娘请求。");
     return notifications.processAction(id, operation);
@@ -133,13 +156,13 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       case "notification-dismiss": notifications.dismiss(command.id); break;
       case "notification-presentation":
         if (typeof command.paused === "boolean" && command.id === notifications.snapshot().notification?.id) {
-          presentationPaused = command.paused;
-          notifications.setPresentation(command.id, presentationPaused || expandedId === command.id);
+          presentationPaused = !mainFocused && command.paused;
+          notifications.setPresentation(command.id, mainFocused || presentationPaused || expandedId === command.id);
         }
         break;
       case "summary-expanded": {
         const current = notifications.snapshot().notification;
-        if (!current || current.action || current.id !== command.id || typeof command.expanded !== "boolean") break;
+        if (mainFocused || !current || current.action || current.id !== command.id || typeof command.expanded !== "boolean") break;
         const next = command.expanded ? current.id : null;
         if (next === expandedId) break;
         expandedId = next;
@@ -176,8 +199,13 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
       }
     }
   });
-  function open(mainWindow) {
-    if (alive() || !mainWindow || mainWindow.isDestroyed?.()) return;
+  function open(hostWindow) {
+    if (alive() || !hostWindow || hostWindow.isDestroyed?.()) return;
+    mainWindow = hostWindow;
+    mainFocused = mainWindow.isFocused?.() === true;
+    mainWindow.on?.("focus", mainFocus);
+    mainWindow.on?.("blur", mainBlur);
+    updateNotifications();
     interaction = false; reduced = false; regions = []; drag = undefined;
     const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
     const dimensions = size();
@@ -197,6 +225,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     win.once("ready-to-show", () => { if (alive()) win.showInactive(); });
     win.on("blur", () => { drag = undefined; interaction = false; persist(); schedule(); });
     win.on("closed", () => {
+      removeMainListeners();
       expandedId = null; presentationPaused = false;
       removeFrameRefresh();
       win = undefined; stop(); clearInterval(poll); notifications.suspend();
@@ -210,6 +239,7 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     screen.on("display-metrics-changed", correct);
   }
   function close() {
+    removeMainListeners();
     expandedId = null; presentationPaused = false;
     removeFrameRefresh();
     stop(); clearInterval(poll);

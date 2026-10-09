@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -62,7 +64,7 @@ describe("graphical OpenCode statistics", () => {
       models: ["openai/gpt-5"] });
     const { module } = createModule(root, vi.fn(async () => parsed));
     try {
-      await module.recordGraphicalOpenCode({ threadId: "fresh", session });
+      expect(await module.recordGraphicalOpenCode({ threadId: "fresh", session })).toEqual(parsed);
       const dashboard = module.getDashboard({ range: "all", provider: "opencode" });
       expect(dashboard.summary.tokens.totalTokens).toBe(34);
       expect(dashboard.sessions).toMatchObject([{ provider: "opencode", models: ["openai/gpt-5"] }]);
@@ -79,6 +81,31 @@ describe("graphical OpenCode statistics", () => {
     expect(exec.mock.calls[0][1]).toContain("my project");
     await expect(readOpenCodeExport({ threadId: "bad;id", session: { id: "panel", type: "ssh" },
       sshAgentTransport: { exec } })).rejects.toThrow("Invalid OpenCode session ID");
+  });
+
+  it("keeps export processes separate from graphical hooks while preserving provider environment", async () => {
+    const spawn = vi.fn((_command, _args, options) => {
+      expect(options.env).toMatchObject({ OPENCODE_TEST_PROVIDER_KEY: "test-value" });
+      expect(Object.keys(options.env).some(name => name.startsWith("PANNEL_HANDLE_"))).toBe(false);
+      const child = new EventEmitter();
+      child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = vi.fn();
+      queueMicrotask(() => {
+        child.stdout.write(JSON.stringify({ info: { id: "ses-1" }, messages: [] }));
+        child.emit("close", 0);
+      });
+      return child;
+    });
+    vi.stubEnv("PANNEL_HANDLE_HOOK_URL", "http://127.0.0.1:9000/claude-hook");
+    try {
+      await readOpenCodeExport({ threadId: "ses-1", session, spawn, environment: {
+        OPENCODE_TEST_PROVIDER_KEY: "test-value", PANNEL_HANDLE_OPENCODE_CAPABILITIES: "1", PANNEL_HANDLE_SESSION_ID: "panel"
+      } });
+      const exec = vi.fn(async () => JSON.stringify({ info: { id: "ses-1" }, messages: [] }));
+      await readOpenCodeExport({ threadId: "ses-1", session: { type: "ssh", id: "remote", cwd: "/work" },
+        sshAgentTransport: { exec }, environment: { PANNEL_HANDLE_HOOK_URL: "http://host", OPENCODE_TEST_PROVIDER_KEY: "test-value" } });
+      expect(exec.mock.calls[0][1]).not.toContain("PANNEL_HANDLE_");
+      expect(exec.mock.calls[0][1]).toContain("OPENCODE_TEST_PROVIDER_KEY");
+    } finally { vi.unstubAllEnvs(); }
   });
 
   it("counts new usage once, baselines a resumed thread, and resets on clear", async () => {

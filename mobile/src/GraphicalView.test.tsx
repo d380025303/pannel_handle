@@ -213,10 +213,14 @@ it("subscribes to the selected graphical session and sends text with its thread 
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.submit", sessionId: "graph-1", threadId: "thread-1", text: "hello" }));
 });
 
-it("shows OpenCode context usage from live graphical snapshots", () => {
+it("shows OpenCode token totals and independent context usage from graphical snapshots", () => {
   const { emit } = fixture();
+  const tokens = { inputTokens: 800, cachedInputTokens: 0, cacheWriteInputTokens: 0,
+    outputTokens: 200, reasoningOutputTokens: 0, totalTokens: 1000 };
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
-    snapshot: { ...snapshot, provider: "opencode", contextUsage: { used: 250, size: 1000 } } });
+    snapshot: { ...snapshot, provider: "opencode", tokenUsage: { total: tokens, last: tokens, modelContextWindow: null },
+      contextUsage: { used: 250, size: 1000 }, outputRateAvailable: false } });
+  expect(screen.getByText("Token：1,000")).toBeTruthy();
   expect(screen.getByLabelText("上下文用量").textContent).toContain("25.0%");
   emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: "graph-1",
     snapshot: { ...snapshot, provider: "opencode", contextUsage: null } });

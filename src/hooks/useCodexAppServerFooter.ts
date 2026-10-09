@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AgentTokenLiveViewState } from "./useAgentTokenLive";
-import type { CodexAppServerSnapshot } from "../vite-env";
+import type { CodexAppServerSnapshot, TerminalSession } from "../vite-env";
 
-export function useCodexAppServerFooter(sessionId?: string) {
+export function useCodexAppServerFooter(sessionId?: string, provider: TerminalSession["agentProvider"] = "codex") {
   const [current, setCurrent] = useState<{ sessionId: string; snapshot: CodexAppServerSnapshot } | null>(null);
 
   useEffect(() => {
@@ -20,18 +20,19 @@ export function useCodexAppServerFooter(sessionId?: string) {
       }
     });
     return () => { active = false; removeListener(); };
-  }, [sessionId]);
+  }, [sessionId, provider]);
 
   const snapshot = current && current.sessionId === sessionId ? current.snapshot : null;
+  const activeProvider = snapshot?.provider || provider || "codex";
   let tokenState: AgentTokenLiveViewState = { status: "hidden" };
   if (sessionId) {
-    if (!snapshot) tokenState = { status: "loading", provider: "codex" };
-    else if (!snapshot.tokenUsage || !snapshot.tokenUpdatedAt) tokenState = { status: "waiting", provider: "codex" };
+    if (!snapshot) tokenState = { status: "loading", provider: activeProvider };
+    else if (!snapshot.tokenUsage || !snapshot.tokenUpdatedAt) tokenState = { status: "waiting", provider: activeProvider };
     else tokenState = {
       status: "ready",
       snapshot: {
         panelSessionId: sessionId,
-        provider: "codex",
+        provider: activeProvider,
         state: snapshot.busy ? "generating" : "completed",
         tokens: snapshot.tokenUsage.total,
         capabilities: {
@@ -48,5 +49,5 @@ export function useCodexAppServerFooter(sessionId?: string) {
   }
 
   return { tokenState, canSubmit: Boolean(snapshot?.threadId && !snapshot.busy),
-    contextUsage: snapshot?.provider === "codebuddy" || snapshot?.provider === "opencode" ? snapshot.contextUsage ?? null : undefined };
+    contextUsage: sessionId && (activeProvider === "codebuddy" || activeProvider === "opencode") ? snapshot?.contextUsage ?? null : undefined };
 }

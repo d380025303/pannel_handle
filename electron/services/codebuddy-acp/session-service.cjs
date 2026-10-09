@@ -23,6 +23,7 @@ const { createScheduledTasksService } = require("./scheduled-tasks-service.cjs")
 const { createMcpApps } = require("./mcp-apps.cjs");
 const { createCodeBuddySideQuestionService } = require("./side-question-service.cjs");
 const { createCodeBuddyJobsService } = require("./jobs-service.cjs");
+const { cloneTokens } = require("../token-usage/token-usage-values.cjs");
 
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const PUBLISH_COALESCE_MS = 50;
@@ -277,12 +278,31 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
   }
   async function recordTokenUsage(entry, options = {}) {
     if ((provider !== "codebuddy" && provider !== "opencode") || !entry.threadId) return;
-    try {
-      await onTokenUsageCheckpoint({ threadId: entry.threadId, session: entry.session,
-        cwd: workspace(entry), model: entry.model, environment: entry.environment, ...options });
-    } catch (error) {
-      console.error(`Failed to record ${agentName} ACP token statistics:`, error);
+    const threadId = entry.threadId;
+    if (options.live && entry.liveUsagePending?.threadId === threadId) return entry.liveUsagePending.promise;
+    const version = entry.usageVersion = (entry.usageVersion || 0) + 1;
+    const work = async () => {
+      try {
+        const usage = await onTokenUsageCheckpoint({ threadId, session: entry.session,
+          cwd: workspace(entry), model: entry.model, environment: entry.environment, ...options });
+        if (provider === "opencode" && usage?.tokens && sessions.get(entry.session.id) === entry
+          && entry.threadId === threadId && entry.usageVersion === version) {
+          entry.tokenUsage = { total: cloneTokens(usage.tokens), last: cloneTokens(), modelContextWindow: null };
+          entry.tokenUsageThreadId = threadId;
+          entry.tokenUpdatedAt = Date.now();
+          publish(entry.session.id);
+        }
+      } catch (error) {
+        console.error(`Failed to record ${agentName} ACP token statistics:`, error);
+      }
+    };
+    const promise = work();
+    if (options.live) {
+      const pending = { threadId, promise };
+      entry.liveUsagePending = pending;
+      void promise.finally(() => { if (entry.liveUsagePending === pending) entry.liveUsagePending = null; });
     }
+    return promise;
   }
   function reportTokenLive(entry, phase, options = {}) {
     if (provider !== "codebuddy" || !entry.threadId) return;
@@ -327,6 +347,9 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       ...(provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok" ? { availableCommands: entry.availableCommands } : {}),
       ...(sideQuestions ? { sideQuestion: sideQuestions.snapshot(id) } : {}),
       contextUsage: entry.contextUsage,
+      ...(provider === "opencode" ? { tokenUsage: entry.tokenUsageThreadId === entry.threadId ? entry.tokenUsage || null : null,
+        tokenUpdatedAt: entry.tokenUsageThreadId === entry.threadId ? entry.tokenUpdatedAt : null,
+        outputRateAvailable: false } : {}),
       ...(provider === "opencode" ? { openCodeRevert: entry.openCodeRevert || null, historyActionsError: entry.historyActionsError || null } : {}),
       items: provider === "claude" ? coalesceClaudeMessages(entry.items) : [...entry.items], team: entry.team && { name: entry.team.name, isAutoTeam: entry.team.isAutoTeam,
         hasLiveMembers: entry.team.hasLiveMembers, members: [...entry.team.members.values()].map(member => ({ ...member, items: [...member.items] })) },
@@ -436,6 +459,12 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       return;
     }
     const update = value?.update || {};
+    if (provider === "opencode" && entry.awaitingSession && update.sessionUpdate === "usage_update"
+      && value.sessionId && Number.isFinite(update.used) && update.used >= 0
+      && Number.isFinite(update.size) && update.size > 0) {
+      entry.earlyContextUsage.set(value.sessionId, value);
+      return;
+    }
     if ((provider === "codebuddy" || provider === "opencode" || provider === "qoder" || provider === "gemini" || provider === "grok") && update.sessionUpdate === "available_commands_update") {
       const commands = readAvailableCommands(update.availableCommands);
       if (entry.awaitingSession && value.sessionId) entry.earlyCommands.set(value.sessionId, commands);
@@ -578,9 +607,16 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
           if (Number.isFinite(raw?.[key]) && raw[key] >= 0) categories[key] = raw[key];
         }
         entry.contextUsage = { used, size, categories, updatedAt: Date.now() };
+        if (provider === "opencode" && entry.openCodeUsageReady && !entry.loadingThreadId
+          && !entry.forkReplay && !historyOperations.has(id)) void recordTokenUsage(entry, { live: true });
       }
     }
     schedulePublish(id);
+  }
+  function replayContextUsage(entry) {
+    const update = entry.earlyContextUsage.get(entry.threadId)?.update;
+    entry.earlyContextUsage.clear();
+    if (update) entry.contextUsage = { used: update.used, size: update.size, categories: {}, updatedAt: Date.now() };
   }
   async function promoteApprovedPlan(id, entry) {
     if (!entry.executePlanInFullAccess || entry.promotingPlanMode || sessions.get(id) !== entry) return;
@@ -763,7 +799,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       error: null, pendingPlan: null, queuedPlans: [], items: [], team: null, model: null, configOptions: [], availableCommands: [], earlyCommands: new Map(), awaitingSession: true,
       authMethods: [], authRequired: false,
       codeBuddyGoal: emptyGoalState(),
-      contextUsage: null, capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
+      contextUsage: null, earlyContextUsage: new Map(), capabilities: { history: false, plan: false, attachments: true, permissions: provider !== "opencode" } };
     if (provider === "opencode" && runtime.retainedTimeline) {
       entry.allowedFiles = new Set(runtime.retainedTimeline.allowedFiles);
       entry.pastedImages = new Set(runtime.retainedTimeline.pastedImages);
@@ -859,6 +895,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       entry.earlyCommands.clear(); entry.awaitingSession = false;
       entry.loadingThreadId = null;
       applySessionOptions(entry, result);
+      replayContextUsage(entry);
       await enforceRequiredMode(entry, true);
       if (provider === "opencode" && runtime.openCodeModel) {
         const option = entry.configOptions.find(item => item.id === "model" && item.type === "select");
@@ -877,7 +914,8 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
       await refreshMainAgents(entry);
       publish(session.id);
       if (session.type === "ssh") terminalManager.setAppServerConnectionState?.(session.id, "connected");
-      if (runtime.resumeThreadId) await recordTokenUsage(entry, { resumed: true });
+      if (runtime.resumeThreadId || provider === "opencode") await recordTokenUsage(entry, { resumed: Boolean(runtime.resumeThreadId) });
+      if (provider === "opencode") entry.openCodeUsageReady = true;
       reportTokenLive(entry, "sessionStart", { resumed: Boolean(runtime.resumeThreadId) });
     } catch (error) {
       if (provider === "opencode" && error.code === -32000 && sessions.get(session.id) === entry) {
@@ -1324,6 +1362,7 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
     entry.earlyCommands.clear(); entry.awaitingSession = false;
     applySessionOptions(entry, result);
+    replayContextUsage(entry);
     try { await enforceRequiredMode(entry); }
     catch (error) { close(id); throw error; }
     if (provider === "opencode") {
@@ -1362,12 +1401,14 @@ function createCodeBuddyAcpSessionService({ environmentService, terminalManager,
     entry.availableCommands = entry.earlyCommands.get(entry.threadId) || [];
     entry.earlyCommands.clear(); entry.awaitingSession = false;
     applySessionOptions(entry, result);
+    replayContextUsage(entry);
     try { await enforceRequiredMode(entry, true); }
     catch (error) { close(id); throw error; }
     await restoreOptions(entryFor(id));
     await refreshMainAgents(entry);
     publish(id);
     status(id, entry, "cleared");
+    if (provider === "opencode") await recordTokenUsage(entry);
     await closePreviousThread(entry, previousThreadId);
     return snapshot(id);
   }

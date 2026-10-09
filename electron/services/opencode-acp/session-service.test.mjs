@@ -269,6 +269,54 @@ describe("OpenCode ACP sessions", () => {
     service.shutdown();
   });
 
+  it("publishes exported tokens, buffers early context usage, and rejects stale thread exports", async () => {
+    let emitUpdate;
+    let thread = 0;
+    let finishOld;
+    const tokens = totalTokens => ({ inputTokens: totalTokens - 2, cachedInputTokens: 0,
+      cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens });
+    const checkpoint = vi.fn(async () => ({ tokens: tokens(10) }));
+    const child = fakeChild((message, emit) => {
+      emitUpdate = emit;
+      if (message.method === "initialize") emit({ id: message.id, result: { agentCapabilities: { loadSession: true } } });
+      else if (message.method === "session/new" || message.method === "session/load") {
+        const sessionId = message.params.sessionId || `thread-${++thread}`;
+        emit({ method: "session/update", params: { sessionId, update: { sessionUpdate: "usage_update", used: 50, size: 1000 } } });
+        emit({ id: message.id, result: { sessionId, configOptions } });
+      } else if (message.method === "session/list") emit({ id: message.id,
+        result: { sessions: [{ sessionId: "history", cwd: "C:\\work" }] } });
+    });
+    const service = createOpenCodeAcpSessionService({ environmentService: { resolve: () => ({}) },
+      terminalManager: { broadcastAgentStatus: vi.fn() }, broadcast: vi.fn(), spawnProcess: () => child,
+      onTokenUsageCheckpoint: checkpoint });
+    try {
+      await service.start({ id: "one", type: "windows", cwd: "C:\\work", shell: "powershell.exe" });
+      expect(service.snapshot("one")).toMatchObject({ provider: "opencode", tokenUsage: { total: { totalTokens: 10 } },
+        contextUsage: { used: 50, size: 1000 }, outputRateAvailable: false });
+      checkpoint.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+      const usageUpdate = () => emitUpdate({ method: "session/update", params: { sessionId: "thread-1",
+        update: { sessionUpdate: "usage_update", used: 70, size: 1000 } } });
+      usageUpdate(); usageUpdate();
+      expect(checkpoint).toHaveBeenCalledTimes(2);
+      await service.newThread("one");
+      expect(service.snapshot("one").contextUsage).toMatchObject({ used: 50, size: 1000 });
+      finishOld({ tokens: tokens(999) });
+      await vi.waitFor(() => expect(service.snapshot("one").tokenUsage.total.totalTokens).toBe(10));
+      await service.listHistory("one");
+      await service.resume("one", "history");
+      expect(service.snapshot("one")).toMatchObject({ threadId: "history", contextUsage: { used: 50, size: 1000 },
+        tokenUsage: { total: { totalTokens: 10 } } });
+      expect(checkpoint).toHaveBeenLastCalledWith(expect.objectContaining({ threadId: "history", resumed: true }));
+      checkpoint.mockRejectedValueOnce(new Error("export unavailable"));
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      emitUpdate({ method: "session/update", params: { sessionId: "history",
+        update: { sessionUpdate: "usage_update", used: 90, size: 1000 } } });
+      await vi.waitFor(() => expect(error).toHaveBeenCalled());
+      expect(service.snapshot("one").tokenUsage.total.totalTokens).toBe(10);
+      error.mockRestore();
+    } finally { await service.shutdown(); }
+  });
+
   it("tracks OpenCode ACP context usage and clears it when the model or thread changes", async () => {
     let emitUpdate;
     let thread = 0;

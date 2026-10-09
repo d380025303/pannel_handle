@@ -99,10 +99,10 @@ export function VirtualFileTree({ paths, resetKey, handleRef, busy, onScroll, em
 
   return <div ref={viewport} className="remote-file-list remote-file-virtual-list" role="tree" aria-busy={busy}
     onScroll={(event) => { onScroll(); const scrollTop = event.currentTarget.scrollTop; setView((current) => ({ ...current, top: scrollTop })); }}>
-    {paths.length === 0 ? empty : <div style={{ height: total, position: "relative", flexShrink: 0 }}>
+    {paths.length === 0 ? empty : <div className="remote-file-virtual-spacer" style={{ height: total }}>
       {paths.slice(start, end).map((path, offset) => {
         const index = start + offset;
-        return <div key={path} data-virtual-index={index} style={{ position: "absolute", top: offsets[index], width: "100%", display: "flex", flexDirection: "column", gap: 1, paddingBottom: 1 }}>{renderRow(index)}</div>;
+        return <div key={path} data-virtual-index={index} className="remote-file-virtual-row" style={{ top: offsets[index] }}>{renderRow(index)}</div>;
       })}
     </div>}
   </div>;

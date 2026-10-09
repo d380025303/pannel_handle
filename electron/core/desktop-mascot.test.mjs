@@ -51,6 +51,75 @@ describe("desktop mascot window", () => {
     const handler = ipc.handle.mock.calls.find(call => call[0] === "desktop-mascot:state")[1];
     return handler({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   }
+  function reopenHost(focused = true) {
+    service.close();
+    const host = Object.assign(new EventEmitter(), { getBounds: () => area, isFocused: () => focused });
+    service.open(host);
+    return host;
+  }
+  function pendingPlan() {
+    snapshot.pendingPlan = { itemId: "plan" };
+    snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
+    service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
+  }
+  it("suppresses foreground requests in initial state and pushes, then restores valid requests", () => {
+    const host = reopenHost();
+    pendingPlan();
+    expect(hostState().notifications).toMatchObject({ notification: null, pendingCount: 1 });
+    expect(window.bounds).toMatchObject({ width: 192, height: 232 });
+    expect(window.webContents.send.mock.calls.filter(([channel]) => channel === "desktop-mascot:notifications").at(-1)[1].notification).toBeNull();
+    const revision = hostState().notifications.revision;
+    host.emit("blur");
+    expect(hostState().notifications.notification.action.kind).toBe("plan");
+    expect(hostState().notifications.revision).toBeGreaterThan(revision);
+    expect(window.bounds.height).toBe(620);
+    host.emit("focus");
+    snapshot.pendingPlan = null;
+    service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
+    host.emit("blur");
+    expect(hostState().notifications.notification).toBeNull();
+  });
+  it("hides expanded summaries, preserves the character anchor and pauses remaining lifetime", async () => {
+    const host = reopenHost(false);
+    command({ type: "preferences", moving: false });
+    service.handleDesktopEvent("agent:status", { id: "one", status: "running", timestamp: 1 });
+    snapshot.items = [{ id: "reply", type: "agentMessage", text: "完成" }];
+    service.handleDesktopEvent("agent:status", { id: "one", status: "completed", timestamp: 2 });
+    await vi.advanceTimersByTimeAsync(200);
+    const notification = hostState().notifications.notification;
+    expect(notification).not.toBeNull();
+    command({ type: "notification-presentation", id: notification.id, paused: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    command({ type: "summary-expanded", id: notification.id, expanded: true });
+    const anchor = { x: window.bounds.x + window.bounds.width / 2, y: window.bounds.y + window.bounds.height };
+    host.emit("focus");
+    expect(window.bounds).toMatchObject({ width: 192, height: 232 });
+    expect(window.bounds.x + window.bounds.width / 2).toBe(anchor.x);
+    expect(window.bounds.y + window.bounds.height).toBe(anchor.y);
+    command({ type: "notification-presentation", id: notification.id, paused: false });
+    await vi.advanceTimersByTimeAsync(20000);
+    host.emit("blur");
+    expect(hostState().notifications.notification.id).toBe(notification.id);
+    expect(window.bounds).toMatchObject({ width: 320, height: 420 });
+    command({ type: "notification-presentation", id: notification.id, paused: false });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(hostState().notifications.notification.id).toBe(notification.id);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(hostState().notifications.notification).toBeNull();
+  });
+  it("removes host listeners on close and initializes focus again on reopen", () => {
+    const host = reopenHost(false);
+    pendingPlan();
+    service.close();
+    expect(host.listenerCount("focus")).toBe(0);
+    expect(host.listenerCount("blur")).toBe(0);
+    host.isFocused = () => true;
+    service.open(host);
+    expect(host.listenerCount("focus")).toBe(1);
+    expect(hostState().notifications.notification).toBeNull();
+    host.emit("blur");
+    expect(hostState().notifications.notification.action.kind).toBe("plan");
+  });
   it.skipIf(process.platform !== "win32")("refreshes native frame after app blur or native activation and cleans up", () => {
     const activate = window.hookWindowMessage.mock.calls.find(([message]) => message === 0x0086)[1];
     app.emit("browser-window-blur", {}, {});

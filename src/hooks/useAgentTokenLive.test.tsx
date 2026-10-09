@@ -35,8 +35,8 @@ describe("useAgentTokenLive", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes graphical OpenCode and CodeBuddy to live usage while retaining Codex App Server usage", () => {
-    expect(usesGraphicalTokenLive("opencode")).toBe(true);
+  it("routes CodeBuddy to transcript usage and OpenCode to graphical snapshot usage", () => {
+    expect(usesGraphicalTokenLive("opencode")).toBe(false);
     expect(usesGraphicalTokenLive("codebuddy")).toBe(true);
     expect(usesGraphicalTokenLive("codex")).toBe(false);
     expect(usesGraphicalTokenLive(undefined)).toBe(false);
@@ -51,9 +51,8 @@ describe("useAgentTokenLive", () => {
       onLiveChanged: vi.fn(callback => { listeners.push(callback); return remove; })
     };
     const graphicalSession = (id: string): TerminalSession => ({ ...session(id, "opencode"), runtimeMode: "app-server" });
-    const { result, rerender } = renderHook(({ active }) => useAgentTokenLive(
-      active.runtimeMode === "app-server" && !usesGraphicalTokenLive(active.agentProvider) ? undefined : active
-    ), { initialProps: { active: graphicalSession("open-1") } });
+    const { result, rerender } = renderHook(({ active }) => useAgentTokenLive(active),
+      { initialProps: { active: graphicalSession("open-1") } });
     await waitFor(() => expect(result.current).toEqual({ status: "waiting", provider: "opencode" }));
     expect(window.agentTokenStatsApi.getLive).toHaveBeenCalledWith("open-1");
     const completed = { ...snapshot("open-1"), provider: "opencode" as const, state: "completed" as const,

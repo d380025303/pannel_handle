@@ -1832,7 +1832,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     {capabilityDetail && isCodex && <CodexCapabilityDetail key={`${sessionId}:${snapshot.threadId}:${capabilityDetail.kind}:${capabilityDetail.kind === "app" ? capabilityDetail.id : capabilityDetail.kind === "mcp" ? capabilityDetail.server.name : capabilityDetail.name}`}
       sessionId={sessionId} target={capabilityDetail} onClose={() => setCapabilityDetail(null)} />}
     {configurationOpen && isCodex && <div className="modal-overlay codex-app-server-history-overlay" onClick={() => setConfigurationOpen(false)}>
-      <div className="modal-dialog codex-app-server-history-dialog" style={{ overflowY: "auto", padding: 20 }} role="dialog" aria-modal="true" aria-label="配置与权限" onKeyDown={event => {
+      <div className="modal-dialog codex-app-server-history-dialog codex-configuration-dialog" role="dialog" aria-modal="true" aria-label="配置与权限" onKeyDown={event => {
           if (event.key === "Escape") { event.stopPropagation(); setConfigurationOpen(false); menuButtonRef.current?.focus(); return; }
           if (event.key !== "Tab") return;
           const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), summary, [tabindex="0"]')];

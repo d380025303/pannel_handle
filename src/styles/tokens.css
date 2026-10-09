@@ -55,6 +55,8 @@
   --radius-lg: 8px;
   --radius-dialog: 10px;
   --titlebar-height: 40px;
+  --font-mono: Consolas, "Cascadia Mono", monospace;
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.2);
   --shadow-dialog: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -175,5 +177,6 @@
   --color-code-operator: #0369a1;
   --color-code-meta: #7c3aed;
   --color-code-link: #1d5f99;
+  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.12);
   --shadow-dialog: 0 12px 36px rgba(15, 23, 42, 0.2);
 }

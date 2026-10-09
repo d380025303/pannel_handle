@@ -1,5 +1,5 @@
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :first-child { margin-top: 0 !important; }
-:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :last-child { margin-bottom: 0 !important; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :first-child { margin-top: 0; }
+:is(.remote-preview-markdown-content, .desktop-mascot-summary) > :last-child { margin-bottom: 0; }
 
 :is(.remote-preview-markdown-content, .desktop-mascot-summary) h1,
 :is(.remote-preview-markdown-content, .desktop-mascot-summary) h2,
