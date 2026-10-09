@@ -21,6 +21,8 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
         autoRestore
         autoWorkBuddyCheckin
         debugMode={false}
+        desktopMascotEnabled
+        onDesktopMascotEnabledChange={vi.fn().mockResolvedValue(undefined)}
         screenshotEnabled
         screenshotShortcut="Ctrl+Shift+S"
         titleBarActionOrder={["terminal", "stats", "skills", "mcp", "screenshot", "library", "quickAgent", "create"]}
@@ -55,6 +57,31 @@ function renderSettingsModal(overrides: Partial<ComponentProps<typeof SettingsMo
 }
 
 describe("SettingsModal navigation", () => {
+  it("opens the companion category and saves its toggle", async () => {
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    renderSettingsModal({ onDesktopMascotEnabledChange: save });
+    fireEvent.click(screen.getByRole("tab", { name: "看板娘" }));
+    const toggle = screen.getByRole("checkbox", { name: "开启看板娘" });
+    expect(toggle).toHaveProperty("checked", true);
+    fireEvent.click(toggle);
+    expect(save).toHaveBeenCalledWith(false);
+    expect(toggle).toHaveProperty("disabled", true);
+    finish();
+    await waitFor(() => expect(toggle).toHaveProperty("disabled", false));
+  });
+
+  it("keeps companion state and displays save failures", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("save failed"));
+    renderSettingsModal({ desktopMascotEnabled: false, onDesktopMascotEnabledChange: save });
+    fireEvent.click(screen.getByRole("tab", { name: "看板娘" }));
+    const toggle = screen.getByRole("checkbox", { name: "开启看板娘" });
+    fireEvent.click(toggle);
+    expect(save).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "save failed");
+    expect(toggle).toHaveProperty("checked", false);
+  });
+
   it("saves the graphical minimal mode toggle and shows save failures", async () => {
     const save = vi.fn().mockRejectedValue(new Error("save failed"));
     renderSettingsModal({ onGraphicalSessionMinimalModeChange: save });
@@ -253,6 +280,8 @@ describe("SettingsModal navigation", () => {
     renderSettingsModal();
     const generalTab = screen.getByRole("tab", { name: "常用配置" });
     fireEvent.keyDown(generalTab, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "看板娘" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "看板娘" }), { key: "ArrowDown" });
     expect(screen.getByRole("tab", { name: "环境变量" }).getAttribute("aria-selected")).toBe("true");
   });
 

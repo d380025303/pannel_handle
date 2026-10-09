@@ -79,6 +79,7 @@ const { createTerminalManager, getDefaultShell, getWslShell } = require("./termi
 const { createSessionShellService } = require("./terminal/session-shell-service.cjs");
 
 let windowManager = null;
+let desktopMascot = null;
 let sessionStore = null;
 let businessDataStore = null;
 let modelCatalogDir = null;
@@ -157,7 +158,7 @@ if (!gotSingleInstanceLock) {
       app.setAppUserModelId("local.pannel-handle");
     }
     windowManager = createWindowManager({
-      onMainWindowClosed: () => agentConversationManager?.shutdown()
+      onMainWindowClosed: () => { desktopMascot?.close(); agentConversationManager?.shutdown(); }
     });
     businessDataStore = createBusinessDataStore({ userData: app.getPath("userData") }).open();
     modelCatalogDir = fs.mkdtempSync(path.join(app.getPath("temp"), "pannel-handle-catalog-"));
@@ -240,6 +241,7 @@ if (!gotSingleInstanceLock) {
       if (channel === "sessions:changed") postgresBackupService?.trackSessions(payload);
       mobileRemoteService?.handleDesktopEvent(channel, payload);
       sessionStatusServer?.handleDesktopEvent(channel, payload);
+      desktopMascot?.handleDesktopEvent(channel, payload);
     };
     terminalManager = createTerminalManager({
       environmentService,
@@ -450,6 +452,7 @@ if (!gotSingleInstanceLock) {
     qoderAutoCheckinService,
       getMobileRemoteService: () => mobileRemoteService,
       desktopBroadcast: windowManager.broadcast,
+      onDesktopMascotEnabledChange: enabled => desktopMascot?.setEnabled(enabled, windowManager.getMainWindow()),
       openRouterConfigStore,
       naraRouterConfigStore,
       miniMaxConfigStore,
@@ -639,13 +642,15 @@ if (!gotSingleInstanceLock) {
       codexPluginService,
       codeBuddyPluginService
     });
-    windowManager.createWindow();
+    desktopMascot = require("./core/desktop-mascot.cjs").createDesktopMascot({ app, BrowserWindow, screen: require("electron").screen, ipcMain, getLocale: () => configStore.getConfig().locale,
+      terminalManager, graphicalService: codexAppServerSessionService, conversationManager: agentConversationManager, stateHub: terminalStateHub, openExternal: url => require("electron").shell.openExternal(url) });
+    desktopMascot.setEnabled(configStore.getConfig().desktopMascotEnabled, windowManager.createWindow());
     workBuddyAutoCheckinService.start(configStore.getConfig().autoWorkBuddyCheckin);
     qoderAutoCheckinService.start(configStore.getConfig().autoQoderCheckin);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        windowManager.createWindow();
+        desktopMascot?.setEnabled(configStore.getConfig().desktopMascotEnabled, windowManager.createWindow());
       }
     });
   }).catch((error) => {
@@ -666,6 +671,7 @@ async function flushConversationArchive() {
 let graphicalShutdownComplete = false;
 let graphicalShutdownPending = null;
 app.on("before-quit", event => {
+  desktopMascot?.shutdown();
   if (graphicalShutdownComplete || !codexAppServerSessionService) return;
   event.preventDefault();
   if (!graphicalShutdownPending) {

@@ -1860,7 +1860,9 @@ describe("CodexAppServerSession", () => {
         availableDecisions: ["accept", "acceptForSession", "decline", "cancel", "acceptWithExecpolicyAmendment"] } }] } }));
     expect(await screen.findByText('["pnpm","test"]')).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消并停止本回合" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "本会话允许" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "本会话允许" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "批准并应用命令规则" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "批准并应用命令规则" }));
     await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith("run-1", 91, "cancel"));
     expect(resolveApproval).toHaveBeenCalledWith("run-1", 91, "acceptForSession");
@@ -1886,6 +1888,7 @@ describe("CodexAppServerSession", () => {
       approvals: [{ requestId: 94, method: "item/permissions/requestApproval", params: {
         permissions: { network: { enabled: true } } } }] } }));
     fireEvent.click(screen.getByRole("button", { name: "本回合允许" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "本会话允许" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "本会话允许" }));
     expect(resolveApproval).toHaveBeenCalledWith("run-1", 94, "accept");
     expect(resolveApproval).toHaveBeenCalledWith("run-1", 94, "acceptForSession");

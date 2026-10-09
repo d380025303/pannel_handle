@@ -1,0 +1,12 @@
+html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { --color-text: #e8edf5; --color-border-strong: #465569; --color-bg-panel: #1c2635; --color-info-text: #65d9eb; font-family: sans-serif; }
+.desktop-mascot.is-desktop-window { width: 192px; left: 0; top: 0; }
+.desktop-mascot.is-desktop-window.is-collapsed { width: 52px; }
+.desktop-mascot.is-desktop-window.has-notification { width: 320px; height: 420px; }
+.desktop-mascot.is-desktop-window.has-notification.is-collapsed { width: 320px; height: 240px; }
+.desktop-mascot.has-notification .desktop-mascot-character { position: absolute; top: 188px; left: 64px; width: 192px; }
+.desktop-mascot.has-notification.is-collapsed .desktop-mascot-character { left: 134px; width: 52px; }
+
+.desktop-mascot.is-desktop-window.has-request { height: 620px; }
+.desktop-mascot.is-desktop-window.has-request.is-collapsed { height: 440px; }
+.desktop-mascot.has-request .desktop-mascot-character { top: 388px; }

@@ -17,7 +17,7 @@
     "durationMs": 2080,
     "loop": "infinite",
     "transparent": true,
-    "bytes": 712344
+    "bytes": 736323
   },
   {
     "file": "panna-working.gif",
@@ -38,5 +38,15 @@
     "loop": "infinite",
     "transparent": true,
     "bytes": 683280
+  },
+  {
+    "file": "panna-walk.gif",
+    "width": 512,
+    "height": 512,
+    "frames": 8,
+    "durationMs": 960,
+    "loop": "infinite",
+    "transparent": true,
+    "bytes": 359025
   }
 ]

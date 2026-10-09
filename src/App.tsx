@@ -120,6 +120,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
   const [mcpDirty, setMcpDirty] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [graphicalSessionMinimalMode, setGraphicalSessionMinimalMode] = useState(false);
+  const [desktopMascotEnabled, setDesktopMascotEnabled] = useState(true);
   const [screenshotEnabled, setScreenshotEnabled] = useState(true);
   const [screenshotShortcut, setScreenshotShortcut] = useState(DEFAULT_SCREENSHOT_SHORTCUT);
   const [titleBarActionOrder, setTitleBarActionOrder] = useState<TitleBarActionId[]>(DEFAULT_TITLE_BAR_ACTION_ORDER);
@@ -357,6 +358,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
       if (!isDisposed) {
         setDebugMode(config.debugMode);
         setGraphicalSessionMinimalMode(config.graphicalSessionMinimalMode === true);
+        setDesktopMascotEnabled(config.desktopMascotEnabled !== false);
         setScreenshotEnabled(config.screenshotEnabled);
         setScreenshotShortcut(config.screenshotShortcut);
         setTitleBarActionOrder(withSettingsAction(config.titleBarActionOrder));
@@ -1213,7 +1215,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
         </main>
       </div>
 
-      <DesktopMascot
+      {import.meta.env.MODE === "browser-preview" && desktopMascotEnabled && <DesktopMascot
         locale={locale}
         status={terminalSessions.activeAgentStatus?.status}
         sessionTitle={terminalSessions.activeSession?.title}
@@ -1227,7 +1229,7 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
           setShowSkills(action === "skills");
           setShowMcp(action === "mcp");
         }}
-      />
+      />}
       <RemoteAgentApprovalCard sessions={terminalSessions.sessions} />
       <CodexWorkspaceTrustDialog />
 
@@ -1291,6 +1293,11 @@ function AppContent({ locale, onLocaleChange }: AppContentProps) {
             setGraphicalSessionMinimalMode(enabled);
           }}
           debugMode={debugMode}
+          desktopMascotEnabled={desktopMascotEnabled}
+          onDesktopMascotEnabledChange={async enabled => {
+            const config = await window.terminalApi.setConfig({ desktopMascotEnabled: enabled });
+            setDesktopMascotEnabled(config.desktopMascotEnabled);
+          }}
           screenshotEnabled={screenshotEnabled}
           screenshotShortcut={screenshotShortcut}
           titleBarActionOrder={titleBarActionOrder}

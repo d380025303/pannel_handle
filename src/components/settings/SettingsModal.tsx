@@ -1,4 +1,4 @@
-import { Bell, Bot, Braces, Database, Gauge, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
+import { Bell, Bot, Smile, Braces, Database, Gauge, Settings as SettingsIcon, Smartphone, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { EnvironmentSettings, type EnvironmentSettingsHandle } from "../environment/EnvironmentSettings";
@@ -26,6 +26,8 @@ type SettingsModalProps = {
   graphicalSessionMinimalMode?: boolean;
   onGraphicalSessionMinimalModeChange?: (enabled: boolean) => Promise<void>;
   debugMode: boolean;
+  desktopMascotEnabled?: boolean;
+  onDesktopMascotEnabledChange?: (enabled: boolean) => Promise<void>;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
   titleBarActionOrder: TitleBarActionId[];
@@ -57,7 +59,7 @@ type SettingsModalProps = {
   onCancel: () => void;
 };
 
-type SettingsCategory = "general" | "environment" | "models" | "quota" | "mobile" | "notifications" | "backup";
+type SettingsCategory = "general" | "mascot" | "environment" | "models" | "quota" | "mobile" | "notifications" | "backup";
 
 export function SettingsModal({
   defaultWindowsShell,
@@ -68,6 +70,8 @@ export function SettingsModal({
   graphicalSessionMinimalMode = false,
   onGraphicalSessionMinimalModeChange,
   debugMode,
+  desktopMascotEnabled = true,
+  onDesktopMascotEnabledChange,
   screenshotEnabled,
   screenshotShortcut,
   titleBarActionOrder,
@@ -111,6 +115,8 @@ export function SettingsModal({
   const [secret, setSecret] = useState("");
   const [dingTalkBusy, setDingTalkBusy] = useState(false);
   const [dingTalkResult, setDingTalkResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [mascotBusy, setMascotBusy] = useState(false);
+  const [mascotError, setMascotError] = useState<string | null>(null);
   const [minimalModeBusy, setMinimalModeBusy] = useState(false);
   const [minimalModeError, setMinimalModeError] = useState<string | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -219,6 +225,7 @@ export function SettingsModal({
   })), [t]);
   const categories = useMemo(() => [
     { id: "general" as const, label: t("settings.generalTitle"), description: t("settings.generalDescription"), icon: SettingsIcon },
+    { id: "mascot" as const, label: t("settings.mascotTitle"), description: t("settings.mascotDescription"), icon: Smile },
     { id: "environment" as const, label: t("settings.environmentTitle"), description: t("settings.environmentNavDescription"), icon: Braces },
     { id: "models" as const, label: t("settings.modelsTitle"), description: t("settings.modelsDescription"), icon: Bot },
     { id: "quota" as const, label: t("settings.quotaTitle"), description: t("settings.quotaDescription"), icon: Gauge },
@@ -632,6 +639,32 @@ export function SettingsModal({
                   {screenshotSettingsError && <p className="settings-result error" role="alert">{screenshotSettingsError}</p>}
                 </div>
               </div>
+            </section>
+
+            <section id="settings-panel-mascot" role="tabpanel" aria-labelledby="settings-tab-mascot" hidden={activeCategory !== "mascot"} className="settings-page settings-page-stack">
+              <section className="settings-section">
+                <div className="settings-card-header">
+                  <div>
+                    <h4>{t("settings.mascotTitle")}</h4>
+                    <p className="settings-help">{t("settings.mascotDescription")}</p>
+                  </div>
+                  <label className="auto-restore-label">
+                    <input type="checkbox" className="auto-restore-checkbox" checked={desktopMascotEnabled}
+                      disabled={mascotBusy || !onDesktopMascotEnabledChange}
+                      onChange={event => {
+                        const enabled = event.target.checked;
+                        setMascotBusy(true);
+                        setMascotError(null);
+                        void onDesktopMascotEnabledChange?.(enabled)
+                          .catch(error => setMascotError(error instanceof Error ? error.message : String(error)))
+                          .finally(() => setMascotBusy(false));
+                      }} />
+                    <span className="auto-restore-track" />
+                    <span className="auto-restore-text">{t("settings.mascotEnabled")}</span>
+                  </label>
+                </div>
+                {mascotError && <p className="settings-result error" role="alert">{mascotError}</p>}
+              </section>
             </section>
 
             <section id="settings-panel-environment" role="tabpanel" aria-labelledby="settings-tab-environment" hidden={activeCategory !== "environment"} className="settings-page environment-settings-page">

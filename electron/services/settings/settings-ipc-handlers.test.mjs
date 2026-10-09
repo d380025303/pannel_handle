@@ -100,6 +100,7 @@ function createHarness(overrides = {}) {
     miniMaxUsageOptions,
     getMobileRemoteService: () => mobileRemoteService,
     desktopBroadcast: overrides.desktopBroadcast,
+    onDesktopMascotEnabledChange: overrides.onDesktopMascotEnabledChange,
     dialog: overrides.dialog,
     getWindowFromEvent: overrides.getWindowFromEvent,
     userDataDir: overrides.userDataDir
@@ -380,4 +381,22 @@ it("broadcasts graphical menu settings after saving and never broadcasts failed 
   expect(() => handler({}, { graphicalMenuSecondaryActions: {} })).toThrow("disk unavailable");
   expect(desktopBroadcast).toHaveBeenCalledTimes(1);
   expect(harness.mobileRemoteService.broadcastGraphicalMenuConfig).toHaveBeenCalledTimes(1);
+});
+
+
+describe("companion settings IPC", () => {
+  it("applies the saved boolean through the lifecycle callback", () => {
+    const changed = vi.fn();
+    const { ipcMain, configStore } = createHarness({ onDesktopMascotEnabledChange: changed });
+    const set = ipcMain.handlers.get("config:set");
+    expect(set({}, { desktopMascotEnabled: false }).desktopMascotEnabled).toBe(false);
+    expect(configStore.updateConfig).toHaveBeenCalledWith({ desktopMascotEnabled: false }, { throwOnSaveError: true });
+    expect(changed).toHaveBeenCalledWith(false);
+    changed.mockClear();
+    set({}, { desktopMascotEnabled: "true" });
+    expect(changed).not.toHaveBeenCalled();
+    configStore.updateConfig.mockImplementationOnce(() => { throw new Error("save failed"); });
+    expect(() => set({}, { desktopMascotEnabled: true })).toThrow("save failed");
+    expect(changed).not.toHaveBeenCalled();
+  });
 });

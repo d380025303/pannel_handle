@@ -7,7 +7,7 @@ const sharp = toolRequire('sharp');
 const { GIFEncoder, quantize, applyPalette } = toolRequire('gifenc');
 const { GifReader } = toolRequire('omggif');
 const root = __dirname;
-const names = ['idle', 'wave', 'working', 'celebrate'];
+const names = ['idle', 'wave', 'working', 'celebrate', 'walk'];
 const only = process.argv[3];
 if (only && !names.includes(only)) throw new Error(`Unknown animation: ${only}`);
 
@@ -34,13 +34,13 @@ async function main() {
     sets.push({ name, frames });
   }
   // One scale for every animation. Anchor feet; retain vertical motion in celebration.
-  const tallest = Math.max(...sets.flatMap(s => s.frames.map(f => f.bounds.y1 - f.bounds.y0 + 1)));
+  const tallest = Math.max(...sets.filter(s => s.name !== 'walk').flatMap(s => s.frames.map(f => f.bounds.y1 - f.bounds.y0 + 1)));
   const scale = 448 / tallest;
   const report = [];
   const contact = [];
   for (const { name, frames } of sets) {
     if (!only || only === name) {
-    const frameScale = name === 'wave' ? 443 / (frames[0].bounds.y1 - frames[0].bounds.y0 + 1) : scale;
+    const frameScale = (name === 'wave' || name === 'walk') ? 443 / (frames[0].bounds.y1 - frames[0].bounds.y0 + 1) : scale;
     const dir = path.join(root, 'frames', name);
     fs.mkdirSync(dir, { recursive: true });
     const normalized = [];
@@ -85,8 +85,8 @@ async function main() {
     });
     // Hold a stable open-eye pose, then close and reopen through the same
     // half-closed pose. Cycling all generated poses introduces drawing drift.
-    const sequence = name === 'idle' ? [0, 2, 3, 2] : [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
-    const delays = name === 'idle' ? [2780, 60, 80, 80]
+    const sequence = name === 'idle' ? [0, 2, 3, 2] : name === 'walk' ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
+    const delays = name === 'walk' ? Array(8).fill(120) : name === 'idle' ? [2780, 60, 80, 80]
       : name === 'working' ? [400, 220, 180, 180, 180, 180, 180, 300, 180, 180, 180, 180, 220, 240]
       : [320, 120, 120, 120, 120, 120, 120, 320, 120, 120, 120, 120, 120, 120];
     const gif = GIFEncoder();
@@ -114,7 +114,7 @@ async function main() {
     report.push({ file: `panna-${name}.gif`, width: 512, height: 512, frames: reader.numFrames(), durationMs: duration, loop: 'infinite', transparent: true, bytes: bytes.length });
   }
   for (const [label, background] of [['light', '#f4f5fa'], ['dark', '#1b2230']]) {
-    await sharp({ create: { width: 1024, height: 512, channels: 4, background } }).composite(contact).png().toFile(path.join(root, `contact-${label}.png`));
+    await sharp({ create: { width: sets.length * 256, height: 512, channels: 4, background } }).composite(contact).png().toFile(path.join(root, `contact-${label}.png`));
   }
   fs.writeFileSync(path.join(root, 'validation.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));

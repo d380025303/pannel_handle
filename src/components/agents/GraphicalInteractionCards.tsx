@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { FileText, Image as ImageIcon, X } from "lucide-react";
-import type { CodexMcpElicitation, CodexQuestionAnswer, CodexQuestionRequest } from "../../vite-env";
+import type { CodexAppServerSnapshot, CodexMcpElicitation, CodexQuestionAnswer, CodexQuestionRequest } from "../../vite-env";
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const imageFile = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
@@ -27,7 +27,9 @@ export function AttachmentTile({ sessionId, file, onPreview, onRemove, disabled 
   </div>;
 }
 
-export function QuestionCard({ sessionId, request, provider }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" | "claude" | "opencode" }) {
+export function QuestionCard({ sessionId, request, provider, onAnswer, onCancel }: { sessionId: string; request: CodexQuestionRequest; provider: "codex" | "codebuddy" | "claude" | "opencode";
+  onAnswer?: (answers: Record<string, CodexQuestionAnswer>) => Promise<void>; onCancel?: () => Promise<void>;
+}) {
   const tabId = useId();
   const [choices, setChoices] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -56,14 +58,14 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
         ...(provider === "opencode" && note && question.options?.length ? { customAnswer: note } : {}) };
     }
     setSending(true); setError("");
-    try { await window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers); }
+    try { await (onAnswer ? onAnswer(answers) : window.codexAppServerApi.answerQuestion(sessionId, request.requestId, answers)); }
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
   async function cancel() {
     if (sending || request.submitting) return;
     setSending(true); setError("");
-    try { await window.codexAppServerApi.cancelQuestion(sessionId, request.requestId); }
+    try { await (onCancel ? onCancel() : window.codexAppServerApi.cancelQuestion(sessionId, request.requestId)); }
     catch (cause) { setError(message(cause)); }
     finally { setSending(false); }
   }
@@ -101,10 +103,12 @@ export function QuestionCard({ sessionId, request, provider }: { sessionId: stri
       </label>}
     </fieldset>)}
     {error && <p role="alert">{error}</p>}
+    <div className="codex-app-server-question-actions">
     <button type="button" disabled={sending || request.submitting || !questions.length} onClick={() => void answer()}>
       {sending || request.submitting ? "正在提交…" : "提交回答"}
     </button>
     {(provider === "codebuddy" || provider === "claude" || provider === "opencode") && <button type="button" disabled={sending || request.submitting} onClick={() => void cancel()}>取消提问</button>}
+    </div>
   </article>;
 }
 
@@ -213,3 +217,57 @@ export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }:
   </article>;
 }
 
+
+type Approval = CodexAppServerSnapshot["approvals"][number];
+function approvalAllows(approval: Approval, decision: string) {
+  const available = approval.params.availableDecisions;
+  return !Array.isArray(available) || available.some(value => value === decision
+    || (decision === "acceptWithExecpolicyAmendment" && value != null && typeof value === "object"
+      && Object.prototype.hasOwnProperty.call(value, decision)));
+}
+function validExecpolicyAmendment(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
+}
+
+export function ApprovalCard({ approval, items, isCodex, onResolve }: {
+  approval: Approval; items: CodexAppServerSnapshot["items"]; isCodex: boolean;
+  onResolve: (decision: boolean | string) => Promise<void>;
+}) {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  async function respond(decision: boolean | string) {
+    if (sending) return;
+    setSending(true); setError("");
+    try { await onResolve(decision); } catch (cause) { setError(message(cause)); }
+    finally { setSending(false); }
+  }
+  return <article className="codex-app-server-approval">
+    <strong>{approval.params.networkApprovalContext ? "网络访问确认" : approval.method.includes("fileChange") ? "文件修改确认" : "操作确认"}</strong>
+    {approval.params.reason && <p>{approval.params.reason}</p>}
+    {approval.params.networkApprovalContext && <p>{approval.params.networkApprovalContext.protocol}://{approval.params.networkApprovalContext.host}{approval.params.networkApprovalContext.port ? `:${approval.params.networkApprovalContext.port}` : ""}</p>}
+    {approval.params.cwd && <p>{approval.params.cwd}</p>}
+    {isCodex && approval.method === "item/fileChange/requestApproval" && approval.params.grantRoot && <p>授权目录：{approval.params.grantRoot}</p>}
+    {isCodex && approval.method === "item/permissions/requestApproval" && <pre>{JSON.stringify(approval.params.permissions || {}, null, 2)}</pre>}
+    {(approval.params.command || items.find(item => item.id === approval.params.itemId)?.command) &&
+      <pre>{approval.params.command || items.find(item => item.id === approval.params.itemId)?.command}</pre>}
+    {(approval.params.changes ?? items.find(item => item.id === approval.params.itemId)?.changes) != null &&
+      <pre>{JSON.stringify(approval.params.changes ?? items.find(item => item.id === approval.params.itemId)?.changes, null, 2)}</pre>}
+    {isCodex && approval.method === "item/commandExecution/requestApproval"
+      && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
+      && approvalAllows(approval, "acceptWithExecpolicyAmendment")
+      && <p>建议放行的命令前缀：<code>{JSON.stringify(approval.params.proposedExecpolicyAmendment)}</code></p>}
+    <div>{!isCodex && approval.params.choices?.length ? approval.params.choices.map(choice =>
+      <button type="button" key={choice.id} disabled={sending} onClick={() => void respond(choice.id)}>{choice.label}</button>) : <>
+      {(!isCodex || approvalAllows(approval, "decline")) && <button type="button" disabled={sending} onClick={() => void respond(isCodex ? "decline" : false)}>拒绝</button>}
+      {isCodex && approval.method !== "item/permissions/requestApproval" && approvalAllows(approval, "cancel") &&
+        <button type="button" disabled={sending} onClick={() => void respond("cancel")}>取消并停止本回合</button>}
+      {(!isCodex || approvalAllows(approval, "accept")) && <button type="button" disabled={sending} onClick={() => void respond(isCodex ? "accept" : true)}>{isCodex && approval.method === "item/permissions/requestApproval" ? "本回合允许" : "批准一次"}</button>}
+      {isCodex && approvalAllows(approval, "acceptForSession") && <button type="button" disabled={sending} onClick={() => void respond("acceptForSession")}>本会话允许</button>}
+      {isCodex && approval.method === "item/commandExecution/requestApproval"
+        && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
+        && approvalAllows(approval, "acceptWithExecpolicyAmendment")
+        && <button type="button" disabled={sending} onClick={() => void respond("acceptWithExecpolicyAmendment")}>批准并应用命令规则</button>}
+    </>}</div>
+    {error && <p role="alert">{error}</p>}
+  </article>;
+}

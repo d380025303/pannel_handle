@@ -78,6 +78,7 @@ function createConfigStore({ configFile, dataStore }) {
     debugMode: false,
     graphicalSessionMinimalMode: false,
     graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(),
+    desktopMascotEnabled: true,
     screenshotEnabled: true,
     screenshotShortcut: DEFAULT_SCREENSHOT_SHORTCUT,
     titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],
@@ -104,6 +105,7 @@ function createConfigStore({ configFile, dataStore }) {
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
       graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
+      desktopMascotEnabled: config.desktopMascotEnabled,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: config.titleBarActionOrder,
@@ -135,6 +137,7 @@ function createConfigStore({ configFile, dataStore }) {
           debugMode: typeof parsed.debugMode === "boolean" ? parsed.debugMode : false,
           graphicalSessionMinimalMode: typeof parsed.graphicalSessionMinimalMode === "boolean" ? parsed.graphicalSessionMinimalMode : false,
           graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(parsed.graphicalMenuSecondaryActions),
+          desktopMascotEnabled: typeof parsed.desktopMascotEnabled === "boolean" ? parsed.desktopMascotEnabled : true,
           screenshotEnabled: typeof parsed.screenshotEnabled === "boolean" ? parsed.screenshotEnabled : true,
           screenshotShortcut: normalizeScreenshotShortcut(parsed.screenshotShortcut) || DEFAULT_SCREENSHOT_SHORTCUT,
           titleBarActionOrder: normalizeTitleBarActionOrder(parsed.titleBarActionOrder),
@@ -182,6 +185,7 @@ function createConfigStore({ configFile, dataStore }) {
       debugMode: config.debugMode,
       graphicalSessionMinimalMode: config.graphicalSessionMinimalMode,
       graphicalMenuSecondaryActions: normalizeGraphicalMenuConfig(config.graphicalMenuSecondaryActions),
+      desktopMascotEnabled: config.desktopMascotEnabled,
       screenshotEnabled: config.screenshotEnabled,
       screenshotShortcut: config.screenshotShortcut,
       titleBarActionOrder: [...config.titleBarActionOrder],
@@ -225,6 +229,9 @@ function createConfigStore({ configFile, dataStore }) {
       }
       if (typeof partial.debugMode === "boolean") {
         config.debugMode = partial.debugMode;
+      }
+      if (typeof partial.desktopMascotEnabled === "boolean") {
+        config.desktopMascotEnabled = partial.desktopMascotEnabled;
       }
       if (typeof partial.screenshotEnabled === "boolean") {
         config.screenshotEnabled = partial.screenshotEnabled;

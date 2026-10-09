@@ -3,6 +3,149 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopMascot } from "./DesktopMascot";
+import type { DesktopMascotState } from "../../vite-env";
+
+describe("DesktopMascot desktop window controls", () => {
+  afterEach(() => { cleanup(); delete window.desktopMascotApi; vi.useRealTimers(); vi.restoreAllMocks(); });
+  it("prioritizes walking until roaming ends and restarts the idle delay", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    localStorage.clear();
+    let listener: (state: DesktopMascotState) => void = () => {};
+    const state: DesktopMascotState = { collapsed: false, animated: true, moving: true, roaming: false, roamingDirection: "left", migrated: true, locale: "en-US", notifications: { revision: 0, notification: null, pendingCount: 0 } };
+    window.desktopMascotApi = {
+      getState: vi.fn().mockResolvedValue(state), onState: vi.fn(callback => { listener = callback; return vi.fn(); }),
+      setPreferences: vi.fn(), migrate: vi.fn(), setInteraction: vi.fn(), setRegions: vi.fn(),
+      startDrag: vi.fn(), endDrag: vi.fn(), step: vi.fn(), onNotifications: vi.fn(() => vi.fn()),
+      dismissNotification: vi.fn(), setNotificationPresentation: vi.fn(), processNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
+    await act(async () => {});
+    const image = () => screen.getByRole("complementary").querySelector("img")!;
+    fireEvent.load(image());
+    act(() => vi.advanceTimersByTime(8000));
+    expect(image().getAttribute("src")).toContain("panna-wave.gif");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Move companion (arrow keys)" }), { key: "ArrowLeft" });
+    expect(image().getAttribute("src")).toContain("panna-wave.gif");
+    act(() => listener({ ...state, roaming: true }));
+    expect(image().getAttribute("src")).toContain("panna-walk.gif");
+    const walking = image(); fireEvent.load(walking);
+    expect(walking.classList.contains("is-walking-right")).toBe(false);
+    act(() => listener({ ...state, roaming: true, roamingDirection: "right" }));
+    expect(image()).toBe(walking);
+    expect(image().classList.contains("is-walking-right")).toBe(true);
+    act(() => listener({ ...state, roaming: true, roamingDirection: "left" }));
+    expect(image()).toBe(walking);
+    expect(image().classList.contains("is-walking-right")).toBe(false);
+    act(() => listener({ ...state, roaming: true, roamingDirection: "right" }));
+    act(() => vi.advanceTimersByTime(30000));
+    expect(image()).toBe(walking);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(image().getAttribute("src")).toContain("idle/01.png");
+    expect(image().classList.contains("is-walking-right")).toBe(false);
+    hidden.mockReturnValue(false);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(image().getAttribute("src")).toContain("panna-walk.gif");
+    act(() => listener({ ...state, roamingDirection: "right" }));
+    expect(image().getAttribute("src")).toContain("idle/01.png");
+    expect(image().classList.contains("is-walking-right")).toBe(false);
+    fireEvent.load(image());
+    act(() => vi.advanceTimersByTime(7999));
+    expect(image().getAttribute("src")).toContain("idle/01.png");
+    act(() => vi.advanceTimersByTime(1));
+    expect(image().getAttribute("src")).toContain("panna-working.gif");
+    act(() => listener({ ...state, roaming: true, roamingDirection: "right", animated: false }));
+    expect(image().getAttribute("src")).toContain("idle/01.png");
+    expect(image().classList.contains("is-walking-right")).toBe(false);
+    act(() => listener({ ...state, roaming: true, roamingDirection: "right" }));
+    fireEvent.error(image());
+    expect(image().getAttribute("src")).toContain("panel-navigator.png");
+    expect(image().classList.contains("is-walking-right")).toBe(false);
+    cleanup(); vi.useRealTimers();
+  });
+  it("subscribes to host state, toggles roaming and forwards keyboard and collapse actions", async () => {
+    let listener: (state: DesktopMascotState) => void = () => {};
+    const state: DesktopMascotState = { collapsed: false, animated: false, moving: true, roaming: false, roamingDirection: "left", migrated: true, locale: "en-US", notifications: { revision: 0, notification: null, pendingCount: 0 } };
+    const api = {
+      getState: vi.fn().mockResolvedValue(state), onState: vi.fn(callback => { listener = callback; return vi.fn(); }),
+      setPreferences: vi.fn(), migrate: vi.fn(), setInteraction: vi.fn(), setRegions: vi.fn(),
+      startDrag: vi.fn(), endDrag: vi.fn(), step: vi.fn(),
+      onNotifications: vi.fn(() => vi.fn()), dismissNotification: vi.fn(), setNotificationPresentation: vi.fn(), processNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    window.desktopMascotApi = api;
+    render(<DesktopMascot locale="zh-CN" onAction={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("complementary").classList.contains("has-notification")).toBe(false);
+    fireEvent.mouseEnter(screen.getByRole("complementary"));
+    expect(api.setInteraction).toHaveBeenLastCalledWith(true, false);
+    fireEvent.click(screen.getByRole("button", { name: "Pause roaming" }));
+    expect(api.setPreferences).toHaveBeenCalledWith({ moving: false });
+    act(() => listener({ ...state, moving: false }));
+    expect(screen.getByRole("button", { name: "Resume roaming" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Move companion (arrow keys)" }), { key: "ArrowLeft" });
+    expect(api.step).toHaveBeenCalledWith("left");
+    fireEvent.click(screen.getByRole("button", { name: "Minimize companion" }));
+    expect(api.setPreferences).toHaveBeenCalledWith({ collapsed: true });
+    act(() => listener({ ...state, collapsed: true, locale: "zh-CN" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开看板娘" }));
+    expect(api.setPreferences).toHaveBeenCalledWith({ collapsed: false });
+  });
+  it("shows results while collapsed, pauses on hover or focus and dismisses through the host", async () => {
+    const state: DesktopMascotState = { collapsed: true, animated: false, moving: true, roaming: false, roamingDirection: "left", migrated: true, locale: "zh-CN",
+      notifications: { revision: 1, pendingCount: 2, notification: { id: "1", sessionId: "background", sessionTitle: "后台任务", status: "completed", summary: "## 已完成验证\n\n**重点**\n\n- 列表项\n\n| 项目 | 状态 |\n| --- | --- |\n| 测试 | 通过 |\n\n```js\nconst result = true;\n```\n\n[文档](https://example.com)\n\n" + "完整内容".repeat(60), timestamp: 1 } } };
+    let notify: (value: DesktopMascotState["notifications"]) => void = () => {};
+    const api = {
+      getState: vi.fn().mockResolvedValue(state), onState: vi.fn(() => vi.fn()),
+      onNotifications: vi.fn(callback => { notify = callback; return vi.fn(); }),
+      setPreferences: vi.fn(), migrate: vi.fn(), setInteraction: vi.fn(), setRegions: vi.fn(),
+      startDrag: vi.fn(), endDrag: vi.fn(), step: vi.fn(), dismissNotification: vi.fn(), setNotificationPresentation: vi.fn(), processNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    window.desktopMascotApi = api;
+    render(<DesktopMascot locale="zh-CN" onAction={vi.fn()} />);
+    await act(async () => {});
+    const bubble = screen.getByRole("status");
+    expect(screen.getByRole("heading", { name: "已完成验证" })).toBeTruthy();
+    expect(bubble.querySelector("strong")?.textContent).toContain("任务已完成");
+    expect(bubble.querySelector("ul li")?.textContent).toBe("列表项");
+    expect(bubble.querySelector("table")?.textContent).toContain("通过");
+    expect(bubble.querySelector("pre code .hljs-keyword")?.textContent).toBe("const");
+    expect(bubble.textContent).toContain("完整内容".repeat(60));
+    const previousExternalLinkApi = window.externalLinkApi;
+    window.externalLinkApi = { open: vi.fn().mockResolvedValue(undefined) };
+    fireEvent.click(screen.getByRole("link", { name: "文档" }));
+    expect(window.externalLinkApi.open).toHaveBeenCalledWith("https://example.com");
+    window.externalLinkApi = previousExternalLinkApi;
+    expect(bubble.textContent).toContain("任务已完成"); expect(bubble.textContent).toContain("后台任务");
+    expect(bubble.textContent).toContain("已完成验证"); expect(bubble.textContent).toContain("另有 1 条");
+    expect(screen.getByRole("button", { name: "展开看板娘" })).toBeTruthy();
+    expect(api.setNotificationPresentation).toHaveBeenLastCalledWith("1", false);
+    fireEvent.mouseEnter(bubble); expect(api.setNotificationPresentation).toHaveBeenLastCalledWith("1", true);
+    fireEvent.focus(bubble); fireEvent.mouseLeave(bubble); expect(api.setNotificationPresentation).toHaveBeenLastCalledWith("1", true);
+    fireEvent.blur(bubble); expect(api.setNotificationPresentation).toHaveBeenLastCalledWith("1", false);
+    fireEvent.click(screen.getByRole("button", { name: "关闭任务气泡" })); expect(api.dismissNotification).toHaveBeenCalledWith("1");
+    act(() => notify({ revision: 2, pendingCount: 1, notification: { ...state.notifications.notification!, id: "2", status: "failed", summary: "连接失败" } }));
+    expect(screen.getByRole("status").textContent).toContain("任务失败"); expect(screen.getByRole("status").textContent).toContain("连接失败");
+    act(() => notify({ revision: 3, pendingCount: 0, notification: null })); expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("complementary").classList.contains("has-notification")).toBe(false);
+    act(() => notify(state.notifications)); expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("keeps a newer notification event when the initial snapshot resolves late", async () => {
+    let resolve: (value: DesktopMascotState) => void = () => {};
+    let notify: (value: DesktopMascotState["notifications"]) => void = () => {};
+    window.desktopMascotApi = {
+      getState: vi.fn(() => new Promise<DesktopMascotState>(done => { resolve = done; })), onState: vi.fn(() => vi.fn()),
+      onNotifications: vi.fn(callback => { notify = callback; return vi.fn(); }),
+      setPreferences: vi.fn(), migrate: vi.fn(), setInteraction: vi.fn(), setRegions: vi.fn(), startDrag: vi.fn(), endDrag: vi.fn(), step: vi.fn(),
+      dismissNotification: vi.fn(), setNotificationPresentation: vi.fn(), processNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
+    act(() => notify({ revision: 2, pendingCount: 1, notification: { id: "2", sessionId: "a", sessionTitle: "A", status: "completed", summary: "暂无摘要", timestamp: 1 } }));
+    await act(async () => resolve({ collapsed: true, animated: false, moving: true, roaming: false, roamingDirection: "left", migrated: true, locale: "en-US", notifications: { revision: 1, pendingCount: 0, notification: null } }));
+    expect(screen.getByRole("status").textContent).toContain("No summary available");
+  });
+});
 
 describe("DesktopMascot", () => {
   beforeEach(() => localStorage.clear());

@@ -117,6 +117,7 @@ export type AppConfig = {
   debugMode: boolean;
   graphicalSessionMinimalMode: boolean;
   graphicalMenuSecondaryActions?: import("./utils/graphicalMenu").GraphicalMenuConfig;
+  desktopMascotEnabled: boolean;
   screenshotEnabled: boolean;
   screenshotShortcut: string;
   titleBarActionOrder: TitleBarActionId[];
@@ -1747,6 +1748,7 @@ export type IdeaBridgeApi = {
 
 declare global {
   interface Window {
+    desktopMascotApi?: DesktopMascotApi;
     codexPluginApi: CodexPluginApi;
     codeBuddyPluginApi: CodeBuddyPluginApi;
     codeBuddyMcpApi: CodeBuddyMcpApi;
@@ -1791,3 +1793,32 @@ declare global {
 
 export interface CodeBuddyScheduledTaskInput { cron: string; prompt: string; recurring: boolean; durable: boolean }
 export interface CodeBuddyScheduledTask extends CodeBuddyScheduledTaskInput { id: string; enabled: boolean; createdAt?: number; lastFiredAt?: number }
+
+export type DesktopMascotOperation =
+  | { type: "execute" | "dismiss" | "cancel" | "openUrl" }
+  | { type: "approve"; decision: boolean | string }
+  | { type: "answer"; answers: Record<string, CodexQuestionAnswer> }
+  | { type: "respond"; action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
+export type DesktopMascotPendingAction =
+  | { kind: "plan"; requestId: string; key: string; text: string }
+  | { kind: "approval"; requestId: number | string; key: string; request: CodexAppServerSnapshot["approvals"][number]; items: CodexAppServerSnapshot["items"] }
+  | { kind: "question"; requestId: number | string; key: string; request: CodexQuestionRequest }
+  | { kind: "elicitation"; requestId: number | string; key: string; request: CodexMcpElicitation };
+export type DesktopMascotNotification = { id: string; sessionId: string; sessionTitle: string; status: "completed" | "failed" | "pending"; agentStatus?: AgentStatusPayload; action?: DesktopMascotPendingAction; summary: string; timestamp: number };
+export type DesktopMascotNotifications = { revision: number; notification: DesktopMascotNotification | null; pendingCount: number };
+export type DesktopMascotState = { collapsed: boolean; animated: boolean; moving: boolean; roaming: boolean; roamingDirection: "left" | "right"; migrated: boolean; locale: Locale; notifications: DesktopMascotNotifications };
+export interface DesktopMascotApi {
+  getState(): Promise<DesktopMascotState>;
+  onState(callback: (state: DesktopMascotState) => void): () => void;
+  onNotifications(callback: (snapshot: DesktopMascotNotifications) => void): () => void;
+  processNotification(id: string, operation: DesktopMascotOperation): Promise<void>;
+  dismissNotification(id: string): void;
+  setNotificationPresentation(id: string, paused: boolean): void;
+  setPreferences(preferences: Partial<Pick<DesktopMascotState, "collapsed" | "moving">>): void;
+  migrate(preferences: { collapsed: boolean; animated: boolean }): void;
+  setInteraction(paused: boolean, reduced: boolean): void;
+  setRegions(regions: { x: number; y: number; width: number; height: number }[]): void;
+  startDrag(): void;
+  endDrag(): void;
+  step(direction: "left" | "right" | "up" | "down"): void;
+}

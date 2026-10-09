@@ -74,6 +74,7 @@ function registerSettingsIpcHandlers({
   miniMaxUsageOptions = {},
   getMobileRemoteService,
   desktopBroadcast,
+  onDesktopMascotEnabledChange,
   dialog,
   getWindowFromEvent,
   userDataDir
@@ -104,6 +105,9 @@ function registerSettingsIpcHandlers({
     }
     if (partial && typeof partial.debugMode === "boolean") {
       updates.debugMode = partial.debugMode;
+    }
+    if (partial && typeof partial.desktopMascotEnabled === "boolean") {
+      updates.desktopMascotEnabled = partial.desktopMascotEnabled;
     }
     if (partial && typeof partial.screenshotEnabled === "boolean") {
       updates.screenshotEnabled = partial.screenshotEnabled;
@@ -152,13 +156,16 @@ function registerSettingsIpcHandlers({
         || Object.hasOwn(updates, "terminalBackgroundPositionY");
       const changesTitleBar = Object.hasOwn(updates, "titleBarActionOrder")
         || Object.hasOwn(updates, "titleBarHiddenActions");
-      if (changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
+      if (Object.hasOwn(updates, "desktopMascotEnabled") || changesPosition || changesTitleBar || Object.hasOwn(updates, "graphicalSessionMinimalMode") || Object.hasOwn(updates, "graphicalMenuSecondaryActions")) {
         configStore.updateConfig(updates, { throwOnSaveError: true });
       } else {
         configStore.updateConfig(updates);
       }
     }
     const config = configStore.getConfig();
+    if (Object.hasOwn(updates, "desktopMascotEnabled")) {
+      onDesktopMascotEnabledChange?.(config.desktopMascotEnabled);
+    }
     if (Object.prototype.hasOwnProperty.call(updates, "autoWorkBuddyCheckin")) {
       workBuddyAutoCheckinService?.setEnabled(config.autoWorkBuddyCheckin);
     }

@@ -17,6 +17,7 @@ function createSettingsModule({
   qoderAutoCheckinService,
   getMobileRemoteService,
   desktopBroadcast,
+  onDesktopMascotEnabledChange,
   openRouterConfigStore,
   naraRouterConfigStore,
   miniMaxConfigStore,
@@ -93,6 +94,7 @@ function createSettingsModule({
     miniMaxConfigStore,
     getMobileRemoteService,
     desktopBroadcast,
+    onDesktopMascotEnabledChange,
     dialog,
     getWindowFromEvent,
     userDataDir

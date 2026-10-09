@@ -127,6 +127,7 @@ function createWindowManager({ onMainWindowClosed } = {}) {
 
   return {
     createWindow,
+    getMainWindow: () => hasWindow() ? mainWindow : null,
     focusWindow,
     isMainWindowFocused,
     focusAndSelectSession,

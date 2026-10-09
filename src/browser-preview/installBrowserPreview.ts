@@ -84,6 +84,7 @@ const initialConfig: AppConfig = {
   debugMode: false,
   graphicalSessionMinimalMode: false,
   graphicalMenuSecondaryActions: {},
+  desktopMascotEnabled: true,
   screenshotEnabled: true,
   screenshotShortcut: "Ctrl+Shift+A",
   titleBarActionOrder: [...DEFAULT_TITLE_BAR_ACTION_ORDER],

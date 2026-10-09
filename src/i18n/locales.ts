@@ -125,6 +125,9 @@ export type TranslationKey =
   | "settings.mobileNoActiveDevice"
   | "settings.mobileAudit"
   | "settings.open"
+  | "settings.mascotTitle"
+  | "settings.mascotDescription"
+  | "settings.mascotEnabled"
   | "settings.generalTitle"
   | "settings.autoRestore"
   | "session.graphicalMode"
@@ -1166,6 +1169,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileNoActiveDevice": "当前没有手机在线。",
     "settings.mobileAudit": "安全事件",
     "settings.open": "打开设置",
+    "settings.mascotTitle": "看板娘",
+    "settings.mascotDescription": "控制桌面看板娘的显示，修改后立即生效。",
+    "settings.mascotEnabled": "开启看板娘",
     "settings.generalTitle": "常用配置",
     "settings.autoRestore": "启动时自动恢复",
     "session.graphicalMode": "使用图形会话",
@@ -2200,6 +2206,9 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "settings.mobileNoActiveDevice": "No mobile device is online.",
     "settings.mobileAudit": "Security events",
     "settings.open": "Open settings",
+    "settings.mascotTitle": "Desktop companion",
+    "settings.mascotDescription": "Show or hide the desktop companion. Changes take effect immediately.",
+    "settings.mascotEnabled": "Enable desktop companion",
     "settings.generalTitle": "General settings",
     "settings.autoRestore": "Auto restore on startup",
     "session.graphicalMode": "Use graphical session",

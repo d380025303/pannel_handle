@@ -22,6 +22,29 @@ afterEach(() => {
 });
 
 describe("config-store", () => {
+  it("defaults the companion on and persists disabling across reloads", () => {
+    const configFile = createTempConfigPath();
+    const store = createConfigStore({ configFile });
+    expect(store.getConfig().desktopMascotEnabled).toBe(true);
+    fs.writeFileSync(configFile, JSON.stringify({ autoRestore: false }));
+    store.loadConfig();
+    expect(store.getConfig().desktopMascotEnabled).toBe(true);
+    store.updateConfig({ desktopMascotEnabled: false }, { throwOnSaveError: true });
+    const reloaded = createConfigStore({ configFile });
+    reloaded.loadConfig();
+    expect(reloaded.getConfig().desktopMascotEnabled).toBe(false);
+    reloaded.updateConfig({ desktopMascotEnabled: "true" });
+    expect(reloaded.getConfig().desktopMascotEnabled).toBe(false);
+  });
+
+  it("rolls back companion settings if saving fails", () => {
+    const store = createConfigStore({ configFile: createTempConfigPath(), dataStore: {
+      write: () => { throw new Error("save failed"); }
+    } });
+    expect(() => store.updateConfig({ desktopMascotEnabled: false }, { throwOnSaveError: true })).toThrow();
+    expect(store.getConfig().desktopMascotEnabled).toBe(true);
+  });
+
   it("defaults Qoder check-in off in old configs and persists opt-in", () => {
     const configFile = createTempConfigPath();
     fs.writeFileSync(configFile, JSON.stringify({ autoRestore: true }));
@@ -105,6 +128,7 @@ describe("config-store", () => {
       debugMode: false,
       graphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
+      desktopMascotEnabled: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],
@@ -305,6 +329,7 @@ describe("config-store", () => {
       debugMode: true,
       graphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
+      desktopMascotEnabled: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       themeId: "light",
@@ -329,6 +354,7 @@ describe("config-store", () => {
       debugMode: true,
       graphicalSessionMinimalMode: false,
       graphicalMenuSecondaryActions: { codex: [], codebuddy: [], opencode: [], claude: [], qoder: [], gemini: [], grok: [] },
+      desktopMascotEnabled: true,
       screenshotEnabled: true,
       screenshotShortcut: "Ctrl+Shift+X",
       titleBarActionOrder: ["terminal", "stats", "skills", "mcp", "idea", "screenshot", "settings", "library", "quickAgent", "create"],

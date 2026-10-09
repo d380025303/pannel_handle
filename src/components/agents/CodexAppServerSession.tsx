@@ -29,7 +29,7 @@ import { CodeBuddyJobsDialog } from "./CodeBuddyJobsDialog";
 import { OpenCodeAuthDialog } from "./OpenCodeAuthDialog";
 import { TurnDiffCard } from "./TurnDiffCard";
 import { CodexEventCard, DiagnosticCard, groupTimeline, statusLabel, teamStatusLabels, TeamMemberTimeline, ToolGroup } from "./GraphicalTimeline";
-import { AttachmentTile, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
+import { AttachmentTile, ApprovalCard, McpElicitationCard, QuestionCard } from "./GraphicalInteractionCards";
 import { subscribeGraphicalSession } from "./graphicalSessionSubscription";
 
 const empty: CodexAppServerSnapshot = { threadId: null, mode: "default", executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [] };
@@ -88,16 +88,6 @@ function fileMentionAtCaret(value: string, caret: number): FileMention | null {
   return { start: prefix.length - match[0].length + match[0].lastIndexOf("@"), end: caret, query: match[1] };
 }
 type AttachmentPreview = Awaited<ReturnType<typeof window.codexAppServerApi.previewAttachment>>;
-type Approval = CodexAppServerSnapshot["approvals"][number];
-function approvalAllows(approval: Approval, decision: string) {
-  const available = approval.params.availableDecisions;
-  return !Array.isArray(available) || available.some(value => value === decision
-    || (decision === "acceptWithExecpolicyAmendment" && value != null && typeof value === "object"
-      && Object.prototype.hasOwnProperty.call(value, decision)));
-}
-function validExecpolicyAmendment(value: unknown): value is string[] {
-  return Array.isArray(value) && value.length > 0 && value.every(part => typeof part === "string" && part.trim());
-}
 type SelectionKind = "mode" | "model" | "effort" | "fastMode" | "permission" | "contextWindow" | "multitask" | "mainAgent";
 type SlashCommand = { id: string; label: string; disabled?: boolean; source?: "codebuddy" | "opencode" | "qoder" | "gemini" | "grok" };
 const sendableImageFile = isCodexImageFile;
@@ -965,11 +955,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     }
     setAttachments(current => current.filter(value => value !== filePath));
   }
-  async function resolve(requestId: number | string, approved: boolean | string) {
-    setError("");
-    try { await window.codexAppServerApi.resolveApproval(sessionId, requestId, approved); }
-    catch (cause) { setError(message(cause)); }
-  }
+
   function reportChangeError(cause: unknown) {
     if (currentSessionRef.current !== sessionId) return;
     if (selectionKind) setSelectionError(message(cause));
@@ -1520,34 +1506,8 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
       {snapshot.reviewing && <div className="codex-app-server-compaction-status" role="status">正在审查代码，可停止审查后继续发送消息。</div>}
       {!snapshot.compacting && snapshot.compactionStatus === "failed" && !snapshot.error &&
         <div className="codex-app-server-compaction-status" role="alert">{isCodex ? "上下文压缩失败，请重试。" : "上下文压缩失败，请查看会话记录。"}</div>}
-      {snapshot.approvals.map(approval => <article className="codex-app-server-approval" key={approval.requestId}>
-        <strong>{approval.params.networkApprovalContext ? "网络访问确认" : approval.method.includes("fileChange") ? "文件修改确认" : "操作确认"}</strong>
-        {approval.params.reason && <p>{approval.params.reason}</p>}
-        {approval.params.networkApprovalContext && <p>{approval.params.networkApprovalContext.protocol}://{approval.params.networkApprovalContext.host}{approval.params.networkApprovalContext.port ? `:${approval.params.networkApprovalContext.port}` : ""}</p>}
-        {approval.params.cwd && <p>{approval.params.cwd}</p>}
-        {isCodex && approval.method === "item/fileChange/requestApproval" && approval.params.grantRoot && <p>授权目录：{approval.params.grantRoot}</p>}
-        {isCodex && approval.method === "item/permissions/requestApproval" && <pre>{JSON.stringify(approval.params.permissions || {}, null, 2)}</pre>}
-        {(approval.params.command || snapshot.items.find(item => item.id === approval.params.itemId)?.command) &&
-          <pre>{approval.params.command || snapshot.items.find(item => item.id === approval.params.itemId)?.command}</pre>}
-        {(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes) != null &&
-          <pre>{JSON.stringify(approval.params.changes ?? snapshot.items.find(item => item.id === approval.params.itemId)?.changes, null, 2)}</pre>}
-        {isCodex && approval.method === "item/commandExecution/requestApproval"
-          && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
-          && approvalAllows(approval, "acceptWithExecpolicyAmendment")
-          && <p>建议放行的命令前缀：<code>{JSON.stringify(approval.params.proposedExecpolicyAmendment)}</code></p>}
-        <div>{!isCodex && approval.params.choices?.length ? approval.params.choices.map(choice =>
-          <button type="button" key={choice.id} onClick={() => void resolve(approval.requestId, choice.id)}>{choice.label}</button>) : <>
-          {(!isCodex || approvalAllows(approval, "decline")) && <button type="button" onClick={() => void resolve(approval.requestId, isCodex ? "decline" : false)}>拒绝</button>}
-          {isCodex && approval.method !== "item/permissions/requestApproval" && approvalAllows(approval, "cancel") &&
-            <button type="button" onClick={() => void resolve(approval.requestId, "cancel")}>取消并停止本回合</button>}
-          {(!isCodex || approvalAllows(approval, "accept")) && <button type="button" onClick={() => void resolve(approval.requestId, isCodex ? "accept" : true)}>{isCodex && approval.method === "item/permissions/requestApproval" ? "本回合允许" : "批准一次"}</button>}
-          {isCodex && approvalAllows(approval, "acceptForSession") && <button type="button" onClick={() => void resolve(approval.requestId, "acceptForSession")}>本会话允许</button>}
-          {isCodex && approval.method === "item/commandExecution/requestApproval"
-            && validExecpolicyAmendment(approval.params.proposedExecpolicyAmendment)
-            && approvalAllows(approval, "acceptWithExecpolicyAmendment")
-            && <button type="button" onClick={() => void resolve(approval.requestId, "acceptWithExecpolicyAmendment")}>批准并应用命令规则</button>}
-        </>}</div>
-      </article>)}
+      {snapshot.approvals.map(approval => <ApprovalCard key={approval.requestId} approval={approval} items={snapshot.items} isCodex={isCodex}
+        onResolve={decision => window.codexAppServerApi.resolveApproval(sessionId, approval.requestId, decision)} />)}
       {snapshot.questions?.filter(question => !question.submitting || !snapshot.items.some(item => item.id === `question-answer:${question.params.turnId}:${question.requestId}`))
         .map(question => <QuestionCard key={question.requestId} sessionId={sessionId} request={question}
           provider={snapshot.provider === "codebuddy" ? "codebuddy" : snapshot.provider === "claude" ? "claude" : snapshot.provider === "opencode" ? "opencode" : "codex"} />)}
