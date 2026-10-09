@@ -1,0 +1,42 @@
+[
+  {
+    "file": "panna-idle.gif",
+    "width": 512,
+    "height": 512,
+    "frames": 8,
+    "durationMs": 3000,
+    "loop": "infinite",
+    "transparent": true,
+    "bytes": 404025
+  },
+  {
+    "file": "panna-wave.gif",
+    "width": 512,
+    "height": 512,
+    "frames": 14,
+    "durationMs": 2080,
+    "loop": "infinite",
+    "transparent": true,
+    "bytes": 676556
+  },
+  {
+    "file": "panna-working.gif",
+    "width": 512,
+    "height": 512,
+    "frames": 14,
+    "durationMs": 3000,
+    "loop": "infinite",
+    "transparent": true,
+    "bytes": 668197
+  },
+  {
+    "file": "panna-celebrate.gif",
+    "width": 512,
+    "height": 512,
+    "frames": 14,
+    "durationMs": 2080,
+    "loop": "infinite",
+    "transparent": true,
+    "bytes": 683280
+  }
+]

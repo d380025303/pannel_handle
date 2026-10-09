@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopMascot } from "./DesktopMascot";
 
 describe("DesktopMascot", () => {
   beforeEach(() => localStorage.clear());
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("reflects the current session status without stealing input focus", () => {
     const input = document.createElement("input");
@@ -60,6 +65,7 @@ describe("DesktopMascot", () => {
     expect(screen.getByRole("button", { name: "Expand companion" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Expand companion" }));
     expect(screen.getByRole("button", { name: "Talk to Panna" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Talk to Panna" }).querySelector("img")?.getAttribute("src")).toContain("frames/idle/01.png");
   });
 
   it("recovers from malformed or out-of-bounds stored preferences", () => {
@@ -72,5 +78,148 @@ describe("DesktopMascot", () => {
     localStorage.setItem("pannel-handle.desktop-mascot.v1", "invalid JSON");
     render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Talk to Panna" })).toBeTruthy();
+  });
+
+  function character() {
+    return screen.getByRole("button", { name: "和小帕聊聊" }).querySelector("img")!;
+  }
+  function advance(ms: number) { act(() => { vi.advanceTimersByTime(ms); }); }
+  function timerCount() {
+    // jsdom dispatches localStorage events on zero-delay timers.
+    advance(0);
+    return vi.getTimerCount();
+  }
+  function startAnimation() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    return render(<DesktopMascot locale="zh-CN" onAction={vi.fn()} />);
+  }
+
+  it.each([
+    [0, "wave", 2080],
+    [0.4, "working", 3000],
+    [0.9, "celebrate", 2080]
+  ] as const)("plays random action %s for one full cycle after image load", (random, name, duration) => {
+    const { rerender } = startAnimation();
+    vi.mocked(Math.random).mockReturnValueOnce(0).mockReturnValueOnce(random);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    advance(20000);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    fireEvent.load(character());
+    advance(7999);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    advance(1);
+    const actionImage = character();
+    expect(actionImage.getAttribute("src")).toContain(`panna-${name}.gif`);
+    advance(4000);
+    expect(character()).toBe(actionImage);
+    fireEvent.load(actionImage);
+    rerender(<DesktopMascot locale="zh-CN" status="completed" sessionTitle="Completed session" onAction={vi.fn()} />);
+    // Session updates and opening the conversation must not restart the action.
+    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
+    expect(screen.getByRole("status").textContent).toContain("本轮任务已完成");
+    advance(duration - 1);
+    expect(character()).toBe(actionImage);
+    advance(1);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+  });
+
+  it("waits up to fifteen seconds and avoids repeating the previous random action", () => {
+    startAnimation();
+    vi.mocked(Math.random).mockReturnValueOnce(0.9999).mockReturnValueOnce(0);
+    fireEvent.load(character());
+    advance(14998);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    advance(2);
+    expect(character().getAttribute("src")).toContain("panna-wave.gif");
+    fireEvent.load(character());
+    advance(2080);
+    fireEvent.load(character());
+    advance(8000);
+    expect(character().getAttribute("src")).toContain("panna-working.gif");
+  });
+
+  it("uses a still frame when paused and resumes with a fresh idle image", () => {
+    startAnimation();
+    fireEvent.load(character());
+    advance(8000);
+    fireEvent.load(character());
+    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
+    fireEvent.click(screen.getByRole("button", { name: "暂停动画" }));
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
+    expect(timerCount()).toBe(0);
+    advance(30000);
+    fireEvent.click(screen.getByRole("button", { name: "开启动画" }));
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    fireEvent.load(character());
+    advance(7999);
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+  });
+
+  it("cleans up scheduling when collapsed or unmounted", () => {
+    const { unmount } = startAnimation();
+    fireEvent.load(character());
+    fireEvent.click(screen.getByRole("button", { name: "收起看板娘" }));
+    expect(screen.getByRole("complementary").querySelector("img")).toBeNull();
+    expect(timerCount()).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "展开看板娘" }));
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    fireEvent.load(character());
+    expect(timerCount()).toBe(1);
+    unmount();
+    expect(timerCount()).toBe(0);
+  });
+
+  it("stops motion in the background and starts idle again when visible", () => {
+    startAnimation();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    fireEvent.load(character());
+    advance(8000);
+    fireEvent.load(character());
+    hidden.mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
+    expect(timerCount()).toBe(0);
+    hidden.mockReturnValue(false);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+  });
+
+  it("respects reduced motion initially and when the system preference changes", () => {
+    const media = new EventTarget();
+    let reduced = true;
+    const matchMedia = Object.defineProperty(media, "matches", { get: () => reduced });
+    vi.stubGlobal("matchMedia", vi.fn(() => matchMedia));
+    const { unmount } = startAnimation();
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
+    expect(timerCount()).toBe(0);
+    reduced = false;
+    act(() => { media.dispatchEvent(new Event("change")); });
+    expect(character().getAttribute("src")).toContain("panna-idle.gif");
+    fireEvent.load(character());
+    reduced = true;
+    act(() => { media.dispatchEvent(new Event("change")); });
+    expect(character().getAttribute("src")).toContain("frames/idle/01.png");
+    expect(timerCount()).toBe(0);
+    unmount();
+    reduced = false;
+    act(() => { media.dispatchEvent(new Event("change")); });
+    expect(timerCount()).toBe(0);
+  });
+
+  it("falls back to the original image after a load failure without retrying motion", () => {
+    startAnimation();
+    fireEvent.load(character());
+    advance(8000);
+    fireEvent.error(character());
+    expect(character().getAttribute("src")).toContain("panel-navigator.png");
+    expect(timerCount()).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
+    fireEvent.click(screen.getByRole("button", { name: "暂停动画" }));
+    fireEvent.click(screen.getByRole("button", { name: "开启动画" }));
+    fireEvent.load(character());
+    advance(30000);
+    expect(character().getAttribute("src")).toContain("panel-navigator.png");
+    expect(timerCount()).toBe(0);
   });
 });

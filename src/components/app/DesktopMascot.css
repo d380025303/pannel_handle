@@ -1,43 +1,13 @@
-.desktop-mascot { position: fixed; z-index: 50; width: 144px; height: 212px; pointer-events: none; color: var(--color-text); font-size: 12px; }
+.desktop-mascot { position: fixed; z-index: 50; width: 144px; height: 192px; pointer-events: none; color: var(--color-text); font-size: 12px; }
 .desktop-mascot button, .desktop-mascot input { font: inherit; }
 .desktop-mascot button { cursor: pointer; color: inherit; }
 .desktop-mascot button:focus-visible, .desktop-mascot input:focus-visible { outline: 2px solid var(--color-info-text); outline-offset: 2px; }
-.desktop-mascot-controls { display: flex; justify-content: center; gap: 6px; height: 22px; pointer-events: auto; }
+.desktop-mascot-controls { display: flex; justify-content: center; gap: 6px; position: absolute; top: 0; left: 0; right: 0; height: 22px; pointer-events: auto; z-index: 1; }
 .desktop-mascot-controls button { display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-panel); padding: 2px 6px; }
-.desktop-mascot-drag { touch-action: none; cursor: move !important; }
-.desktop-mascot-character { display: flex; align-items: center; justify-content: center; pointer-events: auto; width: 100%; height: 168px; border: 0; padding: 0; background: transparent; transform-origin: bottom center; }
+.desktop-mascot-controls[hidden] { display: none; }
+.desktop-mascot.is-dragging .desktop-mascot-character { cursor: grabbing; }
+.desktop-mascot-character { display: flex; align-items: center; justify-content: center; pointer-events: auto; width: 100%; height: 192px; touch-action: none; user-select: none; border: 0; padding: 0; background: transparent; transform-origin: bottom center; }
 .desktop-mascot-character img { max-width: 100%; height: 100%; object-fit: contain; user-select: none; filter: drop-shadow(0 3px 8px #64c9cf33); }
-.desktop-mascot-badge { display: flex; justify-content: center; align-items: center; gap: 5px; white-space: nowrap; width: max-content; max-width: 100%; margin: 2px auto 0; padding: 3px 8px; border: 1px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg-panel); }
-.desktop-mascot-badge i { width: 6px; height: 6px; border-radius: 50%; background: #64c9cf; }
-.desktop-mascot.mood-waiting .desktop-mascot-badge i { background: #e8c981; }
-.desktop-mascot.mood-happy .desktop-mascot-badge i { background: #8ad9a4; }
-.desktop-mascot.mood-concerned .desktop-mascot-badge i { background: #f07f89; }
+.desktop-mascot-character img.desktop-mascot-frame { width: 192px; height: 192px; max-width: none; flex-shrink: 0; }
 .desktop-mascot.is-collapsed { width: 52px; height: 52px; }
-.desktop-mascot.is-collapsed .desktop-mascot-character { height: 30px; border-radius: 10px; background: var(--color-bg-panel); border: 1px solid var(--color-border-strong); }
-.desktop-mascot.is-animated .desktop-mascot-character { animation: mascot-breathe 4s ease-in-out infinite; }
-.desktop-mascot.is-animated.mood-working .desktop-mascot-character { animation-duration: 2s; }
-.desktop-mascot.is-animated.mood-waiting .desktop-mascot-badge i { animation: mascot-pulse 1.5s ease-in-out infinite; }
-.desktop-mascot.is-animated.is-greeting .desktop-mascot-character { animation: mascot-greet .85s ease-in-out; }
-.desktop-mascot-dialog { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 10px; width: 320px; max-width: calc(100vw - 16px); max-height: calc(100vh - 60px); box-sizing: border-box; overflow: auto; padding: 14px; background: var(--color-bg-panel); border: 1px solid var(--color-border-strong); border-radius: 16px; box-shadow: var(--shadow-dialog); }
-.desktop-mascot-dialog header { display: flex; align-items: center; justify-content: space-between; }
-.desktop-mascot-dialog header strong { display: flex; gap: 6px; align-items: center; }
-.desktop-mascot-dialog button { border: 1px solid var(--color-border-strong); border-radius: 7px; background: var(--color-bg-control); padding: 6px 8px; }
-.desktop-mascot-dialog button:hover { background: var(--color-bg-control-hover); }
-.desktop-mascot-dialog p { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
-.desktop-mascot-context { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-mascot-status { padding: 8px 10px; border-radius: 8px; background: var(--color-info-bg); color: var(--color-info-text); }
-.desktop-mascot-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.desktop-mascot-log { max-height: 140px; overflow: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-.desktop-mascot-log:empty { display: none; }
-.desktop-mascot-log p { border-radius: 8px; padding: 7px 9px; background: var(--color-bg-control); }
-.desktop-mascot-log p.from-user { margin-left: 24px; }
-.desktop-mascot-log b { display: block; color: var(--color-text-muted); font-size: 10px; }
-.desktop-mascot-dialog form { display: flex; gap: 6px; }
-.desktop-mascot-dialog input { width: 0; min-width: 0; flex: 1; border: 1px solid var(--color-border-strong); border-radius: 7px; padding: 8px; color: var(--color-text); background: var(--color-bg-app); }
-.desktop-mascot-dialog button:disabled { opacity: .5; cursor: default; }
-.desktop-mascot-dialog footer { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--color-text-muted); font-size: 10px; }
-.desktop-mascot-dialog footer span { width: 100%; }
-@keyframes mascot-breathe { 0%, 100% { transform: translateY(0) rotate(-.5deg); } 50% { transform: translateY(-4px) rotate(.5deg); } }
-@keyframes mascot-greet { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-4deg) translateY(-4px); } 65% { transform: rotate(4deg) translateY(-4px); } }
-@keyframes mascot-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .desktop-mascot.is-animated .desktop-mascot-character, .desktop-mascot.is-animated .desktop-mascot-badge i { animation: none; } }
+.desktop-mascot.is-collapsed .desktop-mascot-character { height: 52px; border-radius: 10px; background: var(--color-bg-panel); border: 1px solid var(--color-border-strong); }
