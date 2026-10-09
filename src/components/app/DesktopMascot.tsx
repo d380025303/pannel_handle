@@ -108,6 +108,7 @@ export function DesktopMascot({ locale }: {
   const animation = useMascotAnimation(preferences.animated && !preferences.collapsed);
   const drag = useRef<{ id: number; x: number; y: number; startX: number; startY: number; active: boolean; timer: number; target: HTMLButtonElement } | undefined>(undefined);
   const suppressClick = useRef(false);
+  const keyboardInteraction = useRef(true);
   const position = boundPosition(preferences.x ?? viewport.width - 172, preferences.y ?? viewport.height - 230, preferences.collapsed);
   const text = (cn: string, en: string) => zh ? cn : en;
 
@@ -146,7 +147,7 @@ export function DesktopMascot({ locale }: {
       current.active = true;
       suppressClick.current = true;
       setDragging(true);
-    }, 300);
+    }, 50);
     drag.current = current;
   }
   function moveDrag(event: PointerEvent<HTMLButtonElement>) {
@@ -165,7 +166,9 @@ export function DesktopMascot({ locale }: {
   return (
     <aside className={`desktop-mascot${preferences.collapsed ? " is-collapsed" : ""}${dragging ? " is-dragging" : ""}`} style={style} aria-label={text("看板娘小帕", "Panna companion")}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
+      onPointerDownCapture={() => { keyboardInteraction.current = false; setFocused(false); }}
+      onKeyDownCapture={() => { keyboardInteraction.current = true; setFocused(true); }}
+      onFocus={event => { if (keyboardInteraction.current || event.target.matches(":focus-visible")) setFocused(true); }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
       {!preferences.collapsed && <div className="desktop-mascot-controls" hidden={!hovered && !focused}>
         <button type="button" aria-label={text("收起看板娘", "Minimize companion")} onClick={() => setPreferences(current => ({ ...current, collapsed: true }))}><Minus size={14} /></button>
       </div>}

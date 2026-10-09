@@ -3,11 +3,11 @@
     "file": "panna-idle.gif",
     "width": 512,
     "height": 512,
-    "frames": 8,
+    "frames": 4,
     "durationMs": 3000,
     "loop": "infinite",
     "transparent": true,
-    "bytes": 404025
+    "bytes": 199444
   },
   {
     "file": "panna-wave.gif",
@@ -17,7 +17,14 @@
     "durationMs": 2080,
     "loop": "infinite",
     "transparent": true,
-    "bytes": 676556
+    "bytes": 702335,
+    "staticBodyUnchanged": true,
+    "motionRegion": {
+      "left": 320,
+      "top": 198,
+      "width": 88,
+      "height": 102
+    }
   },
   {
     "file": "panna-working.gif",

@@ -40,6 +40,7 @@ async function main() {
   const contact = [];
   for (const { name, frames } of sets) {
     if (!only || only === name) {
+    const frameScale = name === 'wave' ? 443 / (frames[0].bounds.y1 - frames[0].bounds.y0 + 1) : scale;
     const dir = path.join(root, 'frames', name);
     fs.mkdirSync(dir, { recursive: true });
     const normalized = [];
@@ -48,10 +49,10 @@ async function main() {
       const w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1;
       const resized = await sharp(f.data, { raw: { width: f.width, height: f.height, channels: 4 } })
         .extract({ left: b.x0, top: b.y0, width: w, height: h })
-        .resize(Math.round(w * scale), Math.round(h * scale)).png().toBuffer();
+        .resize(Math.round(w * frameScale), Math.round(h * frameScale)).png().toBuffer();
       const m = await sharp(resized).metadata();
       const lift = name === 'celebrate' ? [0, 3, 10, 20, 24, 16, 7, 0][i]
-        : name === 'idle' ? [0, 1, 2, 3, 3, 2, 1, 0][i] : 0;
+        : 0;
       // Wave hands change the silhouette width. Anchor the lower body instead
       // so the face and torso do not slide sideways with the moving hand.
       let centerX = (b.x0 + b.x1) / 2;
@@ -65,8 +66,8 @@ async function main() {
         }
         if (weight) centerX = sumX / weight;
       }
-      const png = await sharp({ create: { width: 512, height: 512, channels: 4, background: '#00000000' } })
-        .composite([{ input: resized, left: name === 'wave' ? Math.round(256 - (centerX - b.x0) * scale) : Math.round((512 - m.width) / 2), top: 480 - m.height - lift }]).png().toBuffer();
+      let png = await sharp({ create: { width: 512, height: 512, channels: 4, background: '#00000000' } })
+        .composite([{ input: resized, left: name === 'wave' ? Math.round(256 - (centerX - b.x0) * frameScale) : Math.round((512 - m.width) / 2), top: 480 - m.height - lift }]).png().toBuffer();
       fs.writeFileSync(path.join(dir, `${String(i + 1).padStart(2, '0')}.png`), png);
       normalized.push(await sharp(png).ensureAlpha().raw().toBuffer());
     }
@@ -82,8 +83,10 @@ async function main() {
       for (let p = 0; p < indices.length; p++) indices[p] = frame[p * 4 + 3] < 128 ? 0 : indices[p] + 1;
       return indices;
     });
-    const sequence = name === 'idle' ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
-    const delays = name === 'idle' ? [800, 500, 100, 120, 100, 280, 300, 800]
+    // Hold a stable open-eye pose, then close and reopen through the same
+    // half-closed pose. Cycling all generated poses introduces drawing drift.
+    const sequence = name === 'idle' ? [0, 2, 3, 2] : [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
+    const delays = name === 'idle' ? [2780, 60, 80, 80]
       : name === 'working' ? [400, 220, 180, 180, 180, 180, 180, 300, 180, 180, 180, 180, 220, 240]
       : [320, 120, 120, 120, 120, 120, 120, 320, 120, 120, 120, 120, 120, 120];
     const gif = GIFEncoder();

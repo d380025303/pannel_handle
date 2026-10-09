@@ -13,59 +13,142 @@ describe("DesktopMascot", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reflects the current session status without stealing input focus", () => {
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    input.focus();
-    const { rerender } = render(<DesktopMascot locale="zh-CN" status="running" sessionTitle="Session A" onAction={vi.fn()} />);
-    expect(document.activeElement).toBe(input);
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    expect(screen.getByText("Session A")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("正在工作");
-    rerender(<DesktopMascot locale="zh-CN" status="waiting_for_permission" sessionTitle="Session B" onAction={vi.fn()} />);
-    expect(screen.getByText("Session B")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("需要你的回应");
-    input.remove();
-  });
-
-  it("routes shortcuts only after a click and closes the conversation", () => {
+  it("clicks without opening chat or showing a badge", () => {
     const onAction = vi.fn();
-    render(<DesktopMascot locale="zh-CN" onAction={onAction} />);
+    render(<DesktopMascot locale="en-US" onAction={onAction} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move companion (arrow keys)" }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("complementary").querySelector(".desktop-mascot-badge")).toBeNull();
     expect(onAction).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
-    expect(onAction).toHaveBeenCalledWith("skills");
-    expect(screen.queryByRole("button", { name: "发送" })).toBeNull();
   });
 
-  it("provides local guidance without triggering actions or rendering user HTML", () => {
-    const onAction = vi.fn();
-    render(<DesktopMascot locale="zh-CN" onAction={onAction} />);
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "SSH <script>alert(1)</script>" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    expect(screen.getByText(/点击「新建会话」选择 SSH/)).toBeTruthy();
-    expect(screen.getByRole("log").querySelector("script")).toBeNull();
-    expect(onAction).not.toHaveBeenCalled();
-    expect(localStorage.getItem("pannel-handle.desktop-mascot.v1")).not.toContain("script");
-  });
-
-  it("persists collapse, animation and keyboard positioning across remounts", () => {
+  it("reveals minimize on hover or focus and persists collapse and keyboard position", () => {
+    localStorage.setItem("pannel-handle.desktop-mascot.v1", JSON.stringify({ animated: false }));
     const props = { locale: "en-US" as const, onAction: vi.fn() };
     const { unmount } = render(<DesktopMascot {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Talk to Panna" }));
-    fireEvent.click(screen.getByRole("button", { name: "Pause motion" }));
-    fireEvent.keyDown(screen.getByRole("button", { name: "Move companion (arrow keys)" }), { key: "ArrowLeft" });
+    const companion = screen.getByRole("complementary");
+    expect(screen.queryByRole("button", { name: "Minimize companion" })).toBeNull();
+    fireEvent.mouseEnter(companion);
+    const minimize = screen.getByRole("button", { name: "Minimize companion" });
+    fireEvent.mouseEnter(minimize);
+    expect(screen.getByRole("button", { name: "Minimize companion" })).toBe(minimize);
+    fireEvent.mouseLeave(companion);
+    expect(screen.queryByRole("button", { name: "Minimize companion" })).toBeNull();
+    const button = screen.getByRole("button", { name: "Move companion (arrow keys)" });
+    fireEvent.focus(button);
+    expect(screen.getByRole("button", { name: "Minimize companion" })).toBeTruthy();
+    fireEvent.keyDown(button, { key: "ArrowLeft" });
     const saved = JSON.parse(localStorage.getItem("pannel-handle.desktop-mascot.v1")!);
     expect(saved.animated).toBe(false);
     expect(Number.isFinite(saved.x)).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Minimize companion" }));
+    fireEvent.click(minimize);
     unmount();
     render(<DesktopMascot {...props} />);
-    expect(screen.getByRole("button", { name: "Expand companion" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Expand companion" }));
-    expect(screen.getByRole("button", { name: "Talk to Panna" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Talk to Panna" }).querySelector("img")?.getAttribute("src")).toContain("frames/idle/01.png");
+    expect(screen.getByRole("button", { name: "Move companion (arrow keys)" }).querySelector("img")?.getAttribute("src")).toContain("frames/idle/01.png");
+  });
+
+  it("hides minimize after mouse focus leaves the hover area", () => {
+    const { button, companion } = setupDrag();
+    fireEvent.mouseEnter(companion);
+    fireEvent.pointerDown(button, pointer);
+    fireEvent.focus(button);
+    fireEvent.pointerUp(button, pointer);
+    fireEvent.mouseLeave(companion);
+    expect(screen.queryByRole("button", { name: "Minimize companion" })).toBeNull();
+    fireEvent.keyDown(button, { key: "ArrowLeft" });
+    expect(screen.getByRole("button", { name: "Minimize companion" })).toBeTruthy();
+    fireEvent.blur(button, { relatedTarget: document.body });
+    expect(screen.queryByRole("button", { name: "Minimize companion" })).toBeNull();
+  });
+
+  function setupDrag(collapsed = false) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    localStorage.setItem("pannel-handle.desktop-mascot.v1", JSON.stringify({ x: 200, y: 200, collapsed }));
+    class TestPointerEvent extends MouseEvent {
+      pointerId: number;
+      isPrimary: boolean;
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 1;
+        this.isPrimary = init.isPrimary ?? true;
+      }
+    }
+    vi.stubGlobal("PointerEvent", TestPointerEvent);
+    const result = render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
+    const button = screen.getByRole("button", { name: collapsed ? "Expand companion" : "Move companion (arrow keys)" });
+    button.setPointerCapture = vi.fn();
+    button.hasPointerCapture = vi.fn(() => true);
+    button.releasePointerCapture = vi.fn();
+    return { ...result, button, companion: screen.getByRole("complementary") };
+  }
+  const pointer = { pointerId: 1, button: 0, isPrimary: true, clientX: 250, clientY: 250 };
+
+  it("waits 50ms and drags from the latest pointer position within bounds", () => {
+    const { button, companion, unmount } = setupDrag();
+    fireEvent.pointerDown(button, pointer);
+    advance(49);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 280 });
+    expect(companion.style.left).toBe("200px");
+    advance(1);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 300 });
+    expect(companion.style.left).toBe("220px");
+    fireEvent.pointerMove(button, { ...pointer, clientX: 1e6, clientY: -1e6 });
+    expect(companion.style.left).toBe(`${window.innerWidth - 152}px`);
+    expect(companion.style.top).toBe("44px");
+    fireEvent.pointerUp(button, pointer);
+    expect(button.releasePointerCapture).toHaveBeenCalledWith(1);
+    unmount();
+    render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
+    expect(screen.getByRole("complementary").style.top).toBe("44px");
+  });
+
+  it.each(["pointerUp", "pointerCancel", "lostPointerCapture"] as const)("cleans up early %s", event => {
+    const { button, companion } = setupDrag();
+    fireEvent.pointerDown(button, pointer);
+    advance(25);
+    fireEvent[event](button, pointer);
+    advance(50);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 400 });
+    expect(companion.style.left).toBe("200px");
+    expect(companion.className).not.toContain("is-dragging");
+  });
+
+  it.each(["pointerCancel", "lostPointerCapture"] as const)("stops active movement on %s", event => {
+    const { button, companion } = setupDrag();
+    fireEvent.pointerDown(button, pointer);
+    advance(50);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 270 });
+    fireEvent[event](button, pointer);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 400 });
+    expect(companion.style.left).toBe("220px");
+    expect(companion.className).not.toContain("is-dragging");
+  });
+
+  it("suppresses expansion after dragging but permits a subsequent short click", () => {
+    const { button } = setupDrag(true);
+    fireEvent.pointerDown(button, pointer);
+    advance(50);
+    fireEvent.pointerMove(button, { ...pointer, clientX: 270 });
+    fireEvent.pointerUp(button, pointer);
+    fireEvent.click(button);
+    expect(screen.getByRole("button", { name: "Expand companion" })).toBeTruthy();
+    fireEvent.pointerDown(button, pointer);
+    fireEvent.pointerUp(button, pointer);
+    fireEvent.click(button);
+    expect(screen.getByRole("button", { name: "Move companion (arrow keys)" })).toBeTruthy();
+  });
+
+  it("ignores secondary pointers and clears pending capture and timers on unmount", () => {
+    const { button, unmount } = setupDrag();
+    fireEvent.pointerDown(button, { ...pointer, isPrimary: false });
+    fireEvent.pointerDown(button, { ...pointer, button: 2 });
+    expect(button.setPointerCapture).not.toHaveBeenCalled();
+    fireEvent.pointerDown(button, pointer);
+    unmount();
+    expect(button.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(timerCount()).toBe(0);
   });
 
   it("recovers from malformed or out-of-bounds stored preferences", () => {
@@ -77,11 +160,11 @@ describe("DesktopMascot", () => {
     unmount();
     localStorage.setItem("pannel-handle.desktop-mascot.v1", "invalid JSON");
     render(<DesktopMascot locale="en-US" onAction={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Talk to Panna" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Move companion (arrow keys)" })).toBeTruthy();
   });
 
   function character() {
-    return screen.getByRole("button", { name: "和小帕聊聊" }).querySelector("img")!;
+    return screen.getByRole("button", { name: "拖动看板娘（方向键移动）" }).querySelector("img")!;
   }
   function advance(ms: number) { act(() => { vi.advanceTimersByTime(ms); }); }
   function timerCount() {
@@ -115,9 +198,9 @@ describe("DesktopMascot", () => {
     expect(character()).toBe(actionImage);
     fireEvent.load(actionImage);
     rerender(<DesktopMascot locale="zh-CN" status="completed" sessionTitle="Completed session" onAction={vi.fn()} />);
-    // Session updates and opening the conversation must not restart the action.
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    expect(screen.getByRole("status").textContent).toContain("本轮任务已完成");
+    // Session updates and clicking the character must not restart the action.
+    fireEvent.click(screen.getByRole("button", { name: "拖动看板娘（方向键移动）" }));
+    expect(screen.queryByRole("status")).toBeNull();
     advance(duration - 1);
     expect(character()).toBe(actionImage);
     advance(1);
@@ -139,26 +222,17 @@ describe("DesktopMascot", () => {
     expect(character().getAttribute("src")).toContain("panna-working.gif");
   });
 
-  it("uses a still frame when paused and resumes with a fresh idle image", () => {
+  it("uses a still frame for persisted paused preferences", () => {
+    localStorage.setItem("pannel-handle.desktop-mascot.v1", JSON.stringify({ animated: false }));
     startAnimation();
-    fireEvent.load(character());
-    advance(8000);
-    fireEvent.load(character());
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    fireEvent.click(screen.getByRole("button", { name: "暂停动画" }));
     expect(character().getAttribute("src")).toContain("frames/idle/01.png");
     expect(timerCount()).toBe(0);
-    advance(30000);
-    fireEvent.click(screen.getByRole("button", { name: "开启动画" }));
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
-    fireEvent.load(character());
-    advance(7999);
-    expect(character().getAttribute("src")).toContain("panna-idle.gif");
   });
 
   it("cleans up scheduling when collapsed or unmounted", () => {
     const { unmount } = startAnimation();
     fireEvent.load(character());
+    fireEvent.mouseEnter(screen.getByRole("complementary"));
     fireEvent.click(screen.getByRole("button", { name: "收起看板娘" }));
     expect(screen.getByRole("complementary").querySelector("img")).toBeNull();
     expect(timerCount()).toBe(0);
@@ -214,9 +288,7 @@ describe("DesktopMascot", () => {
     fireEvent.error(character());
     expect(character().getAttribute("src")).toContain("panel-navigator.png");
     expect(timerCount()).toBe(0);
-    fireEvent.click(screen.getByRole("button", { name: "和小帕聊聊" }));
-    fireEvent.click(screen.getByRole("button", { name: "暂停动画" }));
-    fireEvent.click(screen.getByRole("button", { name: "开启动画" }));
+    fireEvent.click(screen.getByRole("button", { name: "拖动看板娘（方向键移动）" }));
     fireEvent.load(character());
     advance(30000);
     expect(character().getAttribute("src")).toContain("panel-navigator.png");
