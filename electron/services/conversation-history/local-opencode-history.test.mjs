@@ -75,6 +75,22 @@ it("treats a missing database as empty history", async () => {
   expect(result).toMatchObject({ items: [], errors: [] });
 });
 
+it("labels OpenCode assistant summary messages in local and remote history", async () => {
+  const homeDir = fixture();
+  const db = new DatabaseSync(path.join(homeDir, ".local", "share", "opencode", "opencode.db"));
+  db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)").run("m_summary", "ses_one", 3000, JSON.stringify({ role: "assistant", summary: true }));
+  db.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?)").run("p_summary", "m_summary", "ses_one", 3000, JSON.stringify({ type: "text", text: "Conversation summary" }));
+  db.close();
+  const payload = { conversationRef: "opencode:ses_one", limit: 100 };
+  const local = await service(homeDir).getHistoryMessages({ ...payload, panelSessionId: "panel" });
+  expect(local.messages[0]).toMatchObject({ kind: "summary", text: "Conversation summary" });
+  const remote = spawnSync(process.platform === "win32" ? "python" : "python3", [
+    path.join(import.meta.dirname, "agent-conversation-history-remote.py"), "messages", Buffer.from(JSON.stringify(payload)).toString("base64")
+  ], { encoding: "utf8", env: { ...process.env, XDG_DATA_HOME: path.join(homeDir, ".local", "share") } });
+  expect(remote.status, remote.stderr).toBe(0);
+  expect(JSON.parse(remote.stdout).messages).toEqual(local.messages);
+});
+
 it("reads the same OpenCode history through the remote Python parser", () => {
   const homeDir = fixture();
   const python = process.platform === "win32" ? "python" : "python3";

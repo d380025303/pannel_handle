@@ -1,10 +1,48 @@
 import { createRequire } from "node:module";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { createAgentConversationTranscriptParser, parseAgentConversationText } = require("./agent-conversation-transcript.cjs");
 
 describe("Agent conversation transcript parser", () => {
+  it("matches the remote Python summary parser for both CLI providers", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "summary-history-"));
+    try {
+      const file = path.join(directory, "history.jsonl");
+      const records = [
+        { type: "summary", id: "buddy-summary", timestamp: "2026-01-01T00:00:00Z", summary: "## Buddy\n摘要" },
+        { type: "summary", summary: " " },
+        { type: "compacted", timestamp: "2026-01-01T00:00:01Z", payload: { message: "## Codex\n摘要" } },
+        { type: "compacted", payload: { message: {} } }
+      ];
+      const text = [...records, ...records].map(record => JSON.stringify(record)).join("\n") + '\n{"type":';
+      writeFileSync(file, text);
+      const script = readFileSync(new URL("./agent-conversation-history-remote.py", import.meta.url), "utf8").replace(/\nmain\(\)\s*$/, "");
+      const result = spawnSync(process.platform === "win32" ? "python" : "python3", ["-c",
+        script + '\nprint(json.dumps({p: parse_messages(p, sys.argv[1]) for p in ["codex", "codebuddy"]}, ensure_ascii=False))', file
+      ], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+      expect(result.status, result.stderr).toBe(0);
+      const remote = JSON.parse(result.stdout);
+      for (const provider of ["codex", "codebuddy"])
+        expect(remote[provider]).toEqual(parseAgentConversationText(provider, text, { includeUser: true }));
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it.each(["codex", "codebuddy"])("reads %s compaction summaries without replaying replacement history", provider => {
+    const summary = (text, timestamp = "2026-01-01T00:00:01Z") => provider === "codex"
+      ? { type: "compacted", timestamp, payload: { message: text, replacement_history: [{ type: "message", role: "user", content: [{ type: "input_text", text: "replayed" }] }] } }
+      : { type: "summary", timestamp, summary: text };
+    const parser = createAgentConversationTranscriptParser(provider);
+    expect(parser.pushLine(JSON.stringify(summary("  ## 摘要\n保留进度  ")))).toEqual([
+      expect.objectContaining({ kind: "summary", text: "## 摘要\n保留进度" })]);
+    expect(parser.pushLine(JSON.stringify(summary("  ## 摘要\n保留进度  ")))).toEqual([]);
+    expect(parser.pushLine(JSON.stringify(summary("## 摘要\n保留进度", "2026-01-01T00:00:02Z")))).toHaveLength(1);
+    for (const text of [undefined, "", " \n", {}]) expect(parser.pushLine(JSON.stringify(summary(text)))).toEqual([]);
+    expect(parser.pushLine('{"type":')).toEqual([]);
+  });
   it("parses Gemini user and assistant messages and deduplicates updates", () => {
     const messages = parseAgentConversationText("gemini", [
       JSON.stringify({ id: "u1", type: "user", content: "问题", timestamp: "2026-01-01T00:00:00Z" }),

@@ -11,11 +11,18 @@ describe("installBrowserPreview", () => {
   it("installs every renderer bridge used by the application", () => {
     expect(Object.keys(window)).toEqual(expect.arrayContaining([
       "environmentApi", "terminalApi", "screenshotApi", "openRouterApi", "naraRouterApi", "miniMaxApi",
-      "agentConversationApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
+      "agentConversationApi", "codexWorkspaceTrustApi", "launchTemplateApi", "mobileAccessApi", "hookConfigApi",
       "dingTalkApi", "clipboardApi", "externalLinkApi", "remoteFileApi", "remoteSystemApi", "skillsApi",
       "mcpApi", "agentUsageApi", "workBuddyCheckinApi", "agentTokenStatsApi", "remoteAgentApi",
       "fileTransferApi", "gitApi", "projectSearchApi", "ideaBridgeApi", "windowApi"
     ]));
+  });
+
+  it("keeps workspace trust idle and prevents real Hook operations in browser preview", async () => {
+    expect(await window.codexWorkspaceTrustApi.listPending()).toEqual([]);
+    expect(window.codexWorkspaceTrustApi.onChanged(vi.fn())).toBeTypeOf("function");
+    expect(window.codexWorkspaceTrustApi.onResolved(vi.fn())).toBeTypeOf("function");
+    await expect(window.codexWorkspaceTrustApi.openHooks("preview")).rejects.toThrow("浏览器预览");
   });
 
   it("restores showcase sessions and publishes in-memory session changes", async () => {

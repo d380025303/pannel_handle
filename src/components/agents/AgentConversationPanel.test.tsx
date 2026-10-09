@@ -42,6 +42,18 @@ describe("AgentConversationPanel", () => {
     Object.defineProperty(window, "requestAnimationFrame", { configurable: true, value: (callback: FrameRequestCallback) => { callback(0); return 1; } });
   });
 
+  it("renders conversation summaries as searchable Markdown in the current conversation", async () => {
+    render(<AgentConversationPanel snapshot={{ ...baseSnapshot, turn: { ...baseSnapshot.turn!, messages: [
+      { id: "summary", provider: "codex", kind: "summary", text: "## 压缩记录\n\n已完成 **进度**。", timestamp: 1 }
+    ] } }} />);
+    expect(screen.getByText("对话摘要")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "压缩记录" })).toBeTruthy();
+    expect(screen.getByText("进度").tagName).toBe("STRONG");
+    fireEvent.click(screen.getByRole("button", { name: "搜索内容" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话内容" }), { target: { value: "进度" } });
+    await waitFor(() => expect(document.querySelector("mark")?.textContent).toBe("进度"));
+  });
+
   it("lists native history and opens a selected conversation without exposing file paths", async () => {
     listHistory.mockResolvedValue({
       items: [{
@@ -61,6 +73,7 @@ describe("AgentConversationPanel", () => {
       conversationRef: "codebuddy:buddy-one",
       messages: [
         { id: "answer", provider: "codebuddy", kind: "reply", text: "Historical answer", timestamp: 2 },
+        { id: "summary", provider: "codebuddy", kind: "summary", text: "Historical summary", timestamp: 1.5 },
         { id: "question", provider: "codebuddy", kind: "user", text: "Historical question", timestamp: 1 }
       ],
       nextCursor: null
@@ -77,6 +90,8 @@ describe("AgentConversationPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Buddy history/ }));
     expect(await screen.findByText("Historical answer")).toBeTruthy();
     expect(screen.getByText("Historical question")).toBeTruthy();
+    expect(screen.getByText("Historical summary")).toBeTruthy();
+    expect(screen.getByText("对话摘要")).toBeTruthy();
     expect(listHistory).toHaveBeenCalledWith(expect.objectContaining({ panelSessionId: "panel-1", source: "archive", scope: "cwd" }));
     expect(getHistoryMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationRef: "codebuddy:buddy-one" }));
   });
@@ -116,7 +131,10 @@ describe("AgentConversationPanel", () => {
     const listConversations = vi.fn(async () => [{ source_key: "windows:C:\\work",
       conversation_ref: "codex:remote-one", metadata: { ref: "codex:remote-one", provider: "codex",
         title: "Remote backup", preview: "Question", cwd: "C:\\work", createdAt: 1, updatedAt: 2, archived: false } }]);
-    const getMessages = vi.fn(async () => [{ id: "reply", provider: "codex", kind: "final", text: "Backed up answer", timestamp: 2 }]);
+    const getMessages = vi.fn(async () => [
+      { id: "reply", provider: "codex", kind: "final", text: "Backed up answer", timestamp: 2 },
+      { id: "summary", provider: "codex", kind: "summary", text: "Backed up summary", timestamp: 1 }
+    ]);
     Object.defineProperty(window, "postgresBackupApi", { configurable: true, value: {
       listDevices: async () => [{ id: "other-computer", name: "Other computer" }], listConversations, getMessages
     } });
@@ -128,6 +146,8 @@ describe("AgentConversationPanel", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Other computer" }));
     fireEvent.click(await screen.findByRole("button", { name: /Remote backup/ }));
     expect(await screen.findByText("Backed up answer")).toBeTruthy();
+    expect(screen.getByText("Backed up summary")).toBeTruthy();
+    expect(screen.getByText("对话摘要")).toBeTruthy();
     expect(listConversations).toHaveBeenCalledWith("other-computer", 0);
     expect(getMessages).toHaveBeenCalledWith("other-computer", "windows:C:\\work", "codex:remote-one", 0);
   });

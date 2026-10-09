@@ -638,7 +638,7 @@ export type AgentStatusPayload = {
 export type AgentConversationMessage = {
   id: string;
   provider: AgentProvider;
-  kind: "user" | "commentary" | "final" | "reply" | "reasoning" | "tool";
+  kind: "user" | "commentary" | "final" | "reply" | "reasoning" | "tool" | "summary";
   threadId?: string;
   itemType?: string;
   turnId?: string;

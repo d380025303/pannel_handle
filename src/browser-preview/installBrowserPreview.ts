@@ -542,6 +542,18 @@ export function installBrowserPreview() {
       onChanged: () => () => undefined,
       onDelta: () => () => undefined
     } satisfies Window["codexAppServerApi"],
+    codexWorkspaceTrustApi: {
+      listPending: async () => [],
+      trustProject: async () => { throw new Error("浏览器预览不支持工作区信任操作。"); },
+      openHooks: async () => { throw new Error("浏览器预览不支持启动 Codex Hook 终端。"); },
+      write: async () => { throw new Error("浏览器预览没有 Hook 终端。"); },
+      resize: async () => undefined,
+      finish: async () => false,
+      cancel: async () => false,
+      onChanged: () => () => undefined,
+      onOutput: () => () => undefined,
+      onResolved: () => () => undefined
+    } satisfies Window["codexWorkspaceTrustApi"],
     codexVersionApi: {
       check: async () => ({ status: "available", currentVersion: "0.156.0", latestVersion: "0.157.0", method: "npm", environment: "windows" }),
       update: async () => ({ status: "current", currentVersion: "0.157.0", latestVersion: "0.157.0", method: "npm", environment: "windows", restartRequired: true })
@@ -684,7 +696,7 @@ export function installBrowserPreview() {
     } satisfies Window["windowApi"]
   } satisfies Pick<Window,
     "environmentApi" | "terminalApi" | "screenshotApi" | "openRouterApi" | "naraRouterApi" | "miniMaxApi" |
-    "agentConversationApi" | "codexAppServerApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
+    "agentConversationApi" | "codexAppServerApi" | "codexWorkspaceTrustApi" | "codexVersionApi" | "openCodeVersionApi" | "launchTemplateApi" | "mobileAccessApi" | "hookConfigApi" |
     "dingTalkApi" | "clipboardApi" | "externalLinkApi" | "remoteFileApi" | "remoteSystemApi" | "skillsApi" |
     "mcpApi" | "agentUsageApi" | "workBuddyCheckinApi" | "qoderCheckinApi" | "agentTokenStatsApi" | "postgresBackupApi" | "remoteAgentApi" |
     "fileTransferApi" | "gitApi" | "projectSearchApi" | "ideaBridgeApi" | "windowApi"

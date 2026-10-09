@@ -8162,8 +8162,7 @@ button.agent-usage-status[aria-expanded="true"] {
 .codex-app-server-input-border.is-running { background: conic-gradient(from var(--codex-app-server-border-angle), var(--codex-mode-border) 0deg 195deg, var(--codex-mode-trail) 235deg, var(--codex-mode-highlight) 275deg 315deg, var(--codex-mode-border) 355deg 360deg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--codex-mode-trail) 55%, transparent), 0 0 12px color-mix(in srgb, var(--codex-mode-border) 50%, transparent); animation: codex-app-server-border-run 1.8s linear infinite; }
 .codex-app-server-composer textarea { display: block; box-sizing: border-box; width: 100%; min-height: 72px; max-height: 180px; resize: vertical; padding: 11px 13px 4px; border: 0; border-radius: 8px 8px 0 0; outline: none; color: var(--color-text); background: var(--color-bg-app); font-size: 13px; line-height: 1.5; }
 .codex-app-server-composer textarea:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
+  outline: none;
 }
 .codex-app-server-composer textarea::placeholder { color: var(--color-text-subtle); }
 .codex-app-server-composer textarea:disabled { opacity: .65; }

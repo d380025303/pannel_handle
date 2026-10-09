@@ -256,7 +256,17 @@ def parse_messages(provider, file_name):
         message_id = None
         kind = None
         text = ""
-        if provider == "codex" and item.get("type") == "response_item":
+        if provider == "codex" and item.get("type") == "compacted":
+            value = (item.get("payload") or {}).get("message")
+            text = value.strip() if isinstance(value, str) else ""
+            kind = "summary"
+            message_id = item.get("id") or f"summary:{item.get('timestamp') or ''}:{text}"
+        elif provider == "codebuddy" and item.get("type") == "summary":
+            value = item.get("summary")
+            text = value.strip() if isinstance(value, str) else ""
+            kind = "summary"
+            message_id = item.get("id") or f"summary:{item.get('timestamp') or ''}:{text}"
+        elif provider == "codex" and item.get("type") == "response_item":
             data = item.get("payload") or {}
             if data.get("type") != "message":
                 continue
@@ -365,7 +375,8 @@ def opencode_messages(session_id):
     try:
         if connection.execute("SELECT 1 FROM session WHERE id = ? AND parent_id IS NULL", (session_id,)).fetchone() is None:
             raise RuntimeError("OpenCode conversation is unavailable")
-        rows = connection.execute("""SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role, p.data AS part_data
+        rows = connection.execute("""SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role,
+            json_extract(m.data, '$.summary') AS summary, p.data AS part_data
             FROM message m JOIN part p ON p.message_id = m.id WHERE m.session_id = ?
             ORDER BY m.time_created, m.id, p.time_created, p.id""", (session_id,)).fetchall()
         messages = {}
@@ -380,7 +391,7 @@ def opencode_messages(session_id):
             if not isinstance(text, str) or not text.strip():
                 continue
             message = messages.setdefault(row["id"], {"id": row["id"], "provider": "opencode",
-                "kind": "user" if row["role"] == "user" else "reply", "text": "",
+                "kind": "user" if row["role"] == "user" else "summary" if row["summary"] == 1 else "reply", "text": "",
                 "timestamp": timestamp_ms(row["time_created"])})
             message["text"] += ("\n\n" if message["text"] else "") + text.strip()
         return list(messages.values())

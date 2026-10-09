@@ -2,6 +2,13 @@ const { createConversationArchiveStore } = require("./conversation-archive-store
 
 const { savedMessage } = require("./saved-message.cjs");
 function graphicalMessage(item, provider, timestamp) {
+  if (item?.type === "contextCompaction") {
+    const summary = item.compactionSummary || item.summary;
+    const text = typeof item.text === "string" && item.text.trim() ? item.text
+      : Array.isArray(summary) ? summary.map(part => typeof part === "string" ? part : part?.text || "").filter(Boolean).join("\n\n")
+      : typeof summary === "string" ? summary : "";
+    return savedMessage({ id: item.id, provider, kind: "summary", text, timestamp, turnId: item.turnId });
+  }
   if (!["userMessage", "agentMessage"].includes(item?.type)) return null;
   let text = typeof item.text === "string" ? item.text : "";
   if (item.type === "userMessage" && item.attachments?.length)

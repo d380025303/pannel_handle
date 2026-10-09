@@ -22,6 +22,12 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
   const seenMessageIds = new Set();
 
   function parseCodex(item) {
+    if (item?.type === "compacted") {
+      const text = typeof item.payload?.message === "string" ? item.payload.message.trim() : "";
+      if (!text) return null;
+      return { id: String(item.id || `summary:${item.timestamp || ""}:${text}`), provider, kind: "summary",
+        text, timestamp: normalizeTimestamp(item.timestamp) };
+    }
     if (item?.type !== "response_item") return null;
     const payload = item.payload || {};
     if (payload.type !== "message") return null;
@@ -46,6 +52,12 @@ function createAgentConversationTranscriptParser(provider, options = {}) {
   }
 
   function parseCodeBuddy(item) {
+    if (item?.type === "summary") {
+      const text = typeof item.summary === "string" ? item.summary.trim() : "";
+      if (!text) return null;
+      return { id: String(item.id || `summary:${item.timestamp || ""}:${text}`), provider, kind: "summary",
+        text, timestamp: normalizeTimestamp(item.timestamp) };
+    }
     if (item?.type !== "message") return null;
     const isUser = item.role === "user";
     if (isUser && !options.includeUser) return null;

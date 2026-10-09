@@ -364,6 +364,7 @@ export function AgentConversationPanel({
                 ? (isEnglish ? "You" : "用户")
                 : message.kind === "final"
                   ? (isEnglish ? "Final reply" : "最终回复")
+                  : message.kind === "summary" ? (isEnglish ? "Conversation summary" : "对话摘要")
                   : message.kind === "reasoning" ? (isEnglish ? "Reasoning" : "推理")
                   : message.kind === "tool" ? (isEnglish ? "Tool / event" : "工具 / 事件")
                   : (isEnglish ? "Progress update" : "中间回复")}

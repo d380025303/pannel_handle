@@ -11,6 +11,16 @@ function createHarness() {
 }
 
 describe("Agent conversation manager", () => {
+  it("retains a parsed summary between turns without duplicating it", () => {
+    const { manager } = createHarness();
+    manager.setActiveSession("panel-1");
+    manager.startTurn({ sessionId: "panel-1", provider: "codebuddy", supported: true });
+    const summary = { id: "summary", provider: "codebuddy", kind: "summary", text: "压缩摘要", timestamp: 1 };
+    manager.appendMessages("panel-1", [summary, summary]);
+    manager.completeTurn("panel-1");
+    manager.startTurn({ sessionId: "panel-1", provider: "codebuddy", supported: true });
+    expect(manager.getSnapshot().turn.messages).toEqual([summary]);
+  });
   it("adds the submitted user prompt to the live conversation once", () => {
     const { manager } = createHarness();
     manager.setActiveSession("panel-1");

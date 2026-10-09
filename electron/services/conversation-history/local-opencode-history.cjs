@@ -52,6 +52,7 @@ function getLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
     if (!database.prepare("SELECT 1 FROM session WHERE id = ? AND parent_id IS NULL").get(id))
       throw new Error("OpenCode conversation is unavailable.");
     const rows = database.prepare(`SELECT m.id, m.time_created, json_extract(m.data, '$.role') AS role,
+      json_extract(m.data, '$.summary') AS summary,
       p.id AS part_id, p.data AS part_data
       FROM message m JOIN part p ON p.message_id = m.id
       WHERE m.session_id = ? ORDER BY m.time_created, m.id, p.time_created, p.id`).all(id);
@@ -62,7 +63,7 @@ function getLocalOpenCodeMessages({ homeDir, id, fsApi, Database, env }) {
       try { part = JSON.parse(row.part_data); } catch { continue; }
       if (part?.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;
       const message = messages.get(row.id) || { id: row.id, provider: "opencode",
-        kind: row.role === "user" ? "user" : "reply", text: "", timestamp: timestampMs(row.time_created) };
+        kind: row.role === "user" ? "user" : row.summary === 1 ? "summary" : "reply", text: "", timestamp: timestampMs(row.time_created) };
       message.text += `${message.text ? "\n\n" : ""}${part.text.trim()}`;
       messages.set(row.id, message);
     }

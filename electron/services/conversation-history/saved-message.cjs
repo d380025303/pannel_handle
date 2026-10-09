@@ -1,11 +1,11 @@
 // Persistent history contains conversation text, never protocol payloads.
-const SAVED_MESSAGE_VERSION = 1;
+const SAVED_MESSAGE_VERSION = 2;
 function savedMessage(message) {
   if (!message?.id || typeof message.text !== "string" || !message.text.trim()) return null;
   const type = message.itemType || message.item?.type;
-  if (type && !["userMessage", "agentMessage"].includes(type)) return null;
   const kind = message.kind;
-  if (!["user", "reply", "final"].includes(kind)) return null;
+  if (type && !(kind === "summary" ? ["contextCompaction"] : ["userMessage", "agentMessage"]).includes(type)) return null;
+  if (!["user", "reply", "final", "summary"].includes(kind)) return null;
   const phase = message.phase || message.item?.phase;
   if (phase === "commentary") return null;
   const result = { id: message.id, provider: message.provider, kind, text: message.text, timestamp: message.timestamp };

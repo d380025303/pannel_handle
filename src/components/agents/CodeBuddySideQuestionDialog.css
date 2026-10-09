@@ -220,6 +220,7 @@
 
 .codebuddy-side-answer {
   min-width: 0;
+  flex-shrink: 0;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   overflow: hidden;

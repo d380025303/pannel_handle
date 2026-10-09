@@ -21,6 +21,29 @@ afterEach(() => {
 });
 
 describe("local conversation archive", () => {
+  it("persists actual compaction summaries and keeps their position across updates and restart", () => {
+    const userData = fixture();
+    const archive = createConversationArchiveService({ userData, getHistoryService: () => null, now: () => 1000 });
+    archive.start(session);
+    archive.baseline("panel", { threadId: "thread", items: [] });
+    archive.graphical("panel", { threadId: "thread", items: [
+      { id: "status", type: "contextCompaction", status: "completed" },
+      { id: "summary", type: "contextCompaction", compactionSummary: [{ type: "text", text: "## 摘要" }] },
+      { id: "reply", type: "agentMessage", text: "继续处理" }
+    ] });
+    archive.graphical("panel", { threadId: "thread", items: [
+      { id: "summary", type: "contextCompaction", compactionSummary: [{ type: "text", text: "## 摘要" }, { type: "text", text: "进度" }] }
+    ] });
+    archive.finish("panel");
+    const ref = archive.list({ scope: "all" }).items[0].ref;
+    archive.shutdown();
+    const store = createConversationArchiveStore({ userData });
+    closers.push(() => store.close());
+    const newest = store.read({ conversationRef: ref, limit: 1 });
+    expect(newest.messages[0].text).toBe("继续处理");
+    expect(store.read({ conversationRef: ref, cursor: newest.nextCursor }).messages).toEqual([
+      expect.objectContaining({ kind: "summary", text: "## 摘要\n\n进度", timestamp: 1000 })]);
+  });
   it("migrates existing payloads once without changing launch recency", () => {
     const userData = fixture();
     const store = createConversationArchiveStore({ userData, now: () => 1000 });
