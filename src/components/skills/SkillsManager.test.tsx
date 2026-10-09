@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../i18n";
 import type { SkillSummary, SkillsCatalog, TerminalSession } from "../../vite-env";
@@ -128,6 +128,50 @@ it("opens full Skill details and closes them", async () => {
   expect(read).toHaveBeenCalledWith("codex", "review", undefined);
   fireEvent.click(screen.getByRole("button", { name: "Close details" }));
   expect(screen.queryByText("Full skill details")).toBeNull();
+});
+
+it("opens a portal immediately, traps focus and restores it after Escape", async () => {
+  read.mockReturnValueOnce(new Promise(() => {}));
+  const { container } = renderManager();
+  const trigger = await screen.findByRole("button", { name: /View details.*review/ });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog = screen.getByRole("dialog");
+  expect(container.contains(dialog)).toBe(false);
+  expect(within(dialog).getByRole("status").textContent).toContain("Loading");
+  expect(document.activeElement).toBe(dialog);
+  fireEvent.keyDown(dialog, { key: "Tab" });
+  expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close details" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("retries read failures and closes only on the backdrop", async () => {
+  read.mockRejectedValueOnce(new Error("Read failed"));
+  renderManager();
+  fireEvent.click(await screen.findByRole("button", { name: /View details.*review/ }));
+  const dialog = screen.getByRole("dialog");
+  expect((await within(dialog).findByRole("alert")).textContent).toContain("Read failed");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Refresh" }));
+  expect(await within(dialog).findByText("Full skill details")).toBeTruthy();
+  fireEvent.click(dialog);
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  fireEvent.click(dialog.parentElement!);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each(["close", "refresh", "session"])("discards pending details after %s", async action => {
+  let resolve!: (value: unknown) => void;
+  read.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const view = renderManager();
+  fireEvent.click(await screen.findByRole("button", { name: /View details.*review/ }));
+  if (action === "close") fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  else if (action === "refresh") fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  else view.rerender(<I18nProvider locale="en-US"><SkillsManager session={{ id: "next" } as TerminalSession} /></I18nProvider>);
+  await act(async () => { resolve({ ...codexSkills[0], content: "Stale details" }); });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByText("Stale details")).toBeNull();
 });
 
 it("shows read failures and discards results after switching providers", async () => {

@@ -1892,6 +1892,32 @@ describe("CodexAppServerSession", () => {
     expect(screen.queryByRole("button", { name: "取消并停止本回合" })).toBeNull();
   });
 
+  it.each(["form", "openai/form"] as const)("renders %s MCP tool approval without a JSON input", async mode => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [], approvals: [],
+      elicitations: [{ requestId: 71, submitting: false, params: { threadId: "thread-1", serverName: "pannel_handle_remote", mode,
+        message: 'Allow the pannel_handle_remote MCP server to run tool "remote_exec"?', requestedSchema: { type: "object", properties: {}, required: [] } } }] } }));
+    expect(screen.getByText(/MCP 工具调用授权/)).toBeTruthy();
+    expect(screen.getByText("是否允许 pannel_handle_remote 调用工具 remote_exec？")).toBeTruthy();
+    expect(screen.queryByLabelText("JSON 表单内容")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "允许" }));
+    await waitFor(() => expect(resolveElicitation).toHaveBeenCalledWith("run-1", 71, "accept", {}));
+    fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
+    await waitFor(() => expect(resolveElicitation).toHaveBeenCalledWith("run-1", 71, "decline", null));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(resolveElicitation).toHaveBeenCalledWith("run-1", 71, "cancel", null));
+  });
+
+  it("keeps generic empty MCP forms as JSON forms", async () => {
+    render(<CodexAppServerSession sessionId="run-1" />);
+    act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [], approvals: [],
+      elicitations: [{ requestId: 71, submitting: false, params: { threadId: "thread-1", serverName: "calendar", mode: "form",
+        message: "Provide details", requestedSchema: { type: "object" } } }] } }));
+    expect(screen.getByLabelText("JSON 表单内容")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "提交" }));
+    await waitFor(() => expect(resolveElicitation).toHaveBeenCalledWith("run-1", 71, "accept", {}));
+  });
+
   it("submits MCP form fields only after required values are entered", async () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     act(() => changed({ id: "run-1", snapshot: { threadId: "thread-1", mode: "default", busy: true, error: null, items: [], approvals: [],

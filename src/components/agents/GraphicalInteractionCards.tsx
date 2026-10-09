@@ -123,6 +123,9 @@ export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }:
     ? Object.entries(schema.properties as Record<string, unknown>) : [];
   const required = Array.isArray(schema?.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
   const isForm = params.mode !== "url";
+  const toolApproval = isForm && schema?.type === "object" && !properties.length && !required.length
+    ? /^Allow the (.+) MCP server to run tool "([^"\r\n]+)"\?$/.exec(params.message.trim()) : null;
+  const isToolApproval = Boolean(toolApproval && toolApproval[1] === params.serverName);
 
   function formContent(): Record<string, unknown> {
     if (!properties.length) {
@@ -163,7 +166,7 @@ export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }:
   async function respond(action: "accept" | "decline" | "cancel") {
     if (sending || request.submitting) return;
     let content: Record<string, unknown> | null = null;
-    try { if (action === "accept" && isForm) content = formContent(); }
+    try { if (action === "accept" && isForm) content = isToolApproval ? {} : formContent(); }
     catch (cause) { setError(message(cause)); return; }
     setSending(true); setError("");
     try { if (onRespond) await onRespond(action, content || undefined); else await window.codexAppServerApi.resolveElicitation(sessionId, request.requestId, action, content); }
@@ -176,9 +179,9 @@ export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }:
     setOpened(true); setError("");
   }
   return <article className="codex-app-server-elicitation" aria-label="MCP 交互请求">
-    <strong>{params.serverName} · {isForm ? "需要填写信息" : "需要打开链接"}</strong>
-    <p>{params.message}</p>
-    {isForm ? properties.length ? <div className="codex-app-server-elicitation-fields">{properties.map(([name, rawField]) => {
+    <strong>{params.serverName} · {isToolApproval ? "MCP 工具调用授权" : isForm ? "需要填写信息" : "需要打开链接"}</strong>
+    <p>{isToolApproval ? `是否允许 ${params.serverName} 调用工具 ${toolApproval![2]}？` : params.message}</p>
+    {isToolApproval ? null : isForm ? properties.length ? <div className="codex-app-server-elicitation-fields">{properties.map(([name, rawField]) => {
       const field = rawField && typeof rawField === "object" ? rawField as Record<string, unknown> : {};
       const label = String(field.title || name);
       const value = values[name] ?? "";
@@ -205,7 +208,7 @@ export function McpElicitationCard({ sessionId, request, onRespond, onOpenUrl }:
     <div className="codex-app-server-elicitation-actions">
       <button type="button" disabled={sending || request.submitting} onClick={() => void respond("cancel")}>取消</button>
       <button type="button" disabled={sending || request.submitting} onClick={() => void respond("decline")}>拒绝</button>
-      <button type="button" className="primary" disabled={sending || request.submitting || (!isForm && !opened)} onClick={() => void respond("accept")}>{isForm ? "提交" : "已完成"}</button>
+      <button type="button" className="primary" disabled={sending || request.submitting || (!isForm && !opened)} onClick={() => void respond("accept")}>{isToolApproval ? "允许" : isForm ? "提交" : "已完成"}</button>
     </div>
   </article>;
 }

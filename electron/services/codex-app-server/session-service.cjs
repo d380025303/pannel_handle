@@ -72,7 +72,8 @@ async function createRemoteChild(sshAgentTransport, session, environment, fastMo
 }
 
 function buildInvocation(session, runtime, environment) {
-  const command = `${runtime.codexCommand || "codex"} app-server${tierArgs(session, runtime.appServerFastMode)}`;
+  // Keep all config overrides before the subcommand: later -c flags replace earlier ones.
+  const command = `${runtime.codexCommand || "codex"}${tierArgs(session, runtime.appServerFastMode)} app-server`;
   const before = runtime.localBridge ? "" : String(session.initialCommand || "").trim();
   const shell = runtime.shell || session.shell;
   const cwd = runtime.workspaceCwd || session.cwd;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, RefreshCw, Search } from "lucide-react";
+import { createPortal } from "react-dom";
+import { BookOpen, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { MarkdownBlock } from "../shared/MarkdownBlock";
 import type { SkillDetail, SkillSummary, SkillProvider, SkillSource, SkillsCatalog, TerminalSession } from "../../vite-env";
@@ -15,9 +16,18 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
   const [error, setError] = useState("");
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
+  const dialogRef = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<SkillSummary | null>(null);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [detailError, setDetailError] = useState("");
+  useEffect(() => {
+    if (!selected) return;
+    const previousFocus = document.activeElement;
+    dialogRef.current?.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, [selected?.id]);
   function closeDetail() { ++detailRequestRef.current; setSelected(null); setDetail(null); setDetailError(""); }
   async function openDetail(skill: SkillSummary) {
     const request = ++detailRequestRef.current;
@@ -77,7 +87,7 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
             <h3>{skill.name}</h3>
             {!skill.enabled && <span className="skills-disabled">{t("skills.disabled")}</span>}
           </div>
-          <button type="button" className="skills-detail-trigger" onClick={() => void openDetail(skill)} aria-label={`${t("skills.viewDetail")}：${skill.name}`}>{t("skills.viewDetail")}</button>
+          <button type="button" className="modal-button compact skills-detail-trigger" onClick={() => void openDetail(skill)} aria-label={`${t("skills.viewDetail")}：${skill.name}`}><BookOpen aria-hidden="true" />{t("skills.viewDetail")}</button>
           {skill.description && <p>{skill.description}</p>}
           {provider === "codex" && <small className="skills-card-path" title={skill.path}>{skill.path}</small>}
         </article>
@@ -99,14 +109,27 @@ export function SkillsManager({ session }: { session?: TerminalSession }) {
         <button type="button" role="tab" aria-selected={provider === "codebuddy"} className={provider === "codebuddy" ? "active" : ""} onClick={() => switchProvider("codebuddy")}>CodeBuddy</button>
       </div>
 
-      {selected && <section className="skills-detail" aria-label={t("skills.detail")}>
-        <header><h2>{selected.name}</h2><button type="button" onClick={closeDetail}>{t("skills.closeDetail")}</button></header>
+      {selected && createPortal(<div className="modal-overlay skills-detail-overlay" onClick={event => { if (event.target === event.currentTarget) closeDetail(); }}>
+        <section ref={dialogRef} className="modal-dialog skills-detail" role="dialog" aria-modal="true" aria-label={`${t("skills.detail")}：${selected.name}`} tabIndex={-1} onKeyDown={event => {
+          if (event.key === "Escape") { event.stopPropagation(); closeDetail(); }
+          if (event.key === "Tab") {
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'));
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) { event.preventDefault(); first?.focus(); }
+          }
+        }}>
+        <header><h2>{selected.name}</h2><button className="modal-button compact" type="button" onClick={closeDetail}><X aria-hidden="true" />{t("skills.closeDetail")}</button></header>
+        <div className="skills-detail-content">
         <p>{t(`skills.source.${selected.source}`)} · {selected.enabled ? t("skills.enabled") : t("skills.disabled")}</p>
         {selected.description && <p>{selected.description}</p>}
         <small className="skills-detail-path">{selected.path}</small>
-        {detailError ? <div role="alert" className="skills-load-error">{detailError}<button type="button" onClick={() => void openDetail(selected)}>{t("common.refresh")}</button></div>
+        {detailError ? <div role="alert" className="skills-load-error">{detailError}<button className="modal-button compact" type="button" onClick={() => void openDetail(selected)}><RefreshCw aria-hidden="true" />{t("common.refresh")}</button></div>
           : detail ? <MarkdownBlock className="skills-detail-body" content={detail.content} externalLinks /> : <p role="status">{t("common.loading")}</p>}
-      </section>}
+        </div>
+        </section>
+      </div>, document.body)}
       <section className="skills-content">
         <div className="skills-list-toolbar">
           <label><Search aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("skills.search")} aria-label={t("skills.search")} /></label>

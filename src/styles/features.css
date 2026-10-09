@@ -8438,9 +8438,15 @@ button.agent-usage-status[aria-expanded="true"] {
   .codex-config-warning-actions { margin-left: auto; }
 }
 
-.skills-detail-trigger { margin-top: 10px; color: var(--color-accent); }
-.skills-detail { flex: none; max-height: 55%; overflow: auto; margin: 14px 24px 0; padding: 16px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-panel); }
-.skills-detail header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skills-detail-trigger { margin-top: 10px; }
+.skills-detail-overlay { padding: 20px; }
+.skills-detail { width: 760px; min-height: 0; overflow: hidden; }
+.skills-detail:focus { outline: none; }
+.skills-detail header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--color-border); }
+.skills-detail header button { flex: none; }
+.skills-detail button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.skills-detail-content { min-height: 0; overflow: auto; padding: 0 16px 16px; }
+.skills-detail-content .skills-load-error button { margin-left: 12px; }
 .skills-detail h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
 .skills-detail p { overflow-wrap: anywhere; }
 .skills-detail-path { display: block; color: var(--color-text-muted); overflow-wrap: anywhere; }

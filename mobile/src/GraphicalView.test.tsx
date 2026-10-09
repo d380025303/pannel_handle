@@ -1101,6 +1101,26 @@ it("retains a fast-mode request across the host's temporary restarting snapshot"
   expect(screen.getByText("快速模式")).toBeTruthy();
 });
 
+it.each(["form", "openai/form"] as const)("renders %s MCP tool approval and sends an empty object on mobile", async mode => {
+  const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot,
+    elicitations: [{ requestId: 9, submitting: false, params: { threadId: "thread-1", serverName: "pannel_handle_remote", mode,
+      message: 'Allow the pannel_handle_remote MCP server to run tool "remote_exec"?', requestedSchema: { type: "object", properties: {} } } }] } });
+  expect(screen.getByText("是否允许 pannel_handle_remote 调用工具 remote_exec？")).toBeTruthy();
+  expect(screen.queryByLabelText("JSON 表单内容")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "允许" }));
+  await waitFor(() => expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codex.elicitation",
+    input: { requestId: 9, action: "accept", content: {} } })));
+});
+
+it.each([["拒绝", "decline"], ["取消", "cancel"]] as const)("sends MCP tool approval %s on mobile", async (label, action) => {
+  const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot,
+    elicitations: [{ requestId: 9, submitting: false, params: { threadId: "thread-1", serverName: "pannel_handle_remote", mode: "form",
+      message: 'Allow the pannel_handle_remote MCP server to run tool "remote_exec"?', requestedSchema: { type: "object" } } }] } });
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  await waitFor(() => expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ type: "graphical.codex.elicitation",
+    input: { requestId: 9, action, content: undefined } })));
+});
+
 it("uses the same MCP schema form validation and submits the mobile response", async () => {
   const f = fixture(); f.emit({ v: PROTOCOL_VERSION, type: "graphical.snapshot", sessionId: session.id, snapshot: { ...snapshot, elicitations: [{ requestId: 9, submitting: false, params: { threadId: "thread-1", serverName: "test", mode: "form", message: "details", requestedSchema: { type: "object", properties: { count: { type: "integer", minimum: 1 } }, required: ["count"] } } }] } });
   fireEvent.click(screen.getByRole("button", { name: "提交" }));

@@ -890,7 +890,7 @@ describe("Codex App Server session", () => {
 
   it.skipIf(process.platform !== "win32")("keeps command and configured variables in the launched process", () => {
     const invocation = buildInvocation({ type: "windows", shell: process.env.ComSpec || "cmd.exe", cwd: process.cwd(),
-      initialCommand: "set CODEX_TEST_FROM_COMMAND=from-command" },
+      initialCommand: "set CODEX_TEST_FROM_COMMAND=from-command", codexBackend: "openrouter" },
     { codexCommand: "node -p process.env.CODEX_TEST_FROM_COMMAND+process.env.CODEX_TEST_VALUE" },
     { CODEX_TEST_VALUE: "configured" });
     const result = spawnSync(invocation.executable, invocation.args, { cwd: invocation.cwd, env: invocation.env, encoding: "utf8" });
@@ -901,15 +901,28 @@ describe("Codex App Server session", () => {
     const windows = buildInvocation({ type: "windows", shell: "powershell.exe", cwd: "C:\\project", initialCommand: "$env:FROM_START='yes'" },
       { codexCommand: "codex" }, { CUSTOM: "value" });
     expect(windows.args.at(-1)).toContain("$env:FROM_START='yes'");
-    expect(windows.args.at(-1)).toContain("codex app-server");
+    expect(windows.args.at(-1)).toContain('codex -c service_tier="default" app-server');
     expect(windows.env.CUSTOM).toBe("value");
     const wsl = buildInvocation({ type: "wsl", wslDistro: "Ubuntu", cwd: "/repo", initialCommand: "export FROM_START=yes" },
       { codexCommand: "codex" }, { CUSTOM: "value" });
     expect(wsl.args).toContain("/repo");
     expect(wsl.args).toContain("-lic");
     expect(wsl.args.at(-1)).toContain("export FROM_START=yes");
-    expect(wsl.args.at(-1)).toContain("exec codex app-server");
+    expect(wsl.args.at(-1)).toContain('exec codex -c service_tier="default" app-server');
     expect(wsl.env.WSLENV).toContain("CUSTOM/u");
+  });
+  it.each([false, true])("keeps bridge and tier overrides before app-server (fast mode: %s)", fastMode => {
+    const codexCommand = `codex -c 'mcp_servers.pannel_handle_remote.url="http://127.0.0.1:1234/mcp"'`
+      + ` -c 'mcp_servers.pannel_handle_remote.bearer_token_env_var="PANNEL_HANDLE_REMOTE_AGENT_TOKEN"'`
+      + ` -c 'developer_instructions="remote only"'`;
+    const invocation = buildInvocation({ type: "ssh", codexBackend: "openai", cwd: "/root" },
+      { localBridge: true, shell: "powershell.exe", workspaceCwd: "C:\\bridge", codexCommand,
+        appServerFastMode: fastMode }, { PANNEL_HANDLE_REMOTE_AGENT_TOKEN: "test-token" });
+    const command = invocation.args.at(-1);
+    expect(command).toBe(`& ${codexCommand} -c service_tier="${fastMode ? "priority" : "default"}"`
+      + `${fastMode ? ' -c features.fast_mode=true' : ""} app-server`);
+    expect(invocation.cwd).toBe("C:\\bridge");
+    expect(invocation.env.PANNEL_HANDLE_REMOTE_AGENT_TOKEN).toBe("test-token");
   });
   it("reports WSL App Server startup output without exposing configured secrets", async () => {
     const child = new EventEmitter();
