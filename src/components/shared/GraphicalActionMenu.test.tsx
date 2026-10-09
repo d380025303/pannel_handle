@@ -68,3 +68,13 @@ it("keeps mobile grouped controls intact and returns using the back button", () 
   expect(screen.getByLabelText("添加文件")).toBeTruthy();
   expect(screen.queryByText("Plan")).toBeNull();
 });
+
+it("keeps configuration visible in both menu levels and outside collected actions", () => {
+  const configure = vi.fn();
+  render(<GraphicalActionMenu onConfigure={configure} secondaryActions={["plugins"]}><button data-action="plugins">插件</button></GraphicalActionMenu>);
+  fireEvent.click(screen.getByRole("menuitem", { name: "更多菜单隐藏配置" }));
+  expect(configure).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("menuitem", { name: "其他操作" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "更多菜单隐藏配置" }));
+  expect(configure).toHaveBeenCalledTimes(2);
+});

@@ -8448,8 +8448,27 @@ button.agent-usage-status[aria-expanded="true"] {
 .skills-detail-body pre { overflow: auto; padding: 12px; background: var(--color-bg-control); }
 .skills-detail-body img { max-width: 100%; }
 
-.graphical-menu-settings-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.graphical-menu-settings-toolbar label { display: flex; align-items: center; gap: 8px; }
-.graphical-menu-settings-list { display: grid; gap: 8px; max-height: 340px; overflow-y: auto; }
-.graphical-menu-settings-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.graphical-menu-settings-row small { margin-left: auto; color: var(--color-text-muted); }
+/* More-menu preferences use the same controls and spacing as graphical dialogs. */
+.graphical-menu-settings { display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 0 20px 20px; font-size: 13px; }
+.graphical-menu-settings > .settings-help { flex: none; margin: 0; line-height: 1.6; }
+.graphical-menu-settings-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; flex: none; }
+.graphical-menu-settings-toolbar label { display: flex; align-items: center; gap: 10px; color: var(--color-text-secondary); }
+.graphical-menu-settings-toolbar select { min-width: 132px; height: 32px; padding: 4px 28px 4px 10px; border: 1px solid var(--color-border-strong); border-radius: 7px; color: var(--color-text); background: var(--color-bg-control); font: inherit; cursor: pointer; }
+.graphical-menu-settings-toolbar select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.graphical-menu-settings-toolbar select:disabled { opacity: .5; cursor: default; }
+.graphical-menu-settings-toolbar .modal-button { min-height: 32px; padding: 6px 10px; font: inherit; }
+.graphical-menu-settings-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; max-height: 360px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; scrollbar-gutter: stable; }
+.graphical-menu-settings-row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 10px; box-sizing: border-box; border-radius: 7px; color: var(--color-text); cursor: pointer; }
+.graphical-menu-settings-row:hover { background: var(--color-bg-hover); }
+.graphical-menu-settings-row:focus-within { background: var(--color-bg-hover); }
+.graphical-menu-settings-row input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--color-accent); cursor: pointer; }
+.graphical-menu-settings-row input:disabled { opacity: .5; cursor: default; }
+.graphical-menu-settings-row span { min-width: 0; overflow-wrap: anywhere; }
+.graphical-menu-settings-row small { flex: none; margin-left: auto; color: var(--color-text-muted); font-size: 11px; }
+.graphical-menu-toolbar { display: flex; justify-content: flex-end; }
+.graphical-menu-toolbar button { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 7px; color: var(--color-text); background: transparent; }
+.graphical-menu-toolbar button:hover, .graphical-menu-toolbar button:focus-visible { background: var(--color-bg-control-hover); }
+.graphical-menu-toolbar svg { width: 16px; height: 16px; }
+.graphical-menu-settings-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: hidden; }
+.graphical-menu-settings-dialog > .codex-app-server-history-header { flex: none; }
+.graphical-menu-settings-dialog .settings-result { flex: none; margin: 0; }

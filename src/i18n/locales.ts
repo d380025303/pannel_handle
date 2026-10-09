@@ -150,6 +150,7 @@ export type TranslationKey =
   | "settings.graphicalMenuDesktopOnly"
   | "graphicalMenu.other"
   | "graphicalMenu.back"
+  | "graphicalMenu.configure"
   | "graphicalMenu.actions"
   | "settings.graphicalSessionMinimalMode"
   | "settings.debugMode"
@@ -1182,7 +1183,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder 桌面 App 账号已变化，请刷新额度后重试。",
     "usage.qoderCheckinFailed": "Qoder 签到查询失败，请稍后重试。",
     "settings.graphicalSessionMinimalMode": "图形会话极简模式",
-    "settings.graphicalMenuTitle": "图形模式菜单",
+    "settings.graphicalMenuTitle": "更多菜单隐藏配置",
     "settings.graphicalMenuHint": "勾选要收纳到“其他操作”的项目。同一 Agent 的桌面端和移动端共享配置；具体可用项取决于当前会话。",
     "settings.graphicalMenuAgent": "配置 Agent",
     "settings.graphicalMenuReset": "恢复当前 Agent 默认",
@@ -1192,6 +1193,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "graphicalMenu.other": "其他操作",
     "graphicalMenu.back": "返回更多操作",
     "graphicalMenu.actions": "会话操作",
+    "graphicalMenu.configure": "更多菜单隐藏配置",
 
     "settings.debugMode": "Debug 模式",
     "settings.screenshotTitle": "截图",
@@ -2215,7 +2217,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "usage.qoderAccountChanged": "Qoder desktop account changed. Refresh quota and retry.",
     "usage.qoderCheckinFailed": "Qoder check-in failed. Please retry.",
     "settings.graphicalSessionMinimalMode": "Minimal graphical sessions",
-    "settings.graphicalMenuTitle": "Graphical mode menu",
+    "settings.graphicalMenuTitle": "More menu visibility settings",
     "settings.graphicalMenuHint": "Select actions to move into Other actions. Desktop and mobile share settings for each Agent; available actions depend on the current session.",
     "settings.graphicalMenuAgent": "Configure Agent",
     "settings.graphicalMenuReset": "Reset this Agent",
@@ -2225,6 +2227,7 @@ export const translations: Record<Locale, Record<TranslationKey, string>> = {
     "graphicalMenu.other": "Other actions",
     "graphicalMenu.back": "Back to more actions",
     "graphicalMenu.actions": "Session actions",
+    "graphicalMenu.configure": "More menu visibility settings",
 
     "settings.debugMode": "Debug mode",
     "settings.screenshotTitle": "Screenshot",

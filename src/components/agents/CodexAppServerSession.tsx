@@ -1,3 +1,4 @@
+import { GraphicalMenuSettingsDialog } from "../settings/GraphicalMenuSettingsDialog";
 import { GraphicalActionMenu } from "../shared/GraphicalActionMenu";
 import { useGraphicalMenuConfig } from "../../utils/useGraphicalMenuConfig";
 import { OpenCodeRetryStatus } from "./OpenCodeRetryStatus";
@@ -200,6 +201,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   const [backgroundTerminalsOpen, setBackgroundTerminalsOpen] = useState(false);
   const [codeBuddyJobsOpen, setCodeBuddyJobsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSettingsOpen, setMenuSettingsOpen] = useState(false);
   const { config: graphicalMenuConfig } = useGraphicalMenuConfig();
   const [selectionKind, setSelectionKind] = useState<SelectionKind | null>(null);
   const [selectionError, setSelectionError] = useState("");
@@ -328,6 +330,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setReviewOpen(false);
     setPluginOpen(false);
     setMenuOpen(false);
+    setMenuSettingsOpen(false);
     setSelectionKind(null);
     setMainAgentLoading(false);
     setCapabilityOpen(false);
@@ -380,6 +383,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
     setGoalOpen(false);
     setReviewOpen(false);
     setMenuOpen(false);
+    setMenuSettingsOpen(false);
     setSelectionKind(null);
     setMainAgentLoading(false);
     setSelectionError("");
@@ -487,7 +491,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
   }, [historyOpen, historyQuery, historyArchived, sessionId]);
   useEffect(() => {
     if (!menuOpen || !isActive) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    menuRef.current?.querySelector<HTMLButtonElement>(':scope > button:not(:disabled)')?.focus();
     const onPointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !menuButtonRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
@@ -1656,7 +1660,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         <div className="codex-app-server-input-actions">
           <div className="codex-app-server-menu-anchor">
             <button ref={menuButtonRef} type="button" className="codex-app-server-icon-button" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={(!snapshot.threadId && !isOpenCode && !isCodex) || Boolean(forkingTurnId)} onClick={() => { setCapabilityOpen(false); setMenuOpen(open => !open); }}><Ellipsis aria-hidden="true" /></button>
-            {menuOpen && <GraphicalActionMenu key={snapshot.provider} menuRef={menuRef} secondaryActions={graphicalMenuConfig[snapshot.provider || "codex"]}
+            {menuOpen && <GraphicalActionMenu key={snapshot.provider} menuRef={menuRef} onConfigure={() => { setMenuOpen(false); setMenuSettingsOpen(true); }} secondaryActions={graphicalMenuConfig[snapshot.provider || "codex"]}
               onClose={() => { setMenuOpen(false); menuButtonRef.current?.focus(); }}>
               {snapshot.provider === "codebuddy" && sessionType === "windows" && session && <button data-action="mcp-config" type="button" role="menuitem" onClick={() => { setMenuOpen(false); setCodeBuddyMcpOpen(true); }}>MCP 管理</button>}
               {isOpenCode && <button data-action="login" type="button" role="menuitem" disabled={snapshot.busy || sending || Boolean(snapshot.pendingPlan) || snapshot.approvals.length > 0 || Boolean(snapshot.questions?.length)} onClick={() => { setMenuOpen(false); setOpenCodeLoginOpen(true); }}>登录 OpenCode</button>}
@@ -1788,6 +1792,7 @@ export const CodexAppServerSession = forwardRef<CodexAppServerSessionHandle, Cod
         </> : <p className="codex-app-server-team-empty">团队尚无成员。</p>}
       </aside>}
     </div>
+    {menuSettingsOpen && <GraphicalMenuSettingsDialog initialProvider={snapshot.provider || "codex"} onClose={() => { setMenuSettingsOpen(false); menuButtonRef.current?.focus(); }} />}
     {selectionKind && <div className="modal-overlay codex-app-server-selection-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeSelection(); }}>
       <div ref={selectionDialogRef} className="modal-dialog codex-app-server-selection-dialog" role="dialog" aria-modal="true"
         aria-labelledby="codex-app-server-selection-title" onKeyDown={event => {

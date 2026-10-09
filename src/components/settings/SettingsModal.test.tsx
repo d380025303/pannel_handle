@@ -89,6 +89,7 @@ describe("SettingsModal navigation", () => {
 
     expect(screen.getByRole("tab", { name: "常用配置" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("启动时自动恢复")).toBeTruthy();
+    expect(screen.queryByText("更多菜单隐藏配置")).toBeNull();
   });
 
   it("toggles CodeBuddy automatic check-in", () => {

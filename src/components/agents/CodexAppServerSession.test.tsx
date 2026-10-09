@@ -117,6 +117,21 @@ describe("CodexAppServerSession", () => {
   });
 
 
+  it("opens menu settings for the current Agent and restores focus when closed", async () => {
+    window.codexAppServerApi.snapshot = vi.fn().mockResolvedValue({ threadId: "cb-1", provider: "codebuddy", mode: "default", executionPermission: "askApproval", busy: false, error: null, items: [], approvals: [] });
+    render(<CodexAppServerSession sessionId="run-1" />);
+    const more = screen.getByRole("button", { name: "更多操作" });
+    await waitFor(() => expect(more).toHaveProperty("disabled", false));
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "更多菜单隐藏配置" }));
+    const dialog = screen.getByRole("dialog", { name: "更多菜单隐藏配置" });
+    expect(screen.getByRole("combobox", { name: "配置 Agent" })).toHaveProperty("value", "codebuddy");
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "更多菜单隐藏配置" })).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
   it("shares per-provider menu layout, applies live changes, and keeps nested action handlers", async () => {
     let configChanged: (config: Record<string, string[]>) => void = () => {};
     Object.defineProperty(window, "terminalApi", { configurable: true, value: {
@@ -890,7 +905,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.getByRole("menuitem", { name: "历史会话" })).toHaveProperty("disabled", true);
     expect(screen.queryByRole("menuitem", { name: /执行权限/ })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
     await waitFor(() => expect(setNativeMode).toHaveBeenCalledWith("run-1", "plan"));
   });
@@ -908,7 +923,7 @@ describe("CodexAppServerSession", () => {
       executionPermission: "askApproval", busy: false, error: null, pendingPlan: null, items: [], approvals: [],
       capabilities: { history: false, plan: true, attachments: true, permissions: true } } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     expect(screen.getByText("自主分析并执行任务，可读取与修改文件、运行命令。")).toBeTruthy();
     expect(screen.getByText("先制定计划并等待你确认，再开始执行（只读，不直接改动文件）。")).toBeTruthy();
     expect(screen.getByText("自主分析并执行任务，遇到需确认的操作自动放行。")).toBeTruthy();
@@ -1385,7 +1400,7 @@ describe("CodexAppServerSession", () => {
     expect(composer.querySelector(".codex-app-server-composer-footer")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     const menu = screen.getByRole("menu", { name: "会话操作" });
-    expect(menu.contains(screen.getByRole("menuitem", { name: /模式/ }))).toBe(true);
+    expect(menu.contains(screen.getByRole("menuitem", { name: /^模式/ }))).toBe(true);
     expect(menu.contains(screen.getByRole("menuitem", { name: /执行权限/ }))).toBe(true);
     expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.getByRole("menuitem", { name: "附加文件" })).toBeTruthy();
@@ -1401,7 +1416,7 @@ describe("CodexAppServerSession", () => {
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "目标管理" }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /模式/ }));
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /^模式/ }));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /执行权限/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "历史会话" }));
@@ -1488,7 +1503,7 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     expect(screen.getByRole("radio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Exec" }));
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
@@ -1496,7 +1511,7 @@ describe("CodexAppServerSession", () => {
     expect(setMode).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     fireEvent.keyDown(screen.getByRole("dialog", { name: "模式" }), { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "模式" })).toBeNull();
     expect(setMode).not.toHaveBeenCalled();
@@ -1535,7 +1550,7 @@ describe("CodexAppServerSession", () => {
       mode: "plan", executionPermission: "askApproval", busy: false,
       error: null, pendingPlan: null, items: [], approvals: [] } }));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     expect(screen.getByRole("radio", { name: /Plan/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.queryByText(/只读未生效/)).toBeNull();
   });
@@ -2537,7 +2552,7 @@ describe("CodexAppServerSession", () => {
     render(<CodexAppServerSession sessionId="run-1" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "更多操作" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     fireEvent.click(screen.getByRole("radio", { name: /Plan/ }));
     await waitFor(() => expect(setMode).toHaveBeenCalledWith("run-1", "plan"));
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
@@ -2635,7 +2650,7 @@ describe("CodexAppServerSession", () => {
     await waitFor(() => expect(screen.getByPlaceholderText("向 Codex 发送消息").parentElement?.getAttribute("data-mode")).toBe("default"));
     expect(setMode).toHaveBeenLastCalledWith("run-1", "default");
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /模式/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^模式/ }));
     expect(screen.getByRole("radio", { name: "Exec" }).getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Exec" }));
     fireEvent.keyDown(screen.getByRole("dialog", { name: "模式" }), { key: "Escape" });

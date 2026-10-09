@@ -1,3 +1,4 @@
+import { Settings } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { Children, Fragment, cloneElement, isValidElement, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
@@ -13,12 +14,13 @@ function flattenActions(children: ReactNode, prefix = ""): ReactNode[] {
   });
 }
 
-export function GraphicalActionMenu({ children, secondaryActions = [], mobile = false, menuRef, onClose }: {
+export function GraphicalActionMenu({ children, secondaryActions = [], mobile = false, menuRef, onClose, onConfigure }: {
   children: ReactNode;
   secondaryActions?: string[];
   mobile?: boolean;
   menuRef?: RefObject<HTMLDivElement | null>;
   onClose?: () => void;
+  onConfigure?: () => void;
 }) {
   const { t } = useI18n();
   const localRef = useRef<HTMLDivElement>(null);
@@ -60,6 +62,7 @@ export function GraphicalActionMenu({ children, secondaryActions = [], mobile = 
         : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
       items[next]?.focus();
     }}>
+    {!mobile && onConfigure && <div className="graphical-menu-toolbar"><button type="button" role="menuitem" title={t("graphicalMenu.configure")} aria-label={t("graphicalMenu.configure")} onClick={onConfigure}><Settings aria-hidden="true" /></button></div>}
     {showingSecondary ? <>
       <button type="button" role={mobile ? undefined : "menuitem"} onClick={() => setSecondary(false)}>‹ {t("graphicalMenu.back")}</button>
       {nested}

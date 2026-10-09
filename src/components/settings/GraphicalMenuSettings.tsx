@@ -5,10 +5,10 @@ import { useGraphicalMenuConfig } from "../../utils/useGraphicalMenuConfig";
 
 const providerNames: Record<string, string> = { codex: "Codex", codebuddy: "CodeBuddy", opencode: "OpenCode", claude: "Claude", qoder: "Qoder", gemini: "Gemini", grok: "Grok" };
 
-export function GraphicalMenuSettings() {
+export function GraphicalMenuSettings({ initialProvider = "codex", onBusyChange }: { initialProvider?: string; onBusyChange?: (busy: boolean) => void }) {
   const { t, locale } = useI18n();
   const { config, setConfig, loading, error: loadError } = useGraphicalMenuConfig();
-  const [provider, setProvider] = useState("codex");
+  const [provider, setProvider] = useState(() => graphicalMenuProviders.includes(initialProvider) ? initialProvider : "codex");
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [error, setError] = useState("");
@@ -16,25 +16,22 @@ export function GraphicalMenuSettings() {
   async function save(actions: string[]) {
     if (pending.current || loading || loadError) return;
     pending.current = true;
-    setBusy(true); setError("");
+    setBusy(true); onBusyChange?.(true); setError("");
     try {
       const value = await window.terminalApi.setConfig({ graphicalMenuSecondaryActions: { ...config, [provider]: actions } });
       setConfig(normalizeGraphicalMenuConfig(value.graphicalMenuSecondaryActions));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { pending.current = false; setBusy(false); }
+    finally { pending.current = false; setBusy(false); onBusyChange?.(false); }
   }
-  return <section className="settings-section graphical-menu-settings">
-    <div className="settings-card-header"><div>
-      <h4>{t("settings.graphicalMenuTitle")}</h4>
-      <p className="settings-help">{t("settings.graphicalMenuHint")}</p>
-    </div></div>
+  return <section className="graphical-menu-settings">
+    <p className="settings-help">{t("settings.graphicalMenuHint")}</p>
     <div className="graphical-menu-settings-toolbar">
       <label>{t("settings.graphicalMenuAgent")}
         <select aria-label={t("settings.graphicalMenuAgent")} value={provider} disabled={busy} onChange={event => setProvider(event.target.value)}>
           {graphicalMenuProviders.map(id => <option key={id} value={id}>{providerNames[id]}</option>)}
         </select>
       </label>
-      <button type="button" disabled={loading || busy || Boolean(loadError) || !selected.length} onClick={() => void save([])}>{t("settings.graphicalMenuReset")}</button>
+      <button className="modal-button" type="button" disabled={loading || busy || Boolean(loadError) || !selected.length} onClick={() => void save([])}>{t("settings.graphicalMenuReset")}</button>
     </div>
     <div className="graphical-menu-settings-list">
       {graphicalMenuActions.filter(action => action.providers.includes(provider)).map(action => {
