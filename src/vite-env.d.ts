@@ -1814,6 +1814,7 @@ export interface DesktopMascotApi {
   processNotification(id: string, operation: DesktopMascotOperation): Promise<void>;
   dismissNotification(id: string): void;
   setNotificationPresentation(id: string, paused: boolean): void;
+  setSummaryExpanded(id: string, expanded: boolean): void;
   setPreferences(preferences: Partial<Pick<DesktopMascotState, "collapsed" | "moving">>): void;
   migrate(preferences: { collapsed: boolean; animated: boolean }): void;
   setInteraction(paused: boolean, reduced: boolean): void;

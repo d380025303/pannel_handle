@@ -43,3 +43,10 @@
 
 .desktop-mascot-summary { flex: 1; white-space: normal; }
 .desktop-mascot-summary p { padding: 0; border: 0; overflow: visible; white-space: normal; }
+
+.desktop-mascot-summary-container { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.desktop-mascot:not(.is-summary-expanded) .desktop-mascot-summary-container { cursor: zoom-in; }
+.desktop-mascot.is-summary-expanded .desktop-mascot-summary { font-size: 14px; }
+.desktop-mascot.is-summary-expanded .desktop-mascot-bubble { width: 640px; height: 480px; }
+
+.desktop-mascot-summary-container .desktop-mascot-summary { min-width: 0; }

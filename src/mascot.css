@@ -10,3 +10,9 @@ body { --color-text: #e8edf5; --color-border-strong: #465569; --color-bg-panel: 
 .desktop-mascot.is-desktop-window.has-request { height: 620px; }
 .desktop-mascot.is-desktop-window.has-request.is-collapsed { height: 440px; }
 .desktop-mascot.has-request .desktop-mascot-character { top: 388px; }
+
+.desktop-mascot.is-desktop-window.is-summary-expanded.has-notification { width: 100vw; height: 100vh; }
+.desktop-mascot.is-desktop-window.is-summary-expanded .desktop-mascot-bubble { width: calc(100vw - 16px); height: calc(100vh - 250px); }
+.desktop-mascot.is-desktop-window.is-summary-expanded.is-collapsed .desktop-mascot-bubble { height: calc(100vh - 70px); }
+.desktop-mascot.is-summary-expanded.has-notification .desktop-mascot-character { top: auto; bottom: 40px; left: calc(50% - 96px); }
+.desktop-mascot.is-summary-expanded.has-notification.is-collapsed .desktop-mascot-character { bottom: 0; left: calc(50% - 26px); }

@@ -14,15 +14,30 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(file, "utf8")) || {}; } catch {}
   const state = { collapsed: saved.collapsed === true, animated: saved.animated !== false, moving: saved.moving !== false, migrated: saved.migrated === true, locale: getLocale() };
-  let win, timer, poll, journey, drag;
+  let win, timer, poll, journey, drag, frameRefresh;
+  // Electron #46882: another window losing focus can repaint our native caption.
+  function refreshNativeFrame() {
+    if (process.platform !== "win32" || !alive() || frameRefresh !== undefined) return;
+    frameRefresh = setTimeout(() => {
+      frameRefresh = undefined;
+      if (alive()) win.setMaximizable(false);
+    }, 0);
+  }
+  function removeFrameRefresh() {
+    clearTimeout(frameRefresh); frameRefresh = undefined;
+    app.removeListener("browser-window-blur", refreshNativeFrame);
+  }
   let interaction = false, reduced = false, regions = [];
   let roaming = false;
   let roamingDirection = "left";
   let showingNotification = false, showingRequest = false;
+  let expandedId = null, presentationPaused = false;
   const notifications = createMascotNotifications({ terminalManager, graphicalService, conversationManager, stateHub, openExternal,
     onChanged: snapshot => {
       const showing = Boolean(snapshot.notification);
-      const dimensionsChanged = Boolean(snapshot.notification?.action) !== showingRequest;
+      const expansionChanged = expandedId !== null && (snapshot.notification?.id !== expandedId || snapshot.notification?.action);
+      if (expansionChanged) expandedId = null;
+      const dimensionsChanged = Boolean(snapshot.notification?.action) !== showingRequest || expansionChanged;
       if (showing !== showingNotification || dimensionsChanged) {
         showingNotification = showing; showingRequest = Boolean(snapshot.notification?.action); regions = []; correct(true);
       }
@@ -31,7 +46,13 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
   });
   const characterSize = () => state.collapsed ? { width: 52, height: 52 } : { width: 192, height: 232 };
   const bubbleHeight = () => notifications.snapshot().notification?.action ? 388 : 188;
-  const size = () => showingNotification ? { width: 320, height: characterSize().height + bubbleHeight() } : characterSize();
+  const size = () => {
+    if (expandedId && alive()) {
+      const area = screen.getDisplayMatching(win.getBounds()).workArea;
+      return { width: Math.min(656, area.width), height: Math.min(498 + characterSize().height, area.height) };
+    }
+    return showingNotification ? { width: 320, height: characterSize().height + bubbleHeight() } : characterSize();
+  };
   const alive = () => win && !win.isDestroyed();
   const publish = () => { if (alive()) win.webContents.send("desktop-mascot:state", { ...state, roaming, roamingDirection, notifications: notifications.snapshot() }); };
   function persist() {
@@ -111,8 +132,20 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     switch (command.type) {
       case "notification-dismiss": notifications.dismiss(command.id); break;
       case "notification-presentation":
-        if (typeof command.paused === "boolean") notifications.setPresentation(command.id, command.paused);
+        if (typeof command.paused === "boolean" && command.id === notifications.snapshot().notification?.id) {
+          presentationPaused = command.paused;
+          notifications.setPresentation(command.id, presentationPaused || expandedId === command.id);
+        }
         break;
+      case "summary-expanded": {
+        const current = notifications.snapshot().notification;
+        if (!current || current.action || current.id !== command.id || typeof command.expanded !== "boolean") break;
+        const next = command.expanded ? current.id : null;
+        if (next === expandedId) break;
+        expandedId = next;
+        notifications.setPresentation(current.id, presentationPaused || expandedId === current.id);
+        regions = []; correct(true); break;
+      }
       case "preferences":
         for (const key of ["collapsed", "moving"]) if (typeof command[key] === "boolean") state[key] = command[key];
         correct(); publish(); break;
@@ -152,13 +185,20 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     const display = screen.getDisplayNearestPoint({ x: initial.x, y: initial.y });
     const position = clampPosition({ x: initial.x - (dimensions.width - characterSize().width) / 2,
       y: initial.y - (dimensions.height - characterSize().height) }, display.workArea, dimensions);
-    win = new BrowserWindow({ ...position, ...dimensions, frame: false, thickFrame: false, transparent: true, focusable: process.platform !== "win32", resizable: false, maximizable: false, minimizable: false, alwaysOnTop: true, skipTaskbar: true, show: false, backgroundColor: "#00000000", webPreferences: { preload: path.join(__dirname, "..", "mascot-preload.cjs"), contextIsolation: true, nodeIntegration: false } });
+    win = new BrowserWindow({ ...position, ...dimensions, frame: false, thickFrame: false, transparent: true, focusable: true, resizable: false, maximizable: false, minimizable: false, alwaysOnTop: true, skipTaskbar: true, show: false, backgroundColor: "#00000000", webPreferences: { preload: path.join(__dirname, "..", "mascot-preload.cjs"), contextIsolation: true, nodeIntegration: false } });
+    if (process.platform === "win32") {
+      app.on("browser-window-blur", refreshNativeFrame);
+      // Defer until Windows finishes WM_NCACTIVATE; avoid reentrant frame updates.
+      win.hookWindowMessage(0x0086, refreshNativeFrame);
+    }
     win.setIgnoreMouseEvents(true, { forward: true });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", event => event.preventDefault());
     win.once("ready-to-show", () => { if (alive()) win.showInactive(); });
     win.on("blur", () => { drag = undefined; interaction = false; persist(); schedule(); });
     win.on("closed", () => {
+      expandedId = null; presentationPaused = false;
+      removeFrameRefresh();
       win = undefined; stop(); clearInterval(poll); notifications.suspend();
       screen.removeListener("display-removed", correct);
       screen.removeListener("display-metrics-changed", correct);
@@ -170,6 +210,8 @@ function createDesktopMascot({ app, BrowserWindow, screen, ipcMain, terminalMana
     screen.on("display-metrics-changed", correct);
   }
   function close() {
+    expandedId = null; presentationPaused = false;
+    removeFrameRefresh();
     stop(); clearInterval(poll);
     screen.removeListener("display-removed", correct);
     screen.removeListener("display-metrics-changed", correct);

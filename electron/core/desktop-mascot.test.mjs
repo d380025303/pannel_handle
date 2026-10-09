@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopMascot, clampPosition } from "./desktop-mascot.cjs";
 
 describe("desktop mascot window", () => {
-  let directory, service, window, ipc, screen, cursor, area, random, graphical, snapshot;
+  let directory, service, window, ipc, screen, cursor, area, random, graphical, snapshot, app;
   beforeEach(() => {
     vi.useFakeTimers();
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "ph-mascot-"));
@@ -32,11 +32,14 @@ describe("desktop mascot window", () => {
       destroy() { this.destroyed = true; this.emit("closed"); }
       setIgnoreMouseEvents = vi.fn();
       showInactive = vi.fn();
+      setMaximizable = vi.fn();
+      hookWindowMessage = vi.fn();
       loadFile = vi.fn();
     }
     snapshot = { items: [], provider: "codex", threadId: "thread" };
     graphical = { snapshot: () => snapshot, executePlan: vi.fn(async () => { snapshot.pendingPlan = null; }) };
-    service = createDesktopMascot({ app: { isPackaged: true, getPath: () => directory }, BrowserWindow: Window, ipcMain: ipc, screen, random,
+    app = Object.assign(new EventEmitter(), { isPackaged: true, getPath: () => directory });
+    service = createDesktopMascot({ app, BrowserWindow: Window, ipcMain: ipc, screen, random,
       terminalManager: { getSession: id => ({ id, title: "后台任务", runtimeMode: "app-server" }) }, graphicalService: graphical });
     service.open({ getBounds: () => area });
   });
@@ -48,6 +51,24 @@ describe("desktop mascot window", () => {
     const handler = ipc.handle.mock.calls.find(call => call[0] === "desktop-mascot:state")[1];
     return handler({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   }
+  it.skipIf(process.platform !== "win32")("refreshes native frame after app blur or native activation and cleans up", () => {
+    const activate = window.hookWindowMessage.mock.calls.find(([message]) => message === 0x0086)[1];
+    app.emit("browser-window-blur", {}, {});
+    activate();
+    expect(window.setMaximizable).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(window.setMaximizable).toHaveBeenCalledExactlyOnceWith(false);
+    activate();
+    service.close();
+    vi.advanceTimersByTime(0);
+    expect(window.setMaximizable).toHaveBeenCalledTimes(1);
+    expect(app.listenerCount("browser-window-blur")).toBe(0);
+    service.open({ getBounds: () => area });
+    expect(app.listenerCount("browser-window-blur")).toBe(1);
+    app.emit("browser-window-blur", {}, {});
+    vi.advanceTimersByTime(0);
+    expect(window.setMaximizable).toHaveBeenCalledExactlyOnceWith(false);
+  });
   async function beginRoaming() {
     command({ type: "interaction", paused: true, reduced: false });
     command({ type: "interaction", paused: false, reduced: false });
@@ -58,6 +79,8 @@ describe("desktop mascot window", () => {
     snapshot.pendingPlan = { itemId: "plan" }; snapshot.items = [{ id: "plan", type: "plan", text: "完整计划" }];
     service.handleDesktopEvent("codex-app-server:changed", { id: "one" });
     const notification = hostState().notifications.notification;
+    expect(window.bounds.height).toBe(620);
+    command({ type: "summary-expanded", id: notification.id, expanded: true });
     expect(window.bounds.height).toBe(620);
     const handler = ipc.handle.mock.calls.find(call => call[0] === "desktop-mascot:action")[1];
     expect(() => handler({ sender: {} }, notification.id, { type: "execute" })).toThrow("无权");
@@ -174,6 +197,34 @@ describe("desktop mascot window", () => {
     command({ type: "notification-dismiss", id: snapshot.notification.id }, { mainFrame: {} }); expect(window.bounds.width).toBe(320);
     command({ type: "notification-dismiss", id: snapshot.notification.id }); expect(window.bounds.width).toBe(192);
   });
+  it("expands only the current summary, keeps it alive and fits smaller displays", async () => {
+    window.setPosition(-700, 568);
+    service.handleDesktopEvent("agent:status", { id: "a", status: "running", timestamp: 1 });
+    service.handleDesktopEvent("agent:status", { id: "a", status: "completed", timestamp: 2, activitySummary: "result" });
+    await vi.advanceTimersByTimeAsync(200);
+    const id = hostState().notifications.notification.id;
+    command({ type: "notification-presentation", id, paused: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    const original = window.getBounds();
+    command({ type: "summary-expanded", id: "stale", expanded: true });
+    command({ type: "summary-expanded", id, expanded: true }, { mainFrame: {} });
+    expect(window.bounds).toEqual(original);
+    command({ type: "summary-expanded", id, expanded: true });
+    expect(window.bounds).toMatchObject({ width: 656, height: 730 });
+    expect(window.bounds.x + window.bounds.width / 2).toBe(original.x + original.width / 2);
+    expect(window.bounds.y + window.bounds.height).toBe(original.y + original.height);
+    command({ type: "notification-presentation", id, paused: false });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(hostState().notifications.notification.id).toBe(id);
+    area = { x: -1000, y: 0, width: 500, height: 600 };
+    screen.emit("display-metrics-changed");
+    expect(window.bounds).toMatchObject({ x: -1000, y: 0, width: 500, height: 600 });
+    command({ type: "summary-expanded", id, expanded: false });
+    expect(window.bounds).toMatchObject({ width: 320, height: 420 });
+    await vi.advanceTimersByTimeAsync(10001);
+    expect(hostState().notifications.notification).toBeNull();
+    expect(window.bounds).toMatchObject({ width: 192, height: 232 });
+  });
   it("keeps collapsed result bubbles and restores the queue after window recreation", async () => {
     command({ type: "preferences", collapsed: true });
     service.handleDesktopEvent("agent:status", { id: "a", status: "running", timestamp: 1 });
@@ -190,7 +241,7 @@ describe("desktop mascot window", () => {
     service.shutdown(); expect(vi.getTimerCount()).toBe(0);
   });
   it("uses a secure independent transparent window and moves at 60 DIP per second", () => {
-    expect(window.options).toMatchObject({ frame: false, thickFrame: false, transparent: true, focusable: process.platform !== "win32", alwaysOnTop: true, skipTaskbar: true, webPreferences: { contextIsolation: true, nodeIntegration: false } });
+    expect(window.options).toMatchObject({ frame: false, thickFrame: false, transparent: true, focusable: true, alwaysOnTop: true, skipTaskbar: true, webPreferences: { contextIsolation: true, nodeIntegration: false } });
     window.emit("ready-to-show");
     expect(window.showInactive).toHaveBeenCalled();
     command({ type: "preferences", collapsed: false });

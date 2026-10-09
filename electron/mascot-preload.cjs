@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("desktopMascotApi", {
   processNotification: (id, operation) => ipcRenderer.invoke("desktop-mascot:action", id, operation),
   dismissNotification: id => command({ type: "notification-dismiss", id }),
   setNotificationPresentation: (id, paused) => command({ type: "notification-presentation", id, paused }),
+  setSummaryExpanded: (id, expanded) => command({ type: "summary-expanded", id, expanded }),
   migrate: preferences => command({ ...preferences, type: "migrate" }),
   setInteraction: (paused, reduced) => command({ type: "interaction", paused, reduced }),
   setRegions: regions => command({ type: "regions", regions }),

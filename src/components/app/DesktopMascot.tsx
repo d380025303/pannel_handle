@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
-import { Minus, Pause, Play, Sparkles, X } from "lucide-react";
+import { Maximize2, Minimize2, Minus, Pause, Play, Sparkles, X } from "lucide-react";
 import type { AgentRunStatus, Locale } from "../../vite-env";
 import mascotImage from "../../assets/mascot/panel-navigator.png";
 import waveImage from "../../assets/mascot/gifs/panna-wave.gif";
@@ -146,6 +146,8 @@ export function DesktopMascot({ locale }: {
   const [bubbleHovered, setBubbleHovered] = useState(false);
   const [bubbleFocused, setBubbleFocused] = useState(false);
   const notification = notifications.notification;
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const summaryExpanded = Boolean(notification && !notification.action && expandedId === notification.id);
   const [moving, setMoving] = useState(true);
   const [roaming, setRoaming] = useState(false);
   const [roamingDirection, setRoamingDirection] = useState<"left" | "right">("left");
@@ -191,9 +193,24 @@ export function DesktopMascot({ locale }: {
     return () => { disposed = true; unsubscribe(); unsubscribeNotifications(); };
   }, [desktop]);
   useEffect(() => {
-    if (desktop && notification) desktop.setNotificationPresentation(notification.id, bubbleHovered || bubbleFocused);
+    if (desktop && notification) desktop.setNotificationPresentation(notification.id, bubbleHovered || bubbleFocused || summaryExpanded);
     if (!notification) { setBubbleHovered(false); setBubbleFocused(false); }
-  }, [desktop, notification?.id, bubbleHovered, bubbleFocused]);
+  }, [desktop, notification?.id, bubbleHovered, bubbleFocused, summaryExpanded]);
+  useEffect(() => {
+    if (!notification || notification.action || expandedId !== notification.id) setExpandedId(null);
+  }, [notification?.id, notification?.action, expandedId]);
+  useEffect(() => {
+    if (!desktop || !notification) return;
+    desktop.setSummaryExpanded(notification.id, summaryExpanded);
+  }, [desktop, notification?.id, summaryExpanded]);
+  useEffect(() => {
+    if (!summaryExpanded) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setExpandedId(null); }
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [summaryExpanded]);
   useEffect(() => {
     if (!desktop || !desktopReady) return;
     const media = window.matchMedia?.(motionQuery);
@@ -251,7 +268,7 @@ export function DesktopMascot({ locale }: {
     window.addEventListener("resize", report);
     const timer = window.setInterval(report, 250);
     return () => { window.clearInterval(timer); image?.removeEventListener("load", report); window.removeEventListener("resize", report); };
-  }, [desktop, preferences.collapsed, hovered, focused, animation.key, notification?.id]);
+  }, [desktop, preferences.collapsed, hovered, focused, animation.key, notification?.id, summaryExpanded]);
   useEffect(() => {
     if (desktop) return;
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* Preferences are optional. */ }
@@ -310,7 +327,7 @@ export function DesktopMascot({ locale }: {
 
   const style: CSSProperties = desktop ? { left: 0, top: 0 } : { left: position.x, top: position.y };
   return (
-    <aside ref={container} className={`desktop-mascot${desktop ? " is-desktop-window" : ""}${notification ? ` has-notification${notification.action ? " has-request" : ""}` : ""}${preferences.collapsed ? " is-collapsed" : ""}${dragging ? " is-dragging" : ""}`} style={style} aria-label={text("看板娘小帕", "Panna companion")}
+    <aside ref={container} className={`desktop-mascot${desktop ? " is-desktop-window" : ""}${notification ? ` has-notification${notification.action ? " has-request" : ""}` : ""}${summaryExpanded ? " is-summary-expanded" : ""}${preferences.collapsed ? " is-collapsed" : ""}${dragging ? " is-dragging" : ""}`} style={style} aria-label={text("看板娘小帕", "Panna companion")}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onPointerDownCapture={() => { keyboardInteraction.current = false; setFocused(false); }}
       onKeyDownCapture={() => { keyboardInteraction.current = true; setFocused(true); }}
@@ -321,11 +338,15 @@ export function DesktopMascot({ locale }: {
         <div className="desktop-mascot-bubble-header">
           <strong><MascotNotificationLabel notification={notification} locale={desktop ? desktopLocale : locale} /></strong>
           {notifications.pendingCount > 1 && <span>{text(`另有 ${notifications.pendingCount - 1} 条`, `${notifications.pendingCount - 1} more`)}</span>}
+          {!notification.action && <button type="button" title={summaryExpanded ? text("收起摘要", "Collapse summary") : text("放大查看", "Expand summary")} aria-label={summaryExpanded ? text("收起摘要", "Collapse summary") : text("放大查看", "Expand summary")} aria-expanded={summaryExpanded} onClick={() => setExpandedId(summaryExpanded ? null : notification.id)}>{summaryExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
           <button type="button" title={text("关闭任务气泡", "Dismiss task result")} aria-label={text("关闭任务气泡", "Dismiss task result")} onClick={() => desktop?.dismissNotification(notification.id)}><X size={16} /></button>
         </div>
         <div className="desktop-mascot-bubble-title" title={notification.sessionTitle}>{notification.sessionTitle}</div>
         {notification.action ? <MascotNotificationActions key={notification.id} notification={notification} />
-          : <MarkdownBlock className="desktop-mascot-summary" externalLinks content={notification.summary === "暂无摘要" ? text("暂无摘要", "No summary available") : notification.summary} />}
+          : <div className="desktop-mascot-summary-container" onClick={event => {
+            if (summaryExpanded || (event.target as Element).closest("a, button, input, summary, details") || window.getSelection()?.toString()) return;
+            setExpandedId(notification.id);
+          }}><MarkdownBlock className="desktop-mascot-summary" externalLinks content={notification.summary === "暂无摘要" ? text("暂无摘要", "No summary available") : notification.summary} /></div>}
       </section>}
       {!preferences.collapsed && <div className="desktop-mascot-controls" hidden={!hovered && !focused}>
         {desktop && <button type="button" title={moving ? text("暂停随机移动", "Pause roaming") : text("恢复随机移动", "Resume roaming")} aria-label={moving ? text("暂停随机移动", "Pause roaming") : text("恢复随机移动", "Resume roaming")} onClick={() => desktop.setPreferences({ moving: !moving })}>{moving ? <Pause size={14} /> : <Play size={14} />}</button>}
